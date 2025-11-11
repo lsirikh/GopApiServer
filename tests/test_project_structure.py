@@ -29,3 +29,25 @@ def test_requirements_file_exists():
 
     assert requirements_file.exists(), "requirements.txt should exist"
     assert requirements_file.is_file(), "requirements.txt should be a file"
+
+
+def test_init_files_exist():
+    """Test that __init__.py files exist in all required directories"""
+    base_dir = Path(__file__).parent.parent
+
+    init_files = [
+        "app/__init__.py",
+        "app/models/__init__.py",
+        "app/schemas/__init__.py",
+        "app/routers/__init__.py",
+        "app/services/__init__.py",
+        "app/repositories/__init__.py",
+        "app/utils/__init__.py",
+        "app/middleware/__init__.py",
+        "tests/__init__.py",
+    ]
+
+    for init_file_path in init_files:
+        file_path = base_dir / init_file_path
+        assert file_path.exists(), f"{init_file_path} should exist"
+        assert file_path.is_file(), f"{init_file_path} should be a file"

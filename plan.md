@@ -19,29 +19,29 @@
 
 ## Phase 1: Project Setup & Infrastructure
 
-### 1.1 프로젝트 구조 생성
-- [ ] Test: 프로젝트 디렉토리 구조 검증
-- [ ] Impl: 기본 디렉토리 구조 생성 (app/, tests/, data/, logs/)
-- [ ] Test: requirements.txt 파일 존재 검증
-- [ ] Impl: requirements.txt 생성 (fastapi, uvicorn, sqlalchemy, pydantic, etc.)
-- [ ] Test: __init__.py 파일들 존재 검증
-- [ ] Impl: 필요한 모든 __init__.py 파일 생성
+### 1.1 프로젝트 구조 생성 ✅
+- [x] Test: 프로젝트 디렉토리 구조 검증
+- [x] Impl: 기본 디렉토리 구조 생성 (app/, tests/, data/, logs/)
+- [x] Test: requirements.txt 파일 존재 검증
+- [x] Impl: requirements.txt 생성 (fastapi, uvicorn, sqlalchemy, pydantic, etc.)
+- [x] Test: __init__.py 파일들 존재 검증
+- [x] Impl: 필요한 모든 __init__.py 파일 생성
 
-### 1.2 환경 설정
-- [ ] Test: .env.example 파일 존재 및 필수 변수 검증
-- [ ] Impl: .env.example 파일 생성
-- [ ] Test: config.py가 환경 변수를 올바르게 로드하는지 검증
-- [ ] Impl: app/config.py 생성 (Pydantic Settings 사용)
-- [ ] Test: 환경 변수 기본값 검증
-- [ ] Impl: 기본값 설정 추가
+### 1.2 환경 설정 ✅
+- [x] Test: .env.example 파일 존재 및 필수 변수 검증
+- [x] Impl: .env.example 파일 생성
+- [x] Test: config.py가 환경 변수를 올바르게 로드하는지 검증
+- [x] Impl: app/config.py 생성 (Pydantic Settings 사용)
+- [x] Test: 환경 변수 기본값 검증
+- [x] Impl: 기본값 설정 추가
 
-### 1.3 데이터베이스 연결
-- [ ] Test: database.py가 SQLite 연결을 생성하는지 검증
-- [ ] Impl: app/database.py 생성 (SQLAlchemy engine, SessionLocal)
-- [ ] Test: 데이터베이스 파일이 생성되는지 검증
-- [ ] Impl: 데이터베이스 초기화 로직 추가
-- [ ] Test: get_db() 의존성이 세션을 반환하는지 검증
-- [ ] Impl: app/dependencies.py에 get_db() 구현
+### 1.3 데이터베이스 연결 ✅
+- [x] Test: database.py가 SQLite 연결을 생성하는지 검증
+- [x] Impl: app/database.py 생성 (SQLAlchemy engine, SessionLocal)
+- [x] Test: 데이터베이스 파일이 생성되는지 검증
+- [x] Impl: 데이터베이스 초기화 로직 추가
+- [x] Test: get_db() 의존성이 세션을 반환하는지 검증
+- [x] Impl: app/dependencies.py에 get_db() 구현
 
 ---
 

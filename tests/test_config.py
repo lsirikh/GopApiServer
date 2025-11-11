@@ -1,6 +1,7 @@
 """
 Test: 환경 설정 검증
 """
+import os
 from pathlib import Path
 
 
@@ -36,3 +37,17 @@ def test_env_example_contains_required_variables():
 
     for var in required_vars:
         assert var in content, f"{var} should be in .env.example"
+
+
+def test_config_loads_environment_variables():
+    """Test that config.py loads environment variables correctly"""
+    # Set environment variables
+    os.environ["AUTH_MODE"] = "token"
+    os.environ["JWT_SECRET_KEY"] = "test-secret-key"
+    os.environ["DATABASE_URL"] = "sqlite:///./test.db"
+
+    from app.config import settings
+
+    assert settings.AUTH_MODE == "token"
+    assert settings.JWT_SECRET_KEY == "test-secret-key"
+    assert settings.DATABASE_URL == "sqlite:///./test.db"

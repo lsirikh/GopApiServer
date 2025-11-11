@@ -46,6 +46,10 @@ def test_config_loads_environment_variables():
     os.environ["JWT_SECRET_KEY"] = "test-secret-key"
     os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 
+    # Reload the config module to pick up new env vars
+    import importlib
+    import app.config
+    importlib.reload(app.config)
     from app.config import settings
 
     assert settings.AUTH_MODE == "token"

@@ -48,56 +48,56 @@
 ## Phase 2: Enum 및 공통 스키마
 
 ### 2.1 Enum 정의 ✅
-- [ ] Test: EnumDeviceType이 모든 값을 포함하는지 검증
-- [ ] Impl: app/utils/enums.py에 EnumDeviceType 생성
-- [ ] Test: EnumDeviceStatus가 올바른 값을 가지는지 검증
-- [ ] Impl: EnumDeviceStatus 추가
-- [ ] Test: EnumCameraMode, EnumCameraType 검증
-- [ ] Impl: EnumCameraMode, EnumCameraType 추가
-- [ ] Test: EnumEventType, EnumDetectionType 검증
-- [ ] Impl: EnumEventType, EnumDetectionType 추가
-- [ ] Test: EnumFaultType, EnumTrueFalse 검증
-- [ ] Impl: EnumFaultType, EnumTrueFalse 추가
+- [x] Test: EnumDeviceType이 모든 값을 포함하는지 검증
+- [x] Impl: app/utils/enums.py에 EnumDeviceType 생성
+- [x] Test: EnumDeviceStatus가 올바른 값을 가지는지 검증
+- [x] Impl: EnumDeviceStatus 추가
+- [x] Test: EnumCameraMode, EnumCameraType 검증
+- [x] Impl: EnumCameraMode, EnumCameraType 추가
+- [x] Test: EnumEventType, EnumDetectionType 검증
+- [x] Impl: EnumEventType, EnumDetectionType 추가
+- [x] Test: EnumFaultType, EnumTrueFalse 검증
+- [x] Impl: EnumFaultType, EnumTrueFalse 추가
 
 ### 2.2 공통 응답 스키마 ✅
-- [ ] Test: ApiResponse 스키마가 success, message, data 필드를 가지는지 검증
-- [ ] Impl: app/schemas/common.py에 ApiResponse 생성
-- [ ] Test: ApiErrorResponse 스키마 검증
-- [ ] Impl: ApiErrorResponse 추가
-- [ ] Test: PaginationMeta 스키마 검증
-- [ ] Impl: PaginationMeta 추가
-- [ ] Test: ResponseMeta 스키마 검증 (timestamp, request_id)
-- [ ] Impl: ResponseMeta 추가
+- [x] Test: ApiResponse 스키마가 success, message, data 필드를 가지는지 검증
+- [x] Impl: app/schemas/common.py에 ApiResponse 생성
+- [x] Test: ApiErrorResponse 스키마 검증
+- [x] Impl: ApiErrorResponse 추가
+- [x] Test: PaginationMeta 스키마 검증
+- [x] Impl: PaginationMeta 추가
+- [x] Test: ResponseMeta 스키마 검증 (timestamp, request_id)
+- [x] Impl: ResponseMeta 추가
 
 ---
 
 ## Phase 3: Request/Response 추적 및 로깅 시스템
 
 ### 3.1 Request ID 미들웨어 ✅
-- [ ] Test: Request에 X-Request-ID 헤더가 없으면 자동 생성되는지 검증
-- [ ] Impl: app/middleware/request_id.py 생성
-- [ ] Test: X-Request-ID가 이미 있으면 그대로 사용하는지 검증
-- [ ] Impl: 조건부 UUID 생성 로직 추가
-- [ ] Test: Response에 X-Request-ID 헤더가 포함되는지 검증
-- [ ] Impl: Response 헤더 추가 로직
+- [x] Test: Request에 X-Request-ID 헤더가 없으면 자동 생성되는지 검증
+- [x] Impl: app/middleware/request_id.py 생성
+- [x] Test: X-Request-ID가 이미 있으면 그대로 사용하는지 검증
+- [x] Impl: 조건부 UUID 생성 로직 추가
+- [x] Test: Response에 X-Request-ID 헤더가 포함되는지 검증
+- [x] Impl: Response 헤더 추가 로직
 
 ### 3.2 Client UUID 추적 ✅
-- [ ] Test: X-Client-UUID 헤더를 읽을 수 있는지 검증
-- [ ] Impl: 헤더 추출 유틸리티 함수 생성
-- [ ] Test: Client UUID가 로그에 포함되는지 검증
-- [ ] Impl: 로깅 컨텍스트에 Client UUID 추가
+- [x] Test: X-Client-UUID 헤더를 읽을 수 있는지 검증
+- [x] Impl: 헤더 추출 유틸리티 함수 생성
+- [x] Test: Client UUID가 로그에 포함되는지 검증
+- [x] Impl: 로깅 컨텍스트에 Client UUID 추가
 
 ### 3.3 API 로깅 시스템 ✅
-- [ ] Test: API 요청이 로그 DB에 기록되는지 검증
-- [ ] Impl: app/models/log.py에 ApiLog 모델 생성
-- [ ] Test: 로그 포맷이 올바른지 검증 (ISO 8601: yyyy-MM-ddTHH:mm:ss.fff)
-- [ ] Impl: datetime 필드 추가
-- [ ] Test: 로그에 resource, method, client_uuid, request_id가 저장되는지 검증
-- [ ] Impl: 로그 모델 필드 완성
-- [ ] Test: 로그에 상세 작업 설명이 포함되는지 검증 (예: "제어기 생성")
-- [ ] Impl: description 필드 및 생성 로직 추가
-- [ ] Test: 로깅 미들웨어가 모든 요청을 기록하는지 검증
-- [ ] Impl: app/middleware/logging.py 생성
+- [x] Test: API 요청이 로그 DB에 기록되는지 검증
+- [x] Impl: app/models/log.py에 ApiLog 모델 생성
+- [x] Test: 로그 포맷이 올바른지 검증 (ISO 8601: yyyy-MM-ddTHH:mm:ss.fff)
+- [x] Impl: datetime 필드 추가
+- [x] Test: 로그에 resource, method, client_uuid, request_id가 저장되는지 검증
+- [x] Impl: 로그 모델 필드 완성
+- [x] Test: 로그에 상세 작업 설명이 포함되는지 검증 (예: "제어기 생성")
+- [x] Impl: description 필드 및 생성 로직 추가
+- [x] Test: 로깅 미들웨어가 모든 요청을 기록하는지 검증
+- [x] Impl: app/middleware/logging.py 생성
 
 ### 3.4 로그 조회 API
 - [ ] Test: GET /api/logs 엔드포인트가 존재하는지 검증

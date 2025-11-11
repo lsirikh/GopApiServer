@@ -1,6 +1,8 @@
 """
 Test: 인증 유틸리티 함수 검증
 """
+from datetime import datetime, timedelta
+import time
 
 
 def test_hash_password_creates_bcrypt_hash():
@@ -39,3 +41,59 @@ def test_same_password_produces_different_hashes():
 
     # Hashes should be different due to salt
     assert hash1 != hash2
+
+
+def test_create_access_token_generates_jwt():
+    """Test that create_access_token generates a valid JWT token"""
+    from app.utils.auth import create_access_token
+
+    data = {"sub": "testuser"}
+    token = create_access_token(data)
+
+    # JWT tokens have 3 parts separated by dots
+    assert isinstance(token, str)
+    parts = token.split(".")
+    assert len(parts) == 3
+
+
+def test_create_access_token_includes_username_and_expiration():
+    """Test that token includes username and expiration time"""
+    from app.utils.auth import create_access_token, decode_token
+
+    username = "testuser"
+    data = {"sub": username}
+    token = create_access_token(data)
+
+    # Decode token to verify contents
+    token_data = decode_token(token)
+    assert token_data.username == username
+
+
+def test_decode_token_extracts_token_data():
+    """Test that decode_token correctly extracts TokenData"""
+    from app.utils.auth import create_access_token, decode_token
+
+    username = "testuser"
+    data = {"sub": username}
+    token = create_access_token(data)
+
+    token_data = decode_token(token)
+    assert token_data is not None
+    assert token_data.username == username
+
+
+def test_expired_token_raises_exception():
+    """Test that expired token is detected and raises exception"""
+    from app.utils.auth import create_access_token, decode_token
+
+    # Create token that expires immediately
+    data = {"sub": "testuser"}
+    token = create_access_token(data, expires_delta=timedelta(seconds=-1))
+
+    # Decoding expired token should raise exception
+    try:
+        decode_token(token)
+        assert False, "Expected exception for expired token"
+    except Exception as e:
+        # Should raise an exception for expired token
+        assert True

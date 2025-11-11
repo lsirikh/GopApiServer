@@ -6,6 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
+# Import all models to register them with Base
+from app.models.user import User  # noqa: F401
+from app.models.log import ApiLog  # noqa: F401
 
 
 @pytest.fixture(scope="function")

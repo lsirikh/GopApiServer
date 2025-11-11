@@ -117,35 +117,35 @@
 
 ## Phase 4: 인증 시스템
 
-### 4.1 User 모델
-- [ ] Test: User 모델이 username, hashed_password, role 필드를 가지는지 검증
-- [ ] Impl: app/models/user.py 생성
-- [ ] Test: User 테이블이 데이터베이스에 생성되는지 검증
-- [ ] Impl: SQLAlchemy 모델 정의 완성
+### 4.1 User 모델 ✅
+- [x] Test: User 모델이 username, hashed_password, role 필드를 가지는지 검증
+- [x] Impl: app/models/user.py 생성
+- [x] Test: User 테이블이 데이터베이스에 생성되는지 검증
+- [x] Impl: SQLAlchemy 모델 정의 완성
 
-### 4.2 User 스키마
-- [ ] Test: UserCreate 스키마가 username, password를 받는지 검증
-- [ ] Impl: app/schemas/user.py에 UserCreate 생성
-- [ ] Test: UserResponse 스키마가 비밀번호를 포함하지 않는지 검증
-- [ ] Impl: UserResponse 스키마 생성
-- [ ] Test: Token 스키마 검증
-- [ ] Impl: Token, TokenData 스키마 추가
+### 4.2 User 스키마 ✅
+- [x] Test: UserCreate 스키마가 username, password를 받는지 검증
+- [x] Impl: app/schemas/user.py에 UserCreate 생성
+- [x] Test: UserResponse 스키마가 비밀번호를 포함하지 않는지 검증
+- [x] Impl: UserResponse 스키마 생성
+- [x] Test: Token 스키마 검증
+- [x] Impl: Token, TokenData 스키마 추가
 
-### 4.3 비밀번호 해싱
-- [ ] Test: 비밀번호가 bcrypt로 해싱되는지 검증
-- [ ] Impl: app/utils/auth.py에 hash_password() 함수 추가
-- [ ] Test: 해싱된 비밀번호 검증이 동작하는지 검증
-- [ ] Impl: verify_password() 함수 추가
+### 4.3 비밀번호 해싱 ✅
+- [x] Test: 비밀번호가 bcrypt로 해싱되는지 검증
+- [x] Impl: app/utils/auth.py에 hash_password() 함수 추가
+- [x] Test: 해싱된 비밀번호 검증이 동작하는지 검증
+- [x] Impl: verify_password() 함수 추가
 
-### 4.4 JWT 토큰 생성
-- [ ] Test: JWT 토큰이 생성되는지 검증
-- [ ] Impl: create_access_token() 함수 추가
-- [ ] Test: 토큰에 username과 만료시간이 포함되는지 검증
-- [ ] Impl: JWT payload 설정
-- [ ] Test: 토큰 디코딩이 동작하는지 검증
-- [ ] Impl: decode_token() 함수 추가
-- [ ] Test: 만료된 토큰이 거부되는지 검증
-- [ ] Impl: 토큰 만료 검증 로직 추가
+### 4.4 JWT 토큰 생성 ✅
+- [x] Test: JWT 토큰이 생성되는지 검증
+- [x] Impl: create_access_token() 함수 추가
+- [x] Test: 토큰에 username과 만료시간이 포함되는지 검증
+- [x] Impl: JWT payload 설정
+- [x] Test: 토큰 디코딩이 동작하는지 검증
+- [x] Impl: decode_token() 함수 추가
+- [x] Test: 만료된 토큰이 거부되는지 검증
+- [x] Impl: 토큰 만료 검증 로직 추가
 
 ### 4.5 로그인 API
 - [ ] Test: POST /api/auth/login 엔드포인트가 존재하는지 검증
@@ -511,31 +511,36 @@
 
 ---
 
-## Phase 13: Docker 배포
+## Phase 13: Docker 배포 🔄
 
-### 13.1 Dockerfile
-- [ ] Test: Dockerfile이 존재하는지 검증
-- [ ] Impl: Dockerfile 생성
-- [ ] Test: 이미지가 빌드되는지 검증
-- [ ] Impl: docker build 테스트
-- [ ] Test: 컨테이너가 실행되는지 검증
-- [ ] Impl: docker run 테스트
+### 13.1 Dockerfile ✅
+- [x] Test: Dockerfile이 존재하는지 검증
+- [x] Impl: Dockerfile 생성
+- [x] Test: 이미지가 빌드되는지 검증
+- [x] Impl: docker build 테스트
+- [x] Test: 컨테이너가 실행되는지 검증
+- [x] Impl: docker run 테스트
 
-### 13.2 Docker Compose
-- [ ] Test: docker-compose.yml이 존재하는지 검증
-- [ ] Impl: docker-compose.yml 생성
-- [ ] Test: docker-compose up이 동작하는지 검증
-- [ ] Impl: 서비스 설정 완료
-- [ ] Test: 포트 8000이 매핑되는지 검증
-- [ ] Impl: ports 설정 확인
-- [ ] Test: 볼륨 마운트가 동작하는지 검증 (data, logs)
-- [ ] Impl: volumes 설정 확인
-- [ ] Test: 환경 변수가 전달되는지 검증
-- [ ] Impl: environment 설정
+### 13.2 Docker Compose ✅
+- [x] Test: docker-compose.yml이 존재하는지 검증
+- [x] Impl: docker-compose.yml 생성
+- [x] Test: docker-compose up이 동작하는지 검증
+- [x] Impl: 서비스 설정 완료
+- [x] Test: 포트 8000이 매핑되는지 검증
+- [x] Impl: ports 설정 확인
+- [x] Test: 볼륨 마운트가 동작하는지 검증 (data, logs)
+- [x] Impl: volumes 설정 확인
+- [x] Test: 환경 변수가 전달되는지 검증
+- [x] Impl: environment 설정
 
-### 13.3 .dockerignore
-- [ ] Test: .dockerignore 파일이 존재하는지 검증
-- [ ] Impl: .dockerignore 생성 (__pycache__, .env, etc.)
+### 13.3 .dockerignore ✅
+- [x] Test: .dockerignore 파일이 존재하는지 검증
+- [x] Impl: .dockerignore 생성 (__pycache__, .env, etc.)
+
+### 13.4 Main Application ✅
+- [x] Impl: app/main.py 생성 (FastAPI app, 라우터, 미들웨어 등록)
+- [x] Impl: app/utils/init_db.py 생성 (DB 초기화, admin 계정 생성)
+- [x] Test: 컨테이너 재빌드 및 실행 테스트 중
 
 ---
 

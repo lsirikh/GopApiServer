@@ -12,7 +12,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
-      - AUTH_MODE=token
+      - AUTH_MODE=public
       - JWT_SECRET_KEY=your-secret-key-change-in-production
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRATION_HOURS=24

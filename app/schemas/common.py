@@ -1,9 +1,11 @@
 """
 Common Pydantic schemas for API responses
 """
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Generic, TypeVar
 from datetime import datetime
 from pydantic import BaseModel, Field
+
+T = TypeVar('T')
 
 
 class ResponseMeta(BaseModel):
@@ -20,11 +22,11 @@ class PaginationMeta(BaseModel):
     total_pages: int = Field(..., ge=0, description="Total number of pages")
 
 
-class ApiResponse(BaseModel):
+class ApiResponse(BaseModel, Generic[T]):
     """Standard API response format"""
     success: bool = True
     message: str
-    data: Any
+    data: T
     pagination: Optional[PaginationMeta] = None
     meta: ResponseMeta = Field(default_factory=ResponseMeta)
 

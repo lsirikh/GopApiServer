@@ -13,7 +13,12 @@
       "Bash(docker logs:*)",
       "Bash(docker-compose restart:*)",
       "Bash(docker-compose down:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(timeout 5 bash:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker ps:*)",
+      "Bash(timeout 10 bash:*)"
     ],
     "deny": [],
     "ask": []

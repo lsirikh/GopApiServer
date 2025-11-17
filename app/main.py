@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions
+from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -126,6 +126,7 @@ app.include_router(detections.router, prefix="/api/events/detections", tags=["De
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])
 app.include_router(connections.router, prefix="/api/events/connections", tags=["Connections"])
 app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"])
+app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

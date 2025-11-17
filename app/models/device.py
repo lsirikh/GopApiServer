@@ -7,6 +7,7 @@ from datetime import datetime
 import enum
 
 from app.database import Base
+from app.config import settings
 
 
 class EnumDeviceType(str, enum.Enum):
@@ -85,8 +86,8 @@ class Controller(Base):
     status = Column(SQLEnum(EnumDeviceStatus), nullable=False, default=EnumDeviceStatus.ACTIVATED)
     ip_address = Column(String(50), nullable=False)
     ip_port = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
 
     # Relationship to sensors
     sensors = relationship("Sensor", back_populates="controller", cascade="all, delete-orphan")
@@ -125,8 +126,8 @@ class Sensor(Base):
     version = Column(String(50), nullable=False)
     status = Column(SQLEnum(EnumDeviceStatus), nullable=False, default=EnumDeviceStatus.ACTIVATED)
     controller_id = Column(Integer, ForeignKey("controllers.id"), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
 
     # Relationship to controller
     controller = relationship("Controller", back_populates="sensors")
@@ -179,8 +180,8 @@ class Camera(Base):
     rtsp_port = Column(Integer, nullable=False)
     mode = Column(SQLEnum(EnumCameraMode), nullable=False, default=EnumCameraMode.NONE)
     category = Column(SQLEnum(EnumCameraType), nullable=False, default=EnumCameraType.NONE)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
 
     def __repr__(self):
         return (

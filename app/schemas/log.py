@@ -21,3 +21,6 @@ class ApiLogResponse(BaseModel):
     description: str
     status_code: Optional[int] = None
     user_id: Optional[int] = None
+    body: Optional[str] = None
+    param: Optional[str] = None
+    error_message: Optional[str] = None

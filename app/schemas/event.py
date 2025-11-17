@@ -3,7 +3,7 @@ Event schemas: DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
 """
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 
 class DetectionEventCreate(BaseModel):
@@ -145,23 +145,51 @@ class ConnectionEventUpdate(BaseModel):
 
 
 class ActionEventCreate(BaseModel):
-    """Schema for creating a new ActionEvent"""
+    """
+    Schema for creating a new ActionEvent
+
+    An action event represents a user action taken in response to a source event.
+    It uses polymorphic reference to link to detection, malfunction, or connection events.
+
+    Attributes:
+        type_event: Event type (always "Action")
+        content: Description of the action taken
+        user: Username of the person who performed the action
+        from_event: ID of the source event being referenced
+        from_type_event: Type of source event ("Intrusion", "Fault", or "Connection")
+        datetime: Timestamp when the action was taken
+    """
     type_event: str  # Always "Action"
     content: str
     user: str
-    from_event_id: int
-    from_event_type: str  # detection, malfunction, connection
+    from_event: int
+    from_type_event: str  # "Intrusion", "Fault", or "Connection"
     datetime: datetime
 
 
 class ActionEventResponse(BaseModel):
-    """Schema for ActionEvent response"""
+    """
+    Schema for ActionEvent response
+
+    Response includes the full nested source event object, not just the ID.
+    The `from_event` field contains a complete DetectionEventResponse,
+    MalfunctionEventResponse, or ConnectionEventResponse object.
+
+    Attributes:
+        id: Action event ID
+        type_event: Event type (always "Action")
+        content: Description of the action taken
+        user: Username of the person who performed the action
+        from_event: Nested source event object (Detection/Malfunction/Connection)
+        datetime: Timestamp when the action was taken
+        created_at: Record creation timestamp
+        updated_at: Record last update timestamp
+    """
     id: int
     type_event: str  # Always "Action"
     content: str
     user: str
-    from_event_id: int
-    from_event_type: str
+    from_event: Union['DetectionEventResponse', 'MalfunctionEventResponse', 'ConnectionEventResponse']  # Nested event object
     datetime: datetime
     created_at: datetime
     updated_at: datetime
@@ -174,6 +202,6 @@ class ActionEventUpdate(BaseModel):
     type_event: Optional[str] = None  # Always "Action"
     content: Optional[str] = None
     user: Optional[str] = None
-    from_event_id: Optional[int] = None
-    from_event_type: Optional[str] = None
+    from_event: Optional[int] = None
+    from_type_event: Optional[str] = None  # "Intrusion", "Fault", or "Connection"
     datetime: Optional[datetime] = None

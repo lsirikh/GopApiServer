@@ -8,6 +8,7 @@ import enum
 
 from app.database import Base
 from app.utils.enums import EnumDeviceType
+from app.config import settings
 
 
 class EnumTrueFalse(str, enum.Enum):
@@ -68,8 +69,8 @@ class DetectionEvent(Base):
     action_reported = Column(SQLEnum(EnumTrueFalse), nullable=False)
     result = Column(SQLEnum(EnumDetectionType), nullable=False)
     datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=dt.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=dt.utcnow, onupdate=dt.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
         return (
@@ -118,8 +119,8 @@ class MalfunctionEvent(Base):
     second_start = Column(Integer, nullable=False)
     second_end = Column(Integer, nullable=False)
     datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=dt.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=dt.utcnow, onupdate=dt.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
         return (
@@ -156,8 +157,8 @@ class ConnectionEvent(Base):
     type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
     sequence = Column(Integer, nullable=False)
     datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=dt.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=dt.utcnow, onupdate=dt.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
         return (
@@ -175,8 +176,8 @@ class ActionEvent(Base):
         type_event: Event type (always "Action")
         content: Action content description
         user: User who performed the action
-        from_event_id: Referenced event ID (polymorphic)
-        from_event_type: Referenced event type (detection/malfunction/connection)
+        from_event: Referenced event ID
+        from_type_event: Type of the referenced event ("Intrusion", "Fault", or "Connection")
         datetime: Event occurrence datetime
         created_at: Creation timestamp
         updated_at: Last update timestamp
@@ -187,14 +188,14 @@ class ActionEvent(Base):
     type_event = Column(String(50), nullable=False, default="Action")
     content = Column(String(500), nullable=False)
     user = Column(String(100), nullable=False, index=True)
-    from_event_id = Column(Integer, nullable=False, index=True)
-    from_event_type = Column(String(50), nullable=False, index=True)
+    from_event = Column(Integer, nullable=False, index=True)
+    from_type_event = Column(String(50), nullable=False, index=True)
     datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=dt.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=dt.utcnow, onupdate=dt.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
         return (
             f"<ActionEvent(id={self.id}, user='{self.user}', "
-            f"from_event_type='{self.from_event_type}', from_event_id={self.from_event_id})>"
+            f"from_event={self.from_event}, from_type_event='{self.from_type_event}')>"
         )

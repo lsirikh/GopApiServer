@@ -10,7 +10,7 @@ def test_action_event_model_has_required_fields(test_db):
     """
     Test: ActionEvent model has all required fields including from_event references
 
-    Expected to fail initially (Red phase).
+    Expected to pass with new structure.
     """
     from app.models.event import ActionEvent
 
@@ -20,13 +20,11 @@ def test_action_event_model_has_required_fields(test_db):
 
     # Check all required fields exist
     assert 'id' in columns
-    assert 'message_type' in columns
-    assert 'device_id' in columns
-    assert 'group_event' in columns
+    assert 'type_event' in columns
     assert 'content' in columns
     assert 'user' in columns
-    assert 'from_event_id' in columns
-    assert 'from_event_type' in columns
+    assert 'from_event' in columns
+    assert 'from_type_event' in columns
     assert 'datetime' in columns
     assert 'created_at' in columns
     assert 'updated_at' in columns
@@ -36,20 +34,19 @@ def test_action_event_model_timestamps_auto_set(test_db):
     """
     Test: ActionEvent model automatically sets timestamps
 
-    Expected to fail initially (Red phase).
+    Expected to pass with new structure.
     """
     from app.models.event import ActionEvent
+    from app.config import settings
 
     # Create action event
     event = ActionEvent(
-        message_type=4,
-        device_id=400,
-        group_event="GROUP_D",
+        type_event="Action",
         content="User acknowledged the detection event",
         user="admin",
-        from_event_id=1,
-        from_event_type="detection",
-        datetime=datetime.utcnow()
+        from_event=1,
+        from_type_event="Intrusion",
+        datetime=datetime.now(settings.tz)
     )
     test_db.add(event)
     test_db.commit()
@@ -77,21 +74,20 @@ def test_action_event_model_create_and_retrieve(test_db):
     """
     Test: Can create and retrieve ActionEvent with polymorphic reference
 
-    Expected to fail initially (Red phase).
+    Expected to pass with new structure.
     """
     from app.models.event import ActionEvent
+    from app.config import settings
 
-    event_datetime = datetime.utcnow()
+    event_datetime = datetime.now(settings.tz)
 
     # Create action event
     event = ActionEvent(
-        message_type=4,
-        device_id=400,
-        group_event="GROUP_D",
+        type_event="Action",
         content="Inspection completed",
         user="operator1",
-        from_event_id=5,
-        from_event_type="malfunction",
+        from_event=5,
+        from_type_event="Fault",
         datetime=event_datetime
     )
     test_db.add(event)
@@ -102,60 +98,54 @@ def test_action_event_model_create_and_retrieve(test_db):
     retrieved = test_db.query(ActionEvent).filter(ActionEvent.id == event.id).first()
 
     assert retrieved is not None
-    assert retrieved.message_type == 4
-    assert retrieved.device_id == 400
-    assert retrieved.group_event == "GROUP_D"
+    assert retrieved.type_event == "Action"
     assert retrieved.content == "Inspection completed"
     assert retrieved.user == "operator1"
-    assert retrieved.from_event_id == 5
-    assert retrieved.from_event_type == "malfunction"
-    assert retrieved.datetime == event_datetime
+    assert retrieved.from_event == 5
+    assert retrieved.from_type_event == "Fault"
+    # Compare datetime without timezone (SQLite doesn't preserve tzinfo)
+    assert retrieved.datetime.replace(tzinfo=None) == event_datetime.replace(tzinfo=None)
 
 
 def test_action_event_polymorphic_reference(test_db):
     """
     Test: ActionEvent can reference different event types (detection, malfunction, connection)
 
-    Expected to fail initially (Red phase).
+    Expected to pass with new structure.
     """
     from app.models.event import ActionEvent
+    from app.config import settings
 
     # Create action referencing detection event
     action1 = ActionEvent(
-        message_type=4,
-        device_id=100,
-        group_event="GROUP_A",
+        type_event="Action",
         content="Acknowledged detection",
         user="user1",
-        from_event_id=10,
-        from_event_type="detection",
-        datetime=datetime.utcnow()
+        from_event=10,
+        from_type_event="Intrusion",
+        datetime=datetime.now(settings.tz)
     )
     test_db.add(action1)
 
     # Create action referencing malfunction event
     action2 = ActionEvent(
-        message_type=4,
-        device_id=200,
-        group_event="GROUP_B",
+        type_event="Action",
         content="Fixed malfunction",
         user="user2",
-        from_event_id=20,
-        from_event_type="malfunction",
-        datetime=datetime.utcnow()
+        from_event=20,
+        from_type_event="Fault",
+        datetime=datetime.now(settings.tz)
     )
     test_db.add(action2)
 
     # Create action referencing connection event
     action3 = ActionEvent(
-        message_type=4,
-        device_id=300,
-        group_event="GROUP_C",
+        type_event="Action",
         content="Verified connection",
         user="user3",
-        from_event_id=30,
-        from_event_type="connection",
-        datetime=datetime.utcnow()
+        from_event=30,
+        from_type_event="Connection",
+        datetime=datetime.now(settings.tz)
     )
     test_db.add(action3)
 
@@ -164,6 +154,6 @@ def test_action_event_polymorphic_reference(test_db):
     # Verify all three actions were created
     actions = test_db.query(ActionEvent).all()
     assert len(actions) == 3
-    assert actions[0].from_event_type == "detection"
-    assert actions[1].from_event_type == "malfunction"
-    assert actions[2].from_event_type == "connection"
+    assert actions[0].from_type_event == "Intrusion"
+    assert actions[1].from_type_event == "Fault"
+    assert actions[2].from_type_event == "Connection"

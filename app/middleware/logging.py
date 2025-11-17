@@ -4,10 +4,12 @@ Logs all API requests to database with Client UUID and Request ID tracking
 """
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import Response
 from sqlalchemy.orm import Session
 from app.models.log import ApiLog
 from app.database import SessionLocal
 import time
+import json
 
 
 class APILoggingMiddleware(BaseHTTPMiddleware):
@@ -69,8 +71,49 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         resource = path.replace("/api/", "").strip("/")
 
+        # Capture URL query parameters
+        query_params = None
+        if request.url.query:
+            query_params = str(request.url.query)
+            # Limit param length to prevent database overflow
+            if len(query_params) > 1000:
+                query_params = query_params[:997] + "..."
+
+        # Capture request body for POST, PUT, PATCH methods
+        body = None
+        if request.method in ["POST", "PUT", "PATCH"]:
+            try:
+                body_bytes = await request.body()
+                if body_bytes:
+                    body = body_bytes.decode('utf-8')
+                    # Limit body length to prevent database overflow
+                    if len(body) > 2000:
+                        body = body[:1997] + "..."
+                # Re-create request with body (since body() consumes the stream)
+                async def receive():
+                    return {"type": "http.request", "body": body_bytes}
+                request._receive = receive
+            except Exception as e:
+                print(f"Error capturing request body: {e}")
+
         # Call next middleware/endpoint
         response = await call_next(request)
+
+        # Capture error message from response if status >= 400
+        error_message = None
+        if response.status_code >= 400:
+            try:
+                # For responses with body, try to extract error message
+                if hasattr(response, 'body'):
+                    body = response.body
+                    if body:
+                        response_data = json.loads(body.decode('utf-8'))
+                        error_message = response_data.get('message') or response_data.get('detail')
+                        # Limit error message length
+                        if error_message and len(error_message) > 1000:
+                            error_message = error_message[:997] + "..."
+            except Exception as e:
+                print(f"Error extracting error message: {e}")
 
         # Generate description
         description = self.get_description(request.method, path, response.status_code)
@@ -84,7 +127,10 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
                 client_uuid=client_uuid,
                 request_id=request_id,
                 description=description,
-                status_code=response.status_code
+                status_code=response.status_code,
+                body=body,
+                param=query_params,
+                error_message=error_message
             )
             db.add(log_entry)
             db.commit()

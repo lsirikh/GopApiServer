@@ -402,7 +402,7 @@ async def replace_detection_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[dict])
+@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
 async def delete_detection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -430,11 +430,18 @@ async def delete_detection_event(
             detail=f"Detection event with id {event_id} not found"
         )
 
+    # Phase 18.2: Prevent deletion if action_reported is "True"
+    if event.action_reported == "True":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="조치보고가 등록된 탐지 이벤트는 삭제할 수 없습니다. ActionEvent를 먼저 삭제해주세요. / Cannot delete Detection event with Action reported. Please delete the ActionEvent first."
+        )
+
     db.delete(event)
     db.commit()
 
     return ApiResponse(
         success=True,
         message="Detection event deleted successfully",
-        data={"id": event_id}
+        data=None
     )

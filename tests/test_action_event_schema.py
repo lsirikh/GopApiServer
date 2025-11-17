@@ -10,51 +10,21 @@ def test_action_event_create_schema_fields():
     from app.schemas.event import ActionEventCreate
 
     event_data = {
-        "message_type": 4,
-        "device_id": 400,
-        "group_event": "GROUP_D",
+        "type_event": "Action",
         "content": "User acknowledged event",
         "user": "admin",
-        "from_event_id": 10,
-        "from_event_type": "detection",
+        "from_event": 10,
+        "from_type_event": "Intrusion",
         "datetime": datetime.utcnow()
     }
 
     event_create = ActionEventCreate(**event_data)
 
-    assert event_create.message_type == 4
-    assert event_create.device_id == 400
+    assert event_create.type_event == "Action"
     assert event_create.content == "User acknowledged event"
     assert event_create.user == "admin"
-    assert event_create.from_event_id == 10
-    assert event_create.from_event_type == "detection"
-
-
-def test_action_event_response_schema_fields():
-    """Test: ActionEventResponse schema has all required fields"""
-    from app.schemas.event import ActionEventResponse
-
-    event_data = {
-        "id": 1,
-        "message_type": 4,
-        "device_id": 400,
-        "group_event": "GROUP_D",
-        "content": "Fixed malfunction",
-        "user": "operator1",
-        "from_event_id": 20,
-        "from_event_type": "malfunction",
-        "datetime": datetime.utcnow(),
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-
-    event_response = ActionEventResponse(**event_data)
-
-    assert event_response.id == 1
-    assert event_response.content == "Fixed malfunction"
-    assert event_response.user == "operator1"
-    assert event_response.from_event_id == 20
-    assert event_response.from_event_type == "malfunction"
+    assert event_create.from_event == 10
+    assert event_create.from_type_event == "Intrusion"
 
 
 def test_action_event_update_schema_optional_fields():
@@ -68,46 +38,9 @@ def test_action_event_update_schema_optional_fields():
 
     assert event_update.content == "Updated action description"
     assert event_update.user == "admin2"
-    assert event_update.message_type is None
-
-
-def test_action_event_response_from_model(test_db):
-    """Test: ActionEventResponse can be created from ActionEvent model"""
-    from app.models.event import ActionEvent
-    from app.schemas.event import ActionEventResponse
-
-    event_datetime = datetime.utcnow()
-
-    event = ActionEvent(
-        message_type=4,
-        device_id=400,
-        group_event="GROUP_D",
-        content="Inspection completed",
-        user="operator1",
-        from_event_id=5,
-        from_event_type="malfunction",
-        datetime=event_datetime
-    )
-    test_db.add(event)
-    test_db.commit()
-    test_db.refresh(event)
-
-    event_response = ActionEventResponse(
-        id=event.id,
-        message_type=event.message_type,
-        device_id=event.device_id,
-        group_event=event.group_event,
-        content=event.content,
-        user=event.user,
-        from_event_id=event.from_event_id,
-        from_event_type=event.from_event_type,
-        datetime=event.datetime,
-        created_at=event.created_at,
-        updated_at=event.updated_at
-    )
-
-    assert event_response.id == event.id
-    assert event_response.content == "Inspection completed"
+    assert event_update.type_event is None
+    assert event_update.from_event is None
+    assert event_update.from_type_event is None
 
 
 def test_action_event_create_validation():
@@ -117,7 +50,48 @@ def test_action_event_create_validation():
 
     with pytest.raises(ValidationError):
         ActionEventCreate(
-            message_type=4,
-            device_id=400
-            # Missing required fields
+            type_event="Action",
+            content="Test"
+            # Missing required fields: user, from_event, from_type_event, datetime
         )
+
+
+def test_action_event_response_has_correct_fields():
+    """Test: ActionEventResponse has correct field structure"""
+    from app.schemas.event import ActionEventResponse, DetectionEventResponse
+    from datetime import datetime
+
+    # Create a mock detection event for the nested object
+    detection = DetectionEventResponse(
+        id=1,
+        group_event="GROUP_A",
+        type_event="Intrusion",
+        controller=1,
+        sensor=1,
+        type_device="PIR",
+        sequence=1,
+        action_reported="False",
+        result="PIR_SENSOR",
+        datetime=datetime.utcnow(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+
+    # Create ActionEventResponse with nested event
+    action_response = ActionEventResponse(
+        id=1,
+        type_event="Action",
+        content="Test action",
+        user="test_user",
+        from_event=detection,  # Nested object
+        datetime=datetime.utcnow(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+
+    assert action_response.id == 1
+    assert action_response.type_event == "Action"
+    assert action_response.content == "Test action"
+    assert action_response.user == "test_user"
+    assert isinstance(action_response.from_event, DetectionEventResponse)
+    assert action_response.from_event.id == 1

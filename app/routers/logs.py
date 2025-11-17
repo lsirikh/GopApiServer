@@ -387,6 +387,42 @@ async def log_viewer():
             font-size: 0.75em;
             color: #adb5bd;
         }
+
+        .request-body {
+            max-width: 300px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+        }
+
+        .request-body pre {
+            background: #f8f9fa;
+            padding: 5px;
+            border-radius: 4px;
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .param {
+            max-width: 250px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            word-wrap: break-word;
+        }
+
+        .param code {
+            background: #e7f3ff;
+            padding: 3px 6px;
+            border-radius: 4px;
+            color: #0066cc;
+        }
+
+        .error-message {
+            max-width: 300px;
+            color: #dc3545;
+            font-weight: 500;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
@@ -474,6 +510,9 @@ async def log_viewer():
                         <th>Resource</th>
                         <th>Status</th>
                         <th>Description</th>
+                        <th>BODY</th>
+                        <th>PARAM</th>
+                        <th>Error Message</th>
                         <th>Client UUID</th>
                         <th>Request ID</th>
                     </tr>
@@ -592,6 +631,9 @@ async def log_viewer():
                         <td>${log.resource || '-'}</td>
                         <td class="status-code ${getStatusClass(log.status_code)}">${log.status_code}</td>
                         <td>${log.description || '-'}</td>
+                        <td class="request-body">${log.body ? `<pre style="max-height: 100px; overflow: auto; font-size: 0.8em;">${log.body}</pre>` : '-'}</td>
+                        <td class="param">${log.param ? `<code style="font-size: 0.8em;">${log.param}</code>` : '-'}</td>
+                        <td class="error-message" style="color: #dc3545; font-weight: 500;">${log.error_message || '-'}</td>
                         <td class="client-uuid">${log.client_uuid || '-'}</td>
                         <td class="request-id">${log.request_id || '-'}</td>
                     </tr>

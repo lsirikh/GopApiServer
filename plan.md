@@ -249,6 +249,14 @@
 - [x] Impl: /api/devices/controllers prefix 설정
 - [x] Impl: "Controllers" tag 설정
 
+### 5.11 Controller API - include_sensors 기능 추가
+- [x] Test: GET /api/devices/controllers?include_sensors=true가 센서 목록을 포함하는지 검증
+- [x] Impl: include_sensors 파라미터 추가
+- [x] Test: GET /api/devices/controllers/{id}?include_sensors=true가 센서 목록을 포함하는지 검증
+- [x] Impl: 단일 조회에 include_sensors 추가
+- [x] Test: ControllerResponse에 sensors 필드가 포함되는지 검증
+- [x] Impl: ControllerResponse 스키마 업데이트 (Optional[list[SensorResponse]])
+
 ---
 
 ## Phase 6: Device API - Sensor
@@ -499,6 +507,28 @@
 - [x] Test: from_event_id로 원본 이벤트 연결 검증
 - [x] Impl: 이벤트 연결 로직
 
+### 11.4 Action Event 구조 개선 (Single Field + Nested Response) ✅
+- [x] Test: ActionEvent 모델이 from_event 단일 필드를 가지는지 검증
+- [x] Impl: from_event_id + from_event_type → from_event 단일 필드로 변경
+- [x] Test: load_source_event 헬퍼 함수가 원본 이벤트를 로드하는지 검증
+- [x] Impl: load_source_event() 함수 구현 (Detection/Malfunction/Connection 자동 감지)
+- [x] Test: GET 응답이 중첩 이벤트 객체를 반환하는지 검증
+- [x] Impl: ActionEventResponse 스키마에 Union 타입 적용
+- [x] Impl: GET list/single 엔드포인트에서 중첩 객체 반환 (N+1 쿼리 방지)
+- [x] Impl: POST/PATCH/PUT 엔드포인트에서 중첩 객체 반환
+- [x] Test: 모든 새로운 구조 테스트 통과 확인
+
+**Phase 11.4 구조 개선 완료 사항:**
+- ✅ tests/test_action_event_new_structure.py (3 tests passed - from_event 단일 필드)
+- ✅ tests/test_load_source_event.py (4 tests passed - 헬퍼 함수)
+- ✅ tests/test_action_nested_response.py (3 tests passed - 중첩 객체 응답)
+- ✅ app/models/event.py - from_event_id + from_event_type → from_event 단일 필드로 변경
+- ✅ app/schemas/event.py - ActionEventResponse에 Union[DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse] 타입 적용
+- ✅ app/routers/actions.py - load_source_event() 헬퍼 함수 추가
+- ✅ app/routers/actions.py - GET list 엔드포인트에 배치 조회 구현 (N+1 쿼리 방지)
+- ✅ app/routers/actions.py - 모든 CRUD 엔드포인트에서 중첩 객체 반환
+- ✅ OpenAPI/Swagger 문서 자동 업데이트 확인
+
 **Phase 11 구현 완료 사항:**
 - ✅ tests/test_action_event_model.py (5 tests passed - 다형성 참조 포함)
 - ✅ tests/test_action_event_schema.py (5 tests passed)
@@ -648,6 +678,290 @@
 - [ ] Impl: 환경 변수 테이블 추가
 - [ ] Test: Docker 배포 가이드가 명확한지 검증
 - [ ] Impl: Docker 배포 스텝 작성
+
+---
+
+## Phase 16: Integration API - EventMapping
+
+### 16.1 EventMapping 모델
+- [x] Test: EventMapping 모델이 필수 필드를 가지는지 검증
+- [x] Impl: app/models/integration.py에 EventMapping 모델 추가
+- [x] Test: EventMapping 타임스탬프 자동 설정 검증
+- [x] Impl: created_at, updated_at 자동 설정
+- [x] Test: EventMapping 테이블 이름 검증
+- [x] Impl: __tablename__ = "event_mappings" 설정
+
+### 16.2 EventMapping 스키마
+- [x] Test: EventMappingCreate 스키마 필드 검증
+- [x] Impl: app/schemas/integration.py에 EventMappingCreate 추가
+- [x] Test: EventMappingResponse 스키마 필드 검증
+- [x] Impl: EventMappingResponse 추가
+- [x] Test: EventMappingUpdate 스키마 선택적 필드 검증
+- [x] Impl: EventMappingUpdate 추가 (모든 필드 Optional)
+
+### 16.3 EventMapping 목록 조회 (GET /api/integrations/event-mappings)
+- [x] Test: GET 목록 조회가 빈 리스트를 반환하는지 검증
+- [x] Impl: app/routers/event_mappings.py에 GET 엔드포인트 추가
+- [x] Test: EventMapping 데이터가 있을 때 목록 반환 검증
+- [x] Impl: 데이터베이스 조회 로직 추가
+- [x] Test: name_event 필터링 검증
+- [x] Impl: name_event 쿼리 파라미터 필터링 추가
+- [x] Test: group_event 필터링 검증
+- [x] Impl: group_event 쿼리 파라미터 필터링 추가
+- [x] Test: category_event 필터링 검증
+- [x] Impl: category_event 쿼리 파라미터 필터링 추가
+- [x] Test: status 필터링 검증
+- [x] Impl: status 쿼리 파라미터 필터링 추가
+- [x] Test: 페이지네이션 검증
+- [x] Impl: page, limit 파라미터 추가
+
+### 16.4 EventMapping 단일 조회 (GET /api/integrations/event-mappings/{id})
+- [x] Test: GET 단일 조회가 EventMapping을 반환하는지 검증
+- [x] Impl: GET /{id} 엔드포인트 추가
+- [x] Test: 존재하지 않는 ID로 404 반환 검증
+- [x] Impl: HTTPException 404 처리 추가
+
+### 16.5 EventMapping 생성 (POST /api/integrations/event-mappings)
+- [x] Test: POST로 EventMapping 생성 검증
+- [x] Impl: POST 엔드포인트 추가
+- [x] Test: 필수 필드 누락 시 400 반환 검증
+- [x] Impl: Pydantic validation 처리
+- [x] Test: 생성 후 201 상태 코드 반환 검증
+- [x] Impl: status_code=201 설정
+
+### 16.6 EventMapping 부분 수정 (PATCH /api/integrations/event-mappings/{id})
+- [x] Test: PATCH로 부분 수정 검증
+- [x] Impl: PATCH /{id} 엔드포인트 추가
+- [x] Test: 존재하지 않는 ID로 404 반환 검증
+- [x] Impl: HTTPException 404 처리 추가
+- [x] Test: updated_at이 자동 갱신되는지 검증
+- [x] Impl: SQLAlchemy onupdate 설정 확인
+
+### 16.7 EventMapping 전체 수정 (PUT /api/integrations/event-mappings/{id})
+- [x] Test: PUT로 전체 수정 검증
+- [x] Impl: PUT /{id} 엔드포인트 추가
+- [x] Test: 모든 필드 필수 검증
+- [x] Impl: EventMappingCreate 스키마 재사용
+- [x] Test: 존재하지 않는 ID로 404 반환 검증
+- [x] Impl: HTTPException 404 처리 추가
+
+### 16.8 EventMapping 삭제 (DELETE /api/integrations/event-mappings/{id})
+- [x] Test: DELETE로 EventMapping 삭제 검증
+- [x] Impl: DELETE /{id} 엔드포인트 추가
+- [x] Test: 존재하지 않는 ID로 404 반환 검증
+- [x] Impl: HTTPException 404 처리 추가
+- [x] Test: 삭제 후 null 데이터 반환 검증
+- [x] Impl: ApiResponse[dict] 응답 형식
+
+### 16.9 Router 등록
+- [x] Impl: app/main.py에 event_mappings router 등록
+- [x] Impl: /api/integrations/event-mappings prefix 설정
+- [x] Impl: "Integration" tag 설정
+
+---
+
+## Phase 17: ActionEvent Auto-Update action_reported ✅ COMPLETE
+
+### 17.1 PRD 문서 작성
+- [x] PRD: Action-Event-Fix-Prd3.md 작성
+- [x] 요구사항: ActionEvent 생성 시 source event의 action_reported 자동 업데이트
+- [x] 범위: Intrusion(DetectionEvent), Fault(MalfunctionEvent)만 해당 (Connection 제외)
+
+### 17.2 TDD: RED Phase - 실패하는 테스트 작성 ✅
+- [x] Test: DetectionEvent의 action_reported가 False→True로 변경되는지 검증
+- [x] Test: MalfunctionEvent의 action_reported가 False→True로 변경되는지 검증
+- [x] Test: ConnectionEvent는 에러 없이 동작하는지 검증 (action_reported 없음)
+- [x] Test: 두 번째 ActionEvent 생성 시 action_reported가 True 유지되는지 검증 (멱등성)
+- [x] Test: 응답에 업데이트된 action_reported="True"가 포함되는지 검증
+- [x] Impl: tests/test_action_auto_update_source.py 생성 (5개 테스트)
+- [x] Verify: 4개 테스트 실패, 1개 테스트 통과 (RED phase 성공)
+
+### 17.3 TDD: GREEN Phase - 최소 구현 ✅
+- [x] Impl: app/routers/actions.py에 auto-update 로직 추가 (line 327-328)
+- [x] Impl: ActionEvent commit 후, source event의 action_reported를 "True"로 설정
+- [x] Impl: Intrusion 타입 → DetectionEvent 업데이트
+- [x] Impl: Fault 타입 → MalfunctionEvent 업데이트
+- [x] Impl: Connection 타입 → skip (no action_reported field)
+- [x] Verify: 5개 테스트 모두 통과 (GREEN phase 성공)
+
+### 17.4 TDD: REFACTOR Phase - 코드 개선 ✅
+- [x] Refactor: update_source_action_reported() 헬퍼 함수 추출 (line 24-47)
+- [x] Refactor: create_action_event()에서 헬퍼 함수 사용
+- [x] Refactor: 코드 중복 제거 및 가독성 향상
+- [x] Verify: 5개 테스트 모두 통과 (refactoring 후에도 GREEN 유지)
+
+### 17.5 통합 테스트 및 검증 ✅
+- [x] Test: 23개 ActionEvent 관련 테스트 모두 통과 (regression 없음)
+- [x] Test: Docker 컨테이너 빌드 및 배포 성공
+- [x] Test: API 실제 호출 테스트 성공
+  - DetectionEvent 생성 (action_reported="False")
+  - ActionEvent 생성 → DetectionEvent.action_reported="True" 자동 업데이트
+  - MalfunctionEvent 생성 (action_reported="False")
+  - ActionEvent 생성 → MalfunctionEvent.action_reported="True" 자동 업데이트
+- [x] Verify: 응답에 업데이트된 값 포함 확인
+- [x] Verify: updated_at 타임스탬프 변경 확인
+
+**Phase 17 구현 완료 사항:**
+- ✅ Docs/Action-Event-Fix-Prd3.md - PRD 문서 작성
+- ✅ tests/test_action_auto_update_source.py (5 tests passed)
+  - test_create_action_updates_detection_event_action_reported
+  - test_create_action_updates_malfunction_event_action_reported
+  - test_create_action_does_not_affect_connection_event
+  - test_action_reported_remains_true_on_second_action
+  - test_action_reported_in_response_reflects_updated_value
+- ✅ app/routers/actions.py - update_source_action_reported() 헬퍼 함수 추가
+- ✅ app/routers/actions.py - create_action_event()에 자동 업데이트 로직 통합
+- ✅ Docker 배포 및 API 동작 검증 완료
+- ✅ TDD 방법론 엄격히 준수: RED → GREEN → REFACTOR → VERIFY
+
+**구현 세부사항:**
+- 업데이트 타이밍: ActionEvent DB commit 직후, response 반환 직전
+- 대상 이벤트 타입: Intrusion (DetectionEvent), Fault (MalfunctionEvent)
+- 제외 타입: Connection (ConnectionEvent는 action_reported 필드 없음)
+- 멱등성: action_reported가 이미 "True"인 경우에도 안전하게 동작
+- 응답 형식: 중첩된 source event 객체에 업데이트된 action_reported="True" 포함
+
+---
+
+## Phase 18: ActionEvent Delete and Source Event Protection
+
+### 18.1 PRD 문서 작성
+- [x] PRD: Action-Event-Fix-Prd4.md 작성
+- [x] 요구사항: ActionEvent 삭제 시 source event의 action_reported 복원
+- [x] 요구사항: action_reported="True"인 source event 삭제 불가
+- [x] 대전제: 1:1 관계 (1개 source event = 최대 1개 ActionEvent)
+
+### 18.2 Phase 18.1 - ActionEvent 삭제 시 source event 복원
+
+#### TDD: RED Phase - 실패하는 테스트 작성
+- [x] Test: DetectionEvent의 action_reported가 True→False로 복원되는지 검증
+- [x] Test: MalfunctionEvent의 action_reported가 True→False로 복원되는지 검증
+- [x] Test: ConnectionEvent ActionEvent 삭제 시 에러 없는지 검증
+- [x] Test: ActionEvent 삭제 시 source event의 updated_at 변경 검증
+- [x] Test: 존재하지 않는 ActionEvent 삭제 시 404 검증
+- [x] Impl: tests/test_action_delete_reset_source.py 생성 (5개 테스트)
+- [x] Verify: 5개 테스트 실패 확인 (RED phase 성공)
+
+#### TDD: GREEN Phase - 최소 구현
+- [x] Impl: reset_source_action_reported() 헬퍼 함수 추가
+- [x] Impl: DELETE /api/events/actions/{id} 엔드포인트 수정
+- [x] Impl: ActionEvent 삭제 후 source event의 action_reported를 "False"로 복원
+- [x] Impl: Intrusion 타입 → DetectionEvent 복원
+- [x] Impl: Fault 타입 → MalfunctionEvent 복원
+- [x] Impl: Connection 타입 → skip (no action_reported field)
+- [x] Verify: 5개 테스트 모두 통과 (GREEN phase 성공)
+
+#### TDD: REFACTOR Phase - 코드 개선
+- [x] Refactor: 코드 중복 제거 및 가독성 향상
+- [x] Verify: 5개 테스트 모두 통과 (refactoring 후에도 GREEN 유지)
+
+### 18.3 Phase 18.2 - Source Event 삭제 제약
+
+#### TDD: RED Phase - 실패하는 테스트 작성
+- [x] Test: action_reported="True"인 DetectionEvent 삭제 시 409 에러 검증
+- [x] Test: action_reported="True"인 MalfunctionEvent 삭제 시 409 에러 검증
+- [x] Test: action_reported="False"인 DetectionEvent 삭제 성공 검증
+- [x] Test: action_reported="False"인 MalfunctionEvent 삭제 성공 검증
+- [x] Test: ConnectionEvent는 언제든 삭제 가능 검증
+- [x] Impl: tests/test_source_delete_constraint.py 생성 (5개 테스트)
+- [x] Verify: 2개 테스트 실패 확인 (RED phase 성공)
+
+#### TDD: GREEN Phase - 최소 구현
+- [x] Impl: DELETE /api/events/detections/{id} 엔드포인트에 검증 로직 추가
+- [x] Impl: DELETE /api/events/malfunctions/{id} 엔드포인트에 검증 로직 추가
+- [x] Impl: action_reported="True"이면 409 Conflict 반환
+- [x] Impl: 명확한 에러 메시지 제공
+- [x] Verify: 5개 테스트 모두 통과 (GREEN phase 성공)
+
+#### TDD: REFACTOR Phase - 코드 개선
+- [x] Refactor: 공통 검증 로직 헬퍼 함수 추출 (선택)
+- [x] Verify: 5개 테스트 모두 통과 (refactoring 후에도 GREEN 유지)
+
+### 18.4 통합 테스트 및 검증
+- [x] Test: 모든 ActionEvent 관련 테스트 통과 (regression 없음)
+- [x] Test: Docker 컨테이너 빌드 및 배포 성공
+- [x] Test: API 실제 호출 테스트 성공
+  - [x] DetectionEvent + ActionEvent 생성 → action_reported="True"
+  - [x] DetectionEvent 삭제 시도 → 409 에러
+  - [x] ActionEvent 삭제 → action_reported="False" 복원
+  - [x] DetectionEvent 삭제 → 200 성공
+- [x] Verify: 응답에 올바른 에러 메시지 포함 확인
+- [x] Verify: updated_at 타임스탬프 변경 확인
+
+**Phase 18 구현 완료 사항:**
+- ✅ tests/test_action_delete_reset_source.py (5 tests passed)
+- ✅ tests/test_source_delete_constraint.py (5 tests passed)
+- ✅ app/routers/actions.py - reset_source_action_reported() 헬퍼 함수
+- ✅ app/routers/actions.py - DELETE 엔드포인트 수정
+- ✅ app/routers/detections.py - DELETE 엔드포인트 검증 추가 (Phase 18.2)
+- ✅ app/routers/malfunctions.py - DELETE 엔드포인트 검증 추가 (Phase 18.2)
+
+**구현 세부사항:**
+- 1:1 관계: 1개 source event = 최대 1개 ActionEvent
+- 복원 로직: ActionEvent 삭제 시 무조건 action_reported를 "False"로 변경
+- 삭제 제약: action_reported="True"인 source event는 삭제 불가
+- 에러 메시지: "먼저 연결된 Action 이벤트를 삭제해주세요"
+- ConnectionEvent: 제약 없음 (action_reported 필드 없음)
+
+---
+
+## Phase 19: Event DELETE Response Standardization
+
+### 19.1 PRD 문서 작성
+- [x] PRD: Event-Delete-Response-Prd.md 작성
+- [x] 요구사항: 모든 Event DELETE 응답에서 data 필드를 null로 통일
+- [x] 범위: ActionEvent, DetectionEvent, MalfunctionEvent, ConnectionEvent
+
+### 19.2 Phase 19.1 - ActionEvent DELETE 응답 수정
+
+#### TDD: RED Phase - 실패하는 테스트 작성
+- [x] Test: DELETE 성공 시 data 필드가 null인지 검증
+- [x] Test: DELETE 성공 시 success가 true인지 검증
+- [x] Test: DELETE 성공 시 message가 올바른지 검증
+- [x] Impl: tests/test_action_delete_response.py 생성 (1개 테스트)
+- [x] Verify: 테스트 실패 확인 (RED phase 성공 - data={'id': 1})
+
+#### TDD: GREEN Phase - 최소 구현
+- [x] Impl: DELETE /api/events/actions/{id} 응답 수정
+- [x] Impl: response_model=ApiResponse[Optional[dict]] 변경
+- [x] Impl: data={"id": event_id} → data=None
+- [x] Verify: 테스트 통과 (GREEN phase 성공)
+
+#### TDD: REFACTOR Phase - 코드 개선
+- [x] Refactor: 코드 already clean
+- [x] Verify: 테스트 통과 유지
+
+### 19.3 Phase 19.2-4 - 나머지 Event DELETE 응답 수정 (일괄 처리)
+
+#### 구현 완료
+- [x] Impl: DELETE /api/events/detections/{id} 응답 수정
+- [x] Impl: DELETE /api/events/malfunctions/{id} 응답 수정
+- [x] Impl: DELETE /api/events/connections/{id} 응답 수정
+- [x] Impl: 모든 response_model=ApiResponse[Optional[dict]] 변경
+- [x] Impl: 모든 data={"id": event_id} → data=None 변경
+
+### 19.6 통합 테스트 및 검증
+- [x] Test: 모든 Event DELETE 테스트 통과 (regression 없음)
+- [x] Test: Phase 18 테스트 모두 통과 (action_reported 로직 정상)
+- [x] Test: Docker 컨테이너 빌드 및 배포 성공
+- [x] Test: 29개 ActionEvent 테스트 모두 통과 (로컬 및 Docker)
+- [x] Verify: data=null 응답 확인
+
+**Phase 19 구현 완료 사항:**
+- ✅ Docs/Event-Delete-Response-Prd.md - PRD 문서 작성
+- ✅ tests/test_action_delete_response.py (1 test passed)
+- ✅ app/routers/actions.py - DELETE 응답 수정 (data=None, response_model 변경)
+- ✅ app/routers/detections.py - DELETE 응답 수정 (data=None, response_model 변경)
+- ✅ app/routers/malfunctions.py - DELETE 응답 수정 (data=None, response_model 변경)
+- ✅ app/routers/connections.py - DELETE 응답 수정 (data=None, response_model 변경)
+
+**구현 세부사항:**
+- 응답 형식: data=None (null)
+- response_model: ApiResponse[Optional[dict]] 사용
+- HTTP 상태 코드: 200 OK 유지
+- 메시지 형식: "{EventType} deleted successfully"
+- 호환성: 기존 클라이언트는 data=null도 정상 처리
+- Phase 18 기능 유지: action_reported 자동 업데이트 및 삭제 제약
 
 ---
 

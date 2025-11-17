@@ -8,8 +8,8 @@ import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
-from app.models.device import Controller, EnumDeviceType, EnumDeviceStatus
-from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate
+from app.models.device import Controller, Sensor, EnumDeviceType, EnumDeviceStatus
+from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
 router = APIRouter(tags=[])
@@ -21,6 +21,7 @@ async def get_controllers(
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     group_device: Optional[int] = Query(None, description="Filter by group_device"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    include_sensors: bool = Query(False, description="Include sensors information"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -32,6 +33,7 @@ async def get_controllers(
         limit: Items per page (default: 20, max: 100)
         group_device: Filter by group_device
         status: Filter by status
+        include_sensors: Include sensors information (default: False)
         current_user: Current authenticated user (optional based on AUTH_MODE)
         db: Database session
 
@@ -58,8 +60,9 @@ async def get_controllers(
     controllers = query.offset(skip).limit(limit).all()
 
     # Convert to response format
-    controller_responses = [
-        ControllerResponse(
+    controller_responses = []
+    for c in controllers:
+        controller_response = ControllerResponse(
             id=c.id,
             number_device=c.number_device,
             group_device=c.group_device,
@@ -72,8 +75,28 @@ async def get_controllers(
             created_at=c.created_at,
             updated_at=c.updated_at
         )
-        for c in controllers
-    ]
+
+        # Include sensors if requested
+        if include_sensors:
+            sensors = db.query(Sensor).filter(Sensor.controller_id == c.id).all()
+            sensor_responses = [
+                SensorResponse(
+                    id=s.id,
+                    number_device=s.number_device,
+                    group_device=s.group_device,
+                    name_device=s.name_device,
+                    type_device=s.type_device.value,
+                    version=s.version,
+                    status=s.status.value,
+                    controller_id=s.controller_id,
+                    created_at=s.created_at,
+                    updated_at=s.updated_at
+                )
+                for s in sensors
+            ]
+            controller_response.sensors = sensor_responses
+
+        controller_responses.append(controller_response)
 
     pagination = PaginationMeta(
         page=page,
@@ -93,6 +116,7 @@ async def get_controllers(
 @router.get("/{controller_id}", response_model=ApiResponse[ControllerResponse])
 async def get_controller(
     controller_id: int,
+    include_sensors: bool = Query(False, description="Include sensors information"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -101,6 +125,7 @@ async def get_controller(
 
     Args:
         controller_id: Controller ID
+        include_sensors: Include sensors information (default: False)
         current_user: Current authenticated user (optional based on AUTH_MODE)
         db: Database session
 
@@ -131,6 +156,26 @@ async def get_controller(
         created_at=controller.created_at,
         updated_at=controller.updated_at
     )
+
+    # Include sensors if requested
+    if include_sensors:
+        sensors = db.query(Sensor).filter(Sensor.controller_id == controller.id).all()
+        sensor_responses = [
+            SensorResponse(
+                id=s.id,
+                number_device=s.number_device,
+                group_device=s.group_device,
+                name_device=s.name_device,
+                type_device=s.type_device.value,
+                version=s.version,
+                status=s.status.value,
+                controller_id=s.controller_id,
+                created_at=s.created_at,
+                updated_at=s.updated_at
+            )
+            for s in sensors
+        ]
+        controller_response.sensors = sensor_responses
 
     return ApiResponse(
         success=True,

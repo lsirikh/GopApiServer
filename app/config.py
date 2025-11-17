@@ -4,6 +4,8 @@ Application configuration using Pydantic Settings
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 import json
+import os
+from zoneinfo import ZoneInfo
 
 
 class Settings(BaseSettings):
@@ -34,11 +36,22 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = '["*"]'
 
+    # Timezone
+    TIMEZONE: str = "Asia/Seoul"
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS string to list"""
         return json.loads(self.CORS_ORIGINS)
 
+    @property
+    def tz(self) -> ZoneInfo:
+        """Get timezone object"""
+        return ZoneInfo(self.TIMEZONE)
+
 
 # Create settings instance
 settings = Settings()
+
+# Set timezone environment variable for system
+os.environ['TZ'] = settings.TIMEZONE

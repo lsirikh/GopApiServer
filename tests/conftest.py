@@ -11,6 +11,7 @@ from app.models.user import User  # noqa: F401
 from app.models.log import ApiLog  # noqa: F401
 from app.models.device import Controller, Sensor, Camera  # noqa: F401
 from app.models.event import DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent  # noqa: F401
+from app.models.integration import EventMapping  # noqa: F401
 
 
 @pytest.fixture(scope="function")

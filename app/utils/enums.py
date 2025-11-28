@@ -48,20 +48,18 @@ class EnumCameraType(str, Enum):
     NONE = "NONE"
     FIXED = "FIXED"
     PTZ = "PTZ"
-    FISHEYES = "FISHEYES"
-    THERMAL = "THERMAL"
 
 
 class EnumEventType(str, Enum):
     """Event type enumeration"""
-    None_ = "None"  # Using None_ to avoid conflict with Python keyword
-    Intrusion = "Intrusion"
-    ContactOn = "ContactOn"
-    ContactOff = "ContactOff"
-    Connection = "Connection"
-    Action = "Action"
-    Fault = "Fault"
-    WindyMode = "WindyMode"
+    None_ = "None"          # 0
+    Intrusion = "Intrusion" # 90 (0x5A)
+    ContactOn = "ContactOn" # 86 (0x56)
+    ContactOff = "ContactOff" # 102 (0x66)
+    Connection = "Connection" # 104 (0x68)
+    Action = "Action"       # 192 (0xC0)
+    Fault = "Fault"         # 115 (0x73)
+    WindyMode = "WindyMode" # 118 (0x76)
 
     # Alias for API compatibility
     @classmethod
@@ -73,14 +71,15 @@ class EnumEventType(str, Enum):
 
 class EnumDetectionType(str, Enum):
     """Detection type enumeration"""
-    NONE = "NONE"
-    CABLE_CUTTING = "CABLE_CUTTING"
-    CABLE_CONNECTED = "CABLE_CONNECTED"
-    PIR_SENSOR = "PIR_SENSOR"
-    THERMAL_SENSOR = "THERMAL_SENSOR"
-    VIBRATION_SENSOR = "VIBRATION_SENSOR"
-    CONTACT_SENSOR = "CONTACT_SENSOR"
-    DISTANCE_SENSOR = "DISTANCE_SENSOR"
+    NONE = "NONE"                       # 0
+    CABLE_CUTTING = "CABLE_CUTTING"     # 1
+    CABLE_CONNECTED = "CABLE_CONNECTED" # 2
+    PIR_SENSOR = "PIR_SENSOR"           # 3
+    THERMAL_SENSOR = "THERMAL_SENSOR"   # 5
+    VIBRATION_SENSOR = "VIBRATION_SENSOR" # 6
+    CONTACT_SENSOR = "CONTACT_SENSOR"   # 10
+    DISTANCE_SENSOR = "DISTANCE_SENSOR" # 11
+    AI_DETECT = "AI_DETECT"             # 12
 
 
 class EnumFaultType(str, Enum):
@@ -105,3 +104,29 @@ class EnumTrueFalse(str, Enum):
         elif value == "True":
             return cls.True_
         return None
+
+
+class EnumEventCategory(str, Enum):
+    """Event category enumeration for CameraEventMapping (C# EnumEventCategory)"""
+    NONE = "NONE"                                       # 미정의
+    FENCE_SENSOR_ONLY = "FENCE_SENSOR_ONLY"             # 펜스센서 단독
+    FENCE_SENSOR_WITH_MULTI_SENSOR = "FENCE_SENSOR_WITH_MULTI_SENSOR"  # 펜스센서와 멀티센서 And 조건
+    MULTI_SENSOR_ONLY = "MULTI_SENSOR_ONLY"             # 멀티센서 단독
+    SENSOR_WITH_CAMERA = "SENSOR_WITH_CAMERA"           # 센서와 카메라 적용
+    SENSOR_WITH_AI_CAMERA = "SENSOR_WITH_AI_CAMERA"     # 센서와 AI 카메라 판단 적용
+    AI_CAMERA_ONLY = "AI_CAMERA_ONLY"                   # AI 카메라 판단 단독
+    CAMERA_ONLY = "CAMERA_ONLY"                         # 카메라 단독
+
+    @classmethod
+    def _missing_(cls, value):
+        """Legacy value mapping for backward compatibility"""
+        legacy_mapping = {
+            "SENSOR_ONLY": cls.FENCE_SENSOR_ONLY,
+            "SENSOR_WITH_AI_DETECT": cls.SENSOR_WITH_AI_CAMERA,
+            "AI_DETECT_ONLY": cls.AI_CAMERA_ONLY,
+        }
+        return legacy_mapping.get(value)
+
+
+# Backward compatibility alias
+EnumCategoryEvent = EnumEventCategory

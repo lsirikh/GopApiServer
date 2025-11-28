@@ -26,8 +26,7 @@ def test_create_action_updates_detection_event_action_reported(test_db):
         type_device="Controller",
         sequence=1,
         action_reported="False",
-        result="PIR_SENSOR",
-        datetime=datetime.utcnow()
+        result="PIR_SENSOR"
     )
     test_db.add(detection)
     test_db.commit()
@@ -42,8 +41,7 @@ def test_create_action_updates_detection_event_action_reported(test_db):
         content="Verified and cleared the alert",
         user="admin",
         from_event=detection.id,
-        from_type_event="Intrusion",
-        datetime=datetime.utcnow()
+        from_type_event="Intrusion"
     )
 
     # Mock current_user
@@ -85,8 +83,7 @@ def test_create_action_updates_malfunction_event_action_reported(test_db):
         first_start=100,
         first_end=200,
         second_start=300,
-        second_end=400,
-        datetime=datetime.utcnow()
+        second_end=400
     )
     test_db.add(malfunction)
     test_db.commit()
@@ -101,8 +98,7 @@ def test_create_action_updates_malfunction_event_action_reported(test_db):
         content="Fixed the controller",
         user="technician",
         from_event=malfunction.id,
-        from_type_event="Fault",
-        datetime=datetime.utcnow()
+        from_type_event="Fault"
     )
 
     # Mock current_user
@@ -139,8 +135,7 @@ def test_create_action_does_not_affect_connection_event(test_db):
         controller=3,
         sensor=3,
         type_device="PIR",
-        sequence=3,
-        datetime=datetime.utcnow()
+        sequence=3
     )
     test_db.add(connection)
     test_db.commit()
@@ -152,8 +147,7 @@ def test_create_action_does_not_affect_connection_event(test_db):
         content="Verified connection",
         user="operator",
         from_event=connection.id,
-        from_type_event="Connection",
-        datetime=datetime.utcnow()
+        from_type_event="Connection"
     )
 
     # Mock current_user
@@ -189,8 +183,7 @@ def test_action_reported_remains_true_on_second_action(test_db):
         type_device="PIR",
         sequence=4,
         action_reported="False",
-        result="VIBRATION_SENSOR",
-        datetime=datetime.utcnow()
+        result="VIBRATION_SENSOR"
     )
     test_db.add(detection)
     test_db.commit()
@@ -205,8 +198,7 @@ def test_action_reported_remains_true_on_second_action(test_db):
         content="First action taken",
         user="user1",
         from_event=detection.id,
-        from_type_event="Intrusion",
-        datetime=datetime.utcnow()
+        from_type_event="Intrusion"
     )
 
     mock_user = MagicMock()
@@ -225,8 +217,7 @@ def test_action_reported_remains_true_on_second_action(test_db):
         content="Second action taken",
         user="user2",
         from_event=detection.id,
-        from_type_event="Intrusion",
-        datetime=datetime.utcnow()
+        from_type_event="Intrusion"
     )
 
     response2 = asyncio.run(create_action_event(event_data2, mock_user, test_db))
@@ -257,8 +248,7 @@ def test_action_reported_in_response_reflects_updated_value(test_db):
         type_device="PIR",
         sequence=5,
         action_reported="False",
-        result="VIBRATION_SENSOR",
-        datetime=datetime.utcnow()
+        result="VIBRATION_SENSOR"
     )
     test_db.add(detection)
     test_db.commit()
@@ -270,8 +260,7 @@ def test_action_reported_in_response_reflects_updated_value(test_db):
         content="Action taken",
         user="admin",
         from_event=detection.id,
-        from_type_event="Intrusion",
-        datetime=datetime.utcnow()
+        from_type_event="Intrusion"
     )
 
     mock_user = MagicMock()

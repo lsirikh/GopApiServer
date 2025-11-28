@@ -15,7 +15,7 @@ def test_action_event_create_schema_fields():
         "user": "admin",
         "from_event": 10,
         "from_type_event": "Intrusion",
-        "datetime": datetime.utcnow()
+        "created_at": datetime.utcnow()
     }
 
     event_create = ActionEventCreate(**event_data)
@@ -52,7 +52,7 @@ def test_action_event_create_validation():
         ActionEventCreate(
             type_event="Action",
             content="Test"
-            # Missing required fields: user, from_event, from_type_event, datetime
+            # Missing required fields: user, from_event, from_type_event
         )
 
 
@@ -84,7 +84,6 @@ def test_action_event_response_has_correct_fields():
         content="Test action",
         user="test_user",
         from_event=detection,  # Nested object
-        datetime=datetime.utcnow(),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )

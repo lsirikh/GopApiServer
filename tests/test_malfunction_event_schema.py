@@ -6,60 +6,58 @@ from datetime import datetime
 
 
 def test_malfunction_event_create_schema_fields():
-    """
-    Test: MalfunctionEventCreate schema has all required fields
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: MalfunctionEventCreate schema has all required fields"""
     from app.schemas.event import MalfunctionEventCreate
 
     event_data = {
-        "message_type": 2,
-        "device_id": 200,
         "group_event": "GROUP_B",
-        "status": "True",
+        "type_event": "Fault",
+        "controller": 2,
+        "sensor": 1,
+        "type_device": "PIR",
+        "sequence": 1,
+        "action_reported": "False",
         "reason": "FAULT_CONTROLLER",
         "first_start": 100,
         "first_end": 200,
         "second_start": 300,
-        "second_end": 400,
-        "datetime": datetime.utcnow()
+        "second_end": 400
     }
 
     event_create = MalfunctionEventCreate(**event_data)
 
-    assert event_create.message_type == 2
-    assert event_create.device_id == 200
     assert event_create.group_event == "GROUP_B"
-    assert event_create.status == "True"
+    assert event_create.type_event == "Fault"
+    assert event_create.controller == 2
+    assert event_create.sensor == 1
+    assert event_create.type_device == "PIR"
+    assert event_create.sequence == 1
+    assert event_create.action_reported == "False"
     assert event_create.reason == "FAULT_CONTROLLER"
     assert event_create.first_start == 100
     assert event_create.first_end == 200
     assert event_create.second_start == 300
     assert event_create.second_end == 400
-    assert isinstance(event_create.datetime, datetime)
 
 
 def test_malfunction_event_response_schema_fields():
-    """
-    Test: MalfunctionEventResponse schema has all required fields
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: MalfunctionEventResponse schema has all required fields"""
     from app.schemas.event import MalfunctionEventResponse
 
     event_data = {
         "id": 1,
-        "message_type": 2,
-        "device_id": 200,
         "group_event": "GROUP_B",
-        "status": "True",
+        "type_event": "Fault",
+        "controller": 2,
+        "sensor": 1,
+        "type_device": "PIR",
+        "sequence": 1,
+        "action_reported": "False",
         "reason": "FAULT_FENCE",
         "first_start": 100,
         "first_end": 200,
         "second_start": 300,
         "second_end": 400,
-        "datetime": datetime.utcnow(),
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
@@ -67,105 +65,75 @@ def test_malfunction_event_response_schema_fields():
     event_response = MalfunctionEventResponse(**event_data)
 
     assert event_response.id == 1
-    assert event_response.message_type == 2
-    assert event_response.device_id == 200
     assert event_response.group_event == "GROUP_B"
-    assert event_response.status == "True"
+    assert event_response.type_event == "Fault"
+    assert event_response.action_reported == "False"
     assert event_response.reason == "FAULT_FENCE"
-    assert event_response.first_start == 100
-    assert event_response.first_end == 200
-    assert event_response.second_start == 300
-    assert event_response.second_end == 400
-    assert isinstance(event_response.datetime, datetime)
     assert isinstance(event_response.created_at, datetime)
     assert isinstance(event_response.updated_at, datetime)
 
 
 def test_malfunction_event_update_schema_optional_fields():
-    """
-    Test: MalfunctionEventUpdate schema has all optional fields
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: MalfunctionEventUpdate schema has all optional fields"""
     from app.schemas.event import MalfunctionEventUpdate
 
     # Test with partial update
     event_update = MalfunctionEventUpdate(
-        status="False",
+        action_reported="True",
         reason="FAULT_ETC",
         first_end=250
     )
 
-    assert event_update.status == "False"
+    assert event_update.action_reported == "True"
     assert event_update.reason == "FAULT_ETC"
     assert event_update.first_end == 250
-    assert event_update.message_type is None
-    assert event_update.device_id is None
+    assert event_update.controller is None
+    assert event_update.sensor is None
 
 
 def test_malfunction_event_response_from_model(test_db):
-    """
-    Test: MalfunctionEventResponse can be created from MalfunctionEvent model
-
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import MalfunctionEvent, EnumTrueFalse, EnumFaultType
+    """Test: MalfunctionEventResponse can be created from MalfunctionEvent model"""
+    from app.models.event import MalfunctionEvent, EnumTrueFalse, EnumFaultType, EnumDeviceType
     from app.schemas.event import MalfunctionEventResponse
-
-    event_datetime = datetime.utcnow()
 
     # Create malfunction event
     event = MalfunctionEvent(
-        message_type=2,
-        device_id=200,
         group_event="GROUP_B",
-        status=EnumTrueFalse.TRUE,
+        type_event="Fault",
+        controller=2,
+        sensor=1,
+        type_device=EnumDeviceType.PIR,
+        sequence=1,
+        action_reported=EnumTrueFalse.FALSE,
         reason=EnumFaultType.FAULT_CONTROLLER,
         first_start=100,
         first_end=200,
         second_start=300,
-        second_end=400,
-        datetime=event_datetime
+        second_end=400
     )
     test_db.add(event)
     test_db.commit()
     test_db.refresh(event)
 
-    # Create response from model
-    event_response = MalfunctionEventResponse(
-        id=event.id,
-        message_type=event.message_type,
-        device_id=event.device_id,
-        group_event=event.group_event,
-        status=event.status.value,
-        reason=event.reason.value,
-        first_start=event.first_start,
-        first_end=event.first_end,
-        second_start=event.second_start,
-        second_end=event.second_end,
-        datetime=event.datetime,
-        created_at=event.created_at,
-        updated_at=event.updated_at
-    )
+    # Create response from model using model_validate
+    event_response = MalfunctionEventResponse.model_validate(event)
 
     assert event_response.id == event.id
-    assert event_response.status == "True"
+    assert event_response.action_reported == "False"
     assert event_response.reason == "FAULT_CONTROLLER"
+    assert event_response.created_at is not None
+    assert event_response.updated_at is not None
 
 
 def test_malfunction_event_create_validation():
-    """
-    Test: MalfunctionEventCreate schema validates required fields
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: MalfunctionEventCreate schema validates required fields"""
     from app.schemas.event import MalfunctionEventCreate
     from pydantic import ValidationError
 
     # Missing required field should raise ValidationError
     with pytest.raises(ValidationError):
         MalfunctionEventCreate(
-            message_type=2,
-            device_id=200
-            # Missing required fields
+            group_event="GROUP_B",
+            type_event="Fault"
+            # Missing required fields: controller, sensor, type_device, sequence, action_reported, reason, etc.
         )

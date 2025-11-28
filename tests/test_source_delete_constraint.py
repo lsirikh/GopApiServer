@@ -32,8 +32,7 @@ def test_cannot_delete_detection_with_action_reported_true():
             type_device="Controller",
             sequence=1,
             action_reported="True",  # Already has action reported
-            result="PIR_SENSOR",
-            datetime=datetime.utcnow()
+            result="PIR_SENSOR"
         )
         db.add(detection)
         db.commit()
@@ -80,8 +79,7 @@ def test_cannot_delete_malfunction_with_action_reported_true():
             first_start=100,
             first_end=200,
             second_start=300,
-            second_end=400,
-            datetime=datetime.utcnow()
+            second_end=400
         )
         db.add(malfunction)
         db.commit()
@@ -123,8 +121,7 @@ def test_can_delete_detection_with_action_reported_false():
             type_device="PIR",
             sequence=3,
             action_reported="False",  # No action reported
-            result="PIR_SENSOR",
-            datetime=datetime.utcnow()
+            result="PIR_SENSOR"
         )
         db.add(detection)
         db.commit()
@@ -170,8 +167,7 @@ def test_can_delete_malfunction_with_action_reported_false():
             first_start=100,
             first_end=200,
             second_start=300,
-            second_end=400,
-            datetime=datetime.utcnow()
+            second_end=400
         )
         db.add(malfunction)
         db.commit()
@@ -211,8 +207,7 @@ def test_can_delete_connection_anytime():
             controller=5,
             sensor=5,
             type_device="PIR",
-            sequence=5,
-            datetime=datetime.utcnow()
+            sequence=5
         )
         db.add(connection)
         db.commit()

@@ -25,7 +25,6 @@ def test_action_event_model_has_required_fields(test_db):
     assert 'user' in columns
     assert 'from_event' in columns
     assert 'from_type_event' in columns
-    assert 'datetime' in columns
     assert 'created_at' in columns
     assert 'updated_at' in columns
 
@@ -45,8 +44,7 @@ def test_action_event_model_timestamps_auto_set(test_db):
         content="User acknowledged the detection event",
         user="admin",
         from_event=1,
-        from_type_event="Intrusion",
-        datetime=datetime.now(settings.tz)
+        from_type_event="Intrusion"
     )
     test_db.add(event)
     test_db.commit()
@@ -87,8 +85,7 @@ def test_action_event_model_create_and_retrieve(test_db):
         content="Inspection completed",
         user="operator1",
         from_event=5,
-        from_type_event="Fault",
-        datetime=event_datetime
+        from_type_event="Fault"
     )
     test_db.add(event)
     test_db.commit()
@@ -103,8 +100,8 @@ def test_action_event_model_create_and_retrieve(test_db):
     assert retrieved.user == "operator1"
     assert retrieved.from_event == 5
     assert retrieved.from_type_event == "Fault"
-    # Compare datetime without timezone (SQLite doesn't preserve tzinfo)
-    assert retrieved.datetime.replace(tzinfo=None) == event_datetime.replace(tzinfo=None)
+    # Check that created_at was automatically set
+    assert retrieved.created_at is not None
 
 
 def test_action_event_polymorphic_reference(test_db):
@@ -122,8 +119,7 @@ def test_action_event_polymorphic_reference(test_db):
         content="Acknowledged detection",
         user="user1",
         from_event=10,
-        from_type_event="Intrusion",
-        datetime=datetime.now(settings.tz)
+        from_type_event="Intrusion"
     )
     test_db.add(action1)
 
@@ -133,8 +129,7 @@ def test_action_event_polymorphic_reference(test_db):
         content="Fixed malfunction",
         user="user2",
         from_event=20,
-        from_type_event="Fault",
-        datetime=datetime.now(settings.tz)
+        from_type_event="Fault"
     )
     test_db.add(action2)
 
@@ -144,8 +139,7 @@ def test_action_event_polymorphic_reference(test_db):
         content="Verified connection",
         user="user3",
         from_event=30,
-        from_type_event="Connection",
-        datetime=datetime.now(settings.tz)
+        from_type_event="Connection"
     )
     test_db.add(action3)
 

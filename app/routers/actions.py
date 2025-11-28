@@ -15,6 +15,7 @@ from app.schemas.event import (
     DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse
 )
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.utils.enums import EnumTrueFalse
 from typing import Union
 
 router = APIRouter(tags=[])
@@ -163,9 +164,9 @@ async def get_action_events(
     if from_event is not None:
         query = query.filter(ActionEvent.from_event == from_event)
     if start_date is not None:
-        query = query.filter(ActionEvent.datetime >= start_date)
+        query = query.filter(ActionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(ActionEvent.datetime <= end_date)
+        query = query.filter(ActionEvent.created_at <= end_date)
 
     # Get total count
     total = query.count()
@@ -174,8 +175,8 @@ async def get_action_events(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results (order by datetime desc)
-    events = query.order_by(ActionEvent.datetime.desc()).offset(skip).limit(limit).all()
+    # Get paginated results (order by created_at desc)
+    events = query.order_by(ActionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
     # Batch load source events to avoid N+1 query problem
     # Group events by type for efficient querying
@@ -217,7 +218,6 @@ async def get_action_events(
                 content=e.content,
                 user=e.user,
                 from_event=source_event,  # Nested event object
-                datetime=e.datetime,
                 created_at=e.created_at,
                 updated_at=e.updated_at
             )
@@ -286,7 +286,6 @@ async def get_action_event(
         content=event.content,
         user=event.user,
         from_event=source_event,  # Nested event object
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -346,7 +345,7 @@ async def create_action_event(
         user=event_data.user,
         from_event=event_data.from_event,
         from_type_event=event_data.from_type_event,
-        datetime=event_data.datetime
+        created_at=event_data.created_at
     )
 
     db.add(new_event)
@@ -365,7 +364,6 @@ async def create_action_event(
         content=new_event.content,
         user=new_event.user,
         from_event=source_event,  # Nested event object
-        datetime=new_event.datetime,
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )
@@ -425,7 +423,6 @@ async def update_action_event(
         content=event.content,
         user=event.user,
         from_event=source_event,  # Nested event object
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -473,7 +470,6 @@ async def replace_action_event(
     event.user = event_data.user
     event.from_event = event_data.from_event
     event.from_type_event = event_data.from_type_event
-    event.datetime = event_data.datetime
 
     db.commit()
     db.refresh(event)
@@ -487,7 +483,6 @@ async def replace_action_event(
         content=event.content,
         user=event.user,
         from_event=source_event,  # Nested event object
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )

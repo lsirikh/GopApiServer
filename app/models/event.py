@@ -53,8 +53,7 @@ class DetectionEvent(Base):
         sequence: Sequence number
         action_reported: Whether action was reported (EnumTrueFalse)
         result: Detection result type (EnumDetectionType)
-        datetime: Event occurrence datetime
-        created_at: Creation timestamp
+        created_at: Creation timestamp (replaces datetime)
         updated_at: Last update timestamp
     """
     __tablename__ = "detection_events"
@@ -66,10 +65,9 @@ class DetectionEvent(Base):
     sensor = Column(Integer, nullable=False, index=True)
     type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
     sequence = Column(Integer, nullable=False)
-    action_reported = Column(SQLEnum(EnumTrueFalse), nullable=False)
+    action_reported = Column(String(10), nullable=False, default="False")
     result = Column(SQLEnum(EnumDetectionType), nullable=False)
-    datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
@@ -99,8 +97,7 @@ class MalfunctionEvent(Base):
         first_end: First period end value
         second_start: Second period start value
         second_end: Second period end value
-        datetime: Event occurrence datetime
-        created_at: Creation timestamp
+        created_at: Creation timestamp (replaces datetime)
         updated_at: Last update timestamp
     """
     __tablename__ = "malfunction_events"
@@ -112,14 +109,13 @@ class MalfunctionEvent(Base):
     sensor = Column(Integer, nullable=False, index=True)
     type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
     sequence = Column(Integer, nullable=False)
-    action_reported = Column(SQLEnum(EnumTrueFalse), nullable=False)
+    action_reported = Column(String(10), nullable=False, default="False")
     reason = Column(SQLEnum(EnumFaultType), nullable=False)
     first_start = Column(Integer, nullable=False)
     first_end = Column(Integer, nullable=False)
     second_start = Column(Integer, nullable=False)
     second_end = Column(Integer, nullable=False)
-    datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
@@ -143,8 +139,7 @@ class ConnectionEvent(Base):
         sensor: Sensor number
         type_device: Device type (EnumDeviceType)
         sequence: Sequence number
-        datetime: Event occurrence datetime
-        created_at: Creation timestamp
+        created_at: Creation timestamp (replaces datetime)
         updated_at: Last update timestamp
     """
     __tablename__ = "connection_events"
@@ -156,8 +151,7 @@ class ConnectionEvent(Base):
     sensor = Column(Integer, nullable=False, index=True)
     type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
     sequence = Column(Integer, nullable=False)
-    datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):
@@ -178,8 +172,7 @@ class ActionEvent(Base):
         user: User who performed the action
         from_event: Referenced event ID
         from_type_event: Type of the referenced event ("Intrusion", "Fault", or "Connection")
-        datetime: Event occurrence datetime
-        created_at: Creation timestamp
+        created_at: Creation timestamp (when action was taken)
         updated_at: Last update timestamp
     """
     __tablename__ = "action_events"
@@ -190,8 +183,7 @@ class ActionEvent(Base):
     user = Column(String(100), nullable=False, index=True)
     from_event = Column(Integer, nullable=False, index=True)
     from_type_event = Column(String(50), nullable=False, index=True)
-    datetime = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
     def __repr__(self):

@@ -33,8 +33,7 @@ def test_delete_action_resets_detection_action_reported_to_false():
             type_device="Controller",
             sequence=1,
             action_reported="False",
-            result="PIR_SENSOR",
-            datetime=datetime.utcnow()
+            result="PIR_SENSOR"
         )
         db.add(detection)
         db.commit()
@@ -46,8 +45,7 @@ def test_delete_action_resets_detection_action_reported_to_false():
             content="Verified and cleared",
             user="admin",
             from_event=detection.id,
-            from_type_event="Intrusion",
-            datetime=datetime.utcnow()
+            from_type_event="Intrusion"
         )
         db.add(action)
         db.commit()
@@ -100,8 +98,7 @@ def test_delete_action_resets_malfunction_action_reported_to_false():
             first_start=100,
             first_end=200,
             second_start=300,
-            second_end=400,
-            datetime=datetime.utcnow()
+            second_end=400
         )
         db.add(malfunction)
         db.commit()
@@ -113,8 +110,7 @@ def test_delete_action_resets_malfunction_action_reported_to_false():
             content="Fixed the controller",
             user="technician",
             from_event=malfunction.id,
-            from_type_event="Fault",
-            datetime=datetime.utcnow()
+            from_type_event="Fault"
         )
         db.add(action)
         db.commit()
@@ -162,8 +158,7 @@ def test_delete_action_connection_no_error():
             controller=3,
             sensor=3,
             type_device="PIR",
-            sequence=3,
-            datetime=datetime.utcnow()
+            sequence=3
         )
         db.add(connection)
         db.commit()
@@ -175,8 +170,7 @@ def test_delete_action_connection_no_error():
             content="Verified connection",
             user="operator",
             from_event=connection.id,
-            from_type_event="Connection",
-            datetime=datetime.utcnow()
+            from_type_event="Connection"
         )
         db.add(action)
         db.commit()
@@ -215,8 +209,7 @@ def test_delete_action_updates_source_updated_at_timestamp():
             type_device="PIR",
             sequence=4,
             action_reported="False",
-            result="VIBRATION_SENSOR",
-            datetime=datetime.utcnow()
+            result="VIBRATION_SENSOR"
         )
         db.add(detection)
         db.commit()
@@ -228,8 +221,7 @@ def test_delete_action_updates_source_updated_at_timestamp():
             content="Action taken",
             user="admin",
             from_event=detection.id,
-            from_type_event="Intrusion",
-            datetime=datetime.utcnow()
+            from_type_event="Intrusion"
         )
         db.add(action)
         db.commit()

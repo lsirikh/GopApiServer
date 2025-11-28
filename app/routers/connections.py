@@ -61,9 +61,9 @@ async def get_connection_events(
     if group_event is not None:
         query = query.filter(ConnectionEvent.group_event == group_event)
     if start_date is not None:
-        query = query.filter(ConnectionEvent.datetime >= start_date)
+        query = query.filter(ConnectionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(ConnectionEvent.datetime <= end_date)
+        query = query.filter(ConnectionEvent.created_at <= end_date)
 
     # Get total count
     total = query.count()
@@ -72,8 +72,8 @@ async def get_connection_events(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results (order by datetime desc)
-    events = query.order_by(ConnectionEvent.datetime.desc()).offset(skip).limit(limit).all()
+    # Get paginated results (order by created_at desc)
+    events = query.order_by(ConnectionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
     # Convert to response format
     event_responses = [
@@ -85,7 +85,6 @@ async def get_connection_events(
             sensor=e.sensor,
             type_device=e.type_device.value,
             sequence=e.sequence,
-            datetime=e.datetime,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -143,7 +142,6 @@ async def get_connection_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -191,8 +189,7 @@ async def create_connection_event(
         controller=event_data.controller,
         sensor=event_data.sensor,
         type_device=event_type_device,
-        sequence=event_data.sequence,
-        datetime=event_data.datetime
+        sequence=event_data.sequence
     )
 
     db.add(new_event)
@@ -207,7 +204,6 @@ async def create_connection_event(
         sensor=new_event.sensor,
         type_device=new_event.type_device.value,
         sequence=new_event.sequence,
-        datetime=new_event.datetime,
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )
@@ -276,7 +272,6 @@ async def update_connection_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -335,7 +330,6 @@ async def replace_connection_event(
     event.sensor = event_data.sensor
     event.type_device = event_type_device
     event.sequence = event_data.sequence
-    event.datetime = event_data.datetime
 
     db.commit()
     db.refresh(event)
@@ -348,7 +342,6 @@ async def replace_connection_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )

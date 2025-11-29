@@ -9,8 +9,8 @@ import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
-from app.models.event import MalfunctionEvent, EnumTrueFalse, EnumFaultType
-from app.schemas.event import MalfunctionEventCreate, MalfunctionEventResponse, MalfunctionEventUpdate
+from app.models.event import MalfunctionEvent, ActionEvent, EnumTrueFalse, EnumFaultType
+from app.schemas.event import MalfunctionEventCreate, MalfunctionEventResponse, MalfunctionEventUpdate, ActionEventResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType
 
@@ -69,9 +69,9 @@ async def get_malfunction_events(
     if reason is not None:
         query = query.filter(MalfunctionEvent.reason == reason)
     if start_date is not None:
-        query = query.filter(MalfunctionEvent.datetime >= start_date)
+        query = query.filter(MalfunctionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(MalfunctionEvent.datetime <= end_date)
+        query = query.filter(MalfunctionEvent.created_at <= end_date)
 
     # Get total count
     total = query.count()
@@ -80,8 +80,8 @@ async def get_malfunction_events(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results (order by datetime desc)
-    events = query.order_by(MalfunctionEvent.datetime.desc()).offset(skip).limit(limit).all()
+    # Get paginated results (order by created_at desc)
+    events = query.order_by(MalfunctionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
     # Convert to response format
     event_responses = [
@@ -93,13 +93,12 @@ async def get_malfunction_events(
             sensor=e.sensor,
             type_device=e.type_device.value,
             sequence=e.sequence,
-            action_reported=e.action_reported.value,
+            action_reported=e.action_reported,
             reason=e.reason.value,
             first_start=e.first_start,
             first_end=e.first_end,
             second_start=e.second_start,
             second_end=e.second_end,
-            datetime=e.datetime,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -157,13 +156,12 @@ async def get_malfunction_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
-        action_reported=event.action_reported.value,
+        action_reported=event.action_reported,
         reason=event.reason.value,
         first_start=event.first_start,
         first_end=event.first_end,
         second_start=event.second_start,
         second_end=event.second_end,
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -219,8 +217,7 @@ async def create_malfunction_event(
         first_start=event_data.first_start,
         first_end=event_data.first_end,
         second_start=event_data.second_start,
-        second_end=event_data.second_end,
-        datetime=event_data.datetime
+        second_end=event_data.second_end
     )
 
     db.add(new_event)
@@ -235,13 +232,12 @@ async def create_malfunction_event(
         sensor=new_event.sensor,
         type_device=new_event.type_device.value,
         sequence=new_event.sequence,
-        action_reported=new_event.action_reported.value,
+        action_reported=new_event.action_reported,
         reason=new_event.reason.value,
         first_start=new_event.first_start,
         first_end=new_event.first_end,
         second_start=new_event.second_start,
         second_end=new_event.second_end,
-        datetime=new_event.datetime,
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )
@@ -326,13 +322,12 @@ async def update_malfunction_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
-        action_reported=event.action_reported.value,
+        action_reported=event.action_reported,
         reason=event.reason.value,
         first_start=event.first_start,
         first_end=event.first_end,
         second_start=event.second_start,
         second_end=event.second_end,
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -399,7 +394,6 @@ async def replace_malfunction_event(
     event.first_end = event_data.first_end
     event.second_start = event_data.second_start
     event.second_end = event_data.second_end
-    event.datetime = event_data.datetime
 
     db.commit()
     db.refresh(event)
@@ -412,13 +406,12 @@ async def replace_malfunction_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
-        action_reported=event.action_reported.value,
+        action_reported=event.action_reported,
         reason=event.reason.value,
         first_start=event.first_start,
         first_end=event.first_end,
         second_start=event.second_start,
         second_end=event.second_end,
-        datetime=event.datetime,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -430,7 +423,7 @@ async def replace_malfunction_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[dict])
+@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
 async def delete_malfunction_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -458,11 +451,82 @@ async def delete_malfunction_event(
             detail=f"Malfunction event with id {event_id} not found"
         )
 
+    # Phase 18.2: Prevent deletion if action_reported is "True"
+    if event.action_reported == "True":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="조치보고가 등록된 장애 이벤트는 삭제할 수 없습니다. ActionEvent를 먼저 삭제해주세요. / Cannot delete Malfunction event with Action reported. Please delete the ActionEvent first."
+        )
+
     db.delete(event)
     db.commit()
 
     return ApiResponse(
         success=True,
         message="Malfunction event deleted successfully",
-        data={"id": event_id}
+        data=None
+    )
+
+
+@router.get("/{event_id}/action", response_model=ApiResponse[ActionEventResponse])
+async def get_action_event_for_malfunction(
+    event_id: int,
+    current_user = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Phase 20.2: Get Action Event for Malfunction Event
+
+    Retrieves the ActionEvent associated with a MalfunctionEvent.
+
+    Args:
+        event_id: Malfunction Event ID
+        current_user: Current authenticated user (optional based on AUTH_MODE)
+        db: Database session
+
+    Returns:
+        ApiResponse with ActionEvent data (with nested source event)
+
+    Raises:
+        404: Malfunction event not found
+        404: No action event found for this malfunction event (action_reported="False")
+    """
+    # 1. MalfunctionEvent 존재 확인
+    malfunction = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
+    if not malfunction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Malfunction event not found with Id={event_id}"
+        )
+
+    # 2. ActionEvent 조회 (1:1 관계)
+    action = db.query(ActionEvent).filter(
+        ActionEvent.from_event == event_id,
+        ActionEvent.from_type_event == "Fault"
+    ).first()
+
+    if not action:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="조치 보고가 등록되지 않은 장애 이벤트입니다. / No action event found for this malfunction event."
+        )
+
+    # 3. ActionEventResponse 구성 (nested source event 포함)
+    # malfunction을 이미 조회했으므로 재사용
+    source_event_response = MalfunctionEventResponse.model_validate(malfunction)
+
+    action_response = ActionEventResponse(
+        id=action.id,
+        type_event=action.type_event,
+        content=action.content,
+        user=action.user,
+        from_event=source_event_response,  # Nested event object
+        created_at=action.created_at,
+        updated_at=action.updated_at
+    )
+
+    return ApiResponse(
+        success=True,
+        message="Action event retrieved successfully",
+        data=action_response
     )

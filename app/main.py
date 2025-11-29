@@ -4,13 +4,14 @@ GOP API Server - Main Application
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.openapi.docs import get_swagger_ui_html
 from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions
+from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings, camera_event_mappings
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -44,12 +45,124 @@ app = FastAPI(
     title="GOP RESTful API Server",
     description="General Outpost RESTful API Server",
     version="1.0.0",
-    docs_url="/docs",
+    docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     lifespan=lifespan,
     generate_unique_id_function=lambda route: f"{route.name}"
 )
+
+
+# Custom Swagger UI with Log Viewer button
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    """
+    Custom Swagger UI with additional navigation buttons
+    """
+    return HTMLResponse(
+        content=f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>GOP API - Swagger UI</title>
+            <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+            <style>
+                body {{
+                    margin: 0;
+                    padding: 0;
+                }}
+                .custom-header {{
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    padding: 12px 20px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                }}
+                .custom-header h1 {{
+                    color: #fff;
+                    margin: 0;
+                    font-size: 1.4em;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }}
+                .header-buttons {{
+                    display: flex;
+                    gap: 10px;
+                }}
+                .header-btn {{
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    text-decoration: none;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    transition: all 0.2s;
+                }}
+                .btn-logs {{
+                    background: #4CAF50;
+                    color: white;
+                }}
+                .btn-logs:hover {{
+                    background: #45a049;
+                    transform: translateY(-1px);
+                }}
+                .btn-admin {{
+                    background: #2196F3;
+                    color: white;
+                }}
+                .btn-admin:hover {{
+                    background: #1976D2;
+                    transform: translateY(-1px);
+                }}
+                .btn-redoc {{
+                    background: #607D8B;
+                    color: white;
+                }}
+                .btn-redoc:hover {{
+                    background: #546E7A;
+                    transform: translateY(-1px);
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="custom-header">
+                <h1>🛡️ GOP RESTful API Server</h1>
+                <div class="header-buttons">
+                    <a href="/api/logs/viewer" class="header-btn btn-logs">
+                        📋 Log Viewer
+                    </a>
+                    <a href="/redoc" class="header-btn btn-redoc">
+                        📖 ReDoc
+                    </a>
+                </div>
+            </div>
+            <div id="swagger-ui"></div>
+            <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+            <script>
+                window.onload = function() {{
+                    SwaggerUIBundle({{
+                        url: "/openapi.json",
+                        dom_id: '#swagger-ui',
+                        presets: [
+                            SwaggerUIBundle.presets.apis,
+                            SwaggerUIBundle.SwaggerUIStandalonePreset
+                        ],
+                        layout: "BaseLayout",
+                        deepLinking: true,
+                        showExtensions: true,
+                        showCommonExtensions: true
+                    }});
+                }}
+            </script>
+        </body>
+        </html>
+        """,
+        media_type="text/html"
+    )
 
 
 # Exception handlers
@@ -126,6 +239,8 @@ app.include_router(detections.router, prefix="/api/events/detections", tags=["De
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])
 app.include_router(connections.router, prefix="/api/events/connections", tags=["Connections"])
 app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"])
+app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
+app.include_router(camera_event_mappings.router, prefix="/api/integrations/camera-event-mappings", tags=["CameraEventMappings"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

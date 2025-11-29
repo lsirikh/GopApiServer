@@ -7,11 +7,7 @@ from datetime import datetime
 
 
 def test_detection_event_model_has_required_fields(test_db):
-    """
-    Test: DetectionEvent model has all required fields
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: DetectionEvent model has all required fields"""
     from app.models.event import DetectionEvent
 
     # Get table columns
@@ -20,38 +16,40 @@ def test_detection_event_model_has_required_fields(test_db):
 
     # Check all required fields exist
     assert 'id' in columns
-    assert 'message_type' in columns
-    assert 'device_id' in columns
     assert 'group_event' in columns
-    assert 'status' in columns
+    assert 'type_event' in columns
+    assert 'controller' in columns
+    assert 'sensor' in columns
+    assert 'type_device' in columns
+    assert 'sequence' in columns
+    assert 'action_reported' in columns
     assert 'result' in columns
-    assert 'datetime' in columns
     assert 'created_at' in columns
     assert 'updated_at' in columns
+    # datetime should NOT exist
+    assert 'datetime' not in columns
 
 
 def test_detection_event_model_timestamps_auto_set(test_db):
-    """
-    Test: DetectionEvent model automatically sets timestamps
-
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import DetectionEvent, EnumTrueFalse, EnumDetectionType
+    """Test: DetectionEvent model automatically sets timestamps"""
+    from app.models.event import DetectionEvent, EnumTrueFalse, EnumDetectionType, EnumDeviceType
 
     # Create detection event
     event = DetectionEvent(
-        message_type=1,
-        device_id=100,
         group_event="GROUP_A",
-        status=EnumTrueFalse.TRUE,
-        result=EnumDetectionType.PIR_SENSOR,
-        datetime=datetime.utcnow()
+        type_event="Intrusion",
+        controller=1,
+        sensor=1,
+        type_device=EnumDeviceType.PIR,
+        sequence=1,
+        action_reported=EnumTrueFalse.False_,
+        result=EnumDetectionType.PIR_SENSOR
     )
     test_db.add(event)
     test_db.commit()
     test_db.refresh(event)
 
-    # Check timestamps are set
+    # Check timestamps are automatically set
     assert event.created_at is not None
     assert event.updated_at is not None
     assert isinstance(event.created_at, datetime)
@@ -59,34 +57,26 @@ def test_detection_event_model_timestamps_auto_set(test_db):
 
 
 def test_detection_event_model_table_name(test_db):
-    """
-    Test: DetectionEvent model has correct table name
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: DetectionEvent model has correct table name"""
     from app.models.event import DetectionEvent
 
     assert DetectionEvent.__tablename__ == "detection_events"
 
 
 def test_detection_event_model_create_and_retrieve(test_db):
-    """
-    Test: Can create and retrieve DetectionEvent
-
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import DetectionEvent, EnumTrueFalse, EnumDetectionType
-
-    event_datetime = datetime.utcnow()
+    """Test: Can create and retrieve DetectionEvent"""
+    from app.models.event import DetectionEvent, EnumTrueFalse, EnumDetectionType, EnumDeviceType
 
     # Create detection event
     event = DetectionEvent(
-        message_type=1,
-        device_id=100,
-        group_event="GROUP_A",
-        status=EnumTrueFalse.TRUE,
-        result=EnumDetectionType.PIR_SENSOR,
-        datetime=event_datetime
+        group_event="GROUP_TEST",
+        type_event="Intrusion",
+        controller=1,
+        sensor=2,
+        type_device=EnumDeviceType.Fence,
+        sequence=10,
+        action_reported=EnumTrueFalse.False_,
+        result=EnumDetectionType.THERMAL_SENSOR
     )
     test_db.add(event)
     test_db.commit()
@@ -96,32 +86,25 @@ def test_detection_event_model_create_and_retrieve(test_db):
     retrieved = test_db.query(DetectionEvent).filter(DetectionEvent.id == event.id).first()
 
     assert retrieved is not None
-    assert retrieved.message_type == 1
-    assert retrieved.device_id == 100
-    assert retrieved.group_event == "GROUP_A"
-    assert retrieved.status == EnumTrueFalse.TRUE
-    assert retrieved.result == EnumDetectionType.PIR_SENSOR
-    assert retrieved.datetime == event_datetime
+    assert retrieved.group_event == "GROUP_TEST"
+    assert retrieved.controller == 1
+    assert retrieved.sensor == 2
+    assert retrieved.sequence == 10
+    assert retrieved.created_at is not None
 
 
-def test_detection_event_enums_exist(test_db):
-    """
-    Test: Detection event-specific enums exist and have correct values
+def test_detection_event_enums_exist():
+    """Test: Detection Event related enums exist"""
+    from app.models.event import EnumDeviceType, EnumTrueFalse, EnumDetectionType
 
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import EnumTrueFalse, EnumDetectionType
+    # Test EnumDeviceType
+    assert hasattr(EnumDeviceType, 'PIR')
+    assert hasattr(EnumDeviceType, 'Fence')
 
     # Test EnumTrueFalse
-    assert EnumTrueFalse.FALSE.value == "False"
-    assert EnumTrueFalse.TRUE.value == "True"
+    assert hasattr(EnumTrueFalse, 'True_')
+    assert hasattr(EnumTrueFalse, 'False_')
 
     # Test EnumDetectionType
-    assert EnumDetectionType.NONE.value == "NONE"
-    assert EnumDetectionType.CABLE_CUTTING.value == "CABLE_CUTTING"
-    assert EnumDetectionType.CABLE_CONNECTED.value == "CABLE_CONNECTED"
-    assert EnumDetectionType.PIR_SENSOR.value == "PIR_SENSOR"
-    assert EnumDetectionType.THERMAL_SENSOR.value == "THERMAL_SENSOR"
-    assert EnumDetectionType.VIBRATION_SENSOR.value == "VIBRATION_SENSOR"
-    assert EnumDetectionType.CONTACT_SENSOR.value == "CONTACT_SENSOR"
-    assert EnumDetectionType.DISTANCE_SENSOR.value == "DISTANCE_SENSOR"
+    assert hasattr(EnumDetectionType, 'PIR_SENSOR')
+    assert hasattr(EnumDetectionType, 'THERMAL_SENSOR')

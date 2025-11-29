@@ -7,11 +7,7 @@ from datetime import datetime
 
 
 def test_connection_event_model_has_required_fields(test_db):
-    """
-    Test: ConnectionEvent model has all required fields
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: ConnectionEvent model has all required fields"""
     from app.models.event import ConnectionEvent
 
     # Get table columns
@@ -20,36 +16,36 @@ def test_connection_event_model_has_required_fields(test_db):
 
     # Check all required fields exist
     assert 'id' in columns
-    assert 'message_type' in columns
-    assert 'device_id' in columns
     assert 'group_event' in columns
-    assert 'status' in columns
-    assert 'datetime' in columns
+    assert 'type_event' in columns
+    assert 'controller' in columns
+    assert 'sensor' in columns
+    assert 'type_device' in columns
+    assert 'sequence' in columns
     assert 'created_at' in columns
     assert 'updated_at' in columns
+    # datetime should NOT exist
+    assert 'datetime' not in columns
 
 
 def test_connection_event_model_timestamps_auto_set(test_db):
-    """
-    Test: ConnectionEvent model automatically sets timestamps
-
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import ConnectionEvent, EnumTrueFalse
+    """Test: ConnectionEvent model automatically sets timestamps"""
+    from app.models.event import ConnectionEvent, EnumDeviceType
 
     # Create connection event
     event = ConnectionEvent(
-        message_type=3,
-        device_id=300,
         group_event="GROUP_C",
-        status=EnumTrueFalse.TRUE,
-        datetime=datetime.utcnow()
+        type_event="Connection",
+        controller=3,
+        sensor=1,
+        type_device=EnumDeviceType.PIR,
+        sequence=1
     )
     test_db.add(event)
     test_db.commit()
     test_db.refresh(event)
 
-    # Check timestamps are set
+    # Check timestamps are automatically set
     assert event.created_at is not None
     assert event.updated_at is not None
     assert isinstance(event.created_at, datetime)
@@ -57,33 +53,24 @@ def test_connection_event_model_timestamps_auto_set(test_db):
 
 
 def test_connection_event_model_table_name(test_db):
-    """
-    Test: ConnectionEvent model has correct table name
-
-    Expected to fail initially (Red phase).
-    """
+    """Test: ConnectionEvent model has correct table name"""
     from app.models.event import ConnectionEvent
 
     assert ConnectionEvent.__tablename__ == "connection_events"
 
 
 def test_connection_event_model_create_and_retrieve(test_db):
-    """
-    Test: Can create and retrieve ConnectionEvent
-
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import ConnectionEvent, EnumTrueFalse
-
-    event_datetime = datetime.utcnow()
+    """Test: Can create and retrieve ConnectionEvent"""
+    from app.models.event import ConnectionEvent, EnumDeviceType
 
     # Create connection event
     event = ConnectionEvent(
-        message_type=3,
-        device_id=300,
-        group_event="GROUP_C",
-        status=EnumTrueFalse.FALSE,
-        datetime=event_datetime
+        group_event="GROUP_TEST_CONNECTION",
+        type_event="Connection",
+        controller=3,
+        sensor=2,
+        type_device=EnumDeviceType.Fence,
+        sequence=2
     )
     test_db.add(event)
     test_db.commit()
@@ -93,32 +80,30 @@ def test_connection_event_model_create_and_retrieve(test_db):
     retrieved = test_db.query(ConnectionEvent).filter(ConnectionEvent.id == event.id).first()
 
     assert retrieved is not None
-    assert retrieved.message_type == 3
-    assert retrieved.device_id == 300
-    assert retrieved.group_event == "GROUP_C"
-    assert retrieved.status == EnumTrueFalse.FALSE
-    assert retrieved.datetime == event_datetime
+    assert retrieved.group_event == "GROUP_TEST_CONNECTION"
+    assert retrieved.controller == 3
+    assert retrieved.sensor == 2
+    assert retrieved.type_device == EnumDeviceType.Fence
+    assert retrieved.sequence == 2
+    assert retrieved.created_at is not None
 
 
-def test_connection_event_uses_enum_true_false(test_db):
-    """
-    Test: ConnectionEvent uses EnumTrueFalse for status
+def test_connection_event_uses_enum_device_type(test_db):
+    """Test: ConnectionEvent uses EnumDeviceType for type_device"""
+    from app.models.event import ConnectionEvent, EnumDeviceType
 
-    Expected to fail initially (Red phase).
-    """
-    from app.models.event import ConnectionEvent, EnumTrueFalse
-
-    # Create with TRUE status
+    # Create with PIR type_device
     event = ConnectionEvent(
-        message_type=3,
-        device_id=300,
         group_event="GROUP_C",
-        status=EnumTrueFalse.TRUE,
-        datetime=datetime.utcnow()
+        type_event="Connection",
+        controller=3,
+        sensor=1,
+        type_device=EnumDeviceType.PIR,
+        sequence=1
     )
     test_db.add(event)
     test_db.commit()
     test_db.refresh(event)
 
-    assert event.status == EnumTrueFalse.TRUE
-    assert event.status.value == "True"
+    assert event.type_device == EnumDeviceType.PIR
+    assert event.type_device.value == "PIR"

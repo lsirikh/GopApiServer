@@ -4,6 +4,7 @@ API Log Model for tracking all API requests
 from sqlalchemy import Column, Integer, String, DateTime
 from app.database import Base
 from datetime import datetime
+from app.config import settings
 
 
 class ApiLog(Base):
@@ -14,7 +15,7 @@ class ApiLog(Base):
     __tablename__ = "api_logs"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False, index=True)
     resource = Column(String(100), nullable=False, index=True)  # e.g., "devices/controllers"
     method = Column(String(10), nullable=False, index=True)  # GET, POST, PATCH, DELETE, etc.
     client_uuid = Column(String(100), nullable=True, index=True)  # X-Client-UUID header
@@ -22,6 +23,9 @@ class ApiLog(Base):
     description = Column(String(500), nullable=False)  # e.g., "Create new controller"
     status_code = Column(Integer, nullable=True)  # HTTP status code
     user_id = Column(Integer, nullable=True)  # User ID if authenticated
+    body = Column(String(2000), nullable=True)  # Request body (JSON string)
+    param = Column(String(1000), nullable=True)  # URL query parameters
+    error_message = Column(String(1000), nullable=True)  # Error message if request failed
 
     def __repr__(self):
         return (

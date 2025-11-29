@@ -19,45 +19,60 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual Environment
-venv/
-ENV/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Environment
-.env
-.env.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-data/*.db
-
-# Logs
-logs/*.log
-*.log
-
-# Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+#.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Data (선택적 - 필요시 주석 해제)
+# data/
+
+# Claude/AI 관련
+.claude/
+Claude.md
+claude.md
+
+# Documentation & Planning
+docs/
+Docs/
+plan.md
+PRD.md
+prd.md
+*prd.md
+prd*.md
+
+# Tests cache
+tests/__pycache__/
+.pytest_cache/
+
+# Docker
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
-
-# 문서
-Docs/
-docs/
-.claude/
-

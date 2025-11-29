@@ -46,7 +46,7 @@ def test_malfunction_event_model_timestamps_auto_set(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         reason=EnumFaultType.FAULT_CONTROLLER,
         first_start=100,
         first_end=200,
@@ -83,7 +83,7 @@ def test_malfunction_event_model_create_and_retrieve(test_db):
         sensor=2,
         type_device=EnumDeviceType.Fence,
         sequence=2,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         reason=EnumFaultType.FAULT_FENCE,
         first_start=100,
         first_end=200,
@@ -101,7 +101,7 @@ def test_malfunction_event_model_create_and_retrieve(test_db):
     assert retrieved.group_event == "GROUP_TEST_MALFUNCTION"
     assert retrieved.controller == 2
     assert retrieved.sensor == 2
-    assert retrieved.action_reported == EnumTrueFalse.FALSE
+    assert retrieved.action_reported == EnumTrueFalse.False_
     assert retrieved.reason == EnumFaultType.FAULT_FENCE
     assert retrieved.first_start == 100
     assert retrieved.first_end == 200
@@ -122,8 +122,8 @@ def test_malfunction_event_enums_exist():
     assert hasattr(EnumFaultType, 'FAULT_ETC')
 
     # Test EnumTrueFalse
-    assert hasattr(EnumTrueFalse, 'TRUE')
-    assert hasattr(EnumTrueFalse, 'FALSE')
+    assert hasattr(EnumTrueFalse, 'True_')
+    assert hasattr(EnumTrueFalse, 'False_')
 
     # Test EnumDeviceType
     assert hasattr(EnumDeviceType, 'PIR')

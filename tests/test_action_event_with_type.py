@@ -21,7 +21,7 @@ def test_action_event_has_from_event_type_field(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         result=EnumDetectionType.PIR_SENSOR,
         datetime=datetime.now(settings.tz)
     )
@@ -57,7 +57,7 @@ def test_action_event_type_accepts_all_event_types(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         result=EnumDetectionType.PIR_SENSOR,
         datetime=datetime.now(settings.tz)
     )
@@ -69,7 +69,7 @@ def test_action_event_type_accepts_all_event_types(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         reason=EnumFaultType.FAULT_CONTROLLER,
         first_start=0,
         first_end=10,
@@ -141,7 +141,7 @@ def test_action_event_requires_from_type_event(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         result=EnumDetectionType.PIR_SENSOR,
         datetime=datetime.now(settings.tz)
     )

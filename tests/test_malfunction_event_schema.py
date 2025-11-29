@@ -104,7 +104,7 @@ def test_malfunction_event_response_from_model(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         reason=EnumFaultType.FAULT_CONTROLLER,
         first_start=100,
         first_end=200,

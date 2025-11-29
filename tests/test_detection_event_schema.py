@@ -89,7 +89,7 @@ def test_detection_event_response_from_model(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         result=EnumDetectionType.PIR_SENSOR
     )
     test_db.add(event)

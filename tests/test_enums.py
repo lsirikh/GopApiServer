@@ -54,7 +54,7 @@ def test_enum_camera_type_exists():
 
     assert issubclass(EnumCameraType, Enum), "EnumCameraType should be an Enum"
 
-    required_values = ["NONE", "FIXED", "PTZ", "FISHEYES", "THERMAL"]
+    required_values = ["NONE", "FIXED", "PTZ"]
     enum_values = [member.name for member in EnumCameraType]
 
     for value in required_values:

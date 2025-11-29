@@ -42,7 +42,7 @@ def test_detection_event_model_timestamps_auto_set(test_db):
         sensor=1,
         type_device=EnumDeviceType.PIR,
         sequence=1,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         result=EnumDetectionType.PIR_SENSOR
     )
     test_db.add(event)
@@ -75,7 +75,7 @@ def test_detection_event_model_create_and_retrieve(test_db):
         sensor=2,
         type_device=EnumDeviceType.Fence,
         sequence=10,
-        action_reported=EnumTrueFalse.FALSE,
+        action_reported=EnumTrueFalse.False_,
         result=EnumDetectionType.THERMAL_SENSOR
     )
     test_db.add(event)
@@ -102,8 +102,8 @@ def test_detection_event_enums_exist():
     assert hasattr(EnumDeviceType, 'Fence')
 
     # Test EnumTrueFalse
-    assert hasattr(EnumTrueFalse, 'TRUE')
-    assert hasattr(EnumTrueFalse, 'FALSE')
+    assert hasattr(EnumTrueFalse, 'True_')
+    assert hasattr(EnumTrueFalse, 'False_')
 
     # Test EnumDetectionType
     assert hasattr(EnumDetectionType, 'PIR_SENSOR')

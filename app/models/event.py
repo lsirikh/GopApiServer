@@ -4,38 +4,10 @@ Event models: DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from datetime import datetime as dt
-import enum
 
 from app.database import Base
-from app.utils.enums import EnumDeviceType
+from app.utils.enums import EnumDeviceType, EnumDetectionType, EnumFaultType, EnumTrueFalse
 from app.config import settings
-
-
-class EnumTrueFalse(str, enum.Enum):
-    """True/False enumeration"""
-    FALSE = "False"
-    TRUE = "True"
-
-
-class EnumDetectionType(str, enum.Enum):
-    """Detection type enumeration"""
-    NONE = "NONE"
-    CABLE_CUTTING = "CABLE_CUTTING"
-    CABLE_CONNECTED = "CABLE_CONNECTED"
-    PIR_SENSOR = "PIR_SENSOR"
-    THERMAL_SENSOR = "THERMAL_SENSOR"
-    VIBRATION_SENSOR = "VIBRATION_SENSOR"
-    CONTACT_SENSOR = "CONTACT_SENSOR"
-    DISTANCE_SENSOR = "DISTANCE_SENSOR"
-
-
-class EnumFaultType(str, enum.Enum):
-    """Fault type enumeration"""
-    FAULT_CONTROLLER = "FAULT_CONTROLLER"
-    FAULT_FENCE = "FAULT_FENCE"
-    FAULT_MULTI = "FAULT_MULTI"
-    FAULT_CABLE_CUTTING = "FAULT_CABLE_CUTTING"
-    FAULT_ETC = "FAULT_ETC"
 
 
 class DetectionEvent(Base):

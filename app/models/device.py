@@ -4,57 +4,10 @@ Device models: Controller, Sensor, Camera
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-import enum
 
 from app.database import Base
 from app.config import settings
-
-
-class EnumDeviceType(str, enum.Enum):
-    """Device type enumeration"""
-    NONE = "NONE"
-    Controller = "Controller"
-    Multi = "Multi"
-    Fence = "Fence"
-    Underground = "Underground"
-    Contact = "Contact"
-    PIR = "PIR"
-    IoController = "IoController"
-    Laser = "Laser"
-    Cable = "Cable"
-    IpCamera = "IpCamera"
-    SmartSensor = "SmartSensor"
-    SmartSensor2 = "SmartSensor2"
-    SmartCompound = "SmartCompound"
-    IpSpeaker = "IpSpeaker"
-    Radar = "Radar"
-    OpticalCable = "OpticalCable"
-    Fence_Group = "Fence_Group"
-
-
-class EnumDeviceStatus(str, enum.Enum):
-    """Device status enumeration"""
-    ACTIVATED = "ACTIVATED"
-    ERROR = "ERROR"
-    DEACTIVATED = "DEACTIVATED"
-
-
-class EnumCameraMode(str, enum.Enum):
-    """Camera mode enumeration"""
-    NONE = "NONE"
-    ONVIF = "ONVIF"
-    EMSTONE_API = "EMSTONE_API"
-    INNODEP_API = "INNODEP_API"
-    ETC = "ETC"
-
-
-class EnumCameraType(str, enum.Enum):
-    """Camera type enumeration"""
-    NONE = "NONE"
-    FIXED = "FIXED"
-    PTZ = "PTZ"
-    FISHEYES = "FISHEYES"
-    THERMAL = "THERMAL"
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 
 
 class Controller(Base):

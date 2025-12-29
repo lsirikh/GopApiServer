@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings, camera_event_mappings
+from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings, camera_event_mappings, server_categories, servers
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -241,6 +241,8 @@ app.include_router(connections.router, prefix="/api/events/connections", tags=["
 app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"])
 app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
 app.include_router(camera_event_mappings.router, prefix="/api/integrations/camera-event-mappings", tags=["CameraEventMappings"])
+app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
+app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

@@ -19,38 +19,37 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[DetectionEventResponse]])
 async def get_detection_events(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    controller: Optional[int] = Query(None, description="Filter by controller"),
-    sensor: Optional[int] = Query(None, description="Filter by sensor"),
-    type_device: Optional[str] = Query(None, description="Filter by device type"),
-    group_event: Optional[str] = Query(None, description="Filter by group_event"),
-    action_reported: Optional[str] = Query(None, description="Filter by action_reported"),
-    result: Optional[str] = Query(None, description="Filter by result type"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    controller: Optional[int] = Query(None, description="컨트롤러 번호로 필터링"),
+    sensor: Optional[int] = Query(None, description="센서 번호로 필터링"),
+    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
+    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    action_reported: Optional[str] = Query(None, description="조치보고 여부로 필터링"),
+    result: Optional[str] = Query(None, description="결과 유형으로 필터링"),
+    start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
+    end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of detection events with pagination and filters
+    탐지 이벤트 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        controller: Filter by controller number
-        sensor: Filter by sensor number
-        type_device: Filter by device type
-        group_event: Filter by group_event
-        action_reported: Filter by action_reported
-        result: Filter by result type
-        start_date: Filter by start date (event datetime >= start_date)
-        end_date: Filter by end date (event datetime <= end_date)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    탐지 이벤트 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of detection events and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **controller**: 컨트롤러 번호로 필터링
+    - **sensor**: 센서 번호로 필터링
+    - **type_device**: 장치 유형으로 필터링
+    - **group_event**: 이벤트 그룹으로 필터링
+    - **action_reported**: 조치보고 여부로 필터링
+    - **result**: 결과 유형으로 필터링
+    - **start_date**: 시작 날짜로 필터링
+    - **end_date**: 종료 날짜로 필터링
+
+    **Response**: 탐지 이벤트 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(DetectionEvent)
@@ -123,18 +122,17 @@ async def get_detection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single detection event by ID
+    탐지 이벤트 단건 조회
 
-    Args:
-        event_id: Detection event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 탐지 이벤트의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with detection event data
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If detection event not found
+    **Response**: 탐지 이벤트 상세 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
     """
     event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
 
@@ -172,18 +170,24 @@ async def create_detection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new detection event
+    탐지 이벤트 생성
 
-    Args:
-        event_data: Detection event creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 탐지 이벤트를 생성합니다.
 
-    Returns:
-        ApiResponse with created detection event data
+    **Request Body**:
+    - **group_event**: 이벤트 그룹 (필수)
+    - **type_event**: 이벤트 유형 (필수)
+    - **controller**: 컨트롤러 번호 (필수)
+    - **sensor**: 센서 번호 (필수)
+    - **type_device**: 장치 유형 (필수)
+    - **sequence**: 시퀀스 번호 (필수)
+    - **action_reported**: 조치보고 여부 (필수)
+    - **result**: 결과 유형 (필수)
 
-    Raises:
-        HTTPException 422: If invalid enum value provided
+    **Response**: 생성된 탐지 이벤트 정보
+
+    **Error**:
+    - 422: 유효하지 않은 enum 값
     """
     # Convert string enum values to enum types
     try:
@@ -241,20 +245,28 @@ async def update_detection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Update a detection event (partial update)
+    탐지 이벤트 부분 수정 (PATCH)
 
-    Args:
-        event_id: Detection event ID
-        event_data: Detection event update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    탐지 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated detection event data
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If detection event not found
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 선택):
+    - **group_event**: 이벤트 그룹
+    - **type_event**: 이벤트 유형
+    - **controller**: 컨트롤러 번호
+    - **sensor**: 센서 번호
+    - **type_device**: 장치 유형
+    - **sequence**: 시퀀스 번호
+    - **action_reported**: 조치보고 여부
+    - **result**: 결과 유형
+
+    **Response**: 수정된 탐지 이벤트 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
     event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
 
@@ -327,20 +339,28 @@ async def replace_detection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Replace a detection event (full update - all fields required)
+    탐지 이벤트 전체 수정 (PUT)
 
-    Args:
-        event_id: Detection event ID
-        event_data: Complete detection event data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    탐지 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated detection event data
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If detection event not found
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 필수):
+    - **group_event**: 이벤트 그룹
+    - **type_event**: 이벤트 유형
+    - **controller**: 컨트롤러 번호
+    - **sensor**: 센서 번호
+    - **type_device**: 장치 유형
+    - **sequence**: 시퀀스 번호
+    - **action_reported**: 조치보고 여부
+    - **result**: 결과 유형
+
+    **Response**: 수정된 탐지 이벤트 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
     event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
 
@@ -402,18 +422,18 @@ async def delete_detection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a detection event
+    탐지 이벤트 삭제
 
-    Args:
-        event_id: Detection event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 탐지 이벤트를 삭제합니다. 조치보고가 등록된 이벤트는 삭제할 수 없습니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If detection event not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 409: 조치보고가 등록된 탐지 이벤트는 삭제 불가
     """
     event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
 
@@ -447,21 +467,18 @@ async def get_action_event_for_detection(
     db: Session = Depends(get_db)
 ):
     """
-    Phase 20.1: Get Action Event for Detection Event
+    탐지 이벤트의 조치 이벤트 조회
 
-    Retrieves the ActionEvent associated with a DetectionEvent.
+    특정 탐지 이벤트에 연결된 조치 이벤트를 조회합니다.
 
-    Args:
-        event_id: Detection Event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Returns:
-        ApiResponse with ActionEvent data (with nested source event)
+    **Response**: 조치 이벤트 정보 (연결된 원본 이벤트 포함)
 
-    Raises:
-        404: Detection event not found
-        404: No action event found for this detection event (action_reported="False")
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 404: 해당 탐지 이벤트에 연결된 조치 이벤트가 없음
     """
     # 1. DetectionEvent 존재 확인
     detection = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()

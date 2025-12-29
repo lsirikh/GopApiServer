@@ -17,28 +17,27 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[ControllerResponse]])
 async def get_controllers(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    group_device: Optional[int] = Query(None, description="Filter by group_device"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    include_sensors: bool = Query(False, description="Include sensors information"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링"),
+    status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
+    include_sensors: bool = Query(False, description="센서 정보 포함 여부 (기본값: false)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of controllers with pagination and filters
+    제어기 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        group_device: Filter by group_device
-        status: Filter by status
-        include_sensors: Include sensors information (default: False)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    제어기 목록을 페이지네이션하여 조회합니다.
+    그룹 및 상태로 필터링할 수 있습니다.
 
-    Returns:
-        ApiResponse with list of controllers and pagination metadata
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **group_device**: 장치 그룹으로 필터링 (선택)
+    - **status**: 상태로 필터링 (선택)
+    - **include_sensors**: 센서 정보 포함 여부 (기본값: false)
+
+    **Response**: 제어기 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(Controller)
@@ -116,24 +115,22 @@ async def get_controllers(
 @router.get("/{controller_id}", response_model=ApiResponse[ControllerResponse])
 async def get_controller(
     controller_id: int,
-    include_sensors: bool = Query(False, description="Include sensors information"),
+    include_sensors: bool = Query(False, description="센서 정보 포함 여부 (기본값: false)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get a single controller by ID
+    제어기 단건 조회
 
-    Args:
-        controller_id: Controller ID
-        include_sensors: Include sensors information (default: False)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    ID로 제어기 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with controller data
+    - **controller_id**: 제어기 ID (Path Parameter)
+    - **include_sensors**: 센서 정보 포함 여부 (기본값: false)
 
-    Raises:
-        HTTPException 404: If controller not found
+    **Response**: 제어기 상세 정보
+
+    **Error**:
+    - 404: 제어기를 찾을 수 없음
     """
     controller = db.query(Controller).filter(Controller.id == controller_id).first()
 
@@ -191,18 +188,26 @@ async def create_controller(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new controller
+    제어기 생성
 
-    Args:
-        controller_data: Controller creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 제어기를 생성합니다.
+    number_device는 유니크하므로 중복될 수 없습니다.
 
-    Returns:
-        ApiResponse with created controller data
+    **Request Body**:
+    - **number_device**: 장치 번호 (필수, 유니크)
+    - **group_device**: 장치 그룹 (필수)
+    - **name_device**: 장치 이름 (필수)
+    - **type_device**: 장치 타입 EnumDeviceType (필수)
+    - **version**: 버전 (선택)
+    - **status**: 상태 EnumDeviceStatus (필수)
+    - **ip_address**: IP 주소 (필수)
+    - **ip_port**: IP 포트 (필수)
 
-    Raises:
-        HTTPException 409: If controller with same number_device already exists
+    **Response**: 생성된 제어기 정보
+
+    **Error**:
+    - 409: 동일한 number_device가 이미 존재함
+    - 422: 잘못된 Enum 값
     """
     # Check for duplicate number_device
     existing = db.query(Controller).filter(
@@ -270,20 +275,29 @@ async def update_controller(
     db: Session = Depends(get_db)
 ):
     """
-    Update a controller (partial update)
+    제어기 부분 수정 (PATCH)
 
-    Args:
-        controller_id: Controller ID
-        controller_data: Controller update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    제어기의 일부 필드만 수정합니다.
+    제공된 필드만 업데이트되며, 나머지는 유지됩니다.
 
-    Returns:
-        ApiResponse with updated controller data
+    - **controller_id**: 제어기 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If controller not found
-        HTTPException 409: If number_device conflicts with existing controller
+    **Request Body** (모든 필드 선택):
+    - **number_device**: 장치 번호 (유니크)
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 타입 EnumDeviceType
+    - **version**: 버전
+    - **status**: 상태 EnumDeviceStatus
+    - **ip_address**: IP 주소
+    - **ip_port**: IP 포트
+
+    **Response**: 수정된 제어기 정보
+
+    **Error**:
+    - 404: 제어기를 찾을 수 없음
+    - 409: 변경하려는 number_device가 이미 존재함
+    - 422: 잘못된 Enum 값
     """
     controller = db.query(Controller).filter(Controller.id == controller_id).first()
 
@@ -361,20 +375,29 @@ async def replace_controller(
     db: Session = Depends(get_db)
 ):
     """
-    Replace a controller (full update - all fields required)
+    제어기 전체 수정 (PUT)
 
-    Args:
-        controller_id: Controller ID
-        controller_data: Complete controller data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    제어기의 모든 필드를 교체합니다.
+    모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated controller data
+    - **controller_id**: 제어기 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If controller not found
-        HTTPException 409: If number_device conflicts with existing controller
+    **Request Body** (모든 필드 필수):
+    - **number_device**: 장치 번호 (유니크)
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 타입 EnumDeviceType
+    - **version**: 버전
+    - **status**: 상태 EnumDeviceStatus
+    - **ip_address**: IP 주소
+    - **ip_port**: IP 포트
+
+    **Response**: 수정된 제어기 정보
+
+    **Error**:
+    - 404: 제어기를 찾을 수 없음
+    - 409: 변경하려는 number_device가 이미 존재함
+    - 422: 잘못된 Enum 값
     """
     controller = db.query(Controller).filter(Controller.id == controller_id).first()
 
@@ -448,18 +471,16 @@ async def delete_controller(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a controller
+    제어기 삭제
 
-    Args:
-        controller_id: Controller ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    제어기를 삭제합니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    - **controller_id**: 제어기 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If controller not found
+    **Response**: 삭제된 제어기 ID
+
+    **Error**:
+    - 404: 제어기를 찾을 수 없음
     """
     controller = db.query(Controller).filter(Controller.id == controller_id).first()
 

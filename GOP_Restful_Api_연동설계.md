@@ -16,8 +16,9 @@
 5. [Device API 설계](#5-device-api-설계)
 6. [Event API 설계](#6-event-api-설계)
 7. [Integration API 설계](#7-integration-api-설계)
-8. [에러 처리](#8-에러-처리)
-9. [부록](#9-부록)
+8. [Server Monitoring API 설계](#8-server-monitoring-api-설계)
+9. [에러 처리](#9-에러-처리)
+10. [부록](#10-부록)
 
 ---
 
@@ -367,6 +368,49 @@ public enum EnumEventCategory
 - `category_event` 필드: `EnumEventCategory` Enum 사용 (위 값 중 하나)
 - `group_event` 필드: 자유 문자열 (Enum 제약 없음, 예: "Intrusion", "Fault", "Action", "Connection" 등)
 - 기존 `EnumCategoryEvent`는 `EnumEventCategory`의 별칭으로 유지되어 하위 호환성 보장
+
+### 4.4 Server Monitoring Enum
+
+#### EnumServerType
+```python
+# Python 정의 - app/utils/enums.py
+class EnumServerType(str, Enum):
+    VMS = "VMS"                     # Video Management System
+    NVR_API = "NVR_API"             # Network Video Recorder API
+    STREAMING = "STREAMING"          # 스트리밍 서버
+    TRANSCODER = "TRANSCODER"        # 트랜스코더 서버
+    MEDIA = "MEDIA"                  # 미디어 서버
+    RECORDING = "RECORDING"          # 녹화 서버
+    PLAYBACK = "PLAYBACK"            # 재생 서버
+    STORAGE = "STORAGE"              # 스토리지 서버
+    AI_ANALYSIS = "AI_ANALYSIS"      # 지능형영상 분석 서버
+    AI_TRAINING = "AI_TRAINING"      # AI 학습 서버
+    AI_INFERENCE = "AI_INFERENCE"    # AI 추론 서버
+    ANALYTICS = "ANALYTICS"          # 분석 서버
+    DB_API = "DB_API"               # 데이터베이스 API 서버
+    SPEAKER_API = "SPEAKER_API"     # 스피커 제어 API 서버
+    ENCLOSURE_API = "ENCLOSURE_API" # 함체 관리 API 서버
+    PIDS_API = "PIDS_API"           # PIDS API 서버
+    WEB = "WEB"                     # 웹 서버
+    AUTH = "AUTH"                   # 인증 서버
+    PROXY = "PROXY"                 # 프록시 서버
+    BROKER = "BROKER"               # 메시지 브로커 서버
+    GATEWAY = "GATEWAY"             # 게이트웨이 서버
+    PUSH = "PUSH"                   # 푸시 알림 서버
+    LOG = "LOG"                     # 로그 서버
+    BACKUP = "BACKUP"               # 백업 서버
+    MONITORING = "MONITORING"        # 모니터링 서버
+    ETC = "ETC"                     # 기타
+```
+
+#### EnumServerStatus
+```python
+# Python 정의 - app/utils/enums.py
+class EnumServerStatus(str, Enum):
+    NORMAL = "NORMAL"       # 정상 상태
+    WARNING = "WARNING"     # 경고 상태 (리소스 사용률 높음)
+    ERROR = "ERROR"         # 에러 상태 (서버 응답 없음/장애)
+```
 
 ---
 
@@ -2944,9 +2988,482 @@ Accept: application/json
 
 ---
 
-## 8. 에러 처리
+## 8. Server Monitoring API 설계
 
-### 8.1 에러 응답 형식
+### 8.1 개요
+
+서버 모니터링 API는 GOP 시스템을 구성하는 다양한 서버들의 상태를 관리하고 모니터링하기 위한 API입니다.
+
+**주요 기능**:
+- 서버 카테고리 관리 (9개 기본 카테고리)
+- 서버 인스턴스 CRUD
+- 대시보드용 서버 상태 요약
+
+**리소스 구조**:
+```
+/api/servers/categories      - 서버 카테고리 (VMS, AI_ANALYSIS 등)
+/api/servers/categories/{id} - 특정 카테고리
+/api/servers                 - 서버 인스턴스 목록
+/api/servers/{id}            - 특정 서버 인스턴스
+/api/servers/summary         - 대시보드 요약
+```
+
+### 8.2 Server Category API
+
+서버를 유형별로 분류하는 카테고리를 관리합니다.
+
+#### 8.2.1 카테고리 목록 조회
+
+```http
+GET /api/servers/categories
+```
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server categories retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "name": "VMS 서버",
+      "type_server": "VMS",
+      "description": "Video Management System",
+      "sort_order": 1,
+      "created_at": "2025-12-29T06:46:01.050121",
+      "updated_at": "2025-12-29T06:46:01.050121"
+    },
+    {
+      "id": 2,
+      "name": "지능형영상 분석 서버",
+      "type_server": "AI_ANALYSIS",
+      "description": "AI 기반 영상 분석 서버",
+      "sort_order": 2,
+      "created_at": "2025-12-29T06:46:01.058259",
+      "updated_at": "2025-12-29T06:46:01.058259"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 9,
+    "total_pages": 1
+  }
+}
+```
+
+#### 8.2.2 카테고리 상세 조회 (서버 목록 포함)
+
+```http
+GET /api/servers/categories/{category_id}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| category_id | integer | Y | 카테고리 ID |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server category retrieved successfully",
+  "data": {
+    "id": 1,
+    "name": "VMS 서버",
+    "type_server": "VMS",
+    "description": "Video Management System",
+    "sort_order": 1,
+    "created_at": "2025-12-29T06:46:01.050121",
+    "updated_at": "2025-12-29T06:46:01.050121",
+    "servers": [
+      {
+        "id": 1,
+        "category_id": 1,
+        "name": "VMS-ab1120",
+        "status": "NORMAL",
+        "ip_address": "192.168.1.10",
+        "port": 8080,
+        "hostname": "vms-server-01",
+        "cpu_usage": 45.0,
+        "ram_usage": 62.0,
+        "disk_usage": 78.0,
+        "network_throughput": "125MB/s",
+        "created_at": "2025-12-29T06:46:01.150000",
+        "updated_at": "2025-12-29T06:46:01.150000"
+      }
+    ]
+  }
+}
+```
+
+#### 8.2.3 카테고리 생성
+
+```http
+POST /api/servers/categories
+```
+
+**Request Body**:
+```json
+{
+  "name": "새로운 서버 카테고리",
+  "type_server": "ETC",
+  "description": "카테고리 설명",
+  "sort_order": 10
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| name | string | Y | 카테고리명 |
+| type_server | EnumServerType | Y | 서버 유형 (Enum 값) |
+| description | string | N | 설명 |
+| sort_order | integer | N | 정렬 순서 (기본값: 0) |
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Server category created successfully",
+  "data": {
+    "id": 10,
+    "name": "새로운 서버 카테고리",
+    "type_server": "ETC",
+    "description": "카테고리 설명",
+    "sort_order": 10,
+    "created_at": "2025-12-29T07:00:00.000000",
+    "updated_at": "2025-12-29T07:00:00.000000"
+  }
+}
+```
+
+**Error Response (409 Conflict)** - 중복 type_server:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "DUPLICATE_TYPE_SERVER",
+    "message": "Server category with type_server 'VMS' already exists"
+  }
+}
+```
+
+#### 8.2.4 카테고리 수정 (부분)
+
+```http
+PATCH /api/servers/categories/{category_id}
+```
+
+**Request Body** (모든 필드 선택적):
+```json
+{
+  "description": "수정된 설명",
+  "sort_order": 5
+}
+```
+
+**Response (200 OK)**: 수정된 카테고리 데이터 반환
+
+#### 8.2.5 카테고리 수정 (전체)
+
+```http
+PUT /api/servers/categories/{category_id}
+```
+
+**Request Body** (모든 필드 필수):
+```json
+{
+  "name": "수정된 카테고리명",
+  "type_server": "VMS",
+  "description": "수정된 설명",
+  "sort_order": 1
+}
+```
+
+#### 8.2.6 카테고리 삭제
+
+```http
+DELETE /api/servers/categories/{category_id}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server category deleted successfully",
+  "data": {
+    "id": 10
+  }
+}
+```
+
+> **주의**: 카테고리 삭제 시 해당 카테고리에 속한 모든 서버도 함께 삭제됩니다 (Cascade Delete).
+
+---
+
+### 8.3 Server Instance API
+
+개별 서버 인스턴스를 관리합니다.
+
+#### 8.3.1 서버 목록 조회
+
+```http
+GET /api/servers
+```
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| category_id | integer | N | 카테고리 ID 필터 |
+| status | string | N | 상태 필터 (NORMAL, WARNING, ERROR) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Servers retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "category_id": 1,
+      "name": "VMS-ab1120",
+      "status": "NORMAL",
+      "ip_address": "192.168.1.10",
+      "port": 8080,
+      "hostname": "vms-server-01",
+      "cpu_usage": 45.0,
+      "ram_usage": 62.0,
+      "disk_usage": 78.0,
+      "network_throughput": "125MB/s",
+      "created_at": "2025-12-29T06:46:01.150000",
+      "updated_at": "2025-12-29T06:46:01.150000"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 9,
+    "total_pages": 1
+  }
+}
+```
+
+#### 8.3.2 서버 상세 조회
+
+```http
+GET /api/servers/{server_id}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | 서버 ID |
+
+**Response (200 OK)**: 서버 상세 정보 반환
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Server with id 999 not found"
+  }
+}
+```
+
+#### 8.3.3 서버 생성
+
+```http
+POST /api/servers
+```
+
+**Request Body**:
+```json
+{
+  "category_id": 1,
+  "name": "VMS-ab1122",
+  "status": "NORMAL",
+  "ip_address": "192.168.1.12",
+  "port": 8080,
+  "hostname": "vms-server-03",
+  "cpu_usage": 35.0,
+  "ram_usage": 48.0,
+  "disk_usage": 55.0,
+  "network_throughput": "100MB/s"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| category_id | integer | Y | 카테고리 ID |
+| name | string | Y | 서버 이름 |
+| status | EnumServerStatus | N | 상태 (기본값: NORMAL) |
+| ip_address | string | N | IP 주소 |
+| port | integer | N | 포트 번호 |
+| hostname | string | N | 호스트명 |
+| cpu_usage | float | N | CPU 사용률 (%) |
+| ram_usage | float | N | RAM 사용률 (%) |
+| disk_usage | float | N | 디스크 사용률 (%) |
+| network_throughput | string | N | 네트워크 처리량 |
+
+**Response (201 Created)**: 생성된 서버 데이터 반환
+
+#### 8.3.4 서버 수정 (부분)
+
+```http
+PATCH /api/servers/{server_id}
+```
+
+**Request Body** (모든 필드 선택적):
+```json
+{
+  "status": "WARNING",
+  "cpu_usage": 85.0,
+  "ram_usage": 78.0
+}
+```
+
+> **사용 사례**: 서버 메트릭 주기적 업데이트에 사용
+
+**Response (200 OK)**: 수정된 서버 데이터 반환
+
+#### 8.3.5 서버 수정 (전체)
+
+```http
+PUT /api/servers/{server_id}
+```
+
+모든 필드를 포함한 전체 데이터로 교체합니다.
+
+#### 8.3.6 서버 삭제
+
+```http
+DELETE /api/servers/{server_id}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server deleted successfully",
+  "data": {
+    "id": 1
+  }
+}
+```
+
+---
+
+### 8.4 Dashboard Summary API
+
+대시보드에서 사용할 서버 상태 요약 정보를 제공합니다.
+
+#### 8.4.1 서버 요약 조회
+
+```http
+GET /api/servers/summary
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server summary retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "name": "VMS 서버",
+      "type_server": "VMS",
+      "total": 2,
+      "normal": 2,
+      "warning": 0,
+      "error": 0,
+      "servers": [
+        {
+          "id": 1,
+          "category_id": 1,
+          "name": "VMS-ab1120",
+          "status": "NORMAL",
+          "ip_address": "192.168.1.10",
+          "port": 8080,
+          "hostname": "vms-server-01",
+          "cpu_usage": 45.0,
+          "ram_usage": 62.0,
+          "disk_usage": 78.0,
+          "network_throughput": "125MB/s",
+          "created_at": "2025-12-29T06:46:01.150000",
+          "updated_at": "2025-12-29T06:46:01.150000"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "지능형영상 분석 서버",
+      "type_server": "AI_ANALYSIS",
+      "total": 3,
+      "normal": 2,
+      "warning": 1,
+      "error": 0,
+      "servers": []
+    },
+    {
+      "id": 5,
+      "name": "브로커서버",
+      "type_server": "BROKER",
+      "total": 2,
+      "normal": 1,
+      "warning": 0,
+      "error": 1,
+      "servers": []
+    }
+  ]
+}
+```
+
+**응답 필드 설명**:
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | integer | 카테고리 ID |
+| name | string | 카테고리명 |
+| type_server | string | 서버 유형 (EnumServerType) |
+| total | integer | 총 서버 수 |
+| normal | integer | 정상 상태 서버 수 |
+| warning | integer | 경고 상태 서버 수 |
+| error | integer | 에러 상태 서버 수 |
+| servers | array | 해당 카테고리의 서버 목록 |
+
+---
+
+### 8.5 기본 데이터 (Seed)
+
+시스템 초기화 시 다음 9개의 기본 서버 카테고리가 자동 생성됩니다:
+
+| sort_order | name | type_server | description |
+|------------|------|-------------|-------------|
+| 1 | VMS 서버 | VMS | Video Management System |
+| 2 | 지능형영상 분석 서버 | AI_ANALYSIS | AI 기반 영상 분석 서버 |
+| 3 | 스트리밍 서버 | STREAMING | 실시간 스트리밍 서버 |
+| 4 | 트랜스코더 서버 | TRANSCODER | 영상 변환 서버 |
+| 5 | 브로커서버 | BROKER | 메시지 브로커 서버 |
+| 6 | DB API 서버 | DB_API | 데이터베이스 API 서버 |
+| 7 | NVR API 서버 | NVR_API | Network Video Recorder API 서버 |
+| 8 | SPEAKER API 서버 | SPEAKER_API | 스피커 제어 API 서버 |
+| 9 | 함체관리 API 서버 | ENCLOSURE_API | 함체 관리 API 서버 |
+
+---
+
+## 9. 에러 처리
+
+### 9.1 에러 응답 형식
 
 ```json
 {
@@ -2966,7 +3483,7 @@ Accept: application/json
 }
 ```
 
-### 8.2 에러 코드 정의
+### 9.2 에러 코드 정의
 
 | HTTP 코드 | 에러 코드 | 설명 | 예제 시나리오 |
 |-----------|-----------|------|---------------|
@@ -2982,7 +3499,7 @@ Accept: application/json
 | 503 | `SERVICE_UNAVAILABLE` | 서비스 불가 | 서버 점검, 과부하 |
 | 504 | `TIMEOUT` | 타임아웃 | 요청 처리 시간 초과 |
 
-### 8.3 에러 응답 예제
+### 9.3 에러 응답 예제
 
 #### 400 Validation Error (데이터 검증 실패)
 
@@ -3020,9 +3537,9 @@ Accept: application/json
 
 ---
 
-## 9. 부록
+## 10. 부록
 
-### 9.1 전체 Endpoint 목록
+### 10.1 전체 Endpoint 목록
 
 #### Device Endpoints
 
@@ -3089,12 +3606,32 @@ Accept: application/json
 - `PUT /api/integrations/event-mappings/{id}` - 수정 (전체)
 - `DELETE /api/integrations/event-mappings/{id}` - 삭제
 
+#### Server Monitoring Endpoints
+
+**Server Categories**:
+- `GET /api/servers/categories` - 카테고리 목록 조회
+- `POST /api/servers/categories` - 카테고리 생성
+- `GET /api/servers/categories/{id}` - 카테고리 상세 조회 (서버 목록 포함)
+- `PATCH /api/servers/categories/{id}` - 카테고리 수정 (부분)
+- `PUT /api/servers/categories/{id}` - 카테고리 수정 (전체)
+- `DELETE /api/servers/categories/{id}` - 카테고리 삭제 (Cascade)
+
+**Servers**:
+- `GET /api/servers` - 서버 목록 조회
+- `POST /api/servers` - 서버 생성
+- `GET /api/servers/{id}` - 서버 상세 조회
+- `PATCH /api/servers/{id}` - 서버 수정 (부분)
+- `PUT /api/servers/{id}` - 서버 수정 (전체)
+- `DELETE /api/servers/{id}` - 서버 삭제
+- `GET /api/servers/summary` - 대시보드 요약 조회
+
 ---
 
 ## 변경 이력
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v1.9 | 2025-12-29 | **Server Monitoring API 추가**<br>- 섹션 8 Server Monitoring API 설계 신규 추가<br>- `EnumServerType` (26종): VMS, NVR_API, STREAMING, AI_ANALYSIS 등 서버 유형 정의<br>- `EnumServerStatus` (3종): NORMAL, WARNING, ERROR 서버 상태 정의<br>- Server Category CRUD API: `GET/POST/PATCH/PUT/DELETE /api/servers/categories`<br>- Server Instance CRUD API: `GET/POST/PATCH/PUT/DELETE /api/servers`<br>- Dashboard Summary API: `GET /api/servers/summary` (카테고리별 상태 요약)<br>- 9개 기본 서버 카테고리 Seed 데이터 정의<br>- Category 삭제 시 하위 Server Cascade 삭제 지원 |
 | v1.8 | 2025-11-29 | **Enum 타입 통합 및 정리**<br>- 모든 Enum 정의를 `app/utils/enums.py`로 통합 (Single Source of Truth)<br>- `app/models/event.py`, `app/models/device.py`에서 중복 Enum 정의 제거<br>- `EnumCameraType`에서 `FISHEYES`, `THERMAL` 제거 (사용하지 않음)<br>- `EnumTrueFalse`는 Python 키워드 충돌 방지를 위해 `False_`, `True_` 사용<br>- `EnumEventType`에서 `None_` 사용 (Python None 키워드 충돌 방지)<br>- `_missing_` 메서드로 "False"→`False_`, "True"→`True_`, "None"→`None_` 자동 매핑 |
 | v1.7 | 2025-11-27 | **Phase 28: CameraEventPreset URL Schema Refactor**<br>- `CameraEventPreset.rtsp_uri` 단일 필드 → `urls` 객체로 변경<br>- `urls` 객체 구조: `{ "live": "rtsp://...", "record": "rtsp://..." }`<br>- DB 컬럼 변경: `rtsp_uri` → `url_live`, `url_record` 분리<br>- 모든 CameraEventMapping API 영향 (GET/POST/PUT/PATCH)<br>- Breaking Change: API Request/Response 구조 변경 |
 | v1.6 | 2025-11-26 | **Enum 타입 업데이트**<br>- EnumEventType에 `Lowlight`, `DetectionMode`, `TrackingMode` 추가<br>- EnumCameraType에서 `FISHEYES`, `THERMAL` 제거<br>- Swagger UI 문서 개선: 모든 스키마 필드에 enum 허용값 설명 추가<br><br>**Phase 27: CameraEventMapping Enum Fix**<br>- `EnumGroupEvent` 삭제 (더 이상 사용하지 않음)<br>- `EnumCategoryEvent` 값 변경: `SENSOR_ONLY`, `SENSOR_WITH_CAMERA`, `SENSOR_WITH_AI_DETECT`, `AI_DETECT_ONLY`, `MOTION_DETECT`, `ETC`<br>- `CameraEventMapping.group_event`: Enum → Plain String(100)으로 변경<br>- `CameraEventMapping.category_event`: EnumCategoryEvent Enum 유지<br>- Router에서 group_event 유효성 검사 제거 (자유 텍스트 허용) |
@@ -3106,5 +3643,5 @@ Accept: application/json
 
 ---
 
-**문서 버전**: v1.8
-**최종 업데이트**: 2025-11-29
+**문서 버전**: v1.9
+**최종 업데이트**: 2025-12-29

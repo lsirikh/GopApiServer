@@ -1,0 +1,139 @@
+"""
+Server schemas: ServerCategory, Server
+Based on PRD_Server_Monitoring.md
+"""
+from pydantic import BaseModel, ConfigDict, field_validator
+from datetime import datetime
+from typing import Optional, List
+
+from app.utils.enums import EnumServerType, EnumServerStatus
+
+
+# ============================================================
+# ServerCategory Schemas
+# ============================================================
+
+class ServerCategoryCreate(BaseModel):
+    """Schema for creating a new ServerCategory"""
+    name: str
+    type_server: EnumServerType
+    description: Optional[str] = None
+    sort_order: int = 0
+
+    @field_validator('name')
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('name cannot be empty')
+        return v
+
+
+class ServerCategoryUpdate(BaseModel):
+    """Schema for updating a ServerCategory (all fields optional for PATCH)"""
+    name: Optional[str] = None
+    type_server: Optional[EnumServerType] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class ServerCategoryResponse(BaseModel):
+    """Schema for ServerCategory response"""
+    id: int
+    name: str
+    type_server: str  # EnumServerType value as string
+    description: Optional[str] = None
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================
+# Server Schemas
+# ============================================================
+
+class ServerCreate(BaseModel):
+    """Schema for creating a new Server"""
+    category_id: int
+    name: str
+    status: EnumServerStatus = EnumServerStatus.NORMAL
+    ip_address: str
+    port: int
+    hostname: Optional[str] = None
+    cpu_usage: Optional[float] = None
+    ram_usage: Optional[float] = None
+    disk_usage: Optional[float] = None
+    network_throughput: Optional[str] = None
+
+    @field_validator('name')
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('name cannot be empty')
+        return v
+
+
+class ServerUpdate(BaseModel):
+    """Schema for updating a Server (all fields optional for PATCH)"""
+    category_id: Optional[int] = None
+    name: Optional[str] = None
+    status: Optional[EnumServerStatus] = None
+    ip_address: Optional[str] = None
+    port: Optional[int] = None
+    hostname: Optional[str] = None
+    cpu_usage: Optional[float] = None
+    ram_usage: Optional[float] = None
+    disk_usage: Optional[float] = None
+    network_throughput: Optional[str] = None
+
+
+class ServerResponse(BaseModel):
+    """Schema for Server response"""
+    id: int
+    category_id: int
+    name: str
+    status: str  # EnumServerStatus value as string
+    ip_address: str
+    port: int
+    hostname: Optional[str] = None
+    cpu_usage: Optional[float] = None
+    ram_usage: Optional[float] = None
+    disk_usage: Optional[float] = None
+    network_throughput: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================
+# Summary/Dashboard Schemas
+# ============================================================
+
+class ServerCategoryWithServers(BaseModel):
+    """Schema for ServerCategory with nested servers list"""
+    id: int
+    name: str
+    type_server: str
+    description: Optional[str] = None
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+    servers: List[ServerResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServerCategorySummary(BaseModel):
+    """Schema for dashboard summary - category with status counts"""
+    id: int
+    name: str
+    type_server: str
+    total: int = 0
+    normal: int = 0
+    warning: int = 0
+    error: int = 0
+    servers: List[ServerResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)

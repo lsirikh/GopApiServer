@@ -10,6 +10,8 @@ from app.routers import detections
 from app.routers import malfunctions
 from app.routers import connections
 from app.routers import actions
+from app.routers import server_categories
+from app.routers import servers
 
 __all__ = [
     "auth",
@@ -21,4 +23,6 @@ __all__ = [
     "malfunctions",
     "connections",
     "actions",
+    "server_categories",
+    "servers",
 ]

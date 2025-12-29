@@ -12,6 +12,7 @@ from app.models.log import ApiLog  # noqa: F401
 from app.models.device import Controller, Sensor, Camera  # noqa: F401
 from app.models.event import DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent  # noqa: F401
 from app.models.integration import EventMapping  # noqa: F401
+from app.models.server import ServerCategory, Server  # noqa: F401
 
 
 @pytest.fixture(scope="function")
@@ -36,3 +37,10 @@ def test_db():
         db.close()
         # Drop all tables after test
         Base.metadata.drop_all(bind=engine)
+
+
+# Alias for db_session (compatibility)
+@pytest.fixture(scope="function")
+def db_session(test_db):
+    """Alias for test_db fixture"""
+    return test_db

@@ -18,29 +18,30 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[ApiLogResponse]])
 async def get_logs(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    start_date: Optional[str] = Query(None, description="Filter logs from this date (ISO 8601 format)"),
-    end_date: Optional[str] = Query(None, description="Filter logs until this date (ISO 8601 format)"),
-    method: Optional[str] = Query(None, description="Filter logs by HTTP method (GET, POST, etc.)"),
-    resource: Optional[str] = Query(None, description="Filter logs by resource (e.g., devices/controllers)"),
-    client_uuid: Optional[str] = Query(None, description="Filter logs by client UUID"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    start_date: Optional[str] = Query(None, description="시작 날짜로 필터링 (ISO 8601 형식)"),
+    end_date: Optional[str] = Query(None, description="종료 날짜로 필터링 (ISO 8601 형식)"),
+    method: Optional[str] = Query(None, description="HTTP 메소드로 필터링 (GET, POST 등)"),
+    resource: Optional[str] = Query(None, description="리소스로 필터링 (예: devices/controllers)"),
+    client_uuid: Optional[str] = Query(None, description="클라이언트 UUID로 필터링"),
     db: Session = Depends(get_db)
 ):
     """
-    Get API logs with pagination and filtering
+    API 로그 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        start_date: Filter logs from this date (ISO 8601 format)
-        end_date: Filter logs until this date (ISO 8601 format)
-        method: Filter logs by HTTP method (GET, POST, etc.)
-        resource: Filter logs by resource (e.g., devices/controllers)
-        client_uuid: Filter logs by client UUID
+    API 로그 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of API logs and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **start_date**: 시작 날짜로 필터링 (ISO 8601 형식)
+    - **end_date**: 종료 날짜로 필터링 (ISO 8601 형식)
+    - **method**: HTTP 메소드로 필터링 (GET, POST 등)
+    - **resource**: 리소스로 필터링 (예: devices/controllers)
+    - **client_uuid**: 클라이언트 UUID로 필터링
+
+    **Response**: API 로그 목록 및 페이지네이션 정보
     """
     query = db.query(ApiLog)
 
@@ -93,7 +94,11 @@ async def get_logs(
 @router.get("/viewer", response_class=HTMLResponse)
 async def log_viewer():
     """
-    Log viewer web page with pagination and filtering
+    로그 뷰어 웹 페이지
+
+    페이지네이션 및 필터링 기능이 있는 로그 뷰어 웹 페이지를 반환합니다.
+
+    **Response**: HTML 로그 뷰어 페이지
     """
     html_content = """
 <!DOCTYPE html>
@@ -428,7 +433,7 @@ async def log_viewer():
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔍 GOP API Log Viewer</h1>
+            <h1>GOP API Log Viewer</h1>
             <p>Real-time API request monitoring and analysis</p>
         </div>
 
@@ -490,7 +495,7 @@ async def log_viewer():
             </div>
             <div class="stats-info">
                 <button class="btn btn-secondary" onclick="loadLogs(currentPage)" style="padding: 8px 16px;">
-                    🔄 Refresh
+                    Refresh
                 </button>
             </div>
         </div>
@@ -499,7 +504,7 @@ async def log_viewer():
             <div id="loading" class="loading">Loading logs</div>
             <div id="error" class="error" style="display: none;"></div>
             <div id="no-data" class="no-data" style="display: none;">
-                📭 No logs found matching your criteria
+                No logs found matching your criteria
             </div>
             <table id="logs-table" style="display: none;">
                 <thead>

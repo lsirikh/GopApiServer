@@ -17,31 +17,31 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[SensorResponse]])
 async def get_sensors(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    group_device: Optional[int] = Query(None, description="Filter by group_device"),
-    controller_id: Optional[int] = Query(None, description="Filter by controller_id"),
-    type_device: Optional[str] = Query(None, description="Filter by type_device"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    include_controller: bool = Query(False, description="Include controller information"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링"),
+    controller_id: Optional[int] = Query(None, description="컨트롤러 ID로 필터링"),
+    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
+    status: Optional[str] = Query(None, description="상태로 필터링"),
+    include_controller: bool = Query(False, description="컨트롤러 정보 포함 여부"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of sensors with pagination and filters
+    센서 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        group_device: Filter by group_device
-        controller_id: Filter by controller_id
-        type_device: Filter by type_device
-        status: Filter by status
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    센서 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of sensors and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **group_device**: 장치 그룹으로 필터링
+    - **controller_id**: 컨트롤러 ID로 필터링
+    - **type_device**: 장치 유형으로 필터링
+    - **status**: 상태로 필터링
+    - **include_controller**: 컨트롤러 정보 포함 여부
+
+    **Response**: 센서 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(Sensor)
@@ -119,23 +119,23 @@ async def get_sensors(
 @router.get("/{sensor_id}", response_model=ApiResponse[SensorResponse])
 async def get_sensor(
     sensor_id: int,
-    include_controller: bool = Query(False, description="Include controller information"),
+    include_controller: bool = Query(False, description="컨트롤러 정보 포함 여부"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get a single sensor by ID
+    센서 단건 조회
 
-    Args:
-        sensor_id: Sensor ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 센서의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with sensor data
+    **파라미터**:
+    - **sensor_id**: 센서 ID (Path Parameter)
+    - **include_controller**: 컨트롤러 정보 포함 여부
 
-    Raises:
-        HTTPException 404: If sensor not found
+    **Response**: 센서 상세 정보
+
+    **Error**:
+    - 404: 센서를 찾을 수 없음
     """
     sensor = db.query(Sensor).filter(Sensor.id == sensor_id).first()
 
@@ -191,19 +191,25 @@ async def create_sensor(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new sensor
+    센서 생성
 
-    Args:
-        sensor_data: Sensor creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 센서를 생성합니다.
 
-    Returns:
-        ApiResponse with created sensor data
+    **Request Body**:
+    - **number_device**: 장치 번호 (필수, 고유값)
+    - **group_device**: 장치 그룹 (필수)
+    - **name_device**: 장치 이름 (필수)
+    - **type_device**: 장치 유형 (필수)
+    - **version**: 버전 (필수)
+    - **status**: 상태 (필수)
+    - **controller_id**: 연결된 컨트롤러 ID (필수)
 
-    Raises:
-        HTTPException 404: If controller not found
-        HTTPException 409: If sensor with same number_device already exists
+    **Response**: 생성된 센서 정보
+
+    **Error**:
+    - 404: 컨트롤러를 찾을 수 없음
+    - 409: 동일한 number_device를 가진 센서가 이미 존재함
+    - 422: 유효하지 않은 enum 값
     """
     # Validate controller exists
     controller = db.query(Controller).filter(Controller.id == sensor_data.controller_id).first()
@@ -277,20 +283,28 @@ async def update_sensor(
     db: Session = Depends(get_db)
 ):
     """
-    Update a sensor (partial update)
+    센서 부분 수정 (PATCH)
 
-    Args:
-        sensor_id: Sensor ID
-        sensor_data: Sensor update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    센서의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated sensor data
+    **파라미터**:
+    - **sensor_id**: 센서 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If sensor not found or controller not found
-        HTTPException 409: If number_device conflicts with existing sensor
+    **Request Body** (모든 필드 선택):
+    - **number_device**: 장치 번호
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 유형
+    - **version**: 버전
+    - **status**: 상태
+    - **controller_id**: 연결된 컨트롤러 ID
+
+    **Response**: 수정된 센서 정보
+
+    **Error**:
+    - 404: 센서 또는 컨트롤러를 찾을 수 없음
+    - 409: 동일한 number_device를 가진 다른 센서가 존재함
+    - 422: 유효하지 않은 enum 값
     """
     sensor = db.query(Sensor).filter(Sensor.id == sensor_id).first()
 
@@ -376,20 +390,28 @@ async def replace_sensor(
     db: Session = Depends(get_db)
 ):
     """
-    Replace a sensor (full update - all fields required)
+    센서 전체 수정 (PUT)
 
-    Args:
-        sensor_id: Sensor ID
-        sensor_data: Complete sensor data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    센서의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated sensor data
+    **파라미터**:
+    - **sensor_id**: 센서 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If sensor not found or controller not found
-        HTTPException 409: If number_device conflicts with existing sensor
+    **Request Body** (모든 필드 필수):
+    - **number_device**: 장치 번호
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 유형
+    - **version**: 버전
+    - **status**: 상태
+    - **controller_id**: 연결된 컨트롤러 ID
+
+    **Response**: 수정된 센서 정보
+
+    **Error**:
+    - 404: 센서 또는 컨트롤러를 찾을 수 없음
+    - 409: 동일한 number_device를 가진 다른 센서가 존재함
+    - 422: 유효하지 않은 enum 값
     """
     sensor = db.query(Sensor).filter(Sensor.id == sensor_id).first()
 
@@ -469,18 +491,17 @@ async def delete_sensor(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a sensor
+    센서 삭제
 
-    Args:
-        sensor_id: Sensor ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 센서를 삭제합니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **sensor_id**: 센서 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If sensor not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 센서를 찾을 수 없음
     """
     sensor = db.query(Sensor).filter(Sensor.id == sensor_id).first()
 

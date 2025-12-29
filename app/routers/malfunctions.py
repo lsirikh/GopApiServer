@@ -19,38 +19,37 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[MalfunctionEventResponse]])
 async def get_malfunction_events(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    controller: Optional[int] = Query(None, description="Filter by controller"),
-    sensor: Optional[int] = Query(None, description="Filter by sensor"),
-    type_device: Optional[str] = Query(None, description="Filter by device type"),
-    group_event: Optional[str] = Query(None, description="Filter by group_event"),
-    action_reported: Optional[str] = Query(None, description="Filter by action_reported"),
-    reason: Optional[str] = Query(None, description="Filter by fault reason"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    controller: Optional[int] = Query(None, description="컨트롤러 번호로 필터링"),
+    sensor: Optional[int] = Query(None, description="센서 번호로 필터링"),
+    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
+    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    action_reported: Optional[str] = Query(None, description="조치보고 여부로 필터링"),
+    reason: Optional[str] = Query(None, description="장애 원인으로 필터링"),
+    start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
+    end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of malfunction events with pagination and filters
+    장애 이벤트 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        controller: Filter by controller number
-        sensor: Filter by sensor number
-        type_device: Filter by device type
-        group_event: Filter by group_event
-        action_reported: Filter by action_reported
-        reason: Filter by fault reason
-        start_date: Filter by start date (event datetime >= start_date)
-        end_date: Filter by end date (event datetime <= end_date)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    장애 이벤트 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of malfunction events and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **controller**: 컨트롤러 번호로 필터링
+    - **sensor**: 센서 번호로 필터링
+    - **type_device**: 장치 유형으로 필터링
+    - **group_event**: 이벤트 그룹으로 필터링
+    - **action_reported**: 조치보고 여부로 필터링
+    - **reason**: 장애 원인으로 필터링
+    - **start_date**: 시작 날짜로 필터링
+    - **end_date**: 종료 날짜로 필터링
+
+    **Response**: 장애 이벤트 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(MalfunctionEvent)
@@ -127,18 +126,17 @@ async def get_malfunction_event(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single malfunction event by ID
+    장애 이벤트 단건 조회
 
-    Args:
-        event_id: Malfunction event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 장애 이벤트의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with malfunction event data
+    **파라미터**:
+    - **event_id**: 장애 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If malfunction event not found
+    **Response**: 장애 이벤트 상세 정보
+
+    **Error**:
+    - 404: 장애 이벤트를 찾을 수 없음
     """
     event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
 
@@ -180,18 +178,28 @@ async def create_malfunction_event(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new malfunction event
+    장애 이벤트 생성
 
-    Args:
-        event_data: Malfunction event creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 장애 이벤트를 생성합니다.
 
-    Returns:
-        ApiResponse with created malfunction event data
+    **Request Body**:
+    - **group_event**: 이벤트 그룹 (필수)
+    - **type_event**: 이벤트 유형 (필수)
+    - **controller**: 컨트롤러 번호 (필수)
+    - **sensor**: 센서 번호 (필수)
+    - **type_device**: 장치 유형 (필수)
+    - **sequence**: 시퀀스 번호 (필수)
+    - **action_reported**: 조치보고 여부 (필수)
+    - **reason**: 장애 원인 (필수)
+    - **first_start**: 첫 번째 시작 시간 (선택)
+    - **first_end**: 첫 번째 종료 시간 (선택)
+    - **second_start**: 두 번째 시작 시간 (선택)
+    - **second_end**: 두 번째 종료 시간 (선택)
 
-    Raises:
-        HTTPException 422: If invalid enum value provided
+    **Response**: 생성된 장애 이벤트 정보
+
+    **Error**:
+    - 422: 유효하지 않은 enum 값
     """
     # Convert string enum values to enum types
     try:
@@ -257,20 +265,32 @@ async def update_malfunction_event(
     db: Session = Depends(get_db)
 ):
     """
-    Update a malfunction event (partial update)
+    장애 이벤트 부분 수정 (PATCH)
 
-    Args:
-        event_id: Malfunction event ID
-        event_data: Malfunction event update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    장애 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated malfunction event data
+    **파라미터**:
+    - **event_id**: 장애 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If malfunction event not found
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 선택):
+    - **group_event**: 이벤트 그룹
+    - **type_event**: 이벤트 유형
+    - **controller**: 컨트롤러 번호
+    - **sensor**: 센서 번호
+    - **type_device**: 장치 유형
+    - **sequence**: 시퀀스 번호
+    - **action_reported**: 조치보고 여부
+    - **reason**: 장애 원인
+    - **first_start**: 첫 번째 시작 시간
+    - **first_end**: 첫 번째 종료 시간
+    - **second_start**: 두 번째 시작 시간
+    - **second_end**: 두 번째 종료 시간
+
+    **Response**: 수정된 장애 이벤트 정보
+
+    **Error**:
+    - 404: 장애 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
     event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
 
@@ -347,20 +367,32 @@ async def replace_malfunction_event(
     db: Session = Depends(get_db)
 ):
     """
-    Replace a malfunction event (full update - all fields required)
+    장애 이벤트 전체 수정 (PUT)
 
-    Args:
-        event_id: Malfunction event ID
-        event_data: Complete malfunction event data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    장애 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated malfunction event data
+    **파라미터**:
+    - **event_id**: 장애 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If malfunction event not found
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 필수):
+    - **group_event**: 이벤트 그룹
+    - **type_event**: 이벤트 유형
+    - **controller**: 컨트롤러 번호
+    - **sensor**: 센서 번호
+    - **type_device**: 장치 유형
+    - **sequence**: 시퀀스 번호
+    - **action_reported**: 조치보고 여부
+    - **reason**: 장애 원인
+    - **first_start**: 첫 번째 시작 시간
+    - **first_end**: 첫 번째 종료 시간
+    - **second_start**: 두 번째 시작 시간
+    - **second_end**: 두 번째 종료 시간
+
+    **Response**: 수정된 장애 이벤트 정보
+
+    **Error**:
+    - 404: 장애 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
     event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
 
@@ -430,18 +462,18 @@ async def delete_malfunction_event(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a malfunction event
+    장애 이벤트 삭제
 
-    Args:
-        event_id: Malfunction event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 장애 이벤트를 삭제합니다. 조치보고가 등록된 이벤트는 삭제할 수 없습니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **event_id**: 장애 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If malfunction event not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 장애 이벤트를 찾을 수 없음
+    - 409: 조치보고가 등록된 장애 이벤트는 삭제 불가
     """
     event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
 
@@ -475,21 +507,18 @@ async def get_action_event_for_malfunction(
     db: Session = Depends(get_db)
 ):
     """
-    Phase 20.2: Get Action Event for Malfunction Event
+    장애 이벤트의 조치 이벤트 조회
 
-    Retrieves the ActionEvent associated with a MalfunctionEvent.
+    특정 장애 이벤트에 연결된 조치 이벤트를 조회합니다.
 
-    Args:
-        event_id: Malfunction Event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    **파라미터**:
+    - **event_id**: 장애 이벤트 ID (Path Parameter)
 
-    Returns:
-        ApiResponse with ActionEvent data (with nested source event)
+    **Response**: 조치 이벤트 정보 (연결된 원본 이벤트 포함)
 
-    Raises:
-        404: Malfunction event not found
-        404: No action event found for this malfunction event (action_reported="False")
+    **Error**:
+    - 404: 장애 이벤트를 찾을 수 없음
+    - 404: 해당 장애 이벤트에 연결된 조치 이벤트가 없음
     """
     # 1. MalfunctionEvent 존재 확인
     malfunction = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()

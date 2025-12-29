@@ -7,6 +7,7 @@ from app.database import engine, SessionLocal, Base
 from app.models.user import User
 from app.models.log import ApiLog
 from app.utils.auth import hash_password
+from app.utils.init_server_data import initialize_server_data
 
 
 def create_tables():
@@ -54,10 +55,11 @@ def initialize_database():
     # Create tables
     create_tables()
 
-    # Create admin user
+    # Create admin user and initialize server data
     db = SessionLocal()
     try:
         create_admin_user(db)
+        initialize_server_data(db)
     finally:
         db.close()
 

@@ -130,3 +130,57 @@ class EnumEventCategory(str, Enum):
 
 # Backward compatibility alias
 EnumCategoryEvent = EnumEventCategory
+
+
+class EnumServerType(str, Enum):
+    """
+    Server type enumeration (25종)
+    Based on GOP_서버모니터링_스키마.md
+    """
+    # 영상/미디어 관련 (8종)
+    VMS = "VMS"                     # VMS 서버
+    NVR_API = "NVR_API"             # NVR API 서버
+    STREAMING = "STREAMING"         # 스트리밍 서버
+    TRANSCODER = "TRANSCODER"       # 트랜스코더 서버
+    MEDIA = "MEDIA"                 # 미디어 서버
+    RECORDING = "RECORDING"         # 녹화 서버
+    PLAYBACK = "PLAYBACK"           # 재생 서버
+    STORAGE = "STORAGE"             # 스토리지 서버
+
+    # AI/분석 관련 (4종)
+    AI_ANALYSIS = "AI_ANALYSIS"     # 지능형영상 분석 서버
+    AI_TRAINING = "AI_TRAINING"     # AI 학습 서버
+    AI_INFERENCE = "AI_INFERENCE"   # AI 추론 서버
+    ANALYTICS = "ANALYTICS"         # 분석 서버
+
+    # API 서버 관련 (4종)
+    DB_API = "DB_API"               # DB API 서버
+    SPEAKER_API = "SPEAKER_API"     # SPEAKER API 서버
+    ENCLOSURE_API = "ENCLOSURE_API" # 함체관리 API 서버
+    PIDS_API = "PIDS_API"           # PIDS API 서버
+
+    # 인프라/네트워크 관련 (6종)
+    WEB = "WEB"                     # 웹 서버
+    AUTH = "AUTH"                   # 인증 서버
+    PROXY = "PROXY"                 # 프록시 서버
+    BROKER = "BROKER"               # 브로커 서버
+    GATEWAY = "GATEWAY"             # 게이트웨이 서버
+    PUSH = "PUSH"                   # 푸시 서버
+
+    # 운영/관리 관련 (3종)
+    LOG = "LOG"                     # 로그 서버
+    BACKUP = "BACKUP"               # 백업 서버
+    MONITORING = "MONITORING"       # 모니터링 서버
+
+    # 기타 (1종)
+    ETC = "ETC"                     # 기타 서버
+
+
+class EnumServerStatus(str, Enum):
+    """
+    Server status enumeration (3종)
+    Based on GOP_서버모니터링_스키마.md
+    """
+    NORMAL = "NORMAL"       # 정상 (녹색)
+    WARNING = "WARNING"     # 경고 (노란색)
+    ERROR = "ERROR"         # 오류 (빨간색)

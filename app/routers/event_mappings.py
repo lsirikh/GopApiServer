@@ -17,30 +17,29 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[EventMappingResponse]])
 async def get_event_mappings(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    name_event: Optional[str] = Query(None, description="Filter by name_event"),
-    group_event: Optional[str] = Query(None, description="Filter by group_event"),
-    category_event: Optional[str] = Query(None, description="Filter by category_event"),
-    status: Optional[bool] = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    name_event: Optional[str] = Query(None, description="이벤트 이름으로 필터링"),
+    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    category_event: Optional[str] = Query(None, description="이벤트 카테고리로 필터링"),
+    status: Optional[bool] = Query(None, description="상태로 필터링"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of event mappings with pagination and filters
+    이벤트 매핑 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        name_event: Filter by name_event
-        group_event: Filter by group_event
-        category_event: Filter by category_event
-        status: Filter by status
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    이벤트 매핑 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of event mappings and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **name_event**: 이벤트 이름으로 필터링
+    - **group_event**: 이벤트 그룹으로 필터링
+    - **category_event**: 이벤트 카테고리로 필터링
+    - **status**: 상태로 필터링
+
+    **Response**: 이벤트 매핑 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(EventMapping)
@@ -102,18 +101,17 @@ async def get_event_mapping(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single event mapping by ID
+    이벤트 매핑 단건 조회
 
-    Args:
-        mapping_id: EventMapping ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 이벤트 매핑의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with event mapping data
+    **파라미터**:
+    - **mapping_id**: 이벤트 매핑 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If event mapping not found
+    **Response**: 이벤트 매핑 상세 정보
+
+    **Error**:
+    - 404: 이벤트 매핑을 찾을 수 없음
     """
     mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
 
@@ -148,15 +146,18 @@ async def create_event_mapping(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new event mapping
+    이벤트 매핑 생성
 
-    Args:
-        mapping: EventMapping creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 이벤트 매핑을 생성합니다.
 
-    Returns:
-        ApiResponse with created event mapping
+    **Request Body**:
+    - **name_event**: 이벤트 이름 (필수)
+    - **group_event**: 이벤트 그룹 (필수)
+    - **category_event**: 이벤트 카테고리 (필수)
+    - **description**: 설명 (선택)
+    - **status**: 상태 (필수)
+
+    **Response**: 생성된 이벤트 매핑 정보
     """
     new_mapping = EventMapping(
         name_event=mapping.name_event,
@@ -196,19 +197,24 @@ async def update_event_mapping_partial(
     db: Session = Depends(get_db)
 ):
     """
-    Partially update an event mapping (PATCH)
+    이벤트 매핑 부분 수정 (PATCH)
 
-    Args:
-        mapping_id: EventMapping ID
-        mapping: EventMapping update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    이벤트 매핑의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated event mapping
+    **파라미터**:
+    - **mapping_id**: 이벤트 매핑 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If event mapping not found
+    **Request Body** (모든 필드 선택):
+    - **name_event**: 이벤트 이름
+    - **group_event**: 이벤트 그룹
+    - **category_event**: 이벤트 카테고리
+    - **description**: 설명
+    - **status**: 상태
+
+    **Response**: 수정된 이벤트 매핑 정보
+
+    **Error**:
+    - 404: 이벤트 매핑을 찾을 수 없음
     """
     existing_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
 
@@ -252,19 +258,24 @@ async def update_event_mapping_full(
     db: Session = Depends(get_db)
 ):
     """
-    Fully update an event mapping (PUT)
+    이벤트 매핑 전체 수정 (PUT)
 
-    Args:
-        mapping_id: EventMapping ID
-        mapping: EventMapping data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    이벤트 매핑의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated event mapping
+    **파라미터**:
+    - **mapping_id**: 이벤트 매핑 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If event mapping not found
+    **Request Body** (모든 필드 필수):
+    - **name_event**: 이벤트 이름
+    - **group_event**: 이벤트 그룹
+    - **category_event**: 이벤트 카테고리
+    - **description**: 설명
+    - **status**: 상태
+
+    **Response**: 수정된 이벤트 매핑 정보
+
+    **Error**:
+    - 404: 이벤트 매핑을 찾을 수 없음
     """
     existing_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
 
@@ -309,18 +320,17 @@ async def delete_event_mapping(
     db: Session = Depends(get_db)
 ):
     """
-    Delete an event mapping
+    이벤트 매핑 삭제
 
-    Args:
-        mapping_id: EventMapping ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 이벤트 매핑을 삭제합니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **mapping_id**: 이벤트 매핑 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If event mapping not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 이벤트 매핑을 찾을 수 없음
     """
     mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
 

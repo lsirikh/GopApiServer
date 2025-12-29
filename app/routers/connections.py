@@ -19,34 +19,33 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[ConnectionEventResponse]])
 async def get_connection_events(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    controller: Optional[int] = Query(None, description="Filter by controller"),
-    sensor: Optional[int] = Query(None, description="Filter by sensor"),
-    type_device: Optional[str] = Query(None, description="Filter by device type"),
-    group_event: Optional[str] = Query(None, description="Filter by group_event"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    controller: Optional[int] = Query(None, description="컨트롤러 번호로 필터링"),
+    sensor: Optional[int] = Query(None, description="센서 번호로 필터링"),
+    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
+    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
+    end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of connection events with pagination and filters
+    연결 이벤트 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        controller: Filter by controller number
-        sensor: Filter by sensor number
-        type_device: Filter by device type
-        group_event: Filter by group_event
-        start_date: Filter by start date (event datetime >= start_date)
-        end_date: Filter by end date (event datetime <= end_date)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    연결 이벤트 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of connection events and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **controller**: 컨트롤러 번호로 필터링
+    - **sensor**: 센서 번호로 필터링
+    - **type_device**: 장치 유형으로 필터링
+    - **group_event**: 이벤트 그룹으로 필터링
+    - **start_date**: 시작 날짜로 필터링
+    - **end_date**: 종료 날짜로 필터링
+
+    **Response**: 연결 이벤트 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(ConnectionEvent)
@@ -113,18 +112,17 @@ async def get_connection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single connection event by ID
+    연결 이벤트 단건 조회
 
-    Args:
-        event_id: Connection event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 연결 이벤트의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with connection event data
+    **파라미터**:
+    - **event_id**: 연결 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If connection event not found
+    **Response**: 연결 이벤트 상세 정보
+
+    **Error**:
+    - 404: 연결 이벤트를 찾을 수 없음
     """
     event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
 
@@ -160,18 +158,22 @@ async def create_connection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new connection event
+    연결 이벤트 생성
 
-    Args:
-        event_data: Connection event creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 연결 이벤트를 생성합니다.
 
-    Returns:
-        ApiResponse with created connection event data
+    **Request Body**:
+    - **group_event**: 이벤트 그룹 (필수)
+    - **type_event**: 이벤트 유형 (필수)
+    - **controller**: 컨트롤러 번호 (필수)
+    - **sensor**: 센서 번호 (필수)
+    - **type_device**: 장치 유형 (필수)
+    - **sequence**: 시퀀스 번호 (필수)
 
-    Raises:
-        HTTPException 422: If invalid enum value provided
+    **Response**: 생성된 연결 이벤트 정보
+
+    **Error**:
+    - 422: 유효하지 않은 enum 값
     """
     # Convert string enum values to enum types
     try:
@@ -223,20 +225,26 @@ async def update_connection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Update a connection event (partial update)
+    연결 이벤트 부분 수정 (PATCH)
 
-    Args:
-        event_id: Connection event ID
-        event_data: Connection event update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    연결 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated connection event data
+    **파라미터**:
+    - **event_id**: 연결 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If connection event not found
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 선택):
+    - **group_event**: 이벤트 그룹
+    - **type_event**: 이벤트 유형
+    - **controller**: 컨트롤러 번호
+    - **sensor**: 센서 번호
+    - **type_device**: 장치 유형
+    - **sequence**: 시퀀스 번호
+
+    **Response**: 수정된 연결 이벤트 정보
+
+    **Error**:
+    - 404: 연결 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
     event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
 
@@ -291,20 +299,26 @@ async def replace_connection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Replace a connection event (full update - all fields required)
+    연결 이벤트 전체 수정 (PUT)
 
-    Args:
-        event_id: Connection event ID
-        event_data: Complete connection event data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    연결 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated connection event data
+    **파라미터**:
+    - **event_id**: 연결 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If connection event not found
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 필수):
+    - **group_event**: 이벤트 그룹
+    - **type_event**: 이벤트 유형
+    - **controller**: 컨트롤러 번호
+    - **sensor**: 센서 번호
+    - **type_device**: 장치 유형
+    - **sequence**: 시퀀스 번호
+
+    **Response**: 수정된 연결 이벤트 정보
+
+    **Error**:
+    - 404: 연결 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
     event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
 
@@ -360,18 +374,17 @@ async def delete_connection_event(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a connection event
+    연결 이벤트 삭제
 
-    Args:
-        event_id: Connection event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 연결 이벤트를 삭제합니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **event_id**: 연결 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If connection event not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 연결 이벤트를 찾을 수 없음
     """
     event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
 

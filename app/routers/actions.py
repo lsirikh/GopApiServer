@@ -24,16 +24,16 @@ router = APIRouter(tags=[])
 # Helper function to update source event action_reported
 def update_source_action_reported(db: Session, event_id: int, event_type: str) -> None:
     """
-    Update source event's action_reported field to "True" when ActionEvent is created
+    ActionEvent 생성 시 원본 이벤트의 action_reported 필드를 "True"로 업데이트
 
     Args:
-        db: Database session
-        event_id: Event ID to update
-        event_type: Event type ("Intrusion" or "Fault")
+        db: 데이터베이스 세션
+        event_id: 업데이트할 이벤트 ID
+        event_type: 이벤트 유형 ("Intrusion" 또는 "Fault")
 
     Note:
-        Only Intrusion (DetectionEvent) and Fault (MalfunctionEvent) events have action_reported field.
-        Connection events are skipped.
+        Intrusion (DetectionEvent)과 Fault (MalfunctionEvent) 이벤트만 action_reported 필드를 가집니다.
+        Connection 이벤트는 건너뜁니다.
     """
     if event_type == "Intrusion":
         source = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
@@ -51,20 +51,20 @@ def update_source_action_reported(db: Session, event_id: int, event_type: str) -
 # Helper function to reset source event action_reported
 def reset_source_action_reported(db: Session, event_id: int, event_type: str) -> None:
     """
-    Reset source event's action_reported field to "False" when ActionEvent is deleted
+    ActionEvent 삭제 시 원본 이벤트의 action_reported 필드를 "False"로 리셋
 
-    Due to 1:1 relationship between source event and ActionEvent,
-    we unconditionally reset to "False" without counting remaining ActionEvents.
+    원본 이벤트와 ActionEvent의 1:1 관계로 인해 남은 ActionEvent 수를 세지 않고
+    무조건 "False"로 리셋합니다.
 
     Args:
-        db: Database session
-        event_id: Event ID to update
-        event_type: Event type ("Intrusion" or "Fault")
+        db: 데이터베이스 세션
+        event_id: 업데이트할 이벤트 ID
+        event_type: 이벤트 유형 ("Intrusion" 또는 "Fault")
 
     Note:
-        Only Intrusion (DetectionEvent) and Fault (MalfunctionEvent) events have action_reported field.
-        Connection events are skipped.
-        This function does NOT commit - the caller is responsible for committing.
+        Intrusion (DetectionEvent)과 Fault (MalfunctionEvent) 이벤트만 action_reported 필드를 가집니다.
+        Connection 이벤트는 건너뜁니다.
+        이 함수는 커밋하지 않습니다 - 호출자가 커밋해야 합니다.
     """
     if event_type == "Intrusion":
         source = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
@@ -80,19 +80,19 @@ def reset_source_action_reported(db: Session, event_id: int, event_type: str) ->
 # Helper function to load source event
 def load_source_event(db: Session, event_id: int, event_type: str) -> Union[DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse]:
     """
-    Load source event by ID and type, and return appropriate response schema
+    ID와 유형으로 원본 이벤트를 로드하고 적절한 응답 스키마를 반환
 
     Args:
-        db: Database session
-        event_id: Event ID to load
-        event_type: Event type ("Intrusion", "Fault", or "Connection")
+        db: 데이터베이스 세션
+        event_id: 로드할 이벤트 ID
+        event_type: 이벤트 유형 ("Intrusion", "Fault", 또는 "Connection")
 
     Returns:
-        DetectionEventResponse, MalfunctionEventResponse, or ConnectionEventResponse
+        DetectionEventResponse, MalfunctionEventResponse, 또는 ConnectionEventResponse
 
     Raises:
-        HTTPException 404: If event not found
-        HTTPException 400: If invalid event_type
+        HTTPException 404: 이벤트를 찾을 수 없음
+        HTTPException 400: 유효하지 않은 event_type
     """
     # Query only the specific table based on event_type (1 query instead of 3!)
     if event_type == "Intrusion":
@@ -122,38 +122,33 @@ def load_source_event(db: Session, event_id: int, event_type: str) -> Union[Dete
 
 @router.get("", response_model=ApiResponse[list[ActionEventResponse]])
 async def get_action_events(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    user: Optional[str] = Query(None, description="Filter by user"),
-    from_event: Optional[int] = Query(None, description="Filter by from_event"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    user: Optional[str] = Query(None, description="사용자로 필터링"),
+    from_event: Optional[int] = Query(None, description="원본 이벤트 ID로 필터링"),
+    start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
+    end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of action events with pagination and filters
+    조치 이벤트 목록 조회 (페이지네이션)
 
-    Returns action events with nested source event objects. Each action event's
-    `from_event` field contains the full source event data (detection, malfunction,
-    or connection) instead of just the ID.
+    조치 이벤트 목록을 페이지네이션하여 조회합니다. 각 조치 이벤트의 `from_event` 필드에는
+    원본 이벤트(탐지, 장애, 연결)의 전체 데이터가 포함됩니다.
 
-    The response uses batch loading to optimize performance - all source events
-    are loaded in a single query per event type, avoiding N+1 query problems.
+    응답은 배치 로딩을 사용하여 성능을 최적화합니다 - 모든 원본 이벤트는 이벤트 유형별로
+    단일 쿼리로 로드되어 N+1 쿼리 문제를 방지합니다.
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        user: Filter by user who performed the action
-        from_event: Filter by referenced source event ID
-        start_date: Filter by start date (event datetime >= start_date)
-        end_date: Filter by end date (event datetime <= end_date)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **user**: 조치를 수행한 사용자로 필터링
+    - **from_event**: 원본 이벤트 ID로 필터링
+    - **start_date**: 시작 날짜로 필터링
+    - **end_date**: 종료 날짜로 필터링
 
-    Returns:
-        ApiResponse with list of action events and pagination metadata.
-        Each action event includes a nested source event object in the `from_event` field.
+    **Response**: 조치 이벤트 목록 및 페이지네이션 정보 (각 이벤트에 중첩된 원본 이벤트 포함)
     """
     # Build query
     query = db.query(ActionEvent)
@@ -252,22 +247,18 @@ async def get_action_event(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single action event by ID
+    조치 이벤트 단건 조회
 
-    Returns an action event with its nested source event object. The `from_event`
-    field contains the full source event data (detection, malfunction, or connection)
-    instead of just the ID.
+    특정 조치 이벤트의 상세 정보를 조회합니다. `from_event` 필드에는
+    원본 이벤트(탐지, 장애, 연결)의 전체 데이터가 포함됩니다.
 
-    Args:
-        event_id: Action event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    **파라미터**:
+    - **event_id**: 조치 이벤트 ID (Path Parameter)
 
-    Returns:
-        ApiResponse with action event data including nested source event object
+    **Response**: 조치 이벤트 상세 정보 (중첩된 원본 이벤트 객체 포함)
 
-    Raises:
-        HTTPException 404: If action event not found or source event not found
+    **Error**:
+    - 404: 조치 이벤트 또는 원본 이벤트를 찾을 수 없음
     """
     event = db.query(ActionEvent).filter(ActionEvent.id == event_id).first()
 
@@ -304,39 +295,24 @@ async def create_action_event(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new action event
+    조치 이벤트 생성
 
-    This endpoint creates a new action event that references a source event
-    (detection, malfunction, or connection event) using polymorphic reference.
+    새로운 조치 이벤트를 생성합니다. 이 엔드포인트는 다형성 참조를 사용하여
+    원본 이벤트(탐지, 장애, 연결)를 참조하는 조치 이벤트를 생성합니다.
 
-    Args:
-        event_data: Action event creation data including:
-            - from_event: ID of the source event
-            - from_type_event: Type of source event ("Intrusion", "Fault", or "Connection")
-            - content: Description of the action taken
-            - user: User who performed the action
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    **Request Body**:
+    - **type_event**: 이벤트 유형 (필수)
+    - **content**: 조치 내용 설명 (필수)
+    - **user**: 조치를 수행한 사용자 (필수)
+    - **from_event**: 원본 이벤트 ID (필수)
+    - **from_type_event**: 원본 이벤트 유형 - "Intrusion", "Fault", "Connection" (필수)
+    - **created_at**: 조치 일시 (선택)
 
-    Returns:
-        ApiResponse with created action event data. The `from_event` field in the
-        response contains the full nested source event object (not just the ID).
+    **Response**: 생성된 조치 이벤트 정보 (중첩된 원본 이벤트 객체 포함)
 
-    Raises:
-        HTTPException 404: If the referenced source event is not found
-        HTTPException 400: If invalid from_type_event is provided
-
-    Example:
-        ```json
-        {
-            "type_event": "Action",
-            "content": "Verified and cleared the alert",
-            "user": "admin",
-            "from_event": 123,
-            "from_type_event": "Intrusion",
-            "datetime": "2025-11-12T14:00:00"
-        }
-        ```
+    **Error**:
+    - 404: 참조된 원본 이벤트를 찾을 수 없음
+    - 400: 유효하지 않은 from_type_event 값
     """
     # Create new action event
     new_event = ActionEvent(
@@ -383,19 +359,22 @@ async def update_action_event(
     db: Session = Depends(get_db)
 ):
     """
-    Update an action event (partial update)
+    조치 이벤트 부분 수정 (PATCH)
 
-    Args:
-        event_id: Action event ID
-        event_data: Action event update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    조치 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated action event data
+    **파라미터**:
+    - **event_id**: 조치 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If action event not found
+    **Request Body** (모든 필드 선택):
+    - **type_event**: 이벤트 유형
+    - **content**: 조치 내용 설명
+    - **user**: 조치를 수행한 사용자
+
+    **Response**: 수정된 조치 이벤트 정보
+
+    **Error**:
+    - 404: 조치 이벤트를 찾을 수 없음
     """
     event = db.query(ActionEvent).filter(ActionEvent.id == event_id).first()
 
@@ -442,19 +421,24 @@ async def replace_action_event(
     db: Session = Depends(get_db)
 ):
     """
-    Replace an action event (full update - all fields required)
+    조치 이벤트 전체 수정 (PUT)
 
-    Args:
-        event_id: Action event ID
-        event_data: Complete action event data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    조치 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated action event data
+    **파라미터**:
+    - **event_id**: 조치 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If action event not found
+    **Request Body** (모든 필드 필수):
+    - **type_event**: 이벤트 유형
+    - **content**: 조치 내용 설명
+    - **user**: 조치를 수행한 사용자
+    - **from_event**: 원본 이벤트 ID
+    - **from_type_event**: 원본 이벤트 유형
+
+    **Response**: 수정된 조치 이벤트 정보
+
+    **Error**:
+    - 404: 조치 이벤트를 찾을 수 없음
     """
     event = db.query(ActionEvent).filter(ActionEvent.id == event_id).first()
 
@@ -501,18 +485,18 @@ async def delete_action_event(
     db: Session = Depends(get_db)
 ):
     """
-    Delete an action event
+    조치 이벤트 삭제
 
-    Args:
-        event_id: Action event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 조치 이벤트를 삭제합니다. 삭제 시 원본 이벤트의 action_reported 필드가
+    "False"로 리셋됩니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **event_id**: 조치 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If action event not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 조치 이벤트를 찾을 수 없음
     """
     event = db.query(ActionEvent).filter(ActionEvent.id == event_id).first()
 

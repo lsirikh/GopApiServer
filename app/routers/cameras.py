@@ -17,32 +17,31 @@ router = APIRouter(tags=[])
 
 @router.get("", response_model=ApiResponse[list[CameraResponse]])
 async def get_cameras(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    group_device: Optional[int] = Query(None, description="Filter by group_device"),
-    type_device: Optional[str] = Query(None, description="Filter by type_device"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    mode: Optional[str] = Query(None, description="Filter by camera mode"),
-    category: Optional[str] = Query(None, description="Filter by camera category"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링"),
+    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
+    status: Optional[str] = Query(None, description="상태로 필터링"),
+    mode: Optional[str] = Query(None, description="카메라 모드로 필터링"),
+    category: Optional[str] = Query(None, description="카메라 카테고리로 필터링"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of cameras with pagination and filters
+    카메라 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        group_device: Filter by group_device
-        type_device: Filter by type_device
-        status: Filter by status
-        mode: Filter by camera mode
-        category: Filter by camera category
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    카메라 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of cameras and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **group_device**: 장치 그룹으로 필터링
+    - **type_device**: 장치 유형으로 필터링
+    - **status**: 상태로 필터링
+    - **mode**: 카메라 모드로 필터링
+    - **category**: 카메라 카테고리로 필터링
+
+    **Response**: 카메라 목록 및 페이지네이션 정보
     """
     # Build query
     query = db.query(Camera)
@@ -115,18 +114,17 @@ async def get_camera(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single camera by ID
+    카메라 단건 조회
 
-    Args:
-        camera_id: Camera ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 카메라의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with camera data
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
+    **Response**: 카메라 상세 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
 
@@ -170,19 +168,31 @@ async def create_camera(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new camera
+    카메라 생성
 
-    Args:
-        camera_data: Camera creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 카메라를 생성합니다.
 
-    Returns:
-        ApiResponse with created camera data
+    **Request Body**:
+    - **number_device**: 장치 번호 (필수, 고유값)
+    - **group_device**: 장치 그룹 (필수)
+    - **name_device**: 장치 이름 (필수)
+    - **type_device**: 장치 유형 (필수)
+    - **version**: 버전 (필수)
+    - **status**: 상태 (필수)
+    - **ip_address**: IP 주소 (필수)
+    - **ip_port**: IP 포트 (필수)
+    - **user_name**: 사용자 이름 (필수)
+    - **user_password**: 사용자 비밀번호 (필수)
+    - **rtsp_uri**: RTSP URI (필수)
+    - **rtsp_port**: RTSP 포트 (필수)
+    - **mode**: 카메라 모드 (필수)
+    - **category**: 카메라 카테고리 (필수)
 
-    Raises:
-        HTTPException 409: If camera with same number_device already exists
-        HTTPException 422: If invalid enum value provided
+    **Response**: 생성된 카메라 정보
+
+    **Error**:
+    - 409: 동일한 number_device를 가진 카메라가 이미 존재함
+    - 422: 유효하지 않은 enum 값
     """
     # Check for duplicate number_device
     existing = db.query(Camera).filter(
@@ -264,21 +274,35 @@ async def update_camera(
     db: Session = Depends(get_db)
 ):
     """
-    Update a camera (partial update)
+    카메라 부분 수정 (PATCH)
 
-    Args:
-        camera_id: Camera ID
-        camera_data: Camera update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    카메라의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated camera data
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
-        HTTPException 409: If number_device conflicts with existing camera
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 선택):
+    - **number_device**: 장치 번호
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 유형
+    - **version**: 버전
+    - **status**: 상태
+    - **ip_address**: IP 주소
+    - **ip_port**: IP 포트
+    - **user_name**: 사용자 이름
+    - **user_password**: 사용자 비밀번호
+    - **rtsp_uri**: RTSP URI
+    - **rtsp_port**: RTSP 포트
+    - **mode**: 카메라 모드
+    - **category**: 카메라 카테고리
+
+    **Response**: 수정된 카메라 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
+    - 409: 동일한 number_device를 가진 다른 카메라가 존재함
+    - 422: 유효하지 않은 enum 값
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
 
@@ -378,21 +402,35 @@ async def replace_camera(
     db: Session = Depends(get_db)
 ):
     """
-    Replace a camera (full update - all fields required)
+    카메라 전체 수정 (PUT)
 
-    Args:
-        camera_id: Camera ID
-        camera_data: Complete camera data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    카메라의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated camera data
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
-        HTTPException 409: If number_device conflicts with existing camera
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 필수):
+    - **number_device**: 장치 번호
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 유형
+    - **version**: 버전
+    - **status**: 상태
+    - **ip_address**: IP 주소
+    - **ip_port**: IP 포트
+    - **user_name**: 사용자 이름
+    - **user_password**: 사용자 비밀번호
+    - **rtsp_uri**: RTSP URI
+    - **rtsp_port**: RTSP 포트
+    - **mode**: 카메라 모드
+    - **category**: 카메라 카테고리
+
+    **Response**: 수정된 카메라 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
+    - 409: 동일한 number_device를 가진 다른 카메라가 존재함
+    - 422: 유효하지 않은 enum 값
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
 
@@ -480,18 +518,17 @@ async def delete_camera(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a camera
+    카메라 삭제
 
-    Args:
-        camera_id: Camera ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 카메라를 삭제합니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
 

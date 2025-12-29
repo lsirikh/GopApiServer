@@ -21,17 +21,17 @@ async def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Dependency to get the current authenticated user from JWT token
+    JWT 토큰에서 현재 인증된 사용자를 가져오는 의존성
 
     Args:
-        token: JWT token from Authorization header
-        db: Database session
+        token: Authorization 헤더의 JWT 토큰
+        db: 데이터베이스 세션
 
     Returns:
-        User object of authenticated user
+        인증된 사용자의 User 객체
 
     Raises:
-        HTTPException 401: If token is invalid or user doesn't exist
+        HTTPException 401: 토큰이 유효하지 않거나 사용자가 존재하지 않음
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -64,17 +64,17 @@ async def get_current_user_optional(
     token: str = Depends(oauth2_scheme_optional)
 ) -> User | None:
     """
-    Optional authentication dependency based on AUTH_MODE setting
+    AUTH_MODE 설정에 따른 선택적 인증 의존성
 
     Args:
-        token: JWT token from Authorization header (optional if AUTH_MODE=public)
-        db: Database session
+        token: Authorization 헤더의 JWT 토큰 (AUTH_MODE=public인 경우 선택)
+        db: 데이터베이스 세션
 
     Returns:
-        User object if authenticated, None if AUTH_MODE=public and no token
+        인증된 경우 User 객체, AUTH_MODE=public이고 토큰이 없는 경우 None
 
     Raises:
-        HTTPException 401: If AUTH_MODE=token and token is invalid or missing
+        HTTPException 401: AUTH_MODE=token이고 토큰이 유효하지 않거나 누락됨
     """
     # Import settings inside function to allow test mocking
     from app.config import settings
@@ -114,17 +114,18 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """
-    Login endpoint - authenticate user and return JWT token
+    로그인
 
-    Args:
-        form_data: OAuth2 form with username and password
-        db: Database session
+    사용자 인증 후 JWT 토큰을 반환합니다.
 
-    Returns:
-        Token with access_token and token_type
+    **Request Body** (OAuth2 폼 형식):
+    - **username**: 사용자 이름 (필수)
+    - **password**: 비밀번호 (필수)
 
-    Raises:
-        HTTPException 401: If credentials are invalid
+    **Response**: access_token과 token_type이 포함된 Token 객체
+
+    **Error**:
+    - 401: 잘못된 사용자 이름 또는 비밀번호
     """
     # Find user by username
     user = db.query(User).filter(User.username == form_data.username).first()
@@ -146,15 +147,13 @@ async def login(
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     """
-    Get current authenticated user information
+    현재 사용자 정보 조회
 
-    Args:
-        current_user: Current authenticated user from JWT token
+    현재 인증된 사용자의 정보를 조회합니다.
 
-    Returns:
-        UserResponse with username and role (no password)
+    **Response**: 사용자 이름과 역할이 포함된 UserResponse (비밀번호 제외)
 
-    Raises:
-        HTTPException 401: If token is invalid
+    **Error**:
+    - 401: 유효하지 않은 토큰
     """
     return current_user

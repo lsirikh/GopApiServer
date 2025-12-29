@@ -23,14 +23,14 @@ router = APIRouter(tags=[])
 
 
 def _build_urls_object(preset) -> CameraUrls | None:
-    """Helper: Build CameraUrls object from model"""
+    """Helper: 모델에서 CameraUrls 객체 생성"""
     if preset.url_live or preset.url_record:
         return CameraUrls(live=preset.url_live, record=preset.url_record)
     return None
 
 
 def _build_preset_response(p) -> CameraEventPresetResponse:
-    """Helper: Build CameraEventPresetResponse from model"""
+    """Helper: 모델에서 CameraEventPresetResponse 생성"""
     return CameraEventPresetResponse(
         id=p.id,
         cam_id=p.cam_id,
@@ -45,16 +45,27 @@ def _build_preset_response(p) -> CameraEventPresetResponse:
 
 @router.get("", response_model=ApiResponse[list[CameraEventMappingResponse]])
 async def get_camera_event_mappings(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    group_event: Optional[str] = Query(None, description="Filter by group_event"),
-    category_event: Optional[str] = Query(None, description="Filter by category_event"),
-    status_filter: Optional[bool] = Query(None, alias="status", description="Filter by status"),
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    category_event: Optional[str] = Query(None, description="이벤트 카테고리로 필터링"),
+    status_filter: Optional[bool] = Query(None, alias="status", description="상태로 필터링"),
     current_user=Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of camera event mappings with pagination and filters
+    카메라 이벤트 매핑 목록 조회 (페이지네이션)
+
+    카메라 이벤트 매핑 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
+
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **group_event**: 이벤트 그룹으로 필터링
+    - **category_event**: 이벤트 카테고리로 필터링
+    - **status**: 상태로 필터링
+
+    **Response**: 카메라 이벤트 매핑 목록 및 페이지네이션 정보
     """
     query = db.query(CameraEventMapping)
 
@@ -118,7 +129,17 @@ async def get_camera_event_mapping(
     db: Session = Depends(get_db)
 ):
     """
-    Get a single camera event mapping by ID
+    카메라 이벤트 매핑 단건 조회
+
+    특정 카메라 이벤트 매핑의 상세 정보를 조회합니다.
+
+    **파라미터**:
+    - **mapping_id**: 카메라 이벤트 매핑 ID (Path Parameter)
+
+    **Response**: 카메라 이벤트 매핑 상세 정보
+
+    **Error**:
+    - 404: 카메라 이벤트 매핑을 찾을 수 없음
     """
     mapping = db.query(CameraEventMapping).filter(CameraEventMapping.id == mapping_id).first()
 
@@ -154,7 +175,22 @@ async def create_camera_event_mapping(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new camera event mapping
+    카메라 이벤트 매핑 생성
+
+    새로운 카메라 이벤트 매핑을 생성합니다.
+
+    **Request Body**:
+    - **name_event**: 이벤트 이름 (필수)
+    - **group_event**: 이벤트 그룹 (필수)
+    - **category_event**: 이벤트 카테고리 (필수)
+    - **description**: 설명 (선택)
+    - **status**: 상태 (필수)
+    - **camera_presets**: 카메라 프리셋 목록 (선택)
+
+    **Response**: 생성된 카메라 이벤트 매핑 정보
+
+    **Error**:
+    - 422: 유효하지 않은 category_event 값
     """
     # Convert category_event string to enum
     try:
@@ -223,7 +259,26 @@ async def update_camera_event_mapping_partial(
     db: Session = Depends(get_db)
 ):
     """
-    Partially update a camera event mapping (PATCH)
+    카메라 이벤트 매핑 부분 수정 (PATCH)
+
+    카메라 이벤트 매핑의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
+
+    **파라미터**:
+    - **mapping_id**: 카메라 이벤트 매핑 ID (Path Parameter)
+
+    **Request Body** (모든 필드 선택):
+    - **name_event**: 이벤트 이름
+    - **group_event**: 이벤트 그룹
+    - **category_event**: 이벤트 카테고리
+    - **description**: 설명
+    - **status**: 상태
+    - **camera_presets**: 카메라 프리셋 목록
+
+    **Response**: 수정된 카메라 이벤트 매핑 정보
+
+    **Error**:
+    - 404: 카메라 이벤트 매핑을 찾을 수 없음
+    - 422: 유효하지 않은 category_event 값
     """
     existing_mapping = db.query(CameraEventMapping).filter(CameraEventMapping.id == mapping_id).first()
 
@@ -303,7 +358,26 @@ async def update_camera_event_mapping_full(
     db: Session = Depends(get_db)
 ):
     """
-    Fully update a camera event mapping (PUT)
+    카메라 이벤트 매핑 전체 수정 (PUT)
+
+    카메라 이벤트 매핑의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
+
+    **파라미터**:
+    - **mapping_id**: 카메라 이벤트 매핑 ID (Path Parameter)
+
+    **Request Body** (모든 필드 필수):
+    - **name_event**: 이벤트 이름
+    - **group_event**: 이벤트 그룹
+    - **category_event**: 이벤트 카테고리
+    - **description**: 설명
+    - **status**: 상태
+    - **camera_presets**: 카메라 프리셋 목록
+
+    **Response**: 수정된 카메라 이벤트 매핑 정보
+
+    **Error**:
+    - 404: 카메라 이벤트 매핑을 찾을 수 없음
+    - 422: 유효하지 않은 category_event 값
     """
     existing_mapping = db.query(CameraEventMapping).filter(CameraEventMapping.id == mapping_id).first()
 
@@ -377,7 +451,17 @@ async def delete_camera_event_mapping(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a camera event mapping
+    카메라 이벤트 매핑 삭제
+
+    특정 카메라 이벤트 매핑을 삭제합니다.
+
+    **파라미터**:
+    - **mapping_id**: 카메라 이벤트 매핑 ID (Path Parameter)
+
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 카메라 이벤트 매핑을 찾을 수 없음
     """
     mapping = db.query(CameraEventMapping).filter(CameraEventMapping.id == mapping_id).first()
 

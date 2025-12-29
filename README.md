@@ -202,7 +202,6 @@ api-test-server/
 │       └── init_server_data.py  # 서버 Seed 데이터 (v1.9)
 ├── tests/                   # 테스트 파일
 ├── data/                    # SQLite DB 파일
-├── Docs/                    # 문서
 ├── docker-compose.yml
 ├── Dockerfile
 └── requirements.txt
@@ -213,7 +212,6 @@ api-test-server/
 ## 문서
 
 - [GOP RESTful API 연동설계서](Docs/GOP_Restful_Api_연동설계.md) - API 상세 설계 문서 (v1.9)
-- [Enum Update PRD](docs/Enum-Update-PRD.md) - Enum 업데이트 요구사항
 
 ---
 

@@ -1,6 +1,6 @@
 # GOP RESTful API 연동 설계서
 
-**작성일**: 2025-11-12  
+**작성일**: 2025-12-31  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지   시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보
@@ -14,11 +14,20 @@
 3. [공통 사양](#3-공통-사양)
 4. [Enum 타입 정의](#4-enum-타입-정의)
 5. [Device API 설계](#5-device-api-설계)
+   - 5.1 [Controller API](#51-controller-api)
+   - 5.2 [Sensor API](#52-sensor-api)
+   - 5.3 [Camera API](#53-camera-api)
+   - 5.4 [DeviceGroup API](#54-devicegroup-api)
+   - 5.5 [Camera Preset API](#55-camera-preset-api) *(v2.1 신규)*
+   - 5.6 [ROI API](#56-roi-api) *(v2.1 신규)*
+   - 5.7 [XyPoint API](#57-xypoint-api) *(v2.1 신규)*
 6. [Event API 설계](#6-event-api-설계)
 7. [Integration API 설계](#7-integration-api-설계)
 8. [Server Monitoring API 설계](#8-server-monitoring-api-설계)
 9. [에러 처리](#9-에러-처리)
 10. [부록](#10-부록)
+    - 10.1 [전체 Endpoint 목록](#101-전체-endpoint-목록)
+    - 10.2 [Event-Device 리팩토링 변경사항 (v2.2)](#102-event-device-리팩토링-변경사항-v22)
 
 ---
 
@@ -278,6 +287,25 @@ public enum EnumCameraType
 }
 ```
 
+#### EnumDeviceCategory (v2.0 신규)
+```python
+# Python 정의 - app/utils/enums.py
+# Device Polymorphic Discriminator (Joined Table Inheritance)
+class EnumDeviceCategory(str, Enum):
+    CONTROLLER = "controller"   # 컨트롤러
+    SENSOR = "sensor"           # 센서
+    CAMERA = "camera"           # 카메라
+```
+
+**사용처**:
+- `DeviceGroupMapping.category_device`: 디바이스 그룹 매핑 시 디바이스 종류 구분
+- Device 모델의 Polymorphic Discriminator (Joined Table Inheritance)
+- API 요청 시 디바이스 카테고리 필터링
+
+**참고**: 이 Enum은 `type_device`(EnumDeviceType)와 다릅니다:
+- `category_device`: 상위 카테고리 (controller, sensor, camera)
+- `type_device`: 구체적인 장치 유형 (Controller, Multi, Fence, IpCamera 등)
+
 ### 4.2 Event Enum
 
 #### EnumEventType
@@ -423,7 +451,8 @@ class EnumServerStatus(str, Enum):
 **Endpoint**: `GET /api/devices/controllers`
 
 **Query Parameters**:
-- `group_device` (int, optional): 디바이스 그룹 필터
+- `group_device` (int, optional): 디바이스 그룹 필터 (레거시 1:1 관계)
+- `group_id` (int, optional): DeviceGroup ID로 필터링 (N:N 관계)
 - `status` (string, optional): 상태 필터 ("ACTIVATED", "ERROR", "DEACTIVATED")
 - `include_sensors` (boolean, optional): 센서 목록 포함 여부 (기본값: false)
 - `page` (int, optional): 페이지 번호 (기본값: 1)
@@ -454,7 +483,17 @@ Accept: application/json
       "ip_address": "192.168.1.100",
       "ip_port": 8001,
       "created_at": "2025-01-01T00:00:00.000Z",
-      "updated_at": "2025-01-10T10:30:00.000Z"
+      "updated_at": "2025-01-10T10:30:00.000Z",
+      "device_groups": [
+        {
+          "id": 1,
+          "name": "GOP 1구역",
+          "description": "GOP 1구역 장비 그룹",
+          "device_count": 5,
+          "created_at": "2025-01-01T00:00:00.000Z",
+          "updated_at": "2025-01-01T00:00:00.000Z"
+        }
+      ]
     },
     {
       "id": 2,
@@ -467,7 +506,8 @@ Accept: application/json
       "ip_address": "192.168.1.101",
       "ip_port": 8001,
       "created_at": "2025-01-02T00:00:00.000Z",
-      "updated_at": "2025-01-10T10:29:00.000Z"
+      "updated_at": "2025-01-10T10:29:00.000Z",
+      "device_groups": []
     }
   ],
   "pagination": {
@@ -518,7 +558,7 @@ Accept: application/json
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "ip_address": "192.168.1.100",
     "ip_port": 8001,
-    "devices": [
+    "sensors": [
       {
         "id": 101,
         "number_device": 1,
@@ -526,7 +566,10 @@ Accept: application/json
         "name_device": "Sensor-A-1",
         "type_device": "Multi", //(EnumDeviceType)
         "version": "v1.5.0",
-        "status": "ACTIVATED" //(EnumDeviceStatus)
+        "status": "ACTIVATED", //(EnumDeviceStatus)
+        "controller_id": 1,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
       },
       {
         "id": 102,
@@ -535,11 +578,24 @@ Accept: application/json
         "name_device": "Sensor-A-2",
         "type_device": "Fence", //(EnumDeviceType)
         "version": "v1.5.0",
-        "status": "ACTIVATED" //(EnumDeviceStatus)
+        "status": "ACTIVATED", //(EnumDeviceStatus)
+        "controller_id": 1,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
       }
     ],
     "created_at": "2025-01-01T00:00:00.000Z",
-    "updated_at": "2025-01-10T10:30:00.000Z"
+    "updated_at": "2025-01-10T10:30:00.000Z",
+    "device_groups": [
+      {
+        "id": 1,
+        "name": "GOP 1구역",
+        "description": "GOP 1구역 장비 그룹",
+        "device_count": 5,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
   },
   "meta": {
     "timestamp": "2025-01-10T10:31:00.050Z",
@@ -580,7 +636,8 @@ Accept: application/json
   "version": "v2.1.0",
   "status": "DEACTIVATED", //(EnumDeviceStatus)
   "ip_address": "192.168.1.102",
-  "ip_port": 8001
+  "ip_port": 8001,
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -600,7 +657,25 @@ Accept: application/json
     "ip_address": "192.168.1.102",
     "ip_port": 8001,
     "created_at": "2025-01-10T10:34:00.100Z",
-    "updated_at": "2025-01-10T10:34:00.100Z"
+    "updated_at": "2025-01-10T10:34:00.100Z",
+    "device_groups": [
+      {
+        "id": 1,
+        "name": "GOP 1구역",
+        "description": "GOP 1구역 장비 그룹",
+        "device_count": 6,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      },
+      {
+        "id": 2,
+        "name": "GOP 2구역",
+        "description": "GOP 2구역 장비 그룹",
+        "device_count": 3,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
   },
   "meta": {
     "timestamp": "2025-01-10T10:34:00.100Z",
@@ -620,7 +695,8 @@ Accept: application/json
 {
   "name_device": "Controller-C-Updated",
   "status": "ACTIVATED", //(EnumDeviceStatus)
-  "version": "v2.2.0"
+  "version": "v2.2.0",
+  "group_ids": [1] // (optional) 소속 디바이스 그룹 ID 배열 변경
 }
 ```
 
@@ -640,7 +716,17 @@ Accept: application/json
     "ip_address": "192.168.1.102",
     "ip_port": 8001,
     "created_at": "2025-01-10T10:34:00.100Z",
-    "updated_at": "2025-01-10T10:35:00.150Z"
+    "updated_at": "2025-01-10T10:35:00.150Z",
+    "device_groups": [
+      {
+        "id": 1,
+        "name": "GOP 1구역",
+        "description": "GOP 1구역 장비 그룹",
+        "device_count": 6,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
   },
   "meta": {
     "timestamp": "2025-01-10T10:35:00.150Z",
@@ -680,7 +766,8 @@ Accept: application/json
 **Endpoint**: `GET /api/devices/sensors`
 
 **Query Parameters**:
-- `group_device` (int, optional): 디바이스 그룹 필터
+- `group_device` (int, optional): 디바이스 그룹 필터 (레거시 1:1 관계)
+- `group_id` (int, optional): DeviceGroup ID로 필터링 (N:N 관계)
 - `type_device` (string, optional): 센서 타입 필터 (Multi, Fence, Underground, PIR 등)
 - `status` (string, optional): 상태 필터
 - `controller_id` (int, optional): 제어기 ID 필터
@@ -703,7 +790,17 @@ Accept: application/json
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "controller_id": 1,
       "created_at": "2025-01-01T00:00:00.000Z",
-      "updated_at": "2025-01-10T10:30:00.000Z"
+      "updated_at": "2025-01-10T10:30:00.000Z",
+      "device_groups": [
+        {
+          "id": 1,
+          "name": "GOP 1구역",
+          "description": "GOP 1구역 장비 그룹",
+          "device_count": 5,
+          "created_at": "2025-01-01T00:00:00.000Z",
+          "updated_at": "2025-01-01T00:00:00.000Z"
+        }
+      ]
     },
     {
       "id": 102,
@@ -715,7 +812,8 @@ Accept: application/json
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "controller_id": 1,
       "created_at": "2025-01-01T00:00:00.000Z",
-      "updated_at": "2025-01-10T10:30:00.000Z"
+      "updated_at": "2025-01-10T10:30:00.000Z",
+      "device_groups": []
     }
   ],
   "pagination": {
@@ -763,7 +861,17 @@ Accept: application/json
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
     "created_at": "2025-01-01T00:00:00.000Z",
-    "updated_at": "2025-01-10T10:30:00.000Z"
+    "updated_at": "2025-01-10T10:30:00.000Z",
+    "device_groups": [
+      {
+        "id": 1,
+        "name": "GOP 1구역",
+        "description": "GOP 1구역 장비 그룹",
+        "device_count": 5,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
   },
   "meta": {
     "timestamp": "2025-01-10T10:38:00.050Z",
@@ -803,7 +911,8 @@ Accept: application/json
   "type_device": "Fence", //(EnumDeviceType)
   "version": "v2.1.0",
   "status": "DEACTIVATED", //(EnumDeviceStatus)
-  "controller_id": 1
+  "controller_id": 1,
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -822,7 +931,25 @@ Accept: application/json
     "status": "DEACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
     "created_at": "2025-01-10T10:39:00.100Z",
-    "updated_at": "2025-01-10T10:39:00.100Z"
+    "updated_at": "2025-01-10T10:39:00.100Z",
+    "device_groups": [
+      {
+        "id": 1,
+        "name": "GOP 1구역",
+        "description": "GOP 1구역 장비 그룹",
+        "device_count": 6,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      },
+      {
+        "id": 2,
+        "name": "GOP 2구역",
+        "description": "GOP 2구역 장비 그룹",
+        "device_count": 3,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
   },
   "meta": {
     "timestamp": "2025-01-10T10:39:00.100Z",
@@ -842,7 +969,8 @@ Accept: application/json
 {
   "name_device": "Fence-001-Updated",
   "status": "ACTIVATED", //(EnumDeviceStatus)
-  "version": "v2.2.0"
+  "version": "v2.2.0",
+  "group_ids": [1] // (optional) 소속 디바이스 그룹 ID 배열 변경
 }
 ```
 
@@ -861,7 +989,17 @@ Accept: application/json
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
     "created_at": "2025-01-10T10:39:00.100Z",
-    "updated_at": "2025-01-10T10:40:00.150Z"
+    "updated_at": "2025-01-10T10:40:00.150Z",
+    "device_groups": [
+      {
+        "id": 1,
+        "name": "GOP 1구역",
+        "description": "GOP 1구역 장비 그룹",
+        "device_count": 6,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
   },
   "meta": {
     "timestamp": "2025-01-10T10:40:00.150Z",
@@ -944,12 +1082,14 @@ Accept: application/json
 **Endpoint**: `GET /api/devices/cameras`
 
 **Query Parameters**:
-- `group_device` (int, optional): 디바이스 그룹 필터
-- `mode` (string, optional): 카메라 모드 필터 (ONVIF, EMSTONE_API, INNODEP_API, ETC)
-- `category` (string, optional): 카메라 타입 필터 (FIXED, PTZ, FISHEYES, THERMAL)
-- `status` (string, optional): 상태 필터
-- `page` (int, optional): 페이지 번호
-- `limit` (int, optional): 페이지당 항목 수
+- `group_device` (int, optional): 디바이스 그룹 필터 (레거시 1:1 관계)
+- `group_id` (int, optional): DeviceGroup ID로 필터링 (N:N 관계)
+- `type_device` (string, optional): 장치 유형 필터 (IpCamera 등)
+- `mode` (string, optional): 카메라 모드 필터 (NONE, ONVIF, EMSTONE_API, INNODEP_API, ETC)
+- `category` (string, optional): 카메라 타입 필터 (NONE, FIXED, PTZ)
+- `status` (string, optional): 상태 필터 (ACTIVATED, ERROR, DEACTIVATED)
+- `page` (int, optional): 페이지 번호 (기본값: 1)
+- `limit` (int, optional): 페이지당 항목 수 (기본값: 20, 최대 100개)
 
 **Response Example** (200 OK):
 ```json
@@ -973,6 +1113,24 @@ Accept: application/json
       "rtsp_port": 554,
       "mode": "ONVIF", //(EnumCameraMode)
       "category": "PTZ", //(EnumCameraType)
+      "is_record": false,
+      "hardware_spec": {
+        "name": "GOP 1구역 PTZ 카메라",
+        "location": "GOP 1구역 전방 초소",
+        "manufacturer": "Hanwha Vision",
+        "model": "XNP-6320RH",
+        "firmware": "2.41.01",
+        "mac_address": "00:09:18:AB:CD:EF"
+      },
+      "geolocation": {
+        "location": "GOP 1구역 전방 초소",
+        "latitude": 38.1234,
+        "longitude": 127.5678,
+        "altitude": 245.5
+      },
+      "device_groups": [
+        {"id": 1, "name": "GOP 1구역"}
+      ],
       "created_at": "2025-01-03T00:00:00.000Z",
       "updated_at": "2025-01-10T10:33:00.000Z"
     }
@@ -1028,6 +1186,28 @@ Accept: application/json
     "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "PTZ", //(EnumCameraType)
+    "is_record": true,
+    "hardware_spec": {
+      "name": "GOP 1구역 PTZ 카메라",
+      "location": "GOP 1구역 전방 초소",
+      "manufacturer": "Hanwha Vision",
+      "model": "XNP-6320RH",
+      "hardware": "PTZ 32x Optical Zoom",
+      "firmware": "2.41.01",
+      "device_id": "HWV-XNP-001",
+      "mac_address": "00:09:18:AB:CD:EF",
+      "onvif_version": "2.4.2"
+    },
+    "geolocation": {
+      "location": "GOP 1구역 전방 초소",
+      "latitude": 38.1234,
+      "longitude": 127.5678,
+      "altitude": 245.5
+    },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역"},
+      {"id": 3, "name": "야간 감시"}
+    ],
     "created_at": "2025-01-03T00:00:00.000Z",
     "updated_at": "2025-01-10T10:33:00.000Z"
   },
@@ -1076,9 +1256,22 @@ Accept: application/json
   "rtsp_uri": "rtsp://192.168.1.110:554/stream1",
   "rtsp_port": 554,
   "mode": "ONVIF", //(EnumCameraMode)
-  "category": "FIXED" //(EnumCameraType)
+  "category": "FIXED", //(EnumCameraType)
+  "is_record": false,
+  "hardware_spec": {
+    "name": "신규 카메라",
+    "manufacturer": "Hanwha Vision",
+    "model": "XNP-6320RH"
+  },
+  "geolocation": {
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  },
+  "group_ids": [1, 2]
 }
 ```
+
+> **Note**: `group_ids`는 N:N 관계로 여러 그룹에 할당 (권장), `group_device`는 레거시 호환용
 
 **Response Example** (201 Created):
 ```json
@@ -1101,6 +1294,20 @@ Accept: application/json
     "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "FIXED", //(EnumCameraType)
+    "is_record": false,
+    "hardware_spec": {
+      "name": "신규 카메라",
+      "manufacturer": "Hanwha Vision",
+      "model": "XNP-6320RH"
+    },
+    "geolocation": {
+      "latitude": 38.1234,
+      "longitude": 127.5678
+    },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역"},
+      {"id": 2, "name": "GOP 2구역"}
+    ],
     "created_at": "2025-01-10T10:45:00.100Z",
     "updated_at": "2025-01-10T10:45:00.100Z"
   },
@@ -1233,6 +1440,958 @@ Accept: application/json
     "timestamp": "2025-01-10T10:48:00.100Z",
     "request_id": "550e8417-e29b-41d4-a716-446655440000"
   }
+}
+```
+
+---
+
+### 5.4 DeviceGroup API
+
+디바이스 그룹은 여러 디바이스(Controller, Sensor, Camera)를 논리적으로 묶어 관리하는 기능입니다.
+- N:N 관계: 하나의 디바이스는 여러 그룹에 속할 수 있고, 하나의 그룹은 여러 디바이스를 포함할 수 있습니다.
+- 폴리모픽 응답: 그룹 상세 조회 시 디바이스 타입별로 다른 필드를 반환합니다.
+
+#### 5.4.1 DeviceGroup 목록 조회
+
+**Endpoint**: `GET /api/devices/groups`
+
+**Query Parameters**:
+- `name` (string, optional): 이름으로 필터링 (부분 검색)
+- `page` (int, optional): 페이지 번호 (기본값: 1)
+- `limit` (int, optional): 페이지당 항목 수 (기본값: 20, 최대 100개)
+
+**Request Example**:
+```http
+GET /api/devices/groups?name=GOP&page=1&limit=20 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹 목록 조회 성공",
+  "data": [
+    {
+      "id": 1,
+      "name": "GOP 1구역",
+      "description": "GOP 1구역 장비 그룹",
+      "device_count": 5,
+      "created_at": "2025-01-01T00:00:00.000Z",
+      "updated_at": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "name": "GOP 2구역",
+      "description": "GOP 2구역 장비 그룹",
+      "device_count": 3,
+      "created_at": "2025-01-02T00:00:00.000Z",
+      "updated_at": "2025-01-02T00:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 2,
+    "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:30:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.2 DeviceGroup 상세 조회 (폴리모픽 디바이스 목록 포함)
+
+**Endpoint**: `GET /api/devices/groups/{id}`
+
+**Path Parameters**:
+- `id` (int, required): DeviceGroup ID
+
+**Request Example**:
+```http
+GET /api/devices/groups/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹 조회 성공",
+  "data": {
+    "id": 1,
+    "name": "GOP 1구역",
+    "description": "GOP 1구역 장비 그룹",
+    "device_count": 3,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-01T00:00:00.000Z",
+    "devices": [
+      {
+        "id": 1,
+        "number_device": 1,
+        "group_device": 1,
+        "name_device": "Controller-A",
+        "type_device": "Controller",
+        "version": "v2.1.0",
+        "status": "ACTIVATED",
+        "ip_address": "192.168.1.100",
+        "ip_port": 8001
+      },
+      {
+        "id": 101,
+        "number_device": 1,
+        "group_device": 1,
+        "name_device": "Sensor-A-1",
+        "type_device": "Multi",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1
+      },
+      {
+        "id": 201,
+        "number_device": 1,
+        "group_device": 1,
+        "name_device": "Camera-A-1",
+        "type_device": "IpCamera",
+        "version": "v1.0.0",
+        "status": "ACTIVATED",
+        "ip_address": "192.168.1.200",
+        "ip_port": 80,
+        "user_name": "admin",
+        "user_password": "admin1234",
+        "rtsp_uri": "rtsp://192.168.1.200:554/stream1",
+        "rtsp_port": 554,
+        "mode": "RTSP",
+        "camera_category": "PTZ",
+        "is_record": true,
+        "hardware_spec": {
+          "manufacturer": "Samsung",
+          "model": "SNP-6320H",
+          "firmware": "2.20.01"
+        },
+        "geolocation": {
+          "location": "GOP 1구역 전방 초소",
+          "latitude": 38.1234,
+          "longitude": 127.5678
+        }
+      }
+    ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:31:00.000Z",
+    "request_id": "550e8401-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+> **Note**: `devices` 배열은 폴리모픽 응답으로, 디바이스 타입에 따라 다른 필드를 포함합니다:
+> - **Controller**: `ip_address`, `ip_port`
+> - **Sensor**: `controller_id`
+> - **Camera**: `ip_address`, `ip_port`, `user_name`, `user_password`, `rtsp_uri`, `rtsp_port`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "DeviceGroup ID 999 not found",
+    "details": "No device group exists with the specified ID"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:31:00.000Z",
+    "request_id": "550e8401-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.3 DeviceGroup 생성
+
+**Endpoint**: `POST /api/devices/groups`
+
+**Request Body**:
+```json
+{
+  "name": "GOP 3구역",
+  "description": "GOP 3구역 장비 그룹"
+}
+```
+
+**Response Example** (201 Created):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹 생성 성공",
+  "data": {
+    "id": 3,
+    "name": "GOP 3구역",
+    "description": "GOP 3구역 장비 그룹",
+    "device_count": 0,
+    "created_at": "2025-01-10T10:35:00.000Z",
+    "updated_at": "2025-01-10T10:35:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:35:00.000Z",
+    "request_id": "550e8402-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response** (400 Bad Request - 이름 중복):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "DeviceGroup name 'GOP 3구역' already exists",
+    "details": "Group name must be unique"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:35:00.000Z",
+    "request_id": "550e8402-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.4 DeviceGroup 수정 (부분)
+
+**Endpoint**: `PATCH /api/devices/groups/{id}`
+
+**Request Body** (부분 업데이트):
+```json
+{
+  "description": "GOP 3구역 장비 그룹 - 수정됨"
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹 수정 성공",
+  "data": {
+    "id": 3,
+    "name": "GOP 3구역",
+    "description": "GOP 3구역 장비 그룹 - 수정됨",
+    "device_count": 0,
+    "created_at": "2025-01-10T10:35:00.000Z",
+    "updated_at": "2025-01-10T10:36:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:36:00.000Z",
+    "request_id": "550e8403-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.5 DeviceGroup 수정 (전체)
+
+**Endpoint**: `PUT /api/devices/groups/{id}`
+
+**Request Body** (전체 업데이트):
+```json
+{
+  "name": "GOP 3구역 - 전체수정",
+  "description": "GOP 3구역 장비 그룹 - 전체 수정됨"
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹 수정 성공",
+  "data": {
+    "id": 3,
+    "name": "GOP 3구역 - 전체수정",
+    "description": "GOP 3구역 장비 그룹 - 전체 수정됨",
+    "device_count": 0,
+    "created_at": "2025-01-10T10:35:00.000Z",
+    "updated_at": "2025-01-10T10:37:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:37:00.000Z",
+    "request_id": "550e8404-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.6 DeviceGroup 삭제
+
+**Endpoint**: `DELETE /api/devices/groups/{id}`
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹 삭제 성공",
+  "data": {
+    "id": 3
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:38:00.000Z",
+    "request_id": "550e8405-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.7 디바이스 그룹에 디바이스 할당
+
+**Endpoint**: `POST /api/devices/groups/{id}/devices`
+
+**Request Body**:
+```json
+{
+  "device_ids": [1, 2, 3]
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "2개 디바이스 할당 완료, 1개 건너뜀",
+  "data": {
+    "group_id": 1,
+    "assigned_device_ids": [1, 2],
+    "skipped_device_ids": [3],
+    "message": "2개 디바이스 할당 완료, 1개 건너뜀"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:39:00.000Z",
+    "request_id": "550e8406-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.4.8 디바이스 그룹에서 디바이스 제거
+
+**Endpoint**: `DELETE /api/devices/groups/{group_id}/devices/{device_id}`
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "디바이스 그룹에서 제거 성공",
+  "data": {
+    "group_id": 1,
+    "device_id": 2,
+    "message": "디바이스 그룹에서 제거 성공"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:40:00.000Z",
+    "request_id": "550e8407-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Device ID 999 is not assigned to group 1",
+    "details": "The device is not a member of this group"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:40:00.000Z",
+    "request_id": "550e8407-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+### 5.5 Camera Preset API
+
+카메라의 프리셋(Preset)을 관리합니다. PTZ 카메라의 사전 정의된 위치/각도 설정을 저장하고 관리합니다.
+
+**계층 구조**: `Camera` → `CameraPreset` → `ROI` → `XyPoint`
+
+#### 5.5.1 CameraPreset 목록 조회
+
+**Endpoint**: `GET /api/devices/cameras/{camera_id}/presets`
+
+**Path Parameters**:
+- `camera_id` (int, required): 카메라 ID
+
+**Query Parameters**:
+- `include_rois` (bool, optional): ROI 정보 포함 여부 (기본값: false)
+- `page` (int, optional): 페이지 번호 (기본값: 1)
+- `limit` (int, optional): 페이지당 항목 수 (기본값: 10, 최대: 100)
+
+**Request Example**:
+```http
+GET /api/devices/cameras/201/presets?include_rois=true&page=1&limit=10 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK, `include_rois=false` 기본값):
+```json
+{
+  "success": true,
+  "message": "Camera presets retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "camera_id": 201,
+        "camera_name": "Camera-A-1",
+        "preset_index": 1,
+        "preset_name": "입구 정면",
+        "touring_time": 10,
+        "roi_count": 2,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+**Response Example** (200 OK, `include_rois=true`):
+```json
+{
+  "success": true,
+  "message": "Camera presets retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "camera_id": 201,
+        "camera_name": "Camera-A-1",
+        "preset_index": 1,
+        "preset_name": "입구 정면",
+        "touring_time": 10,
+        "roi_count": 2,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z",
+        "rois": [
+          {
+            "id": 1,
+            "name": "출입구 영역",
+            "resolution_width": 1920.0,
+            "resolution_height": 1080.0,
+            "is_enable": true,
+            "point_count": 4
+          }
+        ]
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+---
+
+#### 5.5.2 CameraPreset 상세 조회 (ROI 포함)
+
+**Endpoint**: `GET /api/devices/cameras/{camera_id}/presets/{preset_id}`
+
+**Path Parameters**:
+- `camera_id` (int, required): 카메라 ID
+- `preset_id` (int, required): 프리셋 ID
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Camera preset retrieved successfully",
+  "data": {
+    "id": 1,
+    "camera_id": 201,
+    "camera_name": "Camera-A-1",
+    "preset_index": 1,
+    "preset_name": "입구 정면",
+    "touring_time": 10,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-01T00:00:00.000Z",
+    "rois": [
+      {
+        "id": 1,
+        "preset_id": 1,
+        "name": "출입구 영역",
+        "resolution_width": 1920.0,
+        "resolution_height": 1080.0,
+        "is_enable": true,
+        "points": [
+          {"id": 1, "x": 0.1, "y": 0.1, "order": 0},
+          {"id": 2, "x": 0.9, "y": 0.1, "order": 1},
+          {"id": 3, "x": 0.9, "y": 0.9, "order": 2},
+          {"id": 4, "x": 0.1, "y": 0.9, "order": 3}
+        ],
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### 5.5.3 CameraPreset 생성
+
+**Endpoint**: `POST /api/devices/cameras/{camera_id}/presets`
+
+**Path Parameters**:
+- `camera_id` (int, required): 카메라 ID
+
+**Request Body**:
+```json
+{
+  "preset_index": 1,
+  "preset_name": "입구 정면",
+  "touring_time": 15
+}
+```
+
+**Response Example** (201 Created):
+```json
+{
+  "success": true,
+  "message": "Camera preset created successfully",
+  "data": {
+    "id": 1,
+    "camera_id": 201,
+    "camera_name": "Camera-A-1",
+    "preset_index": 1,
+    "preset_name": "입구 정면",
+    "touring_time": 15,
+    "roi_count": 0,
+    "created_at": "2025-01-10T10:00:00.000Z",
+    "updated_at": "2025-01-10T10:00:00.000Z"
+  }
+}
+```
+
+**Error Response** (409 Conflict - 중복 preset_index):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "CONFLICT",
+    "message": "Preset with index 1 already exists for this camera",
+    "details": "preset_index must be unique within the same camera"
+  }
+}
+```
+
+---
+
+#### 5.5.4 CameraPreset 수정 (PATCH)
+
+**Endpoint**: `PATCH /api/devices/cameras/{camera_id}/presets/{preset_id}`
+
+**Request Body** (부분 업데이트):
+```json
+{
+  "preset_name": "입구 정면 - 수정",
+  "touring_time": 20
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Camera preset updated successfully",
+  "data": {
+    "id": 1,
+    "camera_id": 201,
+    "camera_name": "Camera-A-1",
+    "preset_index": 1,
+    "preset_name": "입구 정면 - 수정",
+    "touring_time": 20,
+    "roi_count": 2,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-10T10:30:00.000Z"
+  }
+}
+```
+
+---
+
+#### 5.5.5 CameraPreset 수정 (PUT - 전체)
+
+**Endpoint**: `PUT /api/devices/cameras/{camera_id}/presets/{preset_id}`
+
+**Request Body** (모든 필드 필수):
+```json
+{
+  "preset_index": 1,
+  "preset_name": "입구 정면 - 전체 수정",
+  "touring_time": 25
+}
+```
+
+---
+
+#### 5.5.6 CameraPreset 삭제
+
+**Endpoint**: `DELETE /api/devices/cameras/{camera_id}/presets/{preset_id}`
+
+> **Note**: CASCADE 삭제로 인해 하위 ROI 및 XyPoint도 함께 삭제됩니다.
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Camera preset deleted successfully",
+  "data": null
+}
+```
+
+---
+
+### 5.6 ROI API
+
+프리셋 내 관심 영역(Region of Interest)을 관리합니다. ROI는 영상 내 다각형 영역을 정의합니다.
+
+#### 5.6.1 ROI 목록 조회
+
+**Endpoint**: `GET /api/presets/{preset_id}/rois`
+
+**Path Parameters**:
+- `preset_id` (int, required): 프리셋 ID
+
+**Query Parameters**:
+- `include_points` (bool, optional): Points 정보 포함 여부 (기본값: false)
+- `page` (int, optional): 페이지 번호 (기본값: 1)
+- `limit` (int, optional): 페이지당 항목 수 (기본값: 10, 최대: 100)
+
+**Response Example** (200 OK, `include_points=false` 기본값):
+```json
+{
+  "success": true,
+  "message": "ROIs retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "preset_id": 1,
+        "name": "출입구 영역",
+        "resolution_width": 1920.0,
+        "resolution_height": 1080.0,
+        "is_enable": true,
+        "point_count": 4,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z"
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+**Response Example** (200 OK, `include_points=true`):
+```json
+{
+  "success": true,
+  "message": "ROIs retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "preset_id": 1,
+        "name": "출입구 영역",
+        "resolution_width": 1920.0,
+        "resolution_height": 1080.0,
+        "is_enable": true,
+        "point_count": 4,
+        "created_at": "2025-01-01T00:00:00.000Z",
+        "updated_at": "2025-01-01T00:00:00.000Z",
+        "points": [
+          {"id": 1, "x": 0.1, "y": 0.1, "order": 0},
+          {"id": 2, "x": 0.9, "y": 0.1, "order": 1},
+          {"id": 3, "x": 0.9, "y": 0.9, "order": 2},
+          {"id": 4, "x": 0.1, "y": 0.9, "order": 3}
+        ]
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+---
+
+#### 5.6.2 ROI 상세 조회 (Points 포함)
+
+**Endpoint**: `GET /api/presets/{preset_id}/rois/{roi_id}`
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "ROI retrieved successfully",
+  "data": {
+    "id": 1,
+    "preset_id": 1,
+    "name": "출입구 영역",
+    "resolution_width": 1920.0,
+    "resolution_height": 1080.0,
+    "is_enable": true,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-01T00:00:00.000Z",
+    "points": [
+      {"id": 1, "x": 0.1, "y": 0.1, "order": 0},
+      {"id": 2, "x": 0.9, "y": 0.1, "order": 1},
+      {"id": 3, "x": 0.9, "y": 0.9, "order": 2},
+      {"id": 4, "x": 0.1, "y": 0.9, "order": 3}
+    ]
+  }
+}
+```
+
+---
+
+#### 5.6.3 ROI 생성 (Points 포함)
+
+**Endpoint**: `POST /api/presets/{preset_id}/rois`
+
+**Request Body**:
+```json
+{
+  "name": "새로운 감시 영역",
+  "resolution_width": 1920.0,
+  "resolution_height": 1080.0,
+  "is_enable": true,
+  "points": [
+    {"x": 0.2, "y": 0.2, "order": 0},
+    {"x": 0.8, "y": 0.2, "order": 1},
+    {"x": 0.8, "y": 0.8, "order": 2},
+    {"x": 0.2, "y": 0.8, "order": 3}
+  ]
+}
+```
+
+**Response Example** (201 Created):
+```json
+{
+  "success": true,
+  "message": "ROI created successfully",
+  "data": {
+    "id": 2,
+    "preset_id": 1,
+    "name": "새로운 감시 영역",
+    "resolution_width": 1920.0,
+    "resolution_height": 1080.0,
+    "is_enable": true,
+    "point_count": 4,
+    "created_at": "2025-01-10T10:00:00.000Z",
+    "updated_at": "2025-01-10T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### 5.6.4 ROI 수정 (PATCH)
+
+**Endpoint**: `PATCH /api/presets/{preset_id}/rois/{roi_id}`
+
+**Request Body** (부분 업데이트):
+```json
+{
+  "name": "감시 영역 - 수정",
+  "is_enable": false
+}
+```
+
+---
+
+#### 5.6.5 ROI 수정 (PUT - 전체)
+
+**Endpoint**: `PUT /api/presets/{preset_id}/rois/{roi_id}`
+
+**Request Body** (모든 필드 필수):
+```json
+{
+  "name": "감시 영역 - 전체 수정",
+  "resolution_width": 1280.0,
+  "resolution_height": 720.0,
+  "is_enable": true
+}
+```
+
+---
+
+#### 5.6.6 ROI 삭제
+
+**Endpoint**: `DELETE /api/presets/{preset_id}/rois/{roi_id}`
+
+> **Note**: CASCADE 삭제로 인해 하위 XyPoint도 함께 삭제됩니다.
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "ROI deleted successfully",
+  "data": null
+}
+```
+
+---
+
+### 5.7 XyPoint API
+
+ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값(0.0~1.0) 또는 픽셀 좌표를 사용할 수 있습니다.
+
+#### 5.7.1 XyPoint 목록 조회
+
+**Endpoint**: `GET /api/rois/{roi_id}/points`
+
+**Path Parameters**:
+- `roi_id` (int, required): ROI ID
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "4 points retrieved",
+  "data": {
+    "points": [
+      {"id": 1, "roi_id": 1, "x": 0.1, "y": 0.1, "order": 0},
+      {"id": 2, "roi_id": 1, "x": 0.9, "y": 0.1, "order": 1},
+      {"id": 3, "roi_id": 1, "x": 0.9, "y": 0.9, "order": 2},
+      {"id": 4, "roi_id": 1, "x": 0.1, "y": 0.9, "order": 3}
+    ]
+  }
+}
+```
+
+---
+
+#### 5.7.2 XyPoint 생성
+
+**Endpoint**: `POST /api/rois/{roi_id}/points`
+
+**Request Body**:
+```json
+{
+  "x": 0.5,
+  "y": 0.5,
+  "order": 4
+}
+```
+
+**Response Example** (201 Created):
+```json
+{
+  "success": true,
+  "message": "Point created successfully",
+  "data": {
+    "id": 5,
+    "roi_id": 1,
+    "x": 0.5,
+    "y": 0.5,
+    "order": 4,
+    "created_at": "2025-01-10T10:00:00.000Z",
+    "updated_at": "2025-01-10T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### 5.7.3 XyPoint 일괄 수정 (전체 교체)
+
+**Endpoint**: `PUT /api/rois/{roi_id}/points`
+
+> **Note**: 기존 포인트를 모두 삭제하고 새 포인트로 교체합니다.
+
+**Request Body**:
+```json
+{
+  "points": [
+    {"x": 0.15, "y": 0.15, "order": 0},
+    {"x": 0.85, "y": 0.15, "order": 1},
+    {"x": 0.85, "y": 0.85, "order": 2},
+    {"x": 0.15, "y": 0.85, "order": 3},
+    {"x": 0.5, "y": 0.5, "order": 4}
+  ]
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "5 points updated",
+  "data": {
+    "points": [
+      {"id": 13, "roi_id": 1, "x": 0.15, "y": 0.15, "order": 0},
+      {"id": 14, "roi_id": 1, "x": 0.85, "y": 0.15, "order": 1},
+      {"id": 15, "roi_id": 1, "x": 0.85, "y": 0.85, "order": 2},
+      {"id": 16, "roi_id": 1, "x": 0.15, "y": 0.85, "order": 3},
+      {"id": 17, "roi_id": 1, "x": 0.5, "y": 0.5, "order": 4}
+    ]
+  }
+}
+```
+
+---
+
+#### 5.7.4 XyPoint 삭제
+
+**Endpoint**: `DELETE /api/rois/{roi_id}/points/{point_id}`
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Point deleted successfully",
+  "data": null
 }
 ```
 
@@ -3561,8 +4720,41 @@ GET /api/servers/summary
 - `GET /api/devices/cameras` - 목록 조회
 - `POST /api/devices/cameras` - 생성
 - `GET /api/devices/cameras/{id}` - 단일 조회
-- `PATCH /api/devices/cameras/{id}` - 수정
+- `PATCH /api/devices/cameras/{id}` - 수정 (부분)
+- `PUT /api/devices/cameras/{id}` - 수정 (전체)
 - `DELETE /api/devices/cameras/{id}` - 삭제
+
+**DeviceGroups** (v2.0 신규):
+- `GET /api/devices/groups` - 그룹 목록 조회
+- `POST /api/devices/groups` - 그룹 생성
+- `GET /api/devices/groups/{id}` - 그룹 상세 조회 (폴리모픽 디바이스 목록 포함)
+- `PATCH /api/devices/groups/{id}` - 그룹 수정 (부분)
+- `PUT /api/devices/groups/{id}` - 그룹 수정 (전체)
+- `DELETE /api/devices/groups/{id}` - 그룹 삭제 (Cascade)
+- `POST /api/devices/groups/{id}/devices` - 디바이스 할당
+- `DELETE /api/devices/groups/{group_id}/devices/{device_id}` - 디바이스 제거
+
+**Camera Presets** (v2.1 신규):
+- `GET /api/devices/cameras/{camera_id}/presets` - 프리셋 목록 조회 (`include_rois` 지원)
+- `POST /api/devices/cameras/{camera_id}/presets` - 프리셋 생성
+- `GET /api/devices/cameras/{camera_id}/presets/{preset_id}` - 프리셋 상세 조회 (ROI/Points 포함)
+- `PATCH /api/devices/cameras/{camera_id}/presets/{preset_id}` - 프리셋 수정 (부분)
+- `PUT /api/devices/cameras/{camera_id}/presets/{preset_id}` - 프리셋 수정 (전체)
+- `DELETE /api/devices/cameras/{camera_id}/presets/{preset_id}` - 프리셋 삭제 (Cascade)
+
+**ROIs** (v2.1 신규):
+- `GET /api/presets/{preset_id}/rois` - ROI 목록 조회 (`include_points` 지원)
+- `POST /api/presets/{preset_id}/rois` - ROI 생성 (Points 포함 가능)
+- `GET /api/presets/{preset_id}/rois/{roi_id}` - ROI 상세 조회 (Points 포함)
+- `PATCH /api/presets/{preset_id}/rois/{roi_id}` - ROI 수정 (부분)
+- `PUT /api/presets/{preset_id}/rois/{roi_id}` - ROI 수정 (전체)
+- `DELETE /api/presets/{preset_id}/rois/{roi_id}` - ROI 삭제 (Cascade)
+
+**XyPoints** (v2.1 신규):
+- `GET /api/rois/{roi_id}/points` - 포인트 목록 조회
+- `POST /api/rois/{roi_id}/points` - 포인트 생성
+- `PUT /api/rois/{roi_id}/points` - 포인트 일괄 수정 (전체 교체)
+- `DELETE /api/rois/{roi_id}/points/{point_id}` - 포인트 삭제
 
 #### Event Endpoints
 
@@ -3625,12 +4817,140 @@ GET /api/servers/summary
 - `DELETE /api/servers/{id}` - 서버 삭제
 - `GET /api/servers/summary` - 대시보드 요약 조회
 
+### 10.2 Event-Device 리팩토링 변경사항 (v2.2)
+
+> **PRD 문서**: `docs/PRD_Event_Device_Refactoring.md` v1.1
+
+#### 10.2.1 API Request 변경
+
+| Event Type | Before (v2.1 이전) | After (v2.2) |
+|------------|-------------------|--------------|
+| Detection | `controller`, `sensor`, `type_device` | `device_id` |
+| Malfunction | `controller`, `sensor`, `type_device` | `device_id` |
+| Connection | `controller`, `sensor`, `type_device` | `device_id` |
+
+**v2.2 Request 예시**:
+```json
+{
+  "group_event": "GROUP_001",
+  "type_event": "Intrusion",
+  "device_id": 101,
+  "sequence": 10,
+  "result": "PIR_SENSOR"
+}
+```
+
+#### 10.2.2 API Response 변경
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `device` | `DeviceNestedResponse` (nullable) | Device nested 객체. Device 삭제 시 `null` |
+| `device_description` | `string` | Device 정보 스냅샷. Device 삭제 후에도 유지 |
+
+**v2.2 Response 예시 (Device 존재)**:
+```json
+{
+  "id": 1001,
+  "group_event": "GROUP_001",
+  "type_event": "Intrusion",
+  "sequence": 10,
+  "action_reported": "False",
+  "result": "PIR_SENSOR",
+  "device": {
+    "id": 101,
+    "number_device": 1,
+    "group_device": 1,
+    "name_device": "Sensor-A-1",
+    "type_device": "Multi",
+    "version": "v1.5.0",
+    "status": "ACTIVATED",
+    "controller_id": 1
+  },
+  "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+  "created_at": "2025-01-10T10:15:23.100Z",
+  "updated_at": "2025-01-10T10:15:23.100Z"
+}
+```
+
+**v2.2 Response 예시 (Device 삭제됨)**:
+```json
+{
+  "id": 1001,
+  "group_event": "GROUP_001",
+  "type_event": "Intrusion",
+  "sequence": 10,
+  "action_reported": "False",
+  "result": "PIR_SENSOR",
+  "device": null,
+  "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+  "created_at": "2025-01-10T10:15:23.100Z",
+  "updated_at": "2025-01-10T10:15:23.100Z"
+}
+```
+
+#### 10.2.3 DeviceNestedResponse 스키마
+
+**폴리모픽 Device 응답** - Device 타입에 따라 다른 필드 포함:
+
+| 필드 | 타입 | 공통/타입별 | 설명 |
+|------|------|-------------|------|
+| `id` | `int` | 공통 | Device ID (FK) |
+| `number_device` | `int` | 공통 | 디바이스 번호 |
+| `group_device` | `int` | 공통 | 디바이스 그룹 |
+| `name_device` | `string` | 공통 | 디바이스 이름 |
+| `type_device` | `string` | 공통 | 디바이스 타입 (EnumDeviceType) |
+| `version` | `string` (nullable) | 공통 | 펌웨어 버전 |
+| `status` | `string` | 공통 | 상태 (EnumDeviceStatus) |
+| `ip_address` | `string` (nullable) | Controller, Camera | IP 주소 |
+| `ip_port` | `int` (nullable) | Controller, Camera | 포트 번호 |
+| `controller_id` | `int` (nullable) | Sensor | 연결된 Controller ID |
+| `rtsp_uri` | `string` (nullable) | Camera | RTSP URI |
+| `rtsp_port` | `int` (nullable) | Camera | RTSP 포트 |
+| `mode` | `string` (nullable) | Camera | 카메라 모드 (EnumCameraMode) |
+| `category` | `string` (nullable) | Camera | 카메라 카테고리 (EnumCameraType) |
+| `is_record` | `boolean` (nullable) | Camera | 녹화 여부 |
+
+#### 10.2.4 Event 영속성 보장
+
+> **핵심 원칙**: Event 데이터는 어떤 경우에도 삭제되지 않아야 한다.
+
+| 시나리오 | device_id | device_description | device (Response) |
+|----------|-----------|-------------------|-------------------|
+| Event 생성 | `101` | `"[Multi] Sensor-A-1..."` | Nested Object |
+| Device 조회 | `101` | `"[Multi] Sensor-A-1..."` | Nested Object |
+| **Device 삭제 후** | `NULL` | `"[Multi] Sensor-A-1..."` | `null` |
+
+- **FK 설정**: `ondelete="SET NULL"` (CASCADE 사용 금지!)
+- **device_description**: Device 삭제 후에도 과거 Device 정보 참조 가능
+
+#### 10.2.5 마이그레이션 스크립트
+
+**위치**: `scripts/migrate_event_device_id.py`
+
+**사용법**:
+```bash
+# Dry-run (변경 없이 미리보기)
+python scripts/migrate_event_device_id.py --dry-run
+
+# 실제 마이그레이션 실행
+python scripts/migrate_event_device_id.py
+```
+
+**마이그레이션 단계**:
+1. `device_id`, `device_description` 컬럼 추가 (nullable)
+2. 기존 `controller`/`sensor`/`type_device` 기반 `device_id` 매핑
+3. `device_description` 자동 생성
+4. FK 제약 추가 (`ondelete="SET NULL"`)
+
 ---
 
 ## 변경 이력
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v2.2 | 2025-12-31 | **Event-Device 관계 리팩토링 (PRD v1.1)**<br>- **[변경] Event API Request**: `controller`, `sensor`, `type_device` 3개 필드 → `device_id` 단일 FK로 통합<br>- **[변경] Event API Response**: `device` nested 객체 추가 (Optional, Device 삭제 시 null)<br>- **[신규] `device_description` 필드**: Device 정보 스냅샷 자동 생성 (형식: `[{type_device}] {name_device} (number: {number_device}, id: {id})`)<br>- **[중요] Event 영속성 보장**: Device 삭제 시 Event.device_id → NULL (CASCADE 금지, SET NULL 사용)<br>- **[중요] device_description 유지**: Device 삭제 후에도 device_description은 보존되어 과거 Device 정보 참조 가능<br>- Detection/Malfunction/Connection Event 모두 동일한 패턴 적용<br>- Action Event의 `from_event` 내에도 `device`, `device_description` 포함<br>- 마이그레이션 스크립트 추가: `scripts/migrate_event_device_id.py`<br>- PRD 문서: `docs/PRD_Event_Device_Refactoring.md` v1.1 참조 |
+| v2.1 | 2025-12-31 | **Camera Preset, ROI, XyPoint API 추가**<br>- **[신규] 5.5 Camera Preset API**: PTZ 카메라 프리셋 CRUD API 추가<br>- **[신규] 5.6 ROI API**: Region of Interest CRUD API 추가 (`include_points` 파라미터 지원)<br>- **[신규] 5.7 XyPoint API**: ROI 다각형 꼭지점 좌표 CRUD API 추가<br>- 계층 구조: Camera → CameraPreset → ROI → XyPoint (1:N:N:N)<br>- CameraPreset 목록 조회 시 `include_rois` 파라미터로 ROI 정보 포함 가능<br>- ROI 목록 조회 시 `include_points` 파라미터로 Points 정보 포함 가능<br>- CameraPreset 상세 조회 시 ROI 및 Points 전체 중첩 구조 반환<br>- XyPoint 일괄 수정(PUT) 시 기존 포인트 전체 교체 방식<br>- CASCADE DELETE 지원: Camera 삭제 시 Preset → ROI → XyPoint 순차 삭제<br>- 부록 10.1 Endpoint 목록에 Camera Presets, ROIs, XyPoints 섹션 추가 |
+| v2.0 | 2025-12-31 | **Device Group N:N 관계 및 폴리모픽 응답 지원**<br>- **[신규] EnumDeviceCategory**: 디바이스 카테고리 Enum 추가 (controller, sensor, camera) - Polymorphic Discriminator<br>- **[신규] 5.4 DeviceGroup API**: 디바이스 그룹 CRUD 및 디바이스 할당/제거 API 추가<br>- DeviceGroup 상세 조회 시 폴리모픽 디바이스 목록 반환 (Controller/Sensor/Camera 타입별 다른 필드)<br>- **Controller API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Sensor API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Camera API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가, `is_record`, `hardware_spec`, `geolocation` 필드 추가<br>- Camera `hardware_spec`: 제조사, 모델명, 펌웨어, MAC주소, ONVIF버전 등 JSON 객체<br>- Camera `geolocation`: 위도, 경도, 고도, 설치위치 등 JSON 객체<br>- `version` 필드 nullable 변경 (PRD v1.2 반영) |
 | v1.9 | 2025-12-29 | **Server Monitoring API 추가**<br>- 섹션 8 Server Monitoring API 설계 신규 추가<br>- `EnumServerType` (26종): VMS, NVR_API, STREAMING, AI_ANALYSIS 등 서버 유형 정의<br>- `EnumServerStatus` (3종): NORMAL, WARNING, ERROR 서버 상태 정의<br>- Server Category CRUD API: `GET/POST/PATCH/PUT/DELETE /api/servers/categories`<br>- Server Instance CRUD API: `GET/POST/PATCH/PUT/DELETE /api/servers`<br>- Dashboard Summary API: `GET /api/servers/summary` (카테고리별 상태 요약)<br>- 9개 기본 서버 카테고리 Seed 데이터 정의<br>- Category 삭제 시 하위 Server Cascade 삭제 지원 |
 | v1.8 | 2025-11-29 | **Enum 타입 통합 및 정리**<br>- 모든 Enum 정의를 `app/utils/enums.py`로 통합 (Single Source of Truth)<br>- `app/models/event.py`, `app/models/device.py`에서 중복 Enum 정의 제거<br>- `EnumCameraType`에서 `FISHEYES`, `THERMAL` 제거 (사용하지 않음)<br>- `EnumTrueFalse`는 Python 키워드 충돌 방지를 위해 `False_`, `True_` 사용<br>- `EnumEventType`에서 `None_` 사용 (Python None 키워드 충돌 방지)<br>- `_missing_` 메서드로 "False"→`False_`, "True"→`True_`, "None"→`None_` 자동 매핑 |
 | v1.7 | 2025-11-27 | **Phase 28: CameraEventPreset URL Schema Refactor**<br>- `CameraEventPreset.rtsp_uri` 단일 필드 → `urls` 객체로 변경<br>- `urls` 객체 구조: `{ "live": "rtsp://...", "record": "rtsp://..." }`<br>- DB 컬럼 변경: `rtsp_uri` → `url_live`, `url_record` 분리<br>- 모든 CameraEventMapping API 영향 (GET/POST/PUT/PATCH)<br>- Breaking Change: API Request/Response 구조 변경 |
@@ -3643,5 +4963,5 @@ GET /api/servers/summary
 
 ---
 
-**문서 버전**: v1.9
-**최종 업데이트**: 2025-12-29
+**문서 버전**: v2.2
+**최종 업데이트**: 2025-12-31

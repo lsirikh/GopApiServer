@@ -3,23 +3,122 @@ Controller API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Controller, Sensor, EnumDeviceType, EnumDeviceStatus
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
+from app.utils.enums import EnumDeviceCategory
 from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorResponse
+from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
-router = APIRouter(tags=[])
+router = APIRouter(tags=["Controllers"])
+
+
+def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER) -> List[DeviceGroupResponse]:
+    """Get device groups for a controller"""
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).all()
+
+    if not mappings:
+        return []
+
+    group_ids = [m.group_id for m in mappings]
+    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+
+    return [
+        DeviceGroupResponse(
+            id=g.id,
+            name=g.name,
+            description=g.description,
+            device_count=db.query(DeviceGroupMapping).filter(
+                DeviceGroupMapping.group_id == g.id
+            ).count(),
+            created_at=g.created_at,
+            updated_at=g.updated_at
+        )
+        for g in groups
+    ]
+
+
+def _update_device_group_mappings(
+    db: Session,
+    device_id: int,
+    group_ids: List[int],
+    category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER
+):
+    """Update device group mappings for a controller"""
+    # Remove existing mappings
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).delete()
+
+    # Create new mappings
+    for group_id in group_ids:
+        # Verify group exists
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        if group:
+            mapping = DeviceGroupMapping(
+                device_id=device_id,
+                category_device=category_device,
+                group_id=group_id
+            )
+            db.add(mapping)
+
+
+def _controller_to_response(controller: Controller, db: Session, include_sensors: bool = False) -> ControllerResponse:
+    """Convert Controller model to ControllerResponse schema with device_groups"""
+    device_groups = _get_device_groups(db, controller.id, "controller")
+
+    response = ControllerResponse(
+        id=controller.id,
+        number_device=controller.number_device,
+        group_device=controller.group_device,
+        name_device=controller.name_device,
+        type_device=controller.type_device.value,
+        version=controller.version,
+        status=controller.status.value,
+        ip_address=controller.ip_address,
+        ip_port=controller.ip_port,
+        created_at=controller.created_at,
+        updated_at=controller.updated_at,
+        device_groups=device_groups
+    )
+
+    if include_sensors:
+        sensors = db.query(Sensor).filter(Sensor.controller_id == controller.id).all()
+        sensor_responses = [
+            SensorResponse(
+                id=s.id,
+                number_device=s.number_device,
+                group_device=s.group_device,
+                name_device=s.name_device,
+                type_device=s.type_device.value,
+                version=s.version,
+                status=s.status.value,
+                controller_id=s.controller_id,
+                created_at=s.created_at,
+                updated_at=s.updated_at
+            )
+            for s in sensors
+        ]
+        response.sensors = sensor_responses
+
+    return response
 
 
 @router.get("", response_model=ApiResponse[list[ControllerResponse]])
 async def get_controllers(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
-    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링"),
+    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링 (레거시 1:1)"),
+    group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링 (N:N 관계)"),
     status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
     include_sensors: bool = Query(False, description="센서 정보 포함 여부 (기본값: false)"),
     current_user = Depends(get_current_user_optional),
@@ -33,7 +132,8 @@ async def get_controllers(
 
     - **page**: 페이지 번호 (기본값: 1)
     - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
-    - **group_device**: 장치 그룹으로 필터링 (선택)
+    - **group_device**: 장치 그룹으로 필터링 - 레거시 1:1 관계 (선택)
+    - **group_id**: DeviceGroup ID로 필터링 - N:N 관계 (선택)
     - **status**: 상태로 필터링 (선택)
     - **include_sensors**: 센서 정보 포함 여부 (기본값: false)
 
@@ -45,6 +145,13 @@ async def get_controllers(
     # Apply filters
     if group_device is not None:
         query = query.filter(Controller.group_device == group_device)
+    if group_id is not None:
+        # N:N filtering via DeviceGroupMapping junction table
+        subquery = db.query(DeviceGroupMapping.device_id).filter(
+            DeviceGroupMapping.group_id == group_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER
+        ).subquery()
+        query = query.filter(Controller.id.in_(subquery))
     if status is not None:
         query = query.filter(Controller.status == status)
 
@@ -58,44 +165,11 @@ async def get_controllers(
     # Get paginated results
     controllers = query.offset(skip).limit(limit).all()
 
-    # Convert to response format
-    controller_responses = []
-    for c in controllers:
-        controller_response = ControllerResponse(
-            id=c.id,
-            number_device=c.number_device,
-            group_device=c.group_device,
-            name_device=c.name_device,
-            type_device=c.type_device.value,  # Convert enum to string
-            version=c.version,
-            status=c.status.value,  # Convert enum to string
-            ip_address=c.ip_address,
-            ip_port=c.ip_port,
-            created_at=c.created_at,
-            updated_at=c.updated_at
-        )
-
-        # Include sensors if requested
-        if include_sensors:
-            sensors = db.query(Sensor).filter(Sensor.controller_id == c.id).all()
-            sensor_responses = [
-                SensorResponse(
-                    id=s.id,
-                    number_device=s.number_device,
-                    group_device=s.group_device,
-                    name_device=s.name_device,
-                    type_device=s.type_device.value,
-                    version=s.version,
-                    status=s.status.value,
-                    controller_id=s.controller_id,
-                    created_at=s.created_at,
-                    updated_at=s.updated_at
-                )
-                for s in sensors
-            ]
-            controller_response.sensors = sensor_responses
-
-        controller_responses.append(controller_response)
+    # Convert to response format using helper function
+    controller_responses = [
+        _controller_to_response(c, db, include_sensors)
+        for c in controllers
+    ]
 
     pagination = PaginationMeta(
         page=page,
@@ -140,39 +214,7 @@ async def get_controller(
             detail=f"Controller with id {controller_id} not found"
         )
 
-    controller_response = ControllerResponse(
-        id=controller.id,
-        number_device=controller.number_device,
-        group_device=controller.group_device,
-        name_device=controller.name_device,
-        type_device=controller.type_device.value,
-        version=controller.version,
-        status=controller.status.value,
-        ip_address=controller.ip_address,
-        ip_port=controller.ip_port,
-        created_at=controller.created_at,
-        updated_at=controller.updated_at
-    )
-
-    # Include sensors if requested
-    if include_sensors:
-        sensors = db.query(Sensor).filter(Sensor.controller_id == controller.id).all()
-        sensor_responses = [
-            SensorResponse(
-                id=s.id,
-                number_device=s.number_device,
-                group_device=s.group_device,
-                name_device=s.name_device,
-                type_device=s.type_device.value,
-                version=s.version,
-                status=s.status.value,
-                controller_id=s.controller_id,
-                created_at=s.created_at,
-                updated_at=s.updated_at
-            )
-            for s in sensors
-        ]
-        controller_response.sensors = sensor_responses
+    controller_response = _controller_to_response(controller, db, include_sensors)
 
     return ApiResponse(
         success=True,
@@ -246,19 +288,12 @@ async def create_controller(
     db.commit()
     db.refresh(new_controller)
 
-    controller_response = ControllerResponse(
-        id=new_controller.id,
-        number_device=new_controller.number_device,
-        group_device=new_controller.group_device,
-        name_device=new_controller.name_device,
-        type_device=new_controller.type_device.value,
-        version=new_controller.version,
-        status=new_controller.status.value,
-        ip_address=new_controller.ip_address,
-        ip_port=new_controller.ip_port,
-        created_at=new_controller.created_at,
-        updated_at=new_controller.updated_at
-    )
+    # Handle group_ids if provided (N:N relationship)
+    if controller_data.group_ids is not None:
+        _update_device_group_mappings(db, new_controller.id, controller_data.group_ids, "controller")
+        db.commit()
+
+    controller_response = _controller_to_response(new_controller, db)
 
     return ApiResponse(
         success=True,
@@ -323,6 +358,9 @@ async def update_controller(
     # Update fields if provided
     update_data = controller_data.model_dump(exclude_unset=True)
 
+    # Handle group_ids separately (N:N relationship)
+    group_ids = update_data.pop("group_ids", None)
+
     for field, value in update_data.items():
         if field == "type_device" and value is not None:
             try:
@@ -343,22 +381,14 @@ async def update_controller(
 
         setattr(controller, field, value)
 
+    # Update group mappings if group_ids was provided
+    if group_ids is not None:
+        _update_device_group_mappings(db, controller.id, group_ids, "controller")
+
     db.commit()
     db.refresh(controller)
 
-    controller_response = ControllerResponse(
-        id=controller.id,
-        number_device=controller.number_device,
-        group_device=controller.group_device,
-        name_device=controller.name_device,
-        type_device=controller.type_device.value,
-        version=controller.version,
-        status=controller.status.value,
-        ip_address=controller.ip_address,
-        ip_port=controller.ip_port,
-        created_at=controller.created_at,
-        updated_at=controller.updated_at
-    )
+    controller_response = _controller_to_response(controller, db)
 
     return ApiResponse(
         success=True,
@@ -440,22 +470,14 @@ async def replace_controller(
     controller.ip_address = controller_data.ip_address
     controller.ip_port = controller_data.ip_port
 
+    # Handle group_ids if provided (N:N relationship)
+    if controller_data.group_ids is not None:
+        _update_device_group_mappings(db, controller.id, controller_data.group_ids, "controller")
+
     db.commit()
     db.refresh(controller)
 
-    controller_response = ControllerResponse(
-        id=controller.id,
-        number_device=controller.number_device,
-        group_device=controller.group_device,
-        name_device=controller.name_device,
-        type_device=controller.type_device.value,
-        version=controller.version,
-        status=controller.status.value,
-        ip_address=controller.ip_address,
-        ip_port=controller.ip_port,
-        created_at=controller.created_at,
-        updated_at=controller.updated_at
-    )
+    controller_response = _controller_to_response(controller, db)
 
     return ApiResponse(
         success=True,
@@ -489,6 +511,12 @@ async def delete_controller(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Controller with id {controller_id} not found"
         )
+
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == controller_id,
+        DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER
+    ).delete()
 
     db.delete(controller)
     db.commit()

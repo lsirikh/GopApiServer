@@ -1,146 +1,324 @@
 """
 Device schemas: Controller, Sensor, Camera
+
+PRD: PRD_Device_Structure_Refactoring.md
+- Section 2: Device Group N:N 관계
+- Section 3: Camera 확장 필드 (HardwareSpec, Geolocation)
 """
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.schemas.device_group import DeviceGroupResponse
+
+
+# ============================================================================
+# Phase 3: Camera 확장 필드 Composite Types (PRD Section 3.2)
+# ============================================================================
+
+class HardwareSpec(BaseModel):
+    """
+    카메라 하드웨어 스펙 정보 (Composite Type)
+    PRD Section 3.2.2
+    """
+    name: Optional[str] = Field(None, max_length=200, description="하드웨어 이름")
+    location: Optional[str] = Field(None, max_length=500, description="설치 위치")
+    manufacturer: Optional[str] = Field(None, max_length=200, description="제조사")
+    model: Optional[str] = Field(None, max_length=200, description="모델명")
+    hardware: Optional[str] = Field(None, max_length=200, description="하드웨어 정보")
+    firmware: Optional[str] = Field(None, max_length=100, description="펌웨어 버전")
+    device_id: Optional[str] = Field(None, max_length=200, description="장치 ID")
+    mac_address: Optional[str] = Field(None, max_length=17, description="MAC 주소 (XX:XX:XX:XX:XX:XX)")
+    onvif_version: Optional[str] = Field(None, max_length=50, description="ONVIF 버전")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class Geolocation(BaseModel):
+    """
+    좌표 정보 (Composite Type)
+    PRD Section 3.2.3
+    """
+    location: Optional[str] = Field(None, max_length=500, description="설치 위치 (예: GOP 1구역 전방 초소)")
+    latitude: Optional[float] = Field(None, ge=-90.0, le=90.0, description="위도")
+    longitude: Optional[float] = Field(None, ge=-180.0, le=180.0, description="경도")
+    altitude: Optional[float] = Field(None, description="고도 (미터)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# DeviceNestedResponse: Event 응답에서 Device 정보를 nested로 반환하기 위한 스키마
+# PRD: PRD_Event_Device_Refactoring.md - Section 3.2
+# ============================================================================
+
+class DeviceNestedResponse(BaseModel):
+    """
+    폴리모픽 Device nested response 스키마
+
+    Event 응답에서 Device 정보를 nested 객체로 반환할 때 사용합니다.
+    Device 타입(Controller, Sensor, Camera)에 따라 다른 필드가 포함됩니다.
+
+    공통 필드:
+        id, number_device, group_device, name_device, type_device, version, status
+
+    Controller 전용:
+        ip_address, ip_port
+
+    Sensor 전용:
+        controller_id
+
+    Camera 전용:
+        ip_address, ip_port, rtsp_uri, rtsp_port, mode, category, is_record
+    """
+    # 공통 필드 (필수)
+    id: int = Field(..., description="Device ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="장치 타입")
+    status: str = Field(..., description="장치 상태")
+
+    # 공통 필드 (선택적) - PRD v1.2: nullable
+    version: Optional[str] = Field(None, description="장치 버전")
+
+    # Controller/Camera 공유 필드 (선택적)
+    ip_address: Optional[str] = Field(None, description="IP 주소")
+    ip_port: Optional[int] = Field(None, description="포트 번호")
+
+    # Sensor 전용 필드 (선택적)
+    controller_id: Optional[int] = Field(None, description="소속 컨트롤러 ID")
+
+    # Camera 전용 필드 (선택적)
+    rtsp_uri: Optional[str] = Field(None, description="RTSP 스트림 URI")
+    rtsp_port: Optional[int] = Field(None, description="RTSP 포트")
+    mode: Optional[str] = Field(None, description="카메라 모드")
+    category: Optional[str] = Field(None, description="카메라 카테고리")
+    is_record: Optional[bool] = Field(None, description="녹화 활성화 여부")
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ControllerCreate(BaseModel):
-    """Schema for creating a new Controller"""
-    number_device: int
-    group_device: int
-    name_device: str
-    type_device: str  # EnumDeviceType value as string
-    version: str
-    status: str  # EnumDeviceStatus value as string
-    ip_address: str
-    ip_port: int
+    """
+    컨트롤러 생성 스키마
+
+    컨트롤러는 센서를 관리하는 상위 장치입니다.
+    """
+    number_device: int = Field(..., description="장치 번호 (유니크)")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
+    name_device: str = Field(..., max_length=200, description="장치 이름")
+    type_device: str = Field(..., description="장치 타입 (Controller)")
+    version: str = Field(..., max_length=50, description="펌웨어/소프트웨어 버전")
+    status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
+    ip_address: str = Field(..., description="IP 주소")
+    ip_port: int = Field(..., ge=1, le=65535, description="포트 번호")
+    # Phase 5: group_ids 배열 지원 (N:N 관계)
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
 
 class ControllerResponse(BaseModel):
-    """Schema for Controller response (includes all fields)"""
-    id: int
-    number_device: int
-    group_device: int
-    name_device: str
-    type_device: str  # EnumDeviceType value as string
-    version: str
-    status: str  # EnumDeviceStatus value as string
-    ip_address: str
-    ip_port: int
-    created_at: datetime
-    updated_at: datetime
-    sensors: Optional[list['SensorResponse']] = None  # Optional nested sensors list
+    """
+    컨트롤러 응답 스키마
+
+    컨트롤러 정보 및 소속 디바이스 그룹 목록을 포함합니다.
+    """
+    id: int = Field(..., description="컨트롤러 ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="장치 타입")
+    version: str = Field(..., description="버전")
+    status: str = Field(..., description="상태")
+    ip_address: str = Field(..., description="IP 주소")
+    ip_port: int = Field(..., description="포트 번호")
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
+    sensors: Optional[list['SensorResponse']] = Field(None, description="소속 센서 목록 (include_sensors=true 시)")
+    # Phase 5: device_groups 배열 지원 (N:N 관계)
+    device_groups: List['DeviceGroupResponse'] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ControllerUpdate(BaseModel):
-    """Schema for updating a Controller (all fields optional for PATCH)"""
-    number_device: Optional[int] = None
-    group_device: Optional[int] = None
-    name_device: Optional[str] = None
-    type_device: Optional[str] = None  # EnumDeviceType value as string
-    version: Optional[str] = None
-    status: Optional[str] = None  # EnumDeviceStatus value as string
-    ip_address: Optional[str] = None
-    ip_port: Optional[int] = None
+    """
+    컨트롤러 수정 스키마 (PATCH)
+
+    모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
+    """
+    number_device: Optional[int] = Field(None, description="장치 번호")
+    group_device: Optional[int] = Field(None, description="장치 그룹 번호")
+    name_device: Optional[str] = Field(None, description="장치 이름")
+    type_device: Optional[str] = Field(None, description="장치 타입")
+    version: Optional[str] = Field(None, description="버전")
+    status: Optional[str] = Field(None, description="상태")
+    ip_address: Optional[str] = Field(None, description="IP 주소")
+    ip_port: Optional[int] = Field(None, description="포트 번호")
+    # Phase 5: group_ids 배열 지원 (N:N 관계)
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열")
 
 
 class SensorCreate(BaseModel):
-    """Schema for creating a new Sensor"""
-    number_device: int
-    group_device: int
-    name_device: str
-    type_device: str  # EnumDeviceType value as string
-    version: str
-    status: str  # EnumDeviceStatus value as string
-    controller_id: int
+    """
+    센서 생성 스키마
+
+    센서는 컨트롤러에 종속된 감지 장치입니다.
+    """
+    number_device: int = Field(..., description="장치 번호 (유니크)")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
+    name_device: str = Field(..., max_length=200, description="장치 이름")
+    type_device: str = Field(..., description="센서 타입 (Fence|Pir|Fod 등)")
+    version: str = Field(..., max_length=50, description="버전")
+    status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
+    controller_id: int = Field(..., description="소속 컨트롤러 ID")
+    # Phase 5: group_ids 배열 지원 (N:N 관계)
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
 
 class SensorResponse(BaseModel):
-    """Schema for Sensor response (includes all fields)"""
-    id: int
-    number_device: int
-    group_device: int
-    name_device: str
-    type_device: str  # EnumDeviceType value as string
-    version: str
-    status: str  # EnumDeviceStatus value as string
-    controller_id: int
-    created_at: datetime
-    updated_at: datetime
-    controller: Optional['ControllerResponse'] = None  # Optional nested controller info
+    """
+    센서 응답 스키마
+
+    센서 정보, 소속 컨트롤러 및 디바이스 그룹 목록을 포함합니다.
+    """
+    id: int = Field(..., description="센서 ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="센서 타입")
+    version: str = Field(..., description="버전")
+    status: str = Field(..., description="상태")
+    controller_id: int = Field(..., description="소속 컨트롤러 ID")
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
+    controller: Optional['ControllerResponse'] = Field(None, description="소속 컨트롤러 정보")
+    # Phase 5: device_groups 배열 지원 (N:N 관계)
+    device_groups: List['DeviceGroupResponse'] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class SensorUpdate(BaseModel):
-    """Schema for updating a Sensor (all fields optional for PATCH)"""
-    number_device: Optional[int] = None
-    group_device: Optional[int] = None
-    name_device: Optional[str] = None
-    type_device: Optional[str] = None  # EnumDeviceType value as string
-    version: Optional[str] = None
-    status: Optional[str] = None  # EnumDeviceStatus value as string
-    controller_id: Optional[int] = None
+    """
+    센서 수정 스키마 (PATCH)
+
+    모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
+    """
+    number_device: Optional[int] = Field(None, description="장치 번호")
+    group_device: Optional[int] = Field(None, description="장치 그룹 번호")
+    name_device: Optional[str] = Field(None, description="장치 이름")
+    type_device: Optional[str] = Field(None, description="센서 타입")
+    version: Optional[str] = Field(None, description="버전")
+    status: Optional[str] = Field(None, description="상태")
+    controller_id: Optional[int] = Field(None, description="소속 컨트롤러 ID")
+    # Phase 5: group_ids 배열 지원 (N:N 관계)
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열")
 
 
 class CameraCreate(BaseModel):
-    """Schema for creating a new Camera"""
-    number_device: int
-    group_device: int
-    name_device: str
-    type_device: str  # EnumDeviceType value as string
-    version: str
-    status: str  # EnumDeviceStatus value as string
-    ip_address: str
-    ip_port: int
-    user_name: str
-    user_password: str
-    rtsp_uri: str
-    rtsp_port: int
-    mode: str  # EnumCameraMode value as string
-    category: str  # EnumCameraType value as string
+    """
+    카메라 생성 스키마
+
+    카메라는 영상 감시 장치로, HardwareSpec과 Geolocation 확장 필드를 지원합니다.
+    PRD Section 3.2 참조.
+    """
+    number_device: int = Field(..., description="장치 번호 (유니크)")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
+    name_device: str = Field(..., max_length=200, description="장치 이름")
+    type_device: str = Field(..., description="장치 타입 (IpCamera)")
+    version: str = Field(..., max_length=50, description="버전")
+    status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
+    ip_address: str = Field(..., description="카메라 IP 주소")
+    ip_port: int = Field(..., ge=1, le=65535, description="HTTP 포트")
+    user_name: Optional[str] = Field(None, description="카메라 접속 사용자명 (PRD v1.2: nullable)")
+    user_password: Optional[str] = Field(None, description="카메라 접속 비밀번호 (PRD v1.2: nullable)")
+    rtsp_uri: Optional[str] = Field(None, description="RTSP 스트림 URI (PRD v1.2: nullable)")
+    rtsp_port: int = Field(554, ge=1, le=65535, description="RTSP 포트 (기본: 554)")
+    mode: str = Field(..., description="카메라 모드 (NONE|ONVIF|RTSP)")
+    category: str = Field(..., description="카메라 카테고리 (NONE|PTZ|FIXED|THERMAL)")
+    # Phase 3: Camera 확장 필드 (PRD Section 3.2)
+    is_record: bool = Field(False, description="녹화 활성화 여부")
+    hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보 (JSON)")
+    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
+    # Phase 5: group_ids 배열 지원 (N:N 관계)
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
 
 class CameraResponse(BaseModel):
-    """Schema for Camera response (includes all fields)"""
-    id: int
-    number_device: int
-    group_device: int
-    name_device: str
-    type_device: str  # EnumDeviceType value as string
-    version: str
-    status: str  # EnumDeviceStatus value as string
-    ip_address: str
-    ip_port: int
-    user_name: str
-    user_password: str
-    rtsp_uri: str
-    rtsp_port: int
-    mode: str  # EnumCameraMode value as string
-    category: str  # EnumCameraType value as string
-    created_at: datetime
-    updated_at: datetime
+    """
+    카메라 응답 스키마
+
+    카메라 정보, 확장 필드(HardwareSpec, Geolocation) 및 디바이스 그룹 목록을 포함합니다.
+    PRD Section 3.2 참조.
+    """
+    id: int = Field(..., description="카메라 ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="장치 타입")
+    version: str = Field(..., description="버전")
+    status: str = Field(..., description="상태")
+    ip_address: str = Field(..., description="IP 주소")
+    ip_port: int = Field(..., description="HTTP 포트")
+    user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
+    rtsp_uri: Optional[str] = Field(None, description="RTSP URI (PRD v1.2: nullable)")
+    rtsp_port: int = Field(..., description="RTSP 포트")
+    mode: str = Field(..., description="카메라 모드")
+    category: str = Field(..., description="카메라 카테고리")
+    # Phase 3: Camera 확장 필드 (PRD Section 3.2)
+    is_record: bool = Field(False, description="녹화 활성화 여부")
+    hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보")
+    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
+    # Phase 5: device_groups 배열 지원 (N:N 관계)
+    device_groups: List['DeviceGroupResponse'] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class CameraUpdate(BaseModel):
-    """Schema for updating a Camera (all fields optional for PATCH)"""
-    number_device: Optional[int] = None
-    group_device: Optional[int] = None
-    name_device: Optional[str] = None
-    type_device: Optional[str] = None  # EnumDeviceType value as string
-    version: Optional[str] = None
-    status: Optional[str] = None  # EnumDeviceStatus value as string
-    ip_address: Optional[str] = None
-    ip_port: Optional[int] = None
-    user_name: Optional[str] = None
-    user_password: Optional[str] = None
-    rtsp_uri: Optional[str] = None
-    rtsp_port: Optional[int] = None
-    mode: Optional[str] = None  # EnumCameraMode value as string
-    category: Optional[str] = None  # EnumCameraType value as string
+    """
+    카메라 수정 스키마 (PATCH)
+
+    모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
+    확장 필드(hardware_spec, geolocation)도 부분 업데이트를 지원합니다.
+    """
+    number_device: Optional[int] = Field(None, description="장치 번호")
+    group_device: Optional[int] = Field(None, description="장치 그룹 번호")
+    name_device: Optional[str] = Field(None, description="장치 이름")
+    type_device: Optional[str] = Field(None, description="장치 타입")
+    version: Optional[str] = Field(None, description="버전")
+    status: Optional[str] = Field(None, description="상태")
+    ip_address: Optional[str] = Field(None, description="IP 주소")
+    ip_port: Optional[int] = Field(None, description="HTTP 포트")
+    user_name: Optional[str] = Field(None, description="접속 사용자명")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    rtsp_uri: Optional[str] = Field(None, description="RTSP URI")
+    rtsp_port: Optional[int] = Field(None, description="RTSP 포트")
+    mode: Optional[str] = Field(None, description="카메라 모드")
+    category: Optional[str] = Field(None, description="카메라 카테고리")
+    # Phase 3: Camera 확장 필드
+    is_record: Optional[bool] = Field(None, description="녹화 활성화 여부")
+    hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보")
+    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
+    # Phase 5: group_ids 배열 지원 (N:N 관계)
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열")
+
+
+# ============================================================================
+# Phase 5: Forward Reference Resolution
+# DeviceGroupResponse를 import하고 model_rebuild() 호출하여 순환 참조 해결
+# ============================================================================
+def _rebuild_models():
+    """Rebuild models to resolve forward references for DeviceGroupResponse"""
+    from app.schemas.device_group import DeviceGroupResponse
+    ControllerResponse.model_rebuild()
+    SensorResponse.model_rebuild()
+    CameraResponse.model_rebuild()
+
+# 모듈 로드 시 자동으로 model_rebuild() 실행
+_rebuild_models()

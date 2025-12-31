@@ -5,6 +5,18 @@ Based on Ironwall.Dotnet.Libraries.Enums
 from enum import Enum
 
 
+class EnumDeviceCategory(str, Enum):
+    """
+    Device category enumeration (Polymorphic Discriminator)
+
+    Used for Joined Table Inheritance discriminator in Device model.
+    PRD: PRD_Device_Inheritance_Structure_Refactoring.md Section 8.1
+    """
+    CONTROLLER = "controller"
+    SENSOR = "sensor"
+    CAMERA = "camera"
+
+
 class EnumDeviceType(str, Enum):
     """Device type enumeration"""
     NONE = "NONE"

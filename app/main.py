@@ -1,5 +1,15 @@
 """
 GOP API Server - Main Application
+
+General Outpost(GOP) 통합 관제 시스템을 위한 RESTful API 서버입니다.
+
+주요 기능:
+- Device Management: Controller, Sensor, Camera CRUD
+- Device Groups: N:N 관계 기반 디바이스 그룹 관리
+- Event Management: Detection, Malfunction, Connection, Action 이벤트
+- Server Integration: 외부 서버 연동 및 이벤트 매핑
+
+Version: 1.5.0
 """
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +21,70 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings, camera_event_mappings, server_categories, servers
+from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings, camera_event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
+
+
+# OpenAPI 태그 메타데이터 정의
+tags_metadata = [
+    {
+        "name": "Authentication",
+        "description": "사용자 인증 및 토큰 관리 API",
+    },
+    {
+        "name": "DeviceGroups",
+        "description": "디바이스 그룹 관리 API. N:N 관계로 디바이스를 그룹화합니다. PRD Section 2.3 참조.",
+    },
+    {
+        "name": "Controllers",
+        "description": "컨트롤러 디바이스 CRUD API. 센서를 관리하는 상위 장치입니다.",
+    },
+    {
+        "name": "Sensors",
+        "description": "센서 디바이스 CRUD API. 컨트롤러에 종속된 감지 장치입니다.",
+    },
+    {
+        "name": "Cameras",
+        "description": "카메라 디바이스 CRUD API. 영상 감시 장치로 HardwareSpec, Geolocation 확장 필드를 지원합니다. PRD Section 3.2 참조.",
+    },
+    {
+        "name": "Detections",
+        "description": "탐지 이벤트 관리 API. 센서에서 발생하는 탐지 이벤트를 기록합니다.",
+    },
+    {
+        "name": "Malfunctions",
+        "description": "고장 이벤트 관리 API. 디바이스 고장 및 복구 이벤트를 기록합니다.",
+    },
+    {
+        "name": "Connections",
+        "description": "연결 상태 이벤트 관리 API. 디바이스 연결/해제 이벤트를 기록합니다.",
+    },
+    {
+        "name": "Actions",
+        "description": "액션 이벤트 관리 API. 시스템 동작 이벤트를 기록합니다.",
+    },
+    {
+        "name": "Integration",
+        "description": "외부 시스템 연동을 위한 이벤트 매핑 API.",
+    },
+    {
+        "name": "CameraEventMappings",
+        "description": "카메라 이벤트 매핑 API. 카메라별 이벤트 연동 설정을 관리합니다.",
+    },
+    {
+        "name": "Server Categories",
+        "description": "서버 카테고리 관리 API.",
+    },
+    {
+        "name": "Servers",
+        "description": "외부 서버 관리 API.",
+    },
+    {
+        "name": "Logs",
+        "description": "시스템 로그 조회 및 뷰어 API.",
+    },
+]
 
 
 @asynccontextmanager
@@ -43,12 +114,54 @@ async def lifespan(app: FastAPI):
 # Create FastAPI application
 app = FastAPI(
     title="GOP RESTful API Server",
-    description="General Outpost RESTful API Server",
-    version="1.0.0",
+    description="""
+## General Outpost(GOP) 통합 관제 시스템 RESTful API
+
+GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 제공합니다.
+
+### 주요 기능
+
+- **Device Management**: Controller, Sensor, Camera 디바이스 CRUD
+- **Device Groups**: N:N 관계 기반 디바이스 그룹화 (PRD v1.5)
+- **Camera Extended Fields**: HardwareSpec, Geolocation 복합 타입 지원
+- **Event Management**: Detection, Malfunction, Connection, Action 이벤트
+- **Server Integration**: 외부 서버 연동 및 이벤트 매핑
+
+### 인증
+
+API는 선택적 JWT 토큰 인증을 지원합니다. `AUTH_MODE` 설정에 따라 인증이 활성화됩니다.
+
+### 응답 형식
+
+모든 API는 통일된 `ApiResponse` 형식으로 응답합니다:
+
+```json
+{
+  "success": true,
+  "message": "작업 성공",
+  "data": { ... },
+  "pagination": { ... }  // 목록 조회 시
+}
+```
+
+### 버전 정보
+
+- API Version: 1.5.0
+- PRD: PRD_Device_Structure_Refactoring.md
+""",
+    version="1.5.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     lifespan=lifespan,
+    openapi_tags=tags_metadata,
+    contact={
+        "name": "GOP API Support",
+        "email": "support@gop-system.com",
+    },
+    license_info={
+        "name": "Proprietary",
+    },
     generate_unique_id_function=lambda route: f"{route.name}"
 )
 
@@ -243,6 +356,10 @@ app.include_router(event_mappings.router, prefix="/api/integrations/event-mappin
 app.include_router(camera_event_mappings.router, prefix="/api/integrations/camera-event-mappings", tags=["CameraEventMappings"])
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
+app.include_router(device_groups.router, prefix="/api", tags=["DeviceGroups"])
+app.include_router(camera_presets.router, prefix="/api/devices/cameras", tags=["CameraPresets"])
+app.include_router(rois.router, prefix="/api/presets", tags=["ROIs"])
+app.include_router(xypoints.router, prefix="/api/rois", tags=["XyPoints"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

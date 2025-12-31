@@ -100,9 +100,9 @@ def create_server_categories(db: Session) -> dict:
             created_count += 1
 
     if created_count > 0:
-        print(f"✓ Server categories created: {created_count}")
+        print(f"[OK] Server categories created: {created_count}")
     if existing_count > 0:
-        print(f"✓ Server categories already exist: {existing_count}")
+        print(f"[OK] Server categories already exist: {existing_count}")
 
     return category_map
 
@@ -118,7 +118,7 @@ def create_sample_servers(db: Session, category_map: dict):
     # Check if any servers exist
     existing_count = db.query(Server).count()
     if existing_count > 0:
-        print(f"✓ Sample servers already exist: {existing_count}")
+        print(f"[OK] Sample servers already exist: {existing_count}")
         return
 
     # Sample server data
@@ -246,7 +246,7 @@ def create_sample_servers(db: Session, category_map: dict):
             created_count += 1
 
     db.commit()
-    print(f"✓ Sample servers created: {created_count}")
+    print(f"[OK] Sample servers created: {created_count}")
 
 
 def initialize_server_data(db: Session, include_samples: bool = False):
@@ -266,4 +266,4 @@ def initialize_server_data(db: Session, include_samples: bool = False):
     if include_samples:
         create_sample_servers(db, category_map)
 
-    print("✓ Server monitoring data initialization complete")
+    print("[OK] Server monitoring data initialization complete")

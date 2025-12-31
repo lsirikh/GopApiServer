@@ -34,6 +34,9 @@ venv/
 ENV/
 env/
 
+# Test 파일 제거
+tests/
+
 # IDE
 .idea/
 .vscode/

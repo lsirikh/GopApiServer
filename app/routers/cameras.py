@@ -3,23 +3,109 @@ Camera API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
-from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
+from app.utils.enums import EnumDeviceCategory
+from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation
+from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
-router = APIRouter(tags=[])
+router = APIRouter(tags=["Cameras"])
+
+
+def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA) -> List[DeviceGroupResponse]:
+    """Get device groups for a camera"""
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).all()
+
+    groups = []
+    for mapping in mappings:
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == mapping.group_id).first()
+        if group:
+            groups.append(DeviceGroupResponse(
+                id=group.id,
+                name=group.name,
+                description=group.description,
+                created_at=group.created_at,
+                updated_at=group.updated_at
+            ))
+    return groups
+
+
+def _update_device_group_mappings(db: Session, device_id: int, group_ids: List[int], category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA):
+    """Update device group mappings for a camera"""
+    # Remove existing mappings
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).delete()
+
+    # Create new mappings
+    for group_id in group_ids:
+        # Verify group exists
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        if group:
+            mapping = DeviceGroupMapping(
+                device_id=device_id,
+                category_device=category_device,
+                group_id=group_id
+            )
+            db.add(mapping)
+
+
+def _camera_to_response(camera: Camera, db: Session) -> CameraResponse:
+    """Convert Camera model to CameraResponse schema with extended fields and device_groups"""
+    # Convert hardware_spec dict to HardwareSpec if exists
+    hw_spec = None
+    if camera.hardware_spec:
+        hw_spec = HardwareSpec(**camera.hardware_spec)
+
+    # Convert geolocation dict to Geolocation if exists
+    geo = None
+    if camera.geolocation:
+        geo = Geolocation(**camera.geolocation)
+
+    # Get device groups for this camera
+    device_groups = _get_device_groups(db, camera.id, "camera")
+
+    return CameraResponse(
+        id=camera.id,
+        number_device=camera.number_device,
+        group_device=camera.group_device,
+        name_device=camera.name_device,
+        type_device=camera.type_device.value,
+        version=camera.version,
+        status=camera.status.value,
+        ip_address=camera.ip_address,
+        ip_port=camera.ip_port,
+        user_name=camera.user_name,
+        user_password=camera.user_password,
+        rtsp_uri=camera.rtsp_uri,
+        rtsp_port=camera.rtsp_port,
+        mode=camera.mode.value,
+        category=camera.category.value,
+        is_record=camera.is_record,
+        hardware_spec=hw_spec,
+        geolocation=geo,
+        created_at=camera.created_at,
+        updated_at=camera.updated_at,
+        device_groups=device_groups
+    )
 
 
 @router.get("", response_model=ApiResponse[list[CameraResponse]])
 async def get_cameras(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
-    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링"),
+    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링 (레거시 1:1)"),
+    group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링 (N:N 관계)"),
     type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
     status: Optional[str] = Query(None, description="상태로 필터링"),
     mode: Optional[str] = Query(None, description="카메라 모드로 필터링"),
@@ -35,7 +121,8 @@ async def get_cameras(
     **파라미터**:
     - **page**: 페이지 번호 (기본값: 1)
     - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
-    - **group_device**: 장치 그룹으로 필터링
+    - **group_device**: 장치 그룹으로 필터링 - 레거시 1:1 관계
+    - **group_id**: DeviceGroup ID로 필터링 - N:N 관계
     - **type_device**: 장치 유형으로 필터링
     - **status**: 상태로 필터링
     - **mode**: 카메라 모드로 필터링
@@ -49,6 +136,13 @@ async def get_cameras(
     # Apply filters
     if group_device is not None:
         query = query.filter(Camera.group_device == group_device)
+    if group_id is not None:
+        # N:N filtering via DeviceGroupMapping junction table
+        subquery = db.query(DeviceGroupMapping.device_id).filter(
+            DeviceGroupMapping.group_id == group_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.CAMERA
+        ).subquery()
+        query = query.filter(Camera.id.in_(subquery))
     if type_device is not None:
         query = query.filter(Camera.type_device == type_device)
     if status is not None:
@@ -68,29 +162,8 @@ async def get_cameras(
     # Get paginated results
     cameras = query.offset(skip).limit(limit).all()
 
-    # Convert to response format
-    camera_responses = [
-        CameraResponse(
-            id=c.id,
-            number_device=c.number_device,
-            group_device=c.group_device,
-            name_device=c.name_device,
-            type_device=c.type_device.value,
-            version=c.version,
-            status=c.status.value,
-            ip_address=c.ip_address,
-            ip_port=c.ip_port,
-            user_name=c.user_name,
-            user_password=c.user_password,
-            rtsp_uri=c.rtsp_uri,
-            rtsp_port=c.rtsp_port,
-            mode=c.mode.value,
-            category=c.category.value,
-            created_at=c.created_at,
-            updated_at=c.updated_at
-        )
-        for c in cameras
-    ]
+    # Convert to response format using helper function
+    camera_responses = [_camera_to_response(c, db) for c in cameras]
 
     pagination = PaginationMeta(
         page=page,
@@ -134,30 +207,10 @@ async def get_camera(
             detail=f"Camera with id {camera_id} not found"
         )
 
-    camera_response = CameraResponse(
-        id=camera.id,
-        number_device=camera.number_device,
-        group_device=camera.group_device,
-        name_device=camera.name_device,
-        type_device=camera.type_device.value,
-        version=camera.version,
-        status=camera.status.value,
-        ip_address=camera.ip_address,
-        ip_port=camera.ip_port,
-        user_name=camera.user_name,
-        user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
-        mode=camera.mode.value,
-        category=camera.category.value,
-        created_at=camera.created_at,
-        updated_at=camera.updated_at
-    )
-
     return ApiResponse(
         success=True,
         message="Camera retrieved successfully",
-        data=camera_response
+        data=_camera_to_response(camera, db)
     )
 
 
@@ -217,7 +270,11 @@ async def create_camera(
             detail=f"Invalid enum value: {str(e)}"
         )
 
-    # Create new camera
+    # Convert extended fields to dict for JSON storage
+    hw_spec_dict = camera_data.hardware_spec.model_dump(exclude_none=True) if camera_data.hardware_spec else None
+    geo_dict = camera_data.geolocation.model_dump(exclude_none=True) if camera_data.geolocation else None
+
+    # Create new camera with extended fields
     new_camera = Camera(
         number_device=camera_data.number_device,
         group_device=camera_data.group_device,
@@ -232,37 +289,25 @@ async def create_camera(
         rtsp_uri=camera_data.rtsp_uri,
         rtsp_port=camera_data.rtsp_port,
         mode=camera_mode,
-        category=camera_category
+        category=camera_category,
+        is_record=camera_data.is_record,
+        hardware_spec=hw_spec_dict,
+        geolocation=geo_dict
     )
 
     db.add(new_camera)
     db.commit()
     db.refresh(new_camera)
 
-    camera_response = CameraResponse(
-        id=new_camera.id,
-        number_device=new_camera.number_device,
-        group_device=new_camera.group_device,
-        name_device=new_camera.name_device,
-        type_device=new_camera.type_device.value,
-        version=new_camera.version,
-        status=new_camera.status.value,
-        ip_address=new_camera.ip_address,
-        ip_port=new_camera.ip_port,
-        user_name=new_camera.user_name,
-        user_password=new_camera.user_password,
-        rtsp_uri=new_camera.rtsp_uri,
-        rtsp_port=new_camera.rtsp_port,
-        mode=new_camera.mode.value,
-        category=new_camera.category.value,
-        created_at=new_camera.created_at,
-        updated_at=new_camera.updated_at
-    )
+    # Handle group_ids if provided (N:N relationship)
+    if camera_data.group_ids:
+        _update_device_group_mappings(db, new_camera.id, camera_data.group_ids, "camera")
+        db.commit()
 
     return ApiResponse(
         success=True,
         message="Camera created successfully",
-        data=camera_response
+        data=_camera_to_response(new_camera, db)
     )
 
 
@@ -361,36 +406,27 @@ async def update_camera(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Invalid category value: {value}"
                 )
+        elif field == "hardware_spec" and value is not None:
+            # Convert Pydantic model to dict for JSON storage
+            value = value if isinstance(value, dict) else value
+        elif field == "geolocation" and value is not None:
+            # Convert Pydantic model to dict for JSON storage
+            value = value if isinstance(value, dict) else value
+        elif field == "group_ids":
+            # Handle group_ids separately (N:N relationship)
+            if value is not None:
+                _update_device_group_mappings(db, camera_id, value, "camera")
+            continue
 
         setattr(camera, field, value)
 
     db.commit()
     db.refresh(camera)
 
-    camera_response = CameraResponse(
-        id=camera.id,
-        number_device=camera.number_device,
-        group_device=camera.group_device,
-        name_device=camera.name_device,
-        type_device=camera.type_device.value,
-        version=camera.version,
-        status=camera.status.value,
-        ip_address=camera.ip_address,
-        ip_port=camera.ip_port,
-        user_name=camera.user_name,
-        user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
-        mode=camera.mode.value,
-        category=camera.category.value,
-        created_at=camera.created_at,
-        updated_at=camera.updated_at
-    )
-
     return ApiResponse(
         success=True,
         message="Camera updated successfully",
-        data=camera_response
+        data=_camera_to_response(camera, db)
     )
 
 
@@ -465,6 +501,10 @@ async def replace_camera(
             detail=f"Invalid enum value: {str(e)}"
         )
 
+    # Convert extended fields to dict for JSON storage
+    hw_spec_dict = camera_data.hardware_spec.model_dump(exclude_none=True) if camera_data.hardware_spec else None
+    geo_dict = camera_data.geolocation.model_dump(exclude_none=True) if camera_data.geolocation else None
+
     # Replace all fields (PUT = full replacement)
     camera.number_device = camera_data.number_device
     camera.group_device = camera_data.group_device
@@ -480,34 +520,22 @@ async def replace_camera(
     camera.rtsp_port = camera_data.rtsp_port
     camera.mode = camera_mode
     camera.category = camera_category
+    camera.is_record = camera_data.is_record
+    camera.hardware_spec = hw_spec_dict
+    camera.geolocation = geo_dict
 
     db.commit()
     db.refresh(camera)
 
-    camera_response = CameraResponse(
-        id=camera.id,
-        number_device=camera.number_device,
-        group_device=camera.group_device,
-        name_device=camera.name_device,
-        type_device=camera.type_device.value,
-        version=camera.version,
-        status=camera.status.value,
-        ip_address=camera.ip_address,
-        ip_port=camera.ip_port,
-        user_name=camera.user_name,
-        user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
-        mode=camera.mode.value,
-        category=camera.category.value,
-        created_at=camera.created_at,
-        updated_at=camera.updated_at
-    )
+    # Handle group_ids if provided (N:N relationship)
+    if camera_data.group_ids is not None:
+        _update_device_group_mappings(db, camera.id, camera_data.group_ids, "camera")
+        db.commit()
 
     return ApiResponse(
         success=True,
         message="Camera replaced successfully",
-        data=camera_response
+        data=_camera_to_response(camera, db)
     )
 
 
@@ -537,6 +565,12 @@ async def delete_camera(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Camera with id {camera_id} not found"
         )
+
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == camera_id,
+        DeviceGroupMapping.category_device == EnumDeviceCategory.CAMERA
+    ).delete()
 
     db.delete(camera)
     db.commit()

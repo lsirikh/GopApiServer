@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api_server-fastapi:
     container_name: api_server-fastapi

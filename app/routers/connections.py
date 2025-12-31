@@ -1,8 +1,13 @@
 """
 Connection Event API endpoints
+
+PRD: PRD_Event_Device_Refactoring.md v1.1
+- device_id: Device FK (기존 controller, sensor, type_device 대체)
+- device_description: Device 정보 스냅샷 (자동 생성)
+- Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 from datetime import datetime
 import math
@@ -10,11 +15,45 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import ConnectionEvent
+from app.models.device import Device
 from app.schemas.event import ConnectionEventCreate, ConnectionEventResponse, ConnectionEventUpdate
+from app.schemas.device import DeviceNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType
 
 router = APIRouter(tags=[])
+
+
+def _generate_device_description(device: Device) -> str:
+    """
+    Device 정보 스냅샷 문자열 생성
+    형식: "[{type_device}] {name_device} (number: {number_device}, id: {device_id})"
+    """
+    return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
+
+
+def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNestedResponse]:
+    """Device 객체를 DeviceNestedResponse로 변환. Device 삭제 시 None 반환"""
+    if device is None:
+        return None
+
+    return DeviceNestedResponse(
+        id=device.id,
+        number_device=device.number_device,
+        group_device=device.group_device,
+        name_device=device.name_device,
+        type_device=device.type_device.value,
+        status=device.status.value,
+        version=device.version,
+        ip_address=getattr(device, 'ip_address', None),
+        ip_port=getattr(device, 'ip_port', None),
+        controller_id=getattr(device, 'controller_id', None),
+        rtsp_uri=getattr(device, 'rtsp_uri', None),
+        rtsp_port=getattr(device, 'rtsp_port', None),
+        mode=getattr(device, 'mode', None).value if hasattr(device, 'mode') and getattr(device, 'mode', None) else None,
+        category=getattr(device, 'category', None).value if hasattr(device, 'category') and getattr(device, 'category', None) else None,
+        is_record=getattr(device, 'is_record', None)
+    )
 
 
 @router.get("", response_model=ApiResponse[list[ConnectionEventResponse]])
@@ -47,8 +86,8 @@ async def get_connection_events(
 
     **Response**: 연결 이벤트 목록 및 페이지네이션 정보
     """
-    # Build query
-    query = db.query(ConnectionEvent)
+    # Build query with joinedload for device
+    query = db.query(ConnectionEvent).options(joinedload(ConnectionEvent.device))
 
     # Apply filters
     if controller is not None:
@@ -65,7 +104,20 @@ async def get_connection_events(
         query = query.filter(ConnectionEvent.created_at <= end_date)
 
     # Get total count
-    total = query.count()
+    count_query = db.query(ConnectionEvent)
+    if controller is not None:
+        count_query = count_query.filter(ConnectionEvent.controller == controller)
+    if sensor is not None:
+        count_query = count_query.filter(ConnectionEvent.sensor == sensor)
+    if type_device is not None:
+        count_query = count_query.filter(ConnectionEvent.type_device == type_device)
+    if group_event is not None:
+        count_query = count_query.filter(ConnectionEvent.group_event == group_event)
+    if start_date is not None:
+        count_query = count_query.filter(ConnectionEvent.created_at >= start_date)
+    if end_date is not None:
+        count_query = count_query.filter(ConnectionEvent.created_at <= end_date)
+    total = count_query.count()
 
     # Calculate pagination
     skip = (page - 1) * limit
@@ -74,7 +126,7 @@ async def get_connection_events(
     # Get paginated results (order by created_at desc)
     events = query.order_by(ConnectionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
-    # Convert to response format
+    # Convert to response format with device nested
     event_responses = [
         ConnectionEventResponse(
             id=e.id,
@@ -84,6 +136,8 @@ async def get_connection_events(
             sensor=e.sensor,
             type_device=e.type_device.value,
             sequence=e.sequence,
+            device=_build_device_nested_response(e.device),
+            device_description=e.device_description,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -124,7 +178,9 @@ async def get_connection_event(
     **Error**:
     - 404: 연결 이벤트를 찾을 수 없음
     """
-    event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
+    event = db.query(ConnectionEvent).options(
+        joinedload(ConnectionEvent.device)
+    ).filter(ConnectionEvent.id == event_id).first()
 
     if not event:
         raise HTTPException(
@@ -140,6 +196,8 @@ async def get_connection_event(
         sensor=event.sensor,
         type_device=event.type_device.value,
         sequence=event.sequence,
+        device=_build_device_nested_response(event.device),
+        device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -173,30 +231,39 @@ async def create_connection_event(
     **Response**: 생성된 연결 이벤트 정보
 
     **Error**:
+    - 400: Device를 찾을 수 없음
     - 422: 유효하지 않은 enum 값
     """
-    # Convert string enum values to enum types
-    try:
-        event_type_device = EnumDeviceType(event_data.type_device)
-    except ValueError as e:
+    # PRD v1.1: Validate device_id exists
+    device = db.query(Device).filter(Device.id == event_data.device_id).first()
+    if not device:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid enum value: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device with id {event_data.device_id} not found"
         )
 
-    # Create new connection event
+    # PRD v1.1: Generate device_description automatically
+    device_description = _generate_device_description(device)
+
+    # Create new connection event with device_id
     new_event = ConnectionEvent(
         group_event=event_data.group_event,
         type_event=event_data.type_event,
-        controller=event_data.controller,
-        sensor=event_data.sensor,
-        type_device=event_type_device,
+        device_id=event_data.device_id,
+        device_description=device_description,
+        # Legacy fields for backward compatibility
+        controller=device.number_device if hasattr(device, 'controller_id') else device.number_device,
+        sensor=device.number_device if hasattr(device, 'controller_id') else 0,
+        type_device=device.type_device,
         sequence=event_data.sequence
     )
 
     db.add(new_event)
     db.commit()
     db.refresh(new_event)
+
+    # Build device nested response
+    device_nested = _build_device_nested_response(device)
 
     event_response = ConnectionEventResponse(
         id=new_event.id,
@@ -206,6 +273,8 @@ async def create_connection_event(
         sensor=new_event.sensor,
         type_device=new_event.type_device.value,
         sequence=new_event.sequence,
+        device=device_nested,
+        device_description=new_event.device_description,
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )

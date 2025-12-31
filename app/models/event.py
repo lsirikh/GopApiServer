@@ -1,7 +1,11 @@
 """
 Event models: DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
+
+PRD: PRD_Event_Device_Refactoring.md v1.1
+- device_id FK with SET NULL on delete (Event 영속성 보장)
+- device_description: Device 정보 스냅샷 (Device 삭제 후에도 유지)
 """
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime as dt
 
@@ -14,18 +18,21 @@ class DetectionEvent(Base):
     """
     Detection Event model for managing detection events
 
+    PRD: PRD_Event_Device_Refactoring.md v1.1 적용
+    - device_id: Device FK (SET NULL on delete - Event 영속성 보장)
+    - device_description: Device 정보 스냅샷 (Device 삭제 후에도 참조 정보 유지)
+    - Legacy fields (controller, sensor, type_device) 주석 처리 예정
+
     Attributes:
         id: Primary key
-        message_type: Message type identifier (internal use)
         group_event: Event group identifier
         type_event: Event type (always "Intrusion")
-        controller: Controller number
-        sensor: Sensor number
-        type_device: Device type (EnumDeviceType)
+        device_id: Device FK (nullable, SET NULL on delete)
+        device_description: Device info snapshot (auto-generated)
         sequence: Sequence number
-        action_reported: Whether action was reported (EnumTrueFalse)
+        action_reported: Whether action was reported
         result: Detection result type (EnumDetectionType)
-        created_at: Creation timestamp (replaces datetime)
+        created_at: Creation timestamp
         updated_at: Last update timestamp
     """
     __tablename__ = "detection_events"
@@ -33,20 +40,35 @@ class DetectionEvent(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     group_event = Column(String(100), nullable=False, index=True)
     type_event = Column(String(50), nullable=False, default="Intrusion")
-    controller = Column(Integer, nullable=False, index=True)
-    sensor = Column(Integer, nullable=False, index=True)
-    type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
+
+    # PRD v1.1: device_id FK with SET NULL (Event 영속성 보장)
+    device_id = Column(
+        Integer,
+        ForeignKey("devices.id", ondelete="SET NULL"),
+        nullable=True,  # SET NULL 허용을 위해 nullable
+        index=True
+    )
+    # PRD v1.1: device_description - Device 정보 스냅샷
+    device_description = Column(String(500), nullable=True)
+
+    # Legacy fields - 마이그레이션 후 제거 예정
+    controller = Column(Integer, nullable=True, index=True)  # nullable로 변경
+    sensor = Column(Integer, nullable=True, index=True)  # nullable로 변경
+    type_device = Column(SQLEnum(EnumDeviceType), nullable=True)  # nullable로 변경
+
     sequence = Column(Integer, nullable=False)
     action_reported = Column(String(10), nullable=False, default="False")
     result = Column(SQLEnum(EnumDetectionType), nullable=False)
     created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
+    # Polymorphic Device relationship
+    device = relationship("Device", foreign_keys=[device_id])
+
     def __repr__(self):
         return (
-            f"<DetectionEvent(id={self.id}, controller={self.controller}, "
-            f"sensor={self.sensor}, group_event='{self.group_event}', "
-            f"action_reported='{self.action_reported.value}', result='{self.result.value}')>"
+            f"<DetectionEvent(id={self.id}, device_id={self.device_id}, "
+            f"group_event='{self.group_event}', result='{self.result.value}')>"
         )
 
 
@@ -54,14 +76,17 @@ class MalfunctionEvent(Base):
     """
     Malfunction Event model for managing device malfunction events
 
+    PRD: PRD_Event_Device_Refactoring.md v1.1 적용
+    - device_id: Device FK (SET NULL on delete - Event 영속성 보장)
+    - device_description: Device 정보 스냅샷 (Device 삭제 후에도 참조 정보 유지)
+    - Legacy fields (controller, sensor, type_device) 주석 처리 예정
+
     Attributes:
         id: Primary key
-        message_type: Message type identifier (internal use)
         group_event: Event group identifier
         type_event: Event type (always "Fault")
-        controller: Controller number
-        sensor: Sensor number (0 if controller fault)
-        type_device: Device type (EnumDeviceType)
+        device_id: Device FK (nullable, SET NULL on delete)
+        device_description: Device info snapshot (auto-generated)
         sequence: Sequence number
         action_reported: Whether action was reported (EnumTrueFalse)
         reason: Malfunction reason type (EnumFaultType)
@@ -77,9 +102,22 @@ class MalfunctionEvent(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     group_event = Column(String(100), nullable=False, index=True)
     type_event = Column(String(50), nullable=False, default="Fault")
-    controller = Column(Integer, nullable=False, index=True)
-    sensor = Column(Integer, nullable=False, index=True)
-    type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
+
+    # PRD v1.1: device_id FK with SET NULL (Event 영속성 보장)
+    device_id = Column(
+        Integer,
+        ForeignKey("devices.id", ondelete="SET NULL"),
+        nullable=True,  # SET NULL 허용을 위해 nullable
+        index=True
+    )
+    # PRD v1.1: device_description - Device 정보 스냅샷
+    device_description = Column(String(500), nullable=True)
+
+    # Legacy fields - 마이그레이션 후 제거 예정
+    controller = Column(Integer, nullable=True, index=True)  # nullable로 변경
+    sensor = Column(Integer, nullable=True, index=True)  # nullable로 변경
+    type_device = Column(SQLEnum(EnumDeviceType), nullable=True)  # nullable로 변경
+
     sequence = Column(Integer, nullable=False)
     action_reported = Column(String(10), nullable=False, default="False")
     reason = Column(SQLEnum(EnumFaultType), nullable=False)
@@ -90,11 +128,13 @@ class MalfunctionEvent(Base):
     created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
+    # Polymorphic Device relationship
+    device = relationship("Device", foreign_keys=[device_id])
+
     def __repr__(self):
         return (
-            f"<MalfunctionEvent(id={self.id}, controller={self.controller}, "
-            f"sensor={self.sensor}, group_event='{self.group_event}', "
-            f"action_reported='{self.action_reported.value}', reason='{self.reason.value}')>"
+            f"<MalfunctionEvent(id={self.id}, device_id={self.device_id}, "
+            f"group_event='{self.group_event}', reason='{self.reason.value}')>"
         )
 
 
@@ -102,14 +142,17 @@ class ConnectionEvent(Base):
     """
     Connection Event model for managing device connection events
 
+    PRD: PRD_Event_Device_Refactoring.md v1.1 적용
+    - device_id: Device FK (SET NULL on delete - Event 영속성 보장)
+    - device_description: Device 정보 스냅샷 (Device 삭제 후에도 참조 정보 유지)
+    - Legacy fields (controller, sensor, type_device) 주석 처리 예정
+
     Attributes:
         id: Primary key
-        message_type: Message type identifier (internal use)
         group_event: Event group identifier
         type_event: Event type (always "Connection")
-        controller: Controller number
-        sensor: Sensor number
-        type_device: Device type (EnumDeviceType)
+        device_id: Device FK (nullable, SET NULL on delete)
+        device_description: Device info snapshot (auto-generated)
         sequence: Sequence number
         created_at: Creation timestamp (replaces datetime)
         updated_at: Last update timestamp
@@ -119,17 +162,33 @@ class ConnectionEvent(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     group_event = Column(String(100), nullable=False, index=True)
     type_event = Column(String(50), nullable=False, default="Connection")
-    controller = Column(Integer, nullable=False, index=True)
-    sensor = Column(Integer, nullable=False, index=True)
-    type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
+
+    # PRD v1.1: device_id FK with SET NULL (Event 영속성 보장)
+    device_id = Column(
+        Integer,
+        ForeignKey("devices.id", ondelete="SET NULL"),
+        nullable=True,  # SET NULL 허용을 위해 nullable
+        index=True
+    )
+    # PRD v1.1: device_description - Device 정보 스냅샷
+    device_description = Column(String(500), nullable=True)
+
+    # Legacy fields - 마이그레이션 후 제거 예정
+    controller = Column(Integer, nullable=True, index=True)  # nullable로 변경
+    sensor = Column(Integer, nullable=True, index=True)  # nullable로 변경
+    type_device = Column(SQLEnum(EnumDeviceType), nullable=True)  # nullable로 변경
+
     sequence = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
 
+    # Polymorphic Device relationship
+    device = relationship("Device", foreign_keys=[device_id])
+
     def __repr__(self):
         return (
-            f"<ConnectionEvent(id={self.id}, controller={self.controller}, "
-            f"sensor={self.sensor}, group_event='{self.group_event}')>"
+            f"<ConnectionEvent(id={self.id}, device_id={self.device_id}, "
+            f"group_event='{self.group_event}')>"
         )
 
 

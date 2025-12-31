@@ -1,8 +1,13 @@
 """
 Detection Event API endpoints
+
+PRD: PRD_Event_Device_Refactoring.md v1.1
+- device_id: Device FK (기존 controller, sensor, type_device 대체)
+- device_description: Device 정보 스냅샷 (자동 생성)
+- Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 from datetime import datetime
 import math
@@ -10,11 +15,54 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
+from app.models.device import Device
 from app.schemas.event import DetectionEventCreate, DetectionEventResponse, DetectionEventUpdate, ActionEventResponse
+from app.schemas.device import DeviceNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType
 
 router = APIRouter(tags=[])
+
+
+def _generate_device_description(device: Device) -> str:
+    """
+    Device 정보 스냅샷 문자열 생성
+
+    PRD v1.1: device_description 자동 생성
+    형식: "[{type_device}] {name_device} (number: {number_device}, id: {device_id})"
+    """
+    return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
+
+
+def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNestedResponse]:
+    """
+    Device 객체를 DeviceNestedResponse로 변환
+
+    PRD v1.1: Device 삭제 시 None 반환
+    """
+    if device is None:
+        return None
+
+    return DeviceNestedResponse(
+        id=device.id,
+        number_device=device.number_device,
+        group_device=device.group_device,
+        name_device=device.name_device,
+        type_device=device.type_device.value,
+        status=device.status.value,
+        version=device.version,
+        # Controller/Camera fields
+        ip_address=getattr(device, 'ip_address', None),
+        ip_port=getattr(device, 'ip_port', None),
+        # Sensor fields
+        controller_id=getattr(device, 'controller_id', None),
+        # Camera fields
+        rtsp_uri=getattr(device, 'rtsp_uri', None),
+        rtsp_port=getattr(device, 'rtsp_port', None),
+        mode=getattr(device, 'mode', None).value if hasattr(device, 'mode') and getattr(device, 'mode', None) else None,
+        category=getattr(device, 'category', None).value if hasattr(device, 'category') and getattr(device, 'category', None) else None,
+        is_record=getattr(device, 'is_record', None)
+    )
 
 
 @router.get("", response_model=ApiResponse[list[DetectionEventResponse]])
@@ -51,8 +99,8 @@ async def get_detection_events(
 
     **Response**: 탐지 이벤트 목록 및 페이지네이션 정보
     """
-    # Build query
-    query = db.query(DetectionEvent)
+    # Build query with device eager loading (PRD v1.1)
+    query = db.query(DetectionEvent).options(joinedload(DetectionEvent.device))
 
     # Apply filters
     if controller is not None:
@@ -72,8 +120,19 @@ async def get_detection_events(
     if end_date is not None:
         query = query.filter(DetectionEvent.created_at <= end_date)
 
-    # Get total count
-    total = query.count()
+    # Get total count (without eager loading for performance)
+    total = db.query(DetectionEvent).filter(*[
+        f for f in [
+            DetectionEvent.controller == controller if controller is not None else None,
+            DetectionEvent.sensor == sensor if sensor is not None else None,
+            DetectionEvent.type_device == type_device if type_device is not None else None,
+            DetectionEvent.group_event == group_event if group_event is not None else None,
+            DetectionEvent.action_reported == action_reported if action_reported is not None else None,
+            DetectionEvent.result == result if result is not None else None,
+            DetectionEvent.created_at >= start_date if start_date is not None else None,
+            DetectionEvent.created_at <= end_date if end_date is not None else None,
+        ] if f is not None
+    ]).count() if any([controller, sensor, type_device, group_event, action_reported, result, start_date, end_date]) else db.query(DetectionEvent).count()
 
     # Calculate pagination
     skip = (page - 1) * limit
@@ -82,18 +141,20 @@ async def get_detection_events(
     # Get paginated results (order by created_at desc)
     events = query.order_by(DetectionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
-    # Convert to response format
+    # Convert to response format (PRD v1.1: include device nested and device_description)
     event_responses = [
         DetectionEventResponse(
             id=e.id,
             group_event=e.group_event,
             type_event=e.type_event,
-            controller=e.controller,
-            sensor=e.sensor,
-            type_device=e.type_device.value,
+            controller=e.controller if e.controller is not None else 0,
+            sensor=e.sensor if e.sensor is not None else 0,
+            type_device=e.type_device.value if e.type_device else (e.device.type_device.value if e.device else "NONE"),
             sequence=e.sequence,
             action_reported=e.action_reported,
             result=e.result.value,
+            device=_build_device_nested_response(e.device),
+            device_description=e.device_description,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -134,7 +195,10 @@ async def get_detection_event(
     **Error**:
     - 404: 탐지 이벤트를 찾을 수 없음
     """
-    event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
+    # PRD v1.1: Eager load device relationship
+    event = db.query(DetectionEvent).options(
+        joinedload(DetectionEvent.device)
+    ).filter(DetectionEvent.id == event_id).first()
 
     if not event:
         raise HTTPException(
@@ -142,16 +206,19 @@ async def get_detection_event(
             detail=f"Detection event with id {event_id} not found"
         )
 
+    # PRD v1.1: Include device nested and device_description
     event_response = DetectionEventResponse(
         id=event.id,
         group_event=event.group_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
+        controller=event.controller if event.controller is not None else 0,
+        sensor=event.sensor if event.sensor is not None else 0,
+        type_device=event.type_device.value if event.type_device else (event.device.type_device.value if event.device else "NONE"),
         sequence=event.sequence,
         action_reported=event.action_reported,
         result=event.result.value,
+        device=_build_device_nested_response(event.device),
+        device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -174,39 +241,51 @@ async def create_detection_event(
 
     새로운 탐지 이벤트를 생성합니다.
 
-    **Request Body**:
+    **Request Body** (PRD v1.1):
     - **group_event**: 이벤트 그룹 (필수)
     - **type_event**: 이벤트 유형 (필수)
-    - **controller**: 컨트롤러 번호 (필수)
-    - **sensor**: 센서 번호 (필수)
-    - **type_device**: 장치 유형 (필수)
+    - **device_id**: 장치 ID (필수) - Device FK
     - **sequence**: 시퀀스 번호 (필수)
     - **action_reported**: 조치보고 여부 (필수)
     - **result**: 결과 유형 (필수)
 
-    **Response**: 생성된 탐지 이벤트 정보
+    **Response**: 생성된 탐지 이벤트 정보 (device nested 포함)
 
     **Error**:
+    - 400: 존재하지 않는 device_id
     - 422: 유효하지 않은 enum 값
     """
+    # PRD v1.1: Validate device_id exists
+    device = db.query(Device).filter(Device.id == event_data.device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device with id {event_data.device_id} not found"
+        )
+
     # Convert string enum values to enum types
     try:
         event_action_reported = EnumTrueFalse(event_data.action_reported)
         event_result = EnumDetectionType(event_data.result)
-        event_type_device = EnumDeviceType(event_data.type_device)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid enum value: {str(e)}"
         )
 
-    # Create new detection event
+    # PRD v1.1: Generate device_description automatically
+    device_description = _generate_device_description(device)
+
+    # Create new detection event with device_id
     new_event = DetectionEvent(
         group_event=event_data.group_event,
         type_event=event_data.type_event,
-        controller=event_data.controller,
-        sensor=event_data.sensor,
-        type_device=event_type_device,
+        device_id=event_data.device_id,
+        device_description=device_description,
+        # Legacy fields - populated from device for backward compatibility
+        controller=device.number_device if hasattr(device, 'controller_id') else device.number_device,
+        sensor=device.number_device if hasattr(device, 'controller_id') else 0,
+        type_device=device.type_device,
         sequence=event_data.sequence,
         action_reported=event_action_reported,
         result=event_result
@@ -216,16 +295,19 @@ async def create_detection_event(
     db.commit()
     db.refresh(new_event)
 
+    # PRD v1.1: Include device nested in response
     event_response = DetectionEventResponse(
         id=new_event.id,
         group_event=new_event.group_event,
         type_event=new_event.type_event,
-        controller=new_event.controller,
-        sensor=new_event.sensor,
-        type_device=new_event.type_device.value,
+        controller=new_event.controller if new_event.controller is not None else 0,
+        sensor=new_event.sensor if new_event.sensor is not None else 0,
+        type_device=new_event.type_device.value if new_event.type_device else device.type_device.value,
         sequence=new_event.sequence,
         action_reported=new_event.action_reported,
         result=new_event.result.value,
+        device=_build_device_nested_response(device),
+        device_description=new_event.device_description,
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )

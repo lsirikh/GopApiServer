@@ -15,7 +15,7 @@ def create_tables():
     Create all database tables
     """
     Base.metadata.create_all(bind=engine)
-    print("✓ Database tables created")
+    print("[OK] Database tables created")
 
 
 def create_admin_user(db: Session):
@@ -29,7 +29,7 @@ def create_admin_user(db: Session):
     existing_admin = db.query(User).filter(User.username == "admin").first()
 
     if existing_admin:
-        print("✓ Admin user already exists")
+        print("[OK] Admin user already exists")
         return
 
     # Create admin user
@@ -43,7 +43,7 @@ def create_admin_user(db: Session):
     db.commit()
     db.refresh(admin_user)
 
-    print("✓ Admin user created (username: admin, password: admin123)")
+    print("[OK] Admin user created (username: admin, password: admin123)")
 
 
 def initialize_database():
@@ -63,4 +63,4 @@ def initialize_database():
     finally:
         db.close()
 
-    print("✓ Database initialization complete")
+    print("[OK] Database initialization complete")

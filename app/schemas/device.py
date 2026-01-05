@@ -49,8 +49,30 @@ class Geolocation(BaseModel):
 
 
 # ============================================================================
+# DeviceGroupNestedResponse: Event 응답에서 DeviceGroup 정보를 경량화하여 반환
+# PRD: PRD_Event_Api_Refactoring.md v1.2 - Section 2.2.4
+# ============================================================================
+
+class DeviceGroupNestedResponse(BaseModel):
+    """
+    DeviceGroup 경량화 nested response 스키마
+
+    Event 응답의 device.device_groups[]에서 사용됩니다.
+    EventMapping.device_group_id와 매칭하여 카메라 프리셋 실행에 사용됩니다.
+
+    포함 필드: id, name (필수)
+    제외 필드: description, device_count, created_at, updated_at
+    """
+    id: int = Field(..., description="DeviceGroup ID (EventMapping FK)")
+    name: str = Field(..., description="그룹 이름")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
 # DeviceNestedResponse: Event 응답에서 Device 정보를 nested로 반환하기 위한 스키마
 # PRD: PRD_Event_Device_Refactoring.md - Section 3.2
+# PRD: PRD_Event_Api_Refactoring.md v1.2 - device_groups 추가
 # ============================================================================
 
 class DeviceNestedResponse(BaseModel):
@@ -61,7 +83,7 @@ class DeviceNestedResponse(BaseModel):
     Device 타입(Controller, Sensor, Camera)에 따라 다른 필드가 포함됩니다.
 
     공통 필드:
-        id, number_device, group_device, name_device, type_device, version, status
+        id, number_device, group_device, name_device, type_device, version, status, device_groups
 
     Controller 전용:
         ip_address, ip_port
@@ -71,6 +93,9 @@ class DeviceNestedResponse(BaseModel):
 
     Camera 전용:
         ip_address, ip_port, rtsp_uri, rtsp_port, mode, category, is_record
+
+    EventMapping 연동:
+        device_groups[].id → EventMapping.device_group_id 매칭으로 카메라 프리셋 실행
     """
     # 공통 필드 (필수)
     id: int = Field(..., description="Device ID")
@@ -96,6 +121,12 @@ class DeviceNestedResponse(BaseModel):
     mode: Optional[str] = Field(None, description="카메라 모드")
     category: Optional[str] = Field(None, description="카메라 카테고리")
     is_record: Optional[bool] = Field(None, description="녹화 활성화 여부")
+
+    # PRD v1.2: device_groups 추가 (EventMapping 연동 필수)
+    device_groups: List[DeviceGroupNestedResponse] = Field(
+        default=[],
+        description="소속 DeviceGroup 목록 (EventMapping 연동 필수)"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

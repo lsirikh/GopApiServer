@@ -10,17 +10,43 @@ from app.utils.enums import EnumCategoryEvent
 
 
 class EventMapping(Base):
-    """EventMapping model for integration settings"""
+    """
+    EventMapping Model
+
+    PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    이벤트 매핑 설정을 저장합니다.
+    DeviceGroup을 통해 어떤 장비 그룹에서 발생한 이벤트에
+    어떤 카메라 프리셋을 실행할지 정의합니다.
+
+    ※ group_event (VARCHAR) → device_group_id (FK)로 변경
+    """
     __tablename__ = "event_mappings"
 
     id = Column(Integer, primary_key=True, index=True)
-    name_event = Column(String, nullable=False)
-    group_event = Column(String, nullable=False)
-    category_event = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    status = Column(Boolean, default=True, nullable=False)
+    name_event = Column(String(100), nullable=False, doc="이벤트 매핑 이름")
+
+    # ===== 변경: group_event → device_group_id FK =====
+    device_group_id = Column(
+        Integer,
+        ForeignKey('device_groups.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+        doc="장비 그룹 ID (DeviceGroup FK)"
+    )
+
+    category_event = Column(
+        String(50),
+        nullable=False,
+        index=True,
+        doc="이벤트 카테고리 (detection/malfunction/connection)"
+    )
+    description = Column(String(500), nullable=True, doc="설명")
+    status = Column(Boolean, default=True, nullable=False, doc="활성화 상태")
     created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
     updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
+
+    # ===== Relationships =====
+    device_group = relationship("DeviceGroup", back_populates="event_mappings", lazy="joined")
 
 
 class CameraEventMapping(Base):

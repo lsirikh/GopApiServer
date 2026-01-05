@@ -17,19 +17,31 @@ class CameraUrls(BaseModel):
 
 
 class EventMappingCreate(BaseModel):
-    """Schema for creating a new EventMapping"""
+    """
+    Schema for creating a new EventMapping
+
+    PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    - group_event 필드 제거됨
+    - device_group_id: DeviceGroup FK
+    """
     name_event: str
-    group_event: str
+    device_group_id: Optional[int] = None
     category_event: str
     description: Optional[str] = None
     status: bool = True
 
 
 class EventMappingResponse(BaseModel):
-    """Schema for EventMapping response"""
+    """
+    Schema for EventMapping response
+
+    PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    - group_event 필드 제거됨
+    - device_group_id: DeviceGroup FK
+    """
     id: int
     name_event: str
-    group_event: str
+    device_group_id: Optional[int] = None
     category_event: str
     description: Optional[str]
     status: bool
@@ -40,9 +52,14 @@ class EventMappingResponse(BaseModel):
 
 
 class EventMappingUpdate(BaseModel):
-    """Schema for updating an EventMapping (all fields optional for PATCH)"""
+    """
+    Schema for updating an EventMapping (all fields optional for PATCH)
+
+    PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    - group_event 필드 제거됨
+    """
     name_event: Optional[str] = None
-    group_event: Optional[str] = None
+    device_group_id: Optional[int] = None
     category_event: Optional[str] = None
     description: Optional[str] = None
     status: Optional[bool] = None

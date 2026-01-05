@@ -1,10 +1,11 @@
 """
 Connection Event API endpoints
 
-PRD: PRD_Event_Device_Refactoring.md v1.1
+PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - device_id: Device FK (기존 controller, sensor, type_device 대체)
 - device_description: Device 정보 스냅샷 (자동 생성)
 - Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
+- group_event 필드 제거됨
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
@@ -17,7 +18,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.event import ConnectionEvent
 from app.models.device import Device
 from app.schemas.event import ConnectionEventCreate, ConnectionEventResponse, ConnectionEventUpdate
-from app.schemas.device import DeviceNestedResponse
+from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType
 
@@ -33,9 +34,25 @@ def _generate_device_description(device: Device) -> str:
 
 
 def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNestedResponse]:
-    """Device 객체를 DeviceNestedResponse로 변환. Device 삭제 시 None 반환"""
+    """
+    Device 객체를 DeviceNestedResponse로 변환. Device 삭제 시 None 반환
+    PRD v1.2: device_groups 필드 추가 (EventMapping 연동 필수)
+    """
     if device is None:
         return None
+
+    # PRD v1.2: Build device_groups from group_mappings relationship
+    # Note: group_mappings uses lazy="dynamic", so it returns a Query object
+    device_groups = []
+    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
+        # Execute the dynamic query to get mappings
+        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
+        for mapping in mappings:
+            if mapping.group:
+                device_groups.append(DeviceGroupNestedResponse(
+                    id=mapping.group.id,
+                    name=mapping.group.name
+                ))
 
     return DeviceNestedResponse(
         id=device.id,
@@ -52,7 +69,9 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
         rtsp_port=getattr(device, 'rtsp_port', None),
         mode=getattr(device, 'mode', None).value if hasattr(device, 'mode') and getattr(device, 'mode', None) else None,
         category=getattr(device, 'category', None).value if hasattr(device, 'category') and getattr(device, 'category', None) else None,
-        is_record=getattr(device, 'is_record', None)
+        is_record=getattr(device, 'is_record', None),
+        # PRD v1.2: device_groups for EventMapping FK
+        device_groups=device_groups
     )
 
 
@@ -60,10 +79,7 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
 async def get_connection_events(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
-    controller: Optional[int] = Query(None, description="컨트롤러 번호로 필터링"),
-    sensor: Optional[int] = Query(None, description="센서 번호로 필터링"),
-    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
-    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    device_id: Optional[int] = Query(None, description="장치 ID로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
     current_user = Depends(get_current_user_optional),
@@ -72,15 +88,14 @@ async def get_connection_events(
     """
     연결 이벤트 목록 조회 (페이지네이션)
 
-    연결 이벤트 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
+    PRD v2.1: group_event, controller, sensor, type_device 필드 제거됨
+
+    연결 이벤트 목록을 페이지네이션하여 조회합니다.
 
     **파라미터**:
     - **page**: 페이지 번호 (기본값: 1)
     - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
-    - **controller**: 컨트롤러 번호로 필터링
-    - **sensor**: 센서 번호로 필터링
-    - **type_device**: 장치 유형으로 필터링
-    - **group_event**: 이벤트 그룹으로 필터링
+    - **device_id**: 장치 ID로 필터링
     - **start_date**: 시작 날짜로 필터링
     - **end_date**: 종료 날짜로 필터링
 
@@ -89,15 +104,9 @@ async def get_connection_events(
     # Build query with joinedload for device
     query = db.query(ConnectionEvent).options(joinedload(ConnectionEvent.device))
 
-    # Apply filters
-    if controller is not None:
-        query = query.filter(ConnectionEvent.controller == controller)
-    if sensor is not None:
-        query = query.filter(ConnectionEvent.sensor == sensor)
-    if type_device is not None:
-        query = query.filter(ConnectionEvent.type_device == type_device)
-    if group_event is not None:
-        query = query.filter(ConnectionEvent.group_event == group_event)
+    # Apply filters (PRD v2.1: device_id 기반 필터링)
+    if device_id is not None:
+        query = query.filter(ConnectionEvent.device_id == device_id)
     if start_date is not None:
         query = query.filter(ConnectionEvent.created_at >= start_date)
     if end_date is not None:
@@ -105,14 +114,8 @@ async def get_connection_events(
 
     # Get total count
     count_query = db.query(ConnectionEvent)
-    if controller is not None:
-        count_query = count_query.filter(ConnectionEvent.controller == controller)
-    if sensor is not None:
-        count_query = count_query.filter(ConnectionEvent.sensor == sensor)
-    if type_device is not None:
-        count_query = count_query.filter(ConnectionEvent.type_device == type_device)
-    if group_event is not None:
-        count_query = count_query.filter(ConnectionEvent.group_event == group_event)
+    if device_id is not None:
+        count_query = count_query.filter(ConnectionEvent.device_id == device_id)
     if start_date is not None:
         count_query = count_query.filter(ConnectionEvent.created_at >= start_date)
     if end_date is not None:
@@ -126,15 +129,13 @@ async def get_connection_events(
     # Get paginated results (order by created_at desc)
     events = query.order_by(ConnectionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
-    # Convert to response format with device nested
+    # PRD v2.1: Response uses category_event and device_id (no group_event, controller, sensor, type_device)
     event_responses = [
         ConnectionEventResponse(
             id=e.id,
-            group_event=e.group_event,
+            category_event=e.category_event,
             type_event=e.type_event,
-            controller=e.controller,
-            sensor=e.sensor,
-            type_device=e.type_device.value,
+            device_id=e.device_id,
             sequence=e.sequence,
             device=_build_device_nested_response(e.device),
             device_description=e.device_description,
@@ -188,13 +189,12 @@ async def get_connection_event(
             detail=f"Connection event with id {event_id} not found"
         )
 
+    # PRD v2.1: Response uses category_event and device_id
     event_response = ConnectionEventResponse(
         id=event.id,
-        group_event=event.group_event,
+        category_event=event.category_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
+        device_id=event.device_id,
         sequence=event.sequence,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
@@ -218,21 +218,19 @@ async def create_connection_event(
     """
     연결 이벤트 생성
 
+    PRD v2.1: device_id로 장치 참조, device_description 자동 생성
+
     새로운 연결 이벤트를 생성합니다.
 
     **Request Body**:
-    - **group_event**: 이벤트 그룹 (필수)
     - **type_event**: 이벤트 유형 (필수)
-    - **controller**: 컨트롤러 번호 (필수)
-    - **sensor**: 센서 번호 (필수)
-    - **type_device**: 장치 유형 (필수)
+    - **device_id**: 장치 ID (필수)
     - **sequence**: 시퀀스 번호 (필수)
 
-    **Response**: 생성된 연결 이벤트 정보
+    **Response**: 생성된 연결 이벤트 정보 (device nested 포함)
 
     **Error**:
     - 400: Device를 찾을 수 없음
-    - 422: 유효하지 않은 enum 값
     """
     # PRD v1.1: Validate device_id exists
     device = db.query(Device).filter(Device.id == event_data.device_id).first()
@@ -246,15 +244,12 @@ async def create_connection_event(
     device_description = _generate_device_description(device)
 
     # Create new connection event with device_id
+    # PRD v2.1: group_event 필드 제거됨
     new_event = ConnectionEvent(
-        group_event=event_data.group_event,
+        category_event="connection",  # Polymorphic discriminator
         type_event=event_data.type_event,
         device_id=event_data.device_id,
         device_description=device_description,
-        # Legacy fields for backward compatibility
-        controller=device.number_device if hasattr(device, 'controller_id') else device.number_device,
-        sensor=device.number_device if hasattr(device, 'controller_id') else 0,
-        type_device=device.type_device,
         sequence=event_data.sequence
     )
 
@@ -265,13 +260,12 @@ async def create_connection_event(
     # Build device nested response
     device_nested = _build_device_nested_response(device)
 
+    # PRD v2.1: Response uses category_event and device_id (no group_event, controller, sensor, type_device)
     event_response = ConnectionEventResponse(
         id=new_event.id,
-        group_event=new_event.group_event,
+        category_event=new_event.category_event,
         type_event=new_event.type_event,
-        controller=new_event.controller,
-        sensor=new_event.sensor,
-        type_device=new_event.type_device.value,
+        device_id=new_event.device_id,
         sequence=new_event.sequence,
         device=device_nested,
         device_description=new_event.device_description,
@@ -296,26 +290,25 @@ async def update_connection_event(
     """
     연결 이벤트 부분 수정 (PATCH)
 
+    PRD v2.1: device_id 기반으로 변경됨
+
     연결 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
     **파라미터**:
     - **event_id**: 연결 이벤트 ID (Path Parameter)
 
     **Request Body** (모든 필드 선택):
-    - **group_event**: 이벤트 그룹
     - **type_event**: 이벤트 유형
-    - **controller**: 컨트롤러 번호
-    - **sensor**: 센서 번호
-    - **type_device**: 장치 유형
     - **sequence**: 시퀀스 번호
 
     **Response**: 수정된 연결 이벤트 정보
 
     **Error**:
     - 404: 연결 이벤트를 찾을 수 없음
-    - 422: 유효하지 않은 enum 값
     """
-    event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
+    event = db.query(ConnectionEvent).options(
+        joinedload(ConnectionEvent.device)
+    ).filter(ConnectionEvent.id == event_id).first()
 
     if not event:
         raise HTTPException(
@@ -323,32 +316,26 @@ async def update_connection_event(
             detail=f"Connection event with id {event_id} not found"
         )
 
-    # Update fields if provided
+    # Update fields if provided (PRD v2.1: only type_event and sequence are updatable)
     update_data = event_data.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
-        if field == "type_device" and value is not None:
-            try:
-                value = EnumDeviceType(value)
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Invalid type_device value: {value}"
-                )
-
-        setattr(event, field, value)
+        # Only allow updating type_event and sequence
+        if field in ['type_event', 'sequence']:
+            setattr(event, field, value)
 
     db.commit()
     db.refresh(event)
 
+    # PRD v2.1: Response uses category_event and device_id
     event_response = ConnectionEventResponse(
         id=event.id,
-        group_event=event.group_event,
+        category_event=event.category_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
+        device_id=event.device_id,
         sequence=event.sequence,
+        device=_build_device_nested_response(event.device),
+        device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -370,24 +357,23 @@ async def replace_connection_event(
     """
     연결 이벤트 전체 수정 (PUT)
 
+    PRD v2.1: device_id 기반으로 변경됨, device_description 자동 갱신
+
     연결 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
     **파라미터**:
     - **event_id**: 연결 이벤트 ID (Path Parameter)
 
     **Request Body** (모든 필드 필수):
-    - **group_event**: 이벤트 그룹
     - **type_event**: 이벤트 유형
-    - **controller**: 컨트롤러 번호
-    - **sensor**: 센서 번호
-    - **type_device**: 장치 유형
+    - **device_id**: 장치 ID
     - **sequence**: 시퀀스 번호
 
     **Response**: 수정된 연결 이벤트 정보
 
     **Error**:
+    - 400: Device를 찾을 수 없음
     - 404: 연결 이벤트를 찾을 수 없음
-    - 422: 유효하지 않은 enum 값
     """
     event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
 
@@ -397,34 +383,35 @@ async def replace_connection_event(
             detail=f"Connection event with id {event_id} not found"
         )
 
-    # Convert string enum values to enum types
-    try:
-        event_type_device = EnumDeviceType(event_data.type_device)
-    except ValueError as e:
+    # PRD v2.1: Validate device_id exists
+    device = db.query(Device).filter(Device.id == event_data.device_id).first()
+    if not device:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid enum value: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device with id {event_data.device_id} not found"
         )
 
+    # PRD v2.1: Generate device_description automatically
+    device_description = _generate_device_description(device)
+
     # Replace all fields (PUT = full replacement)
-    event.group_event = event_data.group_event
     event.type_event = event_data.type_event
-    event.controller = event_data.controller
-    event.sensor = event_data.sensor
-    event.type_device = event_type_device
+    event.device_id = event_data.device_id
+    event.device_description = device_description
     event.sequence = event_data.sequence
 
     db.commit()
     db.refresh(event)
 
+    # PRD v2.1: Response uses category_event and device_id
     event_response = ConnectionEventResponse(
         id=event.id,
-        group_event=event.group_event,
+        category_event=event.category_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
+        device_id=event.device_id,
         sequence=event.sequence,
+        device=_build_device_nested_response(device),
+        device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
     )

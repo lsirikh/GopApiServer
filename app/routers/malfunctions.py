@@ -1,10 +1,11 @@
 """
 Malfunction Event API endpoints
 
-PRD: PRD_Event_Device_Refactoring.md v1.1
+PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - device_id: Device FK (기존 controller, sensor, type_device 대체)
 - device_description: Device 정보 스냅샷 (자동 생성)
 - Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
+- group_event 필드 제거됨
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
@@ -17,7 +18,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.event import MalfunctionEvent, ActionEvent, EnumTrueFalse, EnumFaultType
 from app.models.device import Device
 from app.schemas.event import MalfunctionEventCreate, MalfunctionEventResponse, MalfunctionEventUpdate, ActionEventResponse
-from app.schemas.device import DeviceNestedResponse
+from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType
 
@@ -39,9 +40,23 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
     Device 객체를 DeviceNestedResponse로 변환
 
     PRD v1.1: Device 삭제 시 None 반환
+    PRD v1.2: device_groups 필드 추가 (EventMapping 연동 필수)
     """
     if device is None:
         return None
+
+    # PRD v1.2: Build device_groups from group_mappings relationship
+    # Note: group_mappings uses lazy="dynamic", so it returns a Query object
+    device_groups = []
+    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
+        # Execute the dynamic query to get mappings
+        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
+        for mapping in mappings:
+            if mapping.group:
+                device_groups.append(DeviceGroupNestedResponse(
+                    id=mapping.group.id,
+                    name=mapping.group.name
+                ))
 
     return DeviceNestedResponse(
         id=device.id,
@@ -61,7 +76,9 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
         rtsp_port=getattr(device, 'rtsp_port', None),
         mode=getattr(device, 'mode', None).value if hasattr(device, 'mode') and getattr(device, 'mode', None) else None,
         category=getattr(device, 'category', None).value if hasattr(device, 'category') and getattr(device, 'category', None) else None,
-        is_record=getattr(device, 'is_record', None)
+        is_record=getattr(device, 'is_record', None),
+        # PRD v1.2: device_groups for EventMapping FK
+        device_groups=device_groups
     )
 
 
@@ -69,10 +86,7 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
 async def get_malfunction_events(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
-    controller: Optional[int] = Query(None, description="컨트롤러 번호로 필터링"),
-    sensor: Optional[int] = Query(None, description="센서 번호로 필터링"),
-    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
-    group_event: Optional[str] = Query(None, description="이벤트 그룹으로 필터링"),
+    device_id: Optional[int] = Query(None, description="장치 ID로 필터링"),
     action_reported: Optional[str] = Query(None, description="조치보고 여부로 필터링"),
     reason: Optional[str] = Query(None, description="장애 원인으로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
@@ -83,15 +97,14 @@ async def get_malfunction_events(
     """
     장애 이벤트 목록 조회 (페이지네이션)
 
-    장애 이벤트 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
+    PRD v2.1: group_event, controller, sensor, type_device 필드 제거됨
+
+    장애 이벤트 목록을 페이지네이션하여 조회합니다.
 
     **파라미터**:
     - **page**: 페이지 번호 (기본값: 1)
     - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
-    - **controller**: 컨트롤러 번호로 필터링
-    - **sensor**: 센서 번호로 필터링
-    - **type_device**: 장치 유형으로 필터링
-    - **group_event**: 이벤트 그룹으로 필터링
+    - **device_id**: 장치 ID로 필터링
     - **action_reported**: 조치보고 여부로 필터링
     - **reason**: 장애 원인으로 필터링
     - **start_date**: 시작 날짜로 필터링
@@ -99,18 +112,12 @@ async def get_malfunction_events(
 
     **Response**: 장애 이벤트 목록 및 페이지네이션 정보
     """
-    # Build query with device eager loading (PRD v1.1)
+    # Build query with device eager loading (PRD v2.1)
     query = db.query(MalfunctionEvent).options(joinedload(MalfunctionEvent.device))
 
-    # Apply filters
-    if controller is not None:
-        query = query.filter(MalfunctionEvent.controller == controller)
-    if sensor is not None:
-        query = query.filter(MalfunctionEvent.sensor == sensor)
-    if type_device is not None:
-        query = query.filter(MalfunctionEvent.type_device == type_device)
-    if group_event is not None:
-        query = query.filter(MalfunctionEvent.group_event == group_event)
+    # Apply filters (PRD v2.1: device_id 기반 필터링)
+    if device_id is not None:
+        query = query.filter(MalfunctionEvent.device_id == device_id)
     if action_reported is not None:
         query = query.filter(MalfunctionEvent.action_reported == action_reported)
     if reason is not None:
@@ -130,17 +137,15 @@ async def get_malfunction_events(
     # Get paginated results (order by created_at desc)
     events = query.order_by(MalfunctionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
-    # Convert to response format (PRD v1.1: include device nested and device_description)
+    # Convert to response format (PRD v2.1: group_event 제거됨, device nested and device_description 포함)
     event_responses = [
         MalfunctionEventResponse(
             id=e.id,
-            group_event=e.group_event,
+            category_event=e.category_event,
             type_event=e.type_event,
-            controller=e.controller if e.controller is not None else 0,
-            sensor=e.sensor if e.sensor is not None else 0,
-            type_device=e.type_device.value if e.type_device else (e.device.type_device.value if e.device else "NONE"),
+            device_id=e.device_id,
             sequence=e.sequence,
-            action_reported=e.action_reported,
+            action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
             reason=e.reason.value,
             first_start=e.first_start,
             first_end=e.first_end,
@@ -199,16 +204,14 @@ async def get_malfunction_event(
             detail=f"Malfunction event with id {event_id} not found"
         )
 
-    # PRD v1.1: Include device nested and device_description
+    # PRD v2.1: Include device nested and device_description (group_event 제거됨)
     event_response = MalfunctionEventResponse(
         id=event.id,
-        group_event=event.group_event,
+        category_event=event.category_event,
         type_event=event.type_event,
-        controller=event.controller if event.controller is not None else 0,
-        sensor=event.sensor if event.sensor is not None else 0,
-        type_device=event.type_device.value if event.type_device else (event.device.type_device.value if event.device else "NONE"),
+        device_id=event.device_id,
         sequence=event.sequence,
-        action_reported=event.action_reported,
+        action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
         first_start=event.first_start,
         first_end=event.first_end,
@@ -278,15 +281,12 @@ async def create_malfunction_event(
     device_description = _generate_device_description(device)
 
     # Create new malfunction event with device_id
+    # PRD v2.1: group_event 필드 제거됨
     new_event = MalfunctionEvent(
-        group_event=event_data.group_event,
+        category_event="malfunction",  # Polymorphic discriminator
         type_event=event_data.type_event,
         device_id=event_data.device_id,
         device_description=device_description,
-        # Legacy fields - populated from device for backward compatibility
-        controller=device.number_device if hasattr(device, 'controller_id') else device.number_device,
-        sensor=device.number_device if hasattr(device, 'controller_id') else 0,
-        type_device=device.type_device,
         sequence=event_data.sequence,
         action_reported=event_action_reported,
         reason=fault_reason,
@@ -300,16 +300,14 @@ async def create_malfunction_event(
     db.commit()
     db.refresh(new_event)
 
-    # PRD v1.1: Include device nested in response
+    # PRD v2.1: Include device nested in response (group_event 제거됨)
     event_response = MalfunctionEventResponse(
         id=new_event.id,
-        group_event=new_event.group_event,
+        category_event=new_event.category_event,
         type_event=new_event.type_event,
-        controller=new_event.controller if new_event.controller is not None else 0,
-        sensor=new_event.sensor if new_event.sensor is not None else 0,
-        type_device=new_event.type_device.value if new_event.type_device else device.type_device.value,
+        device_id=new_event.device_id,
         sequence=new_event.sequence,
-        action_reported=new_event.action_reported,
+        action_reported=new_event.action_reported.value if hasattr(new_event.action_reported, 'value') else new_event.action_reported,
         reason=new_event.reason.value,
         first_start=new_event.first_start,
         first_end=new_event.first_end,

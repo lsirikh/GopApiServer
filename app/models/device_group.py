@@ -39,6 +39,13 @@ class DeviceGroup(Base):
         lazy="dynamic"
     )
 
+    # Relationship to EventMapping (PRD v2.1)
+    event_mappings = relationship(
+        "EventMapping",
+        back_populates="device_group",
+        doc="이 그룹에 연결된 이벤트 매핑 목록"
+    )
+
     def __repr__(self):
         return f"<DeviceGroup(id={self.id}, name='{self.name}')>"
 

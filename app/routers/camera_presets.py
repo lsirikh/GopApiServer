@@ -128,7 +128,7 @@ async def get_camera_preset(
             detail=f"Preset with id {preset_id} not found"
         )
 
-    # Build ROIs with points
+    # Build ROIs with points (v2.10: Nested Response - timestamp 제외)
     rois_data = []
     for roi in preset.rois.all():
         points_data = [
@@ -147,9 +147,7 @@ async def get_camera_preset(
             "resolution_width": roi.resolution_width,
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
-            "points": points_data,
-            "created_at": roi.created_at.isoformat(),
-            "updated_at": roi.updated_at.isoformat()
+            "points": points_data
         })
 
     return ApiResponse(

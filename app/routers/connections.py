@@ -16,11 +16,17 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import ConnectionEvent
-from app.models.device import Device
+from app.models.device import Device, Sensor, Controller, Camera
 from app.schemas.event import ConnectionEventCreate, ConnectionEventResponse, ConnectionEventUpdate
-from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
+from app.schemas.device import (
+    DeviceGroupNestedResponse,
+    SensorNestedResponse,
+    ControllerNestedResponse,
+    CameraNestedResponse
+)
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType
+from typing import Union
 
 router = APIRouter(tags=[])
 
@@ -33,19 +39,23 @@ def _generate_device_description(device: Device) -> str:
     return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNestedResponse]:
+def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse]]:
     """
-    Device 객체를 DeviceNestedResponse로 변환. Device 삭제 시 None 반환
+    Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
+
+    PRD v1.1: Device 삭제 시 None 반환
     PRD v1.2: device_groups 필드 추가 (EventMapping 연동 필수)
+    PRD v2.7: Device 타입별 Polymorphic Response 반환
+    - Sensor → SensorNestedResponse
+    - Controller → ControllerNestedResponse
+    - Camera → CameraNestedResponse
     """
     if device is None:
         return None
 
     # PRD v1.2: Build device_groups from group_mappings relationship
-    # Note: group_mappings uses lazy="dynamic", so it returns a Query object
     device_groups = []
     if hasattr(device, 'group_mappings') and device.group_mappings is not None:
-        # Execute the dynamic query to get mappings
         mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
         for mapping in mappings:
             if mapping.group:
@@ -54,25 +64,53 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
                     name=mapping.group.name
                 ))
 
-    return DeviceNestedResponse(
-        id=device.id,
-        number_device=device.number_device,
-        group_device=device.group_device,
-        name_device=device.name_device,
-        type_device=device.type_device.value,
-        status=device.status.value,
-        version=device.version,
-        ip_address=getattr(device, 'ip_address', None),
-        ip_port=getattr(device, 'ip_port', None),
-        controller_id=getattr(device, 'controller_id', None),
-        rtsp_uri=getattr(device, 'rtsp_uri', None),
-        rtsp_port=getattr(device, 'rtsp_port', None),
-        mode=getattr(device, 'mode', None).value if hasattr(device, 'mode') and getattr(device, 'mode', None) else None,
-        category=getattr(device, 'category', None).value if hasattr(device, 'category') and getattr(device, 'category', None) else None,
-        is_record=getattr(device, 'is_record', None),
-        # PRD v1.2: device_groups for EventMapping FK
-        device_groups=device_groups
-    )
+    # PRD v2.7: Polymorphic Response - Device 타입에 따라 적절한 스키마 반환
+    if isinstance(device, Sensor):
+        return SensorNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            controller_id=device.controller_id,
+            device_groups=device_groups
+        )
+    elif isinstance(device, Camera):
+        return CameraNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            rtsp_uri=device.rtsp_uri,
+            rtsp_port=device.rtsp_port,
+            mode=device.mode.value if device.mode else "NONE",
+            category=device.category.value if device.category else "NONE",
+            is_record=device.is_record,
+            device_groups=device_groups
+        )
+    elif isinstance(device, Controller):
+        return ControllerNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            device_groups=device_groups
+        )
+    else:
+        # Fallback: 알 수 없는 Device 타입 (발생하지 않아야 함)
+        return None
 
 
 @router.get("", response_model=ApiResponse[list[ConnectionEventResponse]])
@@ -129,14 +167,13 @@ async def get_connection_events(
     # Get paginated results (order by created_at desc)
     events = query.order_by(ConnectionEvent.created_at.desc()).offset(skip).limit(limit).all()
 
-    # PRD v2.1: Response uses category_event and device_id (no group_event, controller, sensor, type_device)
+    # PRD v2.1: Response uses device_id (no group_event, controller, sensor, type_device)
+    # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)
+    # PRD v1.4: category_event 필드 제거 (polymorphic 내부용)
     event_responses = [
         ConnectionEventResponse(
             id=e.id,
-            category_event=e.category_event,
             type_event=e.type_event,
-            device_id=e.device_id,
-            sequence=e.sequence,
             device=_build_device_nested_response(e.device),
             device_description=e.device_description,
             created_at=e.created_at,
@@ -189,13 +226,12 @@ async def get_connection_event(
             detail=f"Connection event with id {event_id} not found"
         )
 
-    # PRD v2.1: Response uses category_event and device_id
+    # PRD v2.1: Response uses device_id
+    # PRD v1.3: device_id, sequence 필드 제거
+    # PRD v1.4: category_event 필드 제거
     event_response = ConnectionEventResponse(
         id=event.id,
-        category_event=event.category_event,
         type_event=event.type_event,
-        device_id=event.device_id,
-        sequence=event.sequence,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
         created_at=event.created_at,
@@ -225,7 +261,6 @@ async def create_connection_event(
     **Request Body**:
     - **type_event**: 이벤트 유형 (필수)
     - **device_id**: 장치 ID (필수)
-    - **sequence**: 시퀀스 번호 (필수)
 
     **Response**: 생성된 연결 이벤트 정보 (device nested 포함)
 
@@ -244,13 +279,12 @@ async def create_connection_event(
     device_description = _generate_device_description(device)
 
     # Create new connection event with device_id
-    # PRD v2.1: group_event 필드 제거됨
+    # PRD v2.1: group_event, sequence 필드 제거됨
     new_event = ConnectionEvent(
         category_event="connection",  # Polymorphic discriminator
         type_event=event_data.type_event,
         device_id=event_data.device_id,
-        device_description=device_description,
-        sequence=event_data.sequence
+        device_description=device_description
     )
 
     db.add(new_event)
@@ -260,13 +294,12 @@ async def create_connection_event(
     # Build device nested response
     device_nested = _build_device_nested_response(device)
 
-    # PRD v2.1: Response uses category_event and device_id (no group_event, controller, sensor, type_device)
+    # PRD v2.1: Response uses device_id (no group_event, controller, sensor, type_device)
+    # PRD v1.3: device_id, sequence 필드 제거
+    # PRD v1.4: category_event 필드 제거
     event_response = ConnectionEventResponse(
         id=new_event.id,
-        category_event=new_event.category_event,
         type_event=new_event.type_event,
-        device_id=new_event.device_id,
-        sequence=new_event.sequence,
         device=device_nested,
         device_description=new_event.device_description,
         created_at=new_event.created_at,
@@ -299,7 +332,6 @@ async def update_connection_event(
 
     **Request Body** (모든 필드 선택):
     - **type_event**: 이벤트 유형
-    - **sequence**: 시퀀스 번호
 
     **Response**: 수정된 연결 이벤트 정보
 
@@ -316,24 +348,23 @@ async def update_connection_event(
             detail=f"Connection event with id {event_id} not found"
         )
 
-    # Update fields if provided (PRD v2.1: only type_event and sequence are updatable)
+    # Update fields if provided (PRD v2.1: only type_event is updatable, sequence 제거됨)
     update_data = event_data.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
-        # Only allow updating type_event and sequence
-        if field in ['type_event', 'sequence']:
+        # Only allow updating type_event
+        if field in ['type_event']:
             setattr(event, field, value)
 
     db.commit()
     db.refresh(event)
 
-    # PRD v2.1: Response uses category_event and device_id
+    # PRD v2.1: Response uses device_id
+    # PRD v1.3: device_id, sequence 필드 제거
+    # PRD v1.4: category_event 필드 제거
     event_response = ConnectionEventResponse(
         id=event.id,
-        category_event=event.category_event,
         type_event=event.type_event,
-        device_id=event.device_id,
-        sequence=event.sequence,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
         created_at=event.created_at,
@@ -367,7 +398,6 @@ async def replace_connection_event(
     **Request Body** (모든 필드 필수):
     - **type_event**: 이벤트 유형
     - **device_id**: 장치 ID
-    - **sequence**: 시퀀스 번호
 
     **Response**: 수정된 연결 이벤트 정보
 
@@ -395,21 +425,20 @@ async def replace_connection_event(
     device_description = _generate_device_description(device)
 
     # Replace all fields (PUT = full replacement)
+    # PRD v2.1: sequence 필드 제거됨
     event.type_event = event_data.type_event
     event.device_id = event_data.device_id
     event.device_description = device_description
-    event.sequence = event_data.sequence
 
     db.commit()
     db.refresh(event)
 
-    # PRD v2.1: Response uses category_event and device_id
+    # PRD v2.1: Response uses device_id
+    # PRD v1.3: device_id, sequence 필드 제거
+    # PRD v1.4: category_event 필드 제거
     event_response = ConnectionEventResponse(
         id=event.id,
-        category_event=event.category_event,
         type_event=event.type_event,
-        device_id=event.device_id,
-        sequence=event.sequence,
         device=_build_device_nested_response(device),
         device_description=event.device_description,
         created_at=event.created_at,

@@ -11,15 +11,15 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Sensor, Controller, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import SensorCreate, SensorResponse, SensorUpdate
+from app.schemas.device import SensorCreate, SensorResponse, SensorUpdate, DeviceGroupNestedResponse
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
 router = APIRouter(tags=["Sensors"])
 
 
-def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.SENSOR) -> List[DeviceGroupResponse]:
-    """Get device groups for a sensor"""
+def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.SENSOR) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for a sensor (v2.4: timestamp 제외)"""
     mappings = db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == device_id,
         DeviceGroupMapping.category_device == category_device
@@ -32,15 +32,13 @@ def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceC
     groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
 
     return [
-        DeviceGroupResponse(
+        DeviceGroupNestedResponse(
             id=g.id,
             name=g.name,
             description=g.description,
             device_count=db.query(DeviceGroupMapping).filter(
                 DeviceGroupMapping.group_id == g.id
-            ).count(),
-            created_at=g.created_at,
-            updated_at=g.updated_at
+            ).count()
         )
         for g in groups
     ]
@@ -74,7 +72,8 @@ def _update_device_group_mappings(
 
 def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = False) -> SensorResponse:
     """Convert Sensor model to SensorResponse schema with device_groups"""
-    device_groups = _get_device_groups(db, sensor.id, "sensor")
+    # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
+    device_groups = _get_device_groups_nested(db, sensor.id, EnumDeviceCategory.SENSOR)
 
     sensor_data = {
         "id": sensor.id,
@@ -91,9 +90,12 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
     }
 
     # Include controller info if requested
+    # v2.5: Nested Response 규칙 적용 - ControllerNestedResponse 사용 (timestamp 제외, device_groups 포함)
     if include_controller and sensor.controller:
-        from app.schemas.device import ControllerResponse
-        sensor_data["controller"] = ControllerResponse(
+        from app.schemas.device import ControllerNestedResponse
+        # Controller의 device_groups 조회 (Nested 규칙: timestamp 제외)
+        controller_device_groups = _get_device_groups_nested(db, sensor.controller.id, EnumDeviceCategory.CONTROLLER)
+        sensor_data["controller"] = ControllerNestedResponse(
             id=sensor.controller.id,
             number_device=sensor.controller.number_device,
             group_device=sensor.controller.group_device,
@@ -103,8 +105,7 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
             status=sensor.controller.status.value,
             ip_address=sensor.controller.ip_address,
             ip_port=sensor.controller.ip_port,
-            created_at=sensor.controller.created_at,
-            updated_at=sensor.controller.updated_at
+            device_groups=controller_device_groups
         )
 
     return SensorResponse(**sensor_data)
@@ -241,7 +242,7 @@ async def create_sensor(
     새로운 센서를 생성합니다.
 
     **Request Body**:
-    - **number_device**: 장치 번호 (필수, 고유값)
+    - **number_device**: 장치 번호 (필수)
     - **group_device**: 장치 그룹 (필수)
     - **name_device**: 장치 이름 (필수)
     - **type_device**: 장치 유형 (필수)
@@ -253,7 +254,6 @@ async def create_sensor(
 
     **Error**:
     - 404: 컨트롤러를 찾을 수 없음
-    - 409: 동일한 number_device를 가진 센서가 이미 존재함
     - 422: 유효하지 않은 enum 값
     """
     # Validate controller exists
@@ -262,17 +262,6 @@ async def create_sensor(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Controller with id {sensor_data.controller_id} not found"
-        )
-
-    # Check for duplicate number_device
-    existing = db.query(Sensor).filter(
-        Sensor.number_device == sensor_data.number_device
-    ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Sensor with number_device {sensor_data.number_device} already exists"
         )
 
     # Convert string enum values to enum types
@@ -318,6 +307,7 @@ async def create_sensor(
 async def update_sensor(
     sensor_id: int,
     sensor_data: SensorUpdate,
+    include_controller: bool = Query(default=False, description="컨트롤러 정보 포함 여부"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -328,6 +318,7 @@ async def update_sensor(
 
     **파라미터**:
     - **sensor_id**: 센서 ID (Path Parameter)
+    - **include_controller**: 컨트롤러 정보 포함 여부
 
     **Request Body** (모든 필드 선택):
     - **number_device**: 장치 번호
@@ -342,7 +333,6 @@ async def update_sensor(
 
     **Error**:
     - 404: 센서 또는 컨트롤러를 찾을 수 없음
-    - 409: 동일한 number_device를 가진 다른 센서가 존재함
     - 422: 유효하지 않은 enum 값
     """
     sensor = db.query(Sensor).filter(Sensor.id == sensor_id).first()
@@ -352,19 +342,6 @@ async def update_sensor(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Sensor with id {sensor_id} not found"
         )
-
-    # Check for number_device conflict
-    if sensor_data.number_device is not None:
-        existing = db.query(Sensor).filter(
-            Sensor.number_device == sensor_data.number_device,
-            Sensor.id != sensor_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Sensor with number_device {sensor_data.number_device} already exists"
-            )
 
     # Validate controller exists if updating controller_id
     if sensor_data.controller_id is not None:
@@ -408,7 +385,7 @@ async def update_sensor(
     db.commit()
     db.refresh(sensor)
 
-    sensor_response = _sensor_to_response(sensor, db)
+    sensor_response = _sensor_to_response(sensor, db, include_controller)
 
     return ApiResponse(
         success=True,
@@ -421,6 +398,7 @@ async def update_sensor(
 async def replace_sensor(
     sensor_id: int,
     sensor_data: SensorCreate,
+    include_controller: bool = Query(default=False, description="컨트롤러 정보 포함 여부"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -431,6 +409,7 @@ async def replace_sensor(
 
     **파라미터**:
     - **sensor_id**: 센서 ID (Path Parameter)
+    - **include_controller**: 컨트롤러 정보 포함 여부
 
     **Request Body** (모든 필드 필수):
     - **number_device**: 장치 번호
@@ -445,7 +424,6 @@ async def replace_sensor(
 
     **Error**:
     - 404: 센서 또는 컨트롤러를 찾을 수 없음
-    - 409: 동일한 number_device를 가진 다른 센서가 존재함
     - 422: 유효하지 않은 enum 값
     """
     sensor = db.query(Sensor).filter(Sensor.id == sensor_id).first()
@@ -455,19 +433,6 @@ async def replace_sensor(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Sensor with id {sensor_id} not found"
         )
-
-    # Check for number_device conflict
-    if sensor_data.number_device != sensor.number_device:
-        existing = db.query(Sensor).filter(
-            Sensor.number_device == sensor_data.number_device,
-            Sensor.id != sensor_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Sensor with number_device {sensor_data.number_device} already exists"
-            )
 
     # Validate controller exists
     controller = db.query(Controller).filter(Controller.id == sensor_data.controller_id).first()
@@ -503,7 +468,7 @@ async def replace_sensor(
     db.commit()
     db.refresh(sensor)
 
-    sensor_response = _sensor_to_response(sensor, db)
+    sensor_response = _sensor_to_response(sensor, db, include_controller)
 
     return ApiResponse(
         success=True,

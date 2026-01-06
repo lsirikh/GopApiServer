@@ -24,7 +24,14 @@ class XyPointCreate(XyPointBase):
 
 
 class XyPointResponse(XyPointBase):
-    """Schema for XyPoint response"""
+    """Schema for XyPoint response (주체용 - timestamp 포함)"""
+    id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class XyPointNestedResponse(XyPointBase):
+    """Schema for XyPoint nested response (v2.10: timestamp 제외)"""
     id: int
 
     model_config = ConfigDict(from_attributes=True)
@@ -56,7 +63,7 @@ class ROIUpdate(BaseModel):
 
 
 class ROIResponse(ROIBase):
-    """Schema for ROI response (list view)"""
+    """Schema for ROI response (list view) - 주체용"""
     id: int
     preset_id: int
     point_count: int = Field(default=0, description="Number of polygon vertices")
@@ -66,13 +73,31 @@ class ROIResponse(ROIBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ROIDetailResponse(ROIBase):
-    """Schema for ROI detail response (with points)"""
+class ROIListNestedResponse(ROIBase):
+    """Schema for ROI list nested response (v2.10: Preset 내 nested 목록 - timestamp 제외)"""
     id: int
     preset_id: int
-    points: List[XyPointResponse] = Field(default_factory=list)
+    point_count: int = Field(default=0, description="Number of polygon vertices")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ROIDetailResponse(ROIBase):
+    """Schema for ROI detail response (with points) - 주체용"""
+    id: int
+    preset_id: int
+    points: List[XyPointNestedResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ROINestedResponse(ROIBase):
+    """Schema for ROI nested response (v2.10: Preset 내 nested - timestamp 제외)"""
+    id: int
+    preset_id: int
+    points: List[XyPointNestedResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -113,16 +138,22 @@ class CameraPresetResponse(CameraPresetBase):
 
 
 class CameraPresetWithROIsResponse(CameraPresetResponse):
-    """Schema for CameraPreset response with ROIs (include_rois=true)"""
-    rois: List[ROIResponse] = Field(default_factory=list)
+    """Schema for CameraPreset response with ROIs (include_rois=true)
+
+    v2.10: Nested Response 규칙 적용 - rois에서 timestamp 제외
+    """
+    rois: List[ROIListNestedResponse] = Field(default_factory=list)
 
 
 class CameraPresetDetailResponse(CameraPresetBase):
-    """Schema for CameraPreset detail response (with ROIs and points)"""
+    """Schema for CameraPreset detail response (with ROIs and points)
+
+    v2.10: Nested Response 규칙 적용 - rois에서 timestamp 제외
+    """
     id: int
     camera_id: int
     camera_name: str
-    rois: List[ROIDetailResponse] = Field(default_factory=list)
+    rois: List[ROINestedResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

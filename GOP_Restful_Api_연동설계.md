@@ -1,9 +1,10 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
+**최종 수정일**: 2026-01-06  
 **작성자**: 이기호 차장  
-**목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지   시스템 구성  
-**설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보
+**목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
+**설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
 
 ---
 
@@ -27,7 +28,8 @@
 9. [에러 처리](#9-에러-처리)
 10. [부록](#10-부록)
     - 10.1 [전체 Endpoint 목록](#101-전체-endpoint-목록)
-    - 10.2 [Event-Device 리팩토링 변경사항 (v2.2)](#102-event-device-리팩토링-변경사항-v22)
+    - 10.2 [Event-Device 리팩토링 변경사항 (v2.3)](#102-event-device-리팩토링-변경사항-v23)
+    - 10.3 [EventMapping 리팩토링 변경사항 (v2.3)](#103-eventmapping-리팩토링-변경사항-v23)
 
 ---
 
@@ -475,7 +477,7 @@ Accept: application/json
     {
       "id": 1,
       "number_device": 1,
-      "group_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
       "name_device": "Controller-A",
       "type_device": "Controller", //(EnumDeviceType)
       "version": "v2.1.0",
@@ -485,20 +487,13 @@ Accept: application/json
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [
-        {
-          "id": 1,
-          "name": "GOP 1구역",
-          "description": "GOP 1구역 장비 그룹",
-          "device_count": 5,
-          "created_at": "2025-01-01T00:00:00.000Z",
-          "updated_at": "2025-01-01T00:00:00.000Z"
-        }
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
       ]
     },
     {
       "id": 2,
       "number_device": 2,
-      "group_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
       "name_device": "Controller-B",
       "type_device": "Controller", //(EnumDeviceType)
       "version": "v2.1.0",
@@ -507,6 +502,72 @@ Accept: application/json
       "ip_port": 8001,
       "created_at": "2025-01-02T00:00:00.000Z",
       "updated_at": "2025-01-10T10:29:00.000Z",
+      "device_groups": []
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 2,
+    "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:30:00.150Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Response Example** (200 OK, `include_sensors=true`):
+```json
+{
+  "success": true,
+  "message": "2 controllers retrieved",
+  "data": [
+    {
+      "id": 1,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Controller-A",
+      "type_device": "Controller", //(EnumDeviceType)
+      "version": "v2.1.0",
+      "status": "ACTIVATED", //(EnumDeviceStatus)
+      "ip_address": "192.168.1.100",
+      "ip_port": 8001,
+      "created_at": "2025-01-01T00:00:00.000Z",
+      "updated_at": "2025-01-10T10:30:00.000Z",
+      "sensors": [
+        {
+          "id": 101,
+          "number_device": 1,
+          "group_device": 1, // (Deprecated 예정, 레거시)
+          "name_device": "Sensor-A-1",
+          "type_device": "Multi", //(EnumDeviceType)
+          "version": "v1.5.0",
+          "status": "ACTIVATED", //(EnumDeviceStatus)
+          "controller_id": 1,
+          "device_groups": [
+            {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+          ]
+        }
+      ],
+      "device_groups": [
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+      ]
+    },
+    {
+      "id": 2,
+      "number_device": 2,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Controller-B",
+      "type_device": "Controller", //(EnumDeviceType)
+      "version": "v2.1.0",
+      "status": "ACTIVATED", //(EnumDeviceStatus)
+      "ip_address": "192.168.1.101",
+      "ip_port": 8001,
+      "created_at": "2025-01-02T00:00:00.000Z",
+      "updated_at": "2025-01-10T10:29:00.000Z",
+      "sensors": [],
       "device_groups": []
     }
   ],
@@ -537,7 +598,7 @@ Accept: application/json
 
 **Request Example**:
 ```http
-GET /api/devices/controllers/1?include_sensors=true HTTP/1.1
+GET /api/devices/controllers/1 HTTP/1.1
 Host: control-service.company.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Accept: application/json
@@ -551,7 +612,36 @@ Accept: application/json
   "data": {
     "id": 1,
     "number_device": 1,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
+    "name_device": "Controller-A",
+    "type_device": "Controller", //(EnumDeviceType)
+    "version": "v2.1.0",
+    "status": "ACTIVATED", //(EnumDeviceStatus)
+    "ip_address": "192.168.1.100",
+    "ip_port": 8001,
+    "sensors": null,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-10T10:30:00.000Z",
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:31:00.050Z",
+    "request_id": "550e8401-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Response Example** (200 OK, `include_sensors=true`):
+```json
+{
+  "success": true,
+  "message": "Controller retrieved successfully",
+  "data": {
+    "id": 1,
+    "number_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Controller-A",
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.1.0",
@@ -562,39 +652,32 @@ Accept: application/json
       {
         "id": 101,
         "number_device": 1,
-        "group_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
         "name_device": "Sensor-A-1",
         "type_device": "Multi", //(EnumDeviceType)
         "version": "v1.5.0",
         "status": "ACTIVATED", //(EnumDeviceStatus)
         "controller_id": 1,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
+        "device_groups": [
+          {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+        ]
       },
       {
         "id": 102,
         "number_device": 2,
-        "group_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
         "name_device": "Sensor-A-2",
         "type_device": "Fence", //(EnumDeviceType)
         "version": "v1.5.0",
         "status": "ACTIVATED", //(EnumDeviceStatus)
         "controller_id": 1,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
+        "device_groups": []
       }
     ],
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-10T10:30:00.000Z",
     "device_groups": [
-      {
-        "id": 1,
-        "name": "GOP 1구역",
-        "description": "GOP 1구역 장비 그룹",
-        "device_count": 5,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      }
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
     ]
   },
   "meta": {
@@ -630,7 +713,7 @@ Accept: application/json
 ```json
 {
   "number_device": 3,
-  "group_device": 1,
+  "group_device": 1, // (Deprecated 예정, 레거시) 
   "name_device": "Controller-C",
   "type_device": "Controller", //(EnumDeviceType)
   "version": "v2.1.0",
@@ -649,7 +732,7 @@ Accept: application/json
   "data": {
     "id": 3,
     "number_device": 3,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시) 
     "name_device": "Controller-C",
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.1.0",
@@ -659,22 +742,8 @@ Accept: application/json
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:34:00.100Z",
     "device_groups": [
-      {
-        "id": 1,
-        "name": "GOP 1구역",
-        "description": "GOP 1구역 장비 그룹",
-        "device_count": 6,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      },
-      {
-        "id": 2,
-        "name": "GOP 2구역",
-        "description": "GOP 2구역 장비 그룹",
-        "device_count": 3,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      }
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6},
+      {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
     ]
   },
   "meta": {
@@ -686,9 +755,12 @@ Accept: application/json
 
 ---
 
-#### 5.1.4 Controller 수정
+#### 5.1.4 Controller 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/controllers/{id}`
+
+**Query Parameters**:
+- `include_sensors` (boolean, optional): 센서 목록 포함 여부 (기본값: false)
 
 **Request Body** (부분 업데이트):
 ```json
@@ -708,7 +780,7 @@ Accept: application/json
   "data": {
     "id": 3,
     "number_device": 3,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Controller-C-Updated",
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.2.0",
@@ -718,14 +790,7 @@ Accept: application/json
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:35:00.150Z",
     "device_groups": [
-      {
-        "id": 1,
-        "name": "GOP 1구역",
-        "description": "GOP 1구역 장비 그룹",
-        "device_count": 6,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      }
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6}
     ]
   },
   "meta": {
@@ -737,7 +802,59 @@ Accept: application/json
 
 ---
 
-#### 5.1.5 Controller 삭제
+#### 5.1.5 Controller 수정 (전체)
+
+**Endpoint**: `PUT /api/devices/controllers/{id}`
+
+**Query Parameters**:
+- `include_sensors` (boolean, optional): 센서 목록 포함 여부 (기본값: false)
+
+**Request Body** (전체 업데이트):
+```json
+{
+  "number_device": 3,
+  "group_device": 1,
+  "name_device": "Controller-C-Complete-Update",
+  "type_device": "Controller",
+  "version": "v2.3.0",
+  "status": "ACTIVATED",
+  "ip_address": "192.168.1.103",
+  "ip_port": 8002
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Controller replaced successfully",
+  "data": {
+    "id": 3,
+    "number_device": 3,
+    "group_device": 1,
+    "name_device": "Controller-C-Complete-Update",
+    "type_device": "Controller",
+    "version": "v2.3.0",
+    "status": "ACTIVATED",
+    "ip_address": "192.168.1.103",
+    "ip_port": 8002,
+    "created_at": "2025-01-10T10:34:00.100Z",
+    "updated_at": "2025-01-10T10:36:00.200Z",
+    "sensors": null,
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6}
+    ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:36:00.200Z",
+    "request_id": "550e8406-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.1.6 Controller 삭제
 
 **Endpoint**: `DELETE /api/devices/controllers/{id}`
 
@@ -771,6 +888,7 @@ Accept: application/json
 - `type_device` (string, optional): 센서 타입 필터 (Multi, Fence, Underground, PIR 등)
 - `status` (string, optional): 상태 필터
 - `controller_id` (int, optional): 제어기 ID 필터
+- `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
@@ -783,7 +901,7 @@ Accept: application/json
     {
       "id": 101,
       "number_device": 1,
-      "group_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
       "name_device": "Sensor-A-1",
       "type_device": "Multi", //(EnumDeviceType)
       "version": "v1.5.0",
@@ -792,20 +910,14 @@ Accept: application/json
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [
-        {
-          "id": 1,
-          "name": "GOP 1구역",
-          "description": "GOP 1구역 장비 그룹",
-          "device_count": 5,
-          "created_at": "2025-01-01T00:00:00.000Z",
-          "updated_at": "2025-01-01T00:00:00.000Z"
-        }
-      ]
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+      ],
+      "controller": null
     },
     {
       "id": 102,
       "number_device": 2,
-      "group_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
       "name_device": "Sensor-A-2",
       "type_device": "Fence", //(EnumDeviceType)
       "version": "v1.5.0",
@@ -813,7 +925,57 @@ Accept: application/json
       "controller_id": 1,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
-      "device_groups": []
+      "device_groups": [],
+      "controller": null
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 15,
+    "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:37:00.100Z",
+    "request_id": "550e8407-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Response Example** (200 OK, `include_controller=true`):
+```json
+{
+  "success": true,
+  "message": "15 sensors retrieved",
+  "data": [
+    {
+      "id": 101,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-1",
+      "type_device": "Multi", //(EnumDeviceType)
+      "version": "v1.5.0",
+      "status": "ACTIVATED", //(EnumDeviceStatus)
+      "controller_id": 1,
+      "created_at": "2025-01-01T00:00:00.000Z",
+      "updated_at": "2025-01-10T10:30:00.000Z",
+      "device_groups": [
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+      ],
+      "controller": {
+        "id": 1,
+        "number_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
+        "name_device": "Controller-A",
+        "type_device": "MainController",
+        "version": "v2.0.0",
+        "status": "ACTIVATED",
+        "ip_address": "192.168.1.101",
+        "ip_port": 8080,
+        "device_groups": [
+          {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
+        ]
+      }
     }
   ],
   "pagination": {
@@ -838,6 +1000,9 @@ Accept: application/json
 **Path Parameters**:
 - `id` (int, required): Sensor ID
 
+**Query Parameters**:
+- `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
+
 **Request Example**:
 ```http
 GET /api/devices/sensors/101 HTTP/1.1
@@ -854,7 +1019,7 @@ Accept: application/json
   "data": {
     "id": 101,
     "number_device": 1,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Sensor-A-1",
     "type_device": "Multi", //(EnumDeviceType)
     "version": "v1.5.0",
@@ -863,15 +1028,50 @@ Accept: application/json
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-10T10:30:00.000Z",
     "device_groups": [
-      {
-        "id": 1,
-        "name": "GOP 1구역",
-        "description": "GOP 1구역 장비 그룹",
-        "device_count": 5,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      }
-    ]
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ],
+    "controller": null
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:38:00.050Z",
+    "request_id": "550e8408-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Response Example** (200 OK, `include_controller=true`):
+```json
+{
+  "success": true,
+  "message": "Sensor retrieved successfully",
+  "data": {
+    "id": 101,
+    "number_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
+    "name_device": "Sensor-A-1",
+    "type_device": "Multi", //(EnumDeviceType)
+    "version": "v1.5.0",
+    "status": "ACTIVATED", //(EnumDeviceStatus)
+    "controller_id": 1,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-10T10:30:00.000Z",
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ],
+    "controller": {
+      "id": 1,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Controller-A",
+      "type_device": "MainController",
+      "version": "v2.0.0",
+      "status": "ACTIVATED",
+      "ip_address": "192.168.1.101",
+      "ip_port": 8080,
+      "device_groups": [
+        {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
+      ]
+    }
   },
   "meta": {
     "timestamp": "2025-01-10T10:38:00.050Z",
@@ -906,7 +1106,7 @@ Accept: application/json
 ```json
 {
   "number_device": 3,
-  "group_device": 1,
+  "group_device": 1, // (Deprecated 예정, 레거시)
   "name_device": "Fence-001",
   "type_device": "Fence", //(EnumDeviceType)
   "version": "v2.1.0",
@@ -924,7 +1124,7 @@ Accept: application/json
   "data": {
     "id": 103,
     "number_device": 3,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Fence-001",
     "type_device": "Fence", //(EnumDeviceType)
     "version": "v2.1.0",
@@ -933,22 +1133,8 @@ Accept: application/json
     "created_at": "2025-01-10T10:39:00.100Z",
     "updated_at": "2025-01-10T10:39:00.100Z",
     "device_groups": [
-      {
-        "id": 1,
-        "name": "GOP 1구역",
-        "description": "GOP 1구역 장비 그룹",
-        "device_count": 6,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      },
-      {
-        "id": 2,
-        "name": "GOP 2구역",
-        "description": "GOP 2구역 장비 그룹",
-        "device_count": 3,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      }
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6},
+      {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
     ]
   },
   "meta": {
@@ -963,6 +1149,9 @@ Accept: application/json
 #### 5.2.4 Sensor 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/sensors/{id}`
+
+**Query Parameters**:
+- `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
 
 **Request Body** (부분 업데이트):
 ```json
@@ -982,7 +1171,7 @@ Accept: application/json
   "data": {
     "id": 103,
     "number_device": 3,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Fence-001-Updated",
     "type_device": "Fence", //(EnumDeviceType)
     "version": "v2.2.0",
@@ -991,14 +1180,7 @@ Accept: application/json
     "created_at": "2025-01-10T10:39:00.100Z",
     "updated_at": "2025-01-10T10:40:00.150Z",
     "device_groups": [
-      {
-        "id": 1,
-        "name": "GOP 1구역",
-        "description": "GOP 1구역 장비 그룹",
-        "device_count": 6,
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
-      }
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6}
     ]
   },
   "meta": {
@@ -1014,11 +1196,14 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/devices/sensors/{id}`
 
+**Query Parameters**:
+- `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
+
 **Request Body** (전체 업데이트):
 ```json
 {
   "number_device": 3,
-  "group_device": 1,
+  "group_device": 1, // (Deprecated 예정, 레거시)
   "name_device": "Fence-001-Complete-Update",
   "type_device": "Fence", //(EnumDeviceType)
   "version": "v2.3.0",
@@ -1035,7 +1220,7 @@ Accept: application/json
   "data": {
     "id": 103,
     "number_device": 3,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Fence-001-Complete-Update",
     "type_device": "Fence", //(EnumDeviceType)
     "version": "v2.3.0",
@@ -1100,7 +1285,7 @@ Accept: application/json
     {
       "id": 201,
       "number_device": 109,
-      "group_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
       "name_device": "Camera-109",
       "type_device": "IpCamera", //(EnumDeviceType)
       "version": "v3.2.1",
@@ -1129,7 +1314,7 @@ Accept: application/json
         "altitude": 245.5
       },
       "device_groups": [
-        {"id": 1, "name": "GOP 1구역"}
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
       ],
       "created_at": "2025-01-03T00:00:00.000Z",
       "updated_at": "2025-01-10T10:33:00.000Z"
@@ -1173,7 +1358,7 @@ Accept: application/json
   "data": {
     "id": 201,
     "number_device": 109,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Camera-109",
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.2.1",
@@ -1205,8 +1390,8 @@ Accept: application/json
       "altitude": 245.5
     },
     "device_groups": [
-      {"id": 1, "name": "GOP 1구역"},
-      {"id": 3, "name": "야간 감시"}
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5},
+      {"id": 3, "name": "야간 감시", "description": "야간 감시 그룹", "device_count": 3}
     ],
     "created_at": "2025-01-03T00:00:00.000Z",
     "updated_at": "2025-01-10T10:33:00.000Z"
@@ -1244,7 +1429,7 @@ Accept: application/json
 ```json
 {
   "number_device": 110,
-  "group_device": 1,
+  "group_device": 1, // (Deprecated 예정, 레거시)
   "name_device": "Camera-110",
   "type_device": "IpCamera", //(EnumDeviceType)
   "version": "v3.2.1",
@@ -1281,7 +1466,7 @@ Accept: application/json
   "data": {
     "id": 202,
     "number_device": 110,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Camera-110",
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.2.1",
@@ -1305,8 +1490,8 @@ Accept: application/json
       "longitude": 127.5678
     },
     "device_groups": [
-      {"id": 1, "name": "GOP 1구역"},
-      {"id": 2, "name": "GOP 2구역"}
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6},
+      {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
     ],
     "created_at": "2025-01-10T10:45:00.100Z",
     "updated_at": "2025-01-10T10:45:00.100Z"
@@ -1324,14 +1509,28 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/devices/cameras/{id}`
 
-**Request Body** (부분 업데이트):
+**Request Body** (부분 업데이트 - 변경할 필드만 포함):
 ```json
 {
   "name_device": "Camera-110-Updated",
   "status": "ACTIVATED", //(EnumDeviceStatus)
-  "user_password": "newpassword456"
+  "user_password": "newpassword456",
+  "is_record": true,
+  "hardware_spec": {
+    "firmware": "2.42.00",
+    "location": "GOP 1구역 후방 초소"
+  },
+  "geolocation": {
+    "latitude": 38.1250,
+    "longitude": 127.5700,
+    "altitude": 250.0,
+    "install_location": "GOP 1구역 후방 초소"
+  },
+  "group_ids": [1, 3]
 }
 ```
+
+> **Note**: PATCH는 부분 업데이트이므로 변경할 필드만 포함합니다. `hardware_spec`, `geolocation`도 부분 업데이트가 가능하며, 기존 값에 병합됩니다.
 
 **Response Example** (200 OK):
 ```json
@@ -1341,7 +1540,7 @@ Accept: application/json
   "data": {
     "id": 202,
     "number_device": 110,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Camera-110-Updated",
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.2.1",
@@ -1354,6 +1553,24 @@ Accept: application/json
     "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "FIXED", //(EnumCameraType)
+    "is_record": true,
+    "hardware_spec": {
+      "name": "신규 카메라",
+      "location": "GOP 1구역 후방 초소",
+      "manufacturer": "Hanwha Vision",
+      "model": "XNP-6320RH",
+      "firmware": "2.42.00"
+    },
+    "geolocation": {
+      "latitude": 38.1250,
+      "longitude": 127.5700,
+      "altitude": 250.0,
+      "install_location": "GOP 1구역 후방 초소"
+    },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5},
+      {"id": 3, "name": "야간 감시", "description": "야간 감시 그룹", "device_count": 3}
+    ],
     "created_at": "2025-01-10T10:45:00.100Z",
     "updated_at": "2025-01-10T10:46:00.150Z"
   },
@@ -1370,11 +1587,11 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/devices/cameras/{id}`
 
-**Request Body** (전체 업데이트):
+**Request Body** (전체 업데이트 - 모든 필드 필수):
 ```json
 {
   "number_device": 110,
-  "group_device": 1,
+  "group_device": 1, // (Deprecated 예정, 레거시)
   "name_device": "Camera-110-Complete-Update",
   "type_device": "IpCamera", //(EnumDeviceType)
   "version": "v3.3.0",
@@ -1386,9 +1603,31 @@ Accept: application/json
   "rtsp_uri": "rtsp://192.168.1.110:554/stream2",
   "rtsp_port": 554,
   "mode": "ONVIF", //(EnumCameraMode)
-  "category": "PTZ" //(EnumCameraType)
+  "category": "PTZ", //(EnumCameraType)
+  "is_record": true,
+  "hardware_spec": {
+    "name": "GOP 1구역 PTZ 카메라",
+    "location": "GOP 1구역 전방 초소",
+    "manufacturer": "Hanwha Vision",
+    "model": "XNP-6320RH",
+    "hardware": "PTZ 32x Optical Zoom",
+    "firmware": "2.42.00",
+    "device_id": "HWV-XNP-001",
+    "mac_address": "00:09:18:AB:CD:EF",
+    "onvif_version": "2.4.2"
+  },
+  "geolocation": {
+    "location": "GOP 1구역 전방 초소",
+    "latitude": 38.1234,
+    "longitude": 127.5678,
+    "altitude": 245.5,
+    "install_location": "GOP 1구역 전방 초소"
+  },
+  "group_ids": [1, 3]
 }
 ```
+
+> **Note**: PUT은 전체 업데이트이므로 모든 필드를 포함해야 합니다. 누락된 필드는 기본값 또는 null로 설정됩니다.
 
 **Response Example** (200 OK):
 ```json
@@ -1398,7 +1637,7 @@ Accept: application/json
   "data": {
     "id": 202,
     "number_device": 110,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Camera-110-Complete-Update",
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.3.0",
@@ -1411,6 +1650,29 @@ Accept: application/json
     "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "PTZ", //(EnumCameraType)
+    "is_record": true,
+    "hardware_spec": {
+      "name": "GOP 1구역 PTZ 카메라",
+      "location": "GOP 1구역 전방 초소",
+      "manufacturer": "Hanwha Vision",
+      "model": "XNP-6320RH",
+      "hardware": "PTZ 32x Optical Zoom",
+      "firmware": "2.42.00",
+      "device_id": "HWV-XNP-001",
+      "mac_address": "00:09:18:AB:CD:EF",
+      "onvif_version": "2.4.2"
+    },
+    "geolocation": {
+      "location": "GOP 1구역 전방 초소",
+      "latitude": 38.1234,
+      "longitude": 127.5678,
+      "altitude": 245.5,
+      "install_location": "GOP 1구역 전방 초소"
+    },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5},
+      {"id": 3, "name": "야간 감시", "description": "야간 감시 그룹", "device_count": 3}
+    ],
     "created_at": "2025-01-10T10:45:00.100Z",
     "updated_at": "2025-01-10T10:47:00.200Z"
   },
@@ -1537,7 +1799,7 @@ Accept: application/json
       {
         "id": 1,
         "number_device": 1,
-        "group_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
         "name_device": "Controller-A",
         "type_device": "Controller",
         "version": "v2.1.0",
@@ -1548,7 +1810,7 @@ Accept: application/json
       {
         "id": 101,
         "number_device": 1,
-        "group_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
         "name_device": "Sensor-A-1",
         "type_device": "Multi",
         "version": "v1.5.0",
@@ -1558,7 +1820,7 @@ Accept: application/json
       {
         "id": 201,
         "number_device": 1,
-        "group_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
         "name_device": "Camera-A-1",
         "type_device": "IpCamera",
         "version": "v1.0.0",
@@ -1929,6 +2191,8 @@ Accept: application/json
 - `camera_id` (int, required): 카메라 ID
 - `preset_id` (int, required): 프리셋 ID
 
+> **Nested Response 규칙**: `rois` nested 객체에서 `created_at`, `updated_at` 제외 (주체인 Preset만 timestamp 포함)
+
 **Response Example** (200 OK):
 ```json
 {
@@ -1956,9 +2220,7 @@ Accept: application/json
           {"id": 2, "x": 0.9, "y": 0.1, "order": 1},
           {"id": 3, "x": 0.9, "y": 0.9, "order": 2},
           {"id": 4, "x": 0.1, "y": 0.9, "order": 3}
-        ],
-        "created_at": "2025-01-01T00:00:00.000Z",
-        "updated_at": "2025-01-01T00:00:00.000Z"
+        ]
       }
     ]
   }
@@ -2408,12 +2670,15 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 **Query Parameters**:
 - `start_date` (datetime, required): 조회 시작 시간 (ISO 8601)
 - `end_date` (datetime, required): 조회 종료 시간 (ISO 8601)
-- `group_device` (int, optional): 디바이스 그룹 필터
+- `device_id` (int, optional): 장치 ID 필터 (PRD v2.2)
 - `type_event` (string, optional): 이벤트 타입 필터 (Intrusion)
-- `status` (string, optional): 상태 필터 (True, False)
+- `action_reported` (string, optional): 조치 보고 여부 필터 (True, False)
 - `result` (string, optional): 탐지 결과 필터 (PIR_SENSOR, THERMAL_SENSOR 등)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
+
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **PRD v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
 ```json
@@ -2423,16 +2688,25 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
   "data": [
     {
       "id": 1001,
-      "group_event": "group_001",
       "type_event": "Intrusion",
-      "controller": 1,
-      "sensor": 1,
-      "type_device": "Multi",
-      "sequence": 10,
       "action_reported": "True",
       "result": "PIR_SENSOR",
-      "created_at": "2025-01-10T10:15:23.100Z",
-      "updated_at": "2025-01-10T10:15:23.100Z"
+      "device": {
+        "id": 101,
+        "number_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
+        "name_device": "Sensor-A-1",
+        "type_device": "Multi",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": [
+          {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+        ]
+      },
+      "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+      "created_at": "2026-01-06T10:15:23.100Z",
+      "updated_at": "2026-01-06T10:15:23.100Z"
     }
   ],
   "pagination": {
@@ -2442,9 +2716,29 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
     "total_pages": 2
   },
   "meta": {
-    "timestamp": "2025-01-10T10:40:00.250Z",
+    "timestamp": "2026-01-06T10:40:00.250Z",
     "request_id": "550e8500-e29b-41d4-a716-446655440000"
   }
+}
+```
+
+**Response Example (Device 삭제된 경우)**:
+```json
+{
+  "success": true,
+  "message": "Detection event retrieved",
+  "data": [
+    {
+      "id": 1001,
+      "type_event": "Intrusion",
+      "action_reported": "True",
+      "result": "PIR_SENSOR",
+      "device": null,
+      "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+      "created_at": "2026-01-06T10:15:23.100Z",
+      "updated_at": "2026-01-06T10:15:23.100Z"
+    }
+  ]
 }
 ```
 
@@ -2472,19 +2766,28 @@ Accept: application/json
   "message": "Detection event retrieved successfully",
   "data": {
     "id": 1001,
-    "group_event": "group_001",
     "type_event": "Intrusion", //(EnumEventType)
-    "controller": 1,
-    "sensor": 1,
-    "type_device": "Multi", //(EnumDeviceType)
-    "sequence": 10,
     "action_reported": "True", //(EnumTrueFalse)
     "result": "PIR_SENSOR", //(EnumDetectionType)
-    "created_at": "2025-01-10T10:15:23.100Z",
-    "updated_at": "2025-01-10T10:15:23.100Z"
+    "device": {
+      "id": 101,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-1",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "created_at": "2026-01-06T10:15:23.100Z",
+    "updated_at": "2026-01-06T10:15:23.100Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:50:00.050Z",
+    "timestamp": "2026-01-06T10:50:00.050Z",
     "request_id": "550e8418-e29b-41d4-a716-446655440000"
   }
 }
@@ -2500,7 +2803,7 @@ Accept: application/json
     "details": "No detection event exists with the specified ID"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:50:00.050Z",
+    "timestamp": "2026-01-06T10:50:00.050Z",
     "request_id": "550e8418-e29b-41d4-a716-446655440000"
   }
 }
@@ -2512,16 +2815,14 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/detections`
 
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **자동 생성**: `device_description`은 서버에서 자동 생성됨
+
 **Request Body**:
 ```json
 {
-  "group_event": "group_002",
+  "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
-  "controller": 1,
-  "sensor": 2,
-  "type_device": "Fence", //(EnumDeviceType)
-  "sequence": 15,
-  "action_reported": "False", //(EnumTrueFalse)
   "result": "THERMAL_SENSOR" //(EnumDetectionType)
 }
 ```
@@ -2533,19 +2834,28 @@ Accept: application/json
   "message": "Detection event created successfully",
   "data": {
     "id": 1002,
-    "group_event": "group_002",
     "type_event": "Intrusion", //(EnumEventType)
-    "controller": 1,
-    "sensor": 2,
-    "type_device": "Fence", //(EnumDeviceType)
-    "sequence": 15,
-    "action_reported": "True", //(EnumTrueFalse)
+    "action_reported": "False", //(EnumTrueFalse)
     "result": "THERMAL_SENSOR", //(EnumDetectionType)
-    "created_at": "2025-01-10T10:51:00.100Z",
-    "updated_at": "2025-01-10T10:51:00.100Z"
+    "device": {
+      "id": 101,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-1",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "created_at": "2026-01-06T10:51:00.100Z",
+    "updated_at": "2026-01-06T10:51:00.100Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:51:00.100Z",
+    "timestamp": "2026-01-06T10:51:00.100Z",
     "request_id": "550e8419-e29b-41d4-a716-446655440000"
   }
 }
@@ -2560,8 +2870,8 @@ Accept: application/json
 **Request Body** (부분 업데이트):
 ```json
 {
-  "status": "False", //(EnumTrueFalse)
-  "result": "VIBRATION_SENSOR" //(EnumDetectionType)
+  "type_event": "Intrusion", //(EnumEventType, optional)
+  "result": "VIBRATION_SENSOR" //(EnumDetectionType, optional)
 }
 ```
 
@@ -2572,19 +2882,28 @@ Accept: application/json
   "message": "Detection event updated successfully",
   "data": {
     "id": 1002,
-    "group_event": "group_002",
     "type_event": "Intrusion", //(EnumEventType)
-    "controller": 1,
-    "sensor": 2,
-    "type_device": "Fence", //(EnumDeviceType)
-    "sequence": 15,
     "action_reported": "False", //(EnumTrueFalse)
     "result": "VIBRATION_SENSOR", //(EnumDetectionType)
-    "created_at": "2025-01-10T10:51:00.100Z",
-    "updated_at": "2025-01-10T10:52:00.150Z"
+    "device": {
+      "id": 101,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-1",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "created_at": "2026-01-06T10:51:00.100Z",
+    "updated_at": "2026-01-06T10:52:00.150Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:52:00.150Z",
+    "timestamp": "2026-01-06T10:52:00.150Z",
     "request_id": "550e8420-e29b-41d4-a716-446655440000"
   }
 }
@@ -2596,17 +2915,15 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/detections/{id}`
 
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+
 **Request Body** (전체 업데이트):
 ```json
 {
-  "group_event": "group_002_updated",
+  "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
-  "controller": 1,
-  "sensor": 2,
-  "type_device": "Fence", //(EnumDeviceType)
-  "sequence": 20,
   "action_reported": "True", //(EnumTrueFalse)
-  "result": "DISTANCE_SENSOR", //(EnumDetectionType)
+  "result": "DISTANCE_SENSOR" //(EnumDetectionType)
 }
 ```
 
@@ -2617,19 +2934,28 @@ Accept: application/json
   "message": "Detection event updated successfully",
   "data": {
     "id": 1002,
-    "group_event": "group_002_updated",
     "type_event": "Intrusion", //(EnumEventType)
-    "controller": 1,
-    "sensor": 2,
-    "type_device": "Fence", //(EnumDeviceType)
-    "sequence": 20,
     "action_reported": "True", //(EnumTrueFalse)
     "result": "DISTANCE_SENSOR", //(EnumDetectionType)
-    "created_at": "2025-01-10T10:51:00.100Z",
-    "updated_at": "2025-01-10T10:53:00.200Z"
+    "device": {
+      "id": 101,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-1",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "created_at": "2026-01-06T10:51:00.100Z",
+    "updated_at": "2026-01-06T10:53:00.200Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:53:00.200Z",
+    "timestamp": "2026-01-06T10:53:00.200Z",
     "request_id": "550e8421-e29b-41d4-a716-446655440000"
   }
 }
@@ -2711,6 +3037,12 @@ Accept: application/json
 ```
 
 **Response Example** (200 OK):
+
+> **PRD v1.3**: `from_event` 내부는 현재 Detection/Malfunction/Connection Event Response 포맷을 따름
+> - `device` nested 포함 (Device 삭제 시 null)
+> - `device_description` 포함
+> - 레거시 필드 (`group_event`, `controller`, `sensor`, `type_device`, `sequence`, `device_id`) 제거됨
+
 ```json
 {
   "success": true,
@@ -2722,14 +3054,23 @@ Accept: application/json
     "user": "operator_test",
     "from_event": {
       "id": 1001,
-      "group_event": "group_001",
       "type_event": "Intrusion",
-      "controller": 1,
-      "sensor": 1,
-      "type_device": "PIR",
-      "sequence": 10,
       "action_reported": "True",
       "result": "PIR_SENSOR",
+      "device": {
+        "id": 103,
+        "number_device": 3,
+        "group_device": 1,
+        "name_device": "Sensor-A-3",
+        "type_device": "Fence",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": [
+          {"id": 1, "name": "A구역 센서그룹"}
+        ]
+      },
+      "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
       "created_at": "2025-01-14T10:15:23.100Z",
       "updated_at": "2025-01-14T10:15:23.100Z"
     },
@@ -2780,10 +3121,14 @@ Accept: application/json
 **Query Parameters**:
 - `start_date` (datetime, required): 조회 시작 시간
 - `end_date` (datetime, required): 조회 종료 시간
-- `group_device` (int, optional): 디바이스 그룹 필터
-- `type_device` (string, optional): 디바이스 타입 필터
+- `device_id` (int, optional): 장치 ID 필터 (PRD v2.2)
 - `reason` (string, optional): 장애 원인 필터 (FAULT_CONTROLLER, FAULT_FENCE, FAULT_CABLE_CUTTING 등)
-- `status` (string, optional): 상태 필터
+- `action_reported` (string, optional): 조치 보고 여부 필터 (True, False)
+- `page` (int, optional): 페이지 번호
+- `limit` (int, optional): 페이지당 항목 수
+
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **PRD v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
 ```json
@@ -2793,20 +3138,29 @@ Accept: application/json
   "data": [
     {
       "id": 2001,
-      "group_event": "group_fault_001",
-      "type_event": "Fault", //(EnumEventType)
-      "controller": 1, //단 제어기 고장일 경우 sensor는 0
-      "sensor": 3,
-      "type_device": "Fence", //(EnumDeviceType)
-      "sequence": 10,
-      "action_reported": "True", //(EnumTrueFalse)
-      "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType)
+      "type_event": "Fault",
+      "action_reported": "True",
+      "reason": "FAULT_CABLE_CUTTING",
       "first_start": 10,
       "first_end": 15,
       "second_start": 20,
       "second_end": 25,
-      "created_at": "2025-01-03T14:20:00.500Z",
-      "updated_at": "2025-01-03T14:20:00.500Z"
+      "device": {
+        "id": 103,
+        "number_device": 3,
+        "group_device": 1, // (Deprecated 예정, 레거시)
+        "name_device": "Sensor-A-3",
+        "type_device": "Fence",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": [
+          {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+        ]
+      },
+      "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
+      "created_at": "2026-01-06T14:20:00.500Z",
+      "updated_at": "2026-01-06T14:20:00.500Z"
     }
   ],
   "pagination": {
@@ -2816,7 +3170,7 @@ Accept: application/json
     "total_pages": 1
   },
   "meta": {
-    "timestamp": "2025-01-10T10:42:00.300Z",
+    "timestamp": "2026-01-06T10:42:00.300Z",
     "request_id": "550e8502-e29b-41d4-a716-446655440000"
   }
 }
@@ -2853,23 +3207,32 @@ Accept: application/json
   "message": "Malfunction event retrieved successfully",
   "data": {
     "id": 2001,
-    "group_event": "group_fault_001",
     "type_event": "Fault", //(EnumEventType)
-    "controller": 1, //단 제어기 고장일 경우 sensor는 0
-    "sensor": 3,
-    "type_device": "Fence", //(EnumDeviceType)
-    "sequence": 10,
     "action_reported": "True", //(EnumTrueFalse)
     "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType)
     "first_start": 5,
     "first_end": 5,
     "second_start": 0,
     "second_end": 0,
-    "created_at": "2025-01-03T14:20:00.500Z",
-    "updated_at": "2025-01-03T14:20:00.500Z"
+    "device": {
+      "id": 103,
+      "number_device": 3,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-3",
+      "type_device": "Fence",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
+    "created_at": "2026-01-06T14:20:00.500Z",
+    "updated_at": "2026-01-06T14:20:00.500Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:55:00.050Z",
+    "timestamp": "2026-01-06T10:55:00.050Z",
     "request_id": "550e8423-e29b-41d4-a716-446655440000"
   }
 }
@@ -2885,7 +3248,7 @@ Accept: application/json
     "details": "No malfunction event exists with the specified ID"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:55:00.050Z",
+    "timestamp": "2026-01-06T10:55:00.050Z",
     "request_id": "550e8423-e29b-41d4-a716-446655440000"
   }
 }
@@ -2897,21 +3260,19 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/malfunctions`
 
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **자동 생성**: `device_description`은 서버에서 자동 생성됨
+
 **Request Body**:
 ```json
 {
-  "group_event": "group_fault_002",
+  "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
-  "controller": 1,
-  "sensor": 4,
-  "type_device": "Multi", //(EnumDeviceType)
-  "sequence": 12,
-  "action_reported": "True", //(EnumTrueFalse)
   "reason": "FAULT_FENCE", //(EnumFaultType)
   "first_start": 3,
   "first_end": 3,
   "second_start": 0,
-  "second_end": 0,
+  "second_end": 0
 }
 ```
 
@@ -2922,23 +3283,32 @@ Accept: application/json
   "message": "Malfunction event created successfully",
   "data": {
     "id": 2002,
-    "group_event": "group_fault_002",
     "type_event": "Fault", //(EnumEventType)
-    "controller": 1,
-    "sensor": 4,
-    "type_device": "Multi", //(EnumDeviceType)
-    "sequence": 12,
-    "action_reported": "True", //(EnumTrueFalse)
+    "action_reported": "False", //(EnumTrueFalse)
     "reason": "FAULT_FENCE", //(EnumFaultType)
     "first_start": 3,
     "first_end": 3,
     "second_start": 0,
     "second_end": 0,
-    "created_at": "2025-01-10T10:56:00.100Z",
-    "updated_at": "2025-01-10T10:56:00.100Z"
+    "device": {
+      "id": 104,
+      "number_device": 4,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-4",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+    "created_at": "2026-01-06T10:56:00.100Z",
+    "updated_at": "2026-01-06T10:56:00.100Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:56:00.100Z",
+    "timestamp": "2026-01-06T10:56:00.100Z",
     "request_id": "550e8424-e29b-41d4-a716-446655440000"
   }
 }
@@ -2953,8 +3323,12 @@ Accept: application/json
 **Request Body** (부분 업데이트):
 ```json
 {
-  "action_reported": "False", //(EnumTrueFalse)
-  "reason": "FAULT_MULTI" //(EnumFaultType)
+  "type_event": "Fault", //(EnumEventType, optional)
+  "reason": "FAULT_MULTI", //(EnumFaultType, optional)
+  "first_start": 3, //(optional)
+  "first_end": 3, //(optional)
+  "second_start": 0, //(optional)
+  "second_end": 0 //(optional)
 }
 ```
 
@@ -2965,23 +3339,32 @@ Accept: application/json
   "message": "Malfunction event updated successfully",
   "data": {
     "id": 2002,
-    "group_event": "group_fault_002",
     "type_event": "Fault", //(EnumEventType)
-    "controller": 1,
-    "sensor": 4,
-    "type_device": "Multi", //(EnumDeviceType)
-    "sequence": 12,
     "action_reported": "False", //(EnumTrueFalse)
     "reason": "FAULT_MULTI", //(EnumFaultType)
     "first_start": 3,
     "first_end": 3,
     "second_start": 0,
     "second_end": 0,
-    "created_at": "2025-01-10T10:56:00.100Z",
-    "updated_at": "2025-01-10T10:57:00.150Z"
+    "device": {
+      "id": 104,
+      "number_device": 4,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-4",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+    "created_at": "2026-01-06T10:56:00.100Z",
+    "updated_at": "2026-01-06T10:57:00.150Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:57:00.150Z",
+    "timestamp": "2026-01-06T10:57:00.150Z",
     "request_id": "550e8425-e29b-41d4-a716-446655440000"
   }
 }
@@ -2993,21 +3376,19 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/malfunctions/{id}`
 
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+
 **Request Body** (전체 업데이트):
 ```json
 {
-  "group_event": "group_fault_002_updated",
+  "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
-  "controller": 1,
-  "sensor": 4,
-  "type_device": "Multi", //(EnumDeviceType)
-  "sequence": 15,
   "action_reported": "True", //(EnumTrueFalse)
   "reason": "FAULT_ETC", //(EnumFaultType)
   "first_start": 2,
   "first_end": 2,
   "second_start": 5,
-  "second_end": 5,
+  "second_end": 5
 }
 ```
 
@@ -3018,23 +3399,32 @@ Accept: application/json
   "message": "Malfunction event updated successfully",
   "data": {
     "id": 2002,
-    "group_event": "group_fault_002_updated",
     "type_event": "Fault", //(EnumEventType)
-    "controller": 1,
-    "sensor": 4,
-    "type_device": "Multi", //(EnumDeviceType)
-    "sequence": 15,
     "action_reported": "True", //(EnumTrueFalse)
     "reason": "FAULT_ETC", //(EnumFaultType)
     "first_start": 2,
     "first_end": 2,
     "second_start": 5,
     "second_end": 5,
-    "created_at": "2025-01-10T10:56:00.100Z",
-    "updated_at": "2025-01-10T10:58:00.200Z"
+    "device": {
+      "id": 104,
+      "number_device": 4,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-4",
+      "type_device": "Multi",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+    "created_at": "2026-01-06T10:56:00.100Z",
+    "updated_at": "2026-01-06T10:58:00.200Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T10:58:00.200Z",
+    "timestamp": "2026-01-06T10:58:00.200Z",
     "request_id": "550e8426-e29b-41d4-a716-446655440000"
   }
 }
@@ -3116,6 +3506,12 @@ Accept: application/json
 ```
 
 **Response Example** (200 OK):
+
+> **PRD v1.3**: `from_event` 내부는 현재 Malfunction Event Response 포맷을 따름
+> - `device` nested 포함 (Device 삭제 시 null)
+> - `device_description` 포함
+> - 레거시 필드 (`group_event`, `controller`, `sensor`, `type_device`, `sequence`, `device_id`) 제거됨
+
 ```json
 {
   "success": true,
@@ -3127,18 +3523,28 @@ Accept: application/json
     "user": "operator_malfunction",
     "from_event": {
       "id": 2001,
-      "group_event": "group_002",
       "type_event": "Fault",
-      "controller": 2,
-      "sensor": 0,
-      "type_device": "Controller",
-      "sequence": 5,
       "action_reported": "True",
       "reason": "FAULT_CONTROLLER",
       "first_start": 100,
       "first_end": 200,
       "second_start": 300,
       "second_end": 400,
+      "device": {
+        "id": 2,
+        "number_device": 2,
+        "group_device": 1,
+        "name_device": "Controller-B",
+        "type_device": "Controller",
+        "status": "Error",
+        "version": "v2.0.0",
+        "ip_address": "192.168.1.102",
+        "ip_port": 8080,
+        "device_groups": [
+          { "id": 2, "name": "B구역 컨트롤러 그룹" }
+        ]
+      },
+      "device_description": "[Controller] Controller-B (number: 2, id: 2)",
       "created_at": "2025-01-14T11:00:00.000Z",
       "updated_at": "2025-01-14T11:00:00.000Z"
     },
@@ -3189,10 +3595,12 @@ Accept: application/json
 **Query Parameters**:
 - `start_date` (datetime, required): 조회 시작 시간 (ISO 8601)
 - `end_date` (datetime, required): 조회 종료 시간 (ISO 8601)
-- `group_device` (int, optional): 디바이스 그룹 필터
-- `type_device` (string, optional): 디바이스 타입 필터
+- `device_id` (int, optional): 장치 ID 필터 (PRD v2.2)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
+
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **PRD v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
 ```json
@@ -3202,25 +3610,43 @@ Accept: application/json
   "data": [
     {
       "id": 3001,
-      "group_event": "group_conn_001",
-      "type_event": "Connection", //(EnumEventType)
-      "controller": 1,
-      "sensor": 1,
-      "type_device": "Fence", //(EnumDeviceType)
-      "sequence": 5,
-      "created_at": "2025-01-10T09:00:00.100Z",
-      "updated_at": "2025-01-10T09:00:00.100Z"
+      "type_event": "Connection",
+      "device": {
+        "id": 101,
+        "number_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
+        "name_device": "Sensor-A-1",
+        "type_device": "Fence",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": [
+          {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+        ]
+      },
+      "device_description": "[Fence] Sensor-A-1 (number: 1, id: 101)",
+      "created_at": "2026-01-06T09:00:00.100Z",
+      "updated_at": "2026-01-06T09:00:00.100Z"
     },
     {
       "id": 3002,
-      "group_event": "group_conn_002",
-      "type_event": "Connection", //(EnumEventType)
-      "controller": 1,
-      "sensor": 2,
-      "type_device": "Multi", //(EnumDeviceType)
-      "sequence": 6,
-      "created_at": "2025-01-10T09:05:00.100Z",
-      "updated_at": "2025-01-10T09:05:00.100Z"
+      "type_event": "Connection",
+      "device": {
+        "id": 102,
+        "number_device": 2,
+        "group_device": 1, // (Deprecated 예정, 레거시)
+        "name_device": "Sensor-A-2",
+        "type_device": "Multi",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": [
+          {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+        ]
+      },
+      "device_description": "[Multi] Sensor-A-2 (number: 2, id: 102)",
+      "created_at": "2026-01-06T09:05:00.100Z",
+      "updated_at": "2026-01-06T09:05:00.100Z"
     }
   ],
   "pagination": {
@@ -3230,7 +3656,7 @@ Accept: application/json
     "total_pages": 1
   },
   "meta": {
-    "timestamp": "2025-01-10T11:00:00.250Z",
+    "timestamp": "2026-01-06T11:00:00.250Z",
     "request_id": "550e8428-e29b-41d4-a716-446655440000"
   }
 }
@@ -3260,17 +3686,26 @@ Accept: application/json
   "message": "Connection event retrieved successfully",
   "data": {
     "id": 3001,
-    "group_event": "group_conn_001",
     "type_event": "Connection", //(EnumEventType)
-    "controller": 1,
-    "sensor": 1,
-    "type_device": "Fence", //(EnumDeviceType)
-    "sequence": 5,
-    "created_at": "2025-01-10T09:00:00.100Z",
-    "updated_at": "2025-01-10T09:00:00.100Z"
+    "device": {
+      "id": 101,
+      "number_device": 1,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-1",
+      "type_device": "Fence",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Fence] Sensor-A-1 (number: 1, id: 101)",
+    "created_at": "2026-01-06T09:00:00.100Z",
+    "updated_at": "2026-01-06T09:00:00.100Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:01:00.050Z",
+    "timestamp": "2026-01-06T11:01:00.050Z",
     "request_id": "550e8429-e29b-41d4-a716-446655440000"
   }
 }
@@ -3286,7 +3721,7 @@ Accept: application/json
     "details": "No connection event exists with the specified ID"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:01:00.050Z",
+    "timestamp": "2026-01-06T11:01:00.050Z",
     "request_id": "550e8429-e29b-41d4-a716-446655440000"
   }
 }
@@ -3298,15 +3733,14 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/connections`
 
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **자동 생성**: `device_description`은 서버에서 자동 생성됨
+
 **Request Body**:
 ```json
 {
-  "group_event": "group_conn_003",
-  "type_event": "Connection", //(EnumEventType)
-  "controller": 1,
-  "sensor": 3,
-  "type_device": "Underground", //(EnumDeviceType)
-  "sequence": 8,
+  "device_id": 103,
+  "type_event": "Connection" //(EnumEventType)
 }
 ```
 
@@ -3317,17 +3751,26 @@ Accept: application/json
   "message": "Connection event created successfully",
   "data": {
     "id": 3003,
-    "group_event": "group_conn_003",
     "type_event": "Connection", //(EnumEventType)
-    "controller": 1,
-    "sensor": 3,
-    "type_device": "Underground", //(EnumDeviceType)
-    "sequence": 8,
-    "created_at": "2025-01-10T11:02:00.100Z",
-    "updated_at": "2025-01-10T11:02:00.100Z"
+    "device": {
+      "id": 103,
+      "number_device": 3,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-3",
+      "type_device": "Underground",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Underground] Sensor-A-3 (number: 3, id: 103)",
+    "created_at": "2026-01-06T11:02:00.100Z",
+    "updated_at": "2026-01-06T11:02:00.100Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:02:00.100Z",
+    "timestamp": "2026-01-06T11:02:00.100Z",
     "request_id": "550e8430-e29b-41d4-a716-446655440000"
   }
 }
@@ -3342,7 +3785,7 @@ Accept: application/json
 **Request Body** (부분 업데이트):
 ```json
 {
-  "sequence": 10,
+  "type_event": "Connection" //(EnumEventType)
 }
 ```
 
@@ -3353,17 +3796,26 @@ Accept: application/json
   "message": "Connection event updated successfully",
   "data": {
     "id": 3003,
-    "group_event": "group_conn_003",
     "type_event": "Connection", //(EnumEventType)
-    "controller": 1,
-    "sensor": 3,
-    "type_device": "Underground", //(EnumDeviceType)
-    "sequence": 10,
-    "created_at": "2025-01-10T11:02:00.100Z",
-    "updated_at": "2025-01-10T11:03:00.150Z"
+    "device": {
+      "id": 103,
+      "number_device": 3,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-3",
+      "type_device": "Underground",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[Underground] Sensor-A-3 (number: 3, id: 103)",
+    "created_at": "2026-01-06T11:02:00.100Z",
+    "updated_at": "2026-01-06T11:03:00.150Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:03:00.150Z",
+    "timestamp": "2026-01-06T11:03:00.150Z",
     "request_id": "550e8431-e29b-41d4-a716-446655440000"
   }
 }
@@ -3375,15 +3827,13 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/connections/{id}`
 
+> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+
 **Request Body** (전체 업데이트):
 ```json
 {
-  "group_event": "group_conn_003_updated",
-  "type_event": "Connection", //(EnumEventType)
-  "controller": 1,
-  "sensor": 3,
-  "type_device": "PIR", //(EnumDeviceType)
-  "sequence": 12,
+  "device_id": 104,
+  "type_event": "Connection" //(EnumEventType)
 }
 ```
 
@@ -3394,17 +3844,26 @@ Accept: application/json
   "message": "Connection event updated successfully",
   "data": {
     "id": 3003,
-    "group_event": "group_conn_003_updated",
     "type_event": "Connection", //(EnumEventType)
-    "controller": 1,
-    "sensor": 3,
-    "type_device": "PIR", //(EnumDeviceType)
-    "sequence": 12,
-    "created_at": "2025-01-10T11:02:00.100Z",
-    "updated_at": "2025-01-10T11:04:00.200Z"
+    "device": {
+      "id": 104,
+      "number_device": 4,
+      "group_device": 1, // (Deprecated 예정, 레거시)
+      "name_device": "Sensor-A-4",
+      "type_device": "PIR",
+      "version": "v1.5.0",
+      "status": "ACTIVATED",
+      "controller_id": 1,
+      "device_groups": [
+        {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+      ]
+    },
+    "device_description": "[PIR] Sensor-A-4 (number: 4, id: 104)",
+    "created_at": "2026-01-06T11:02:00.100Z",
+    "updated_at": "2026-01-06T11:04:00.200Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:04:00.200Z",
+    "timestamp": "2026-01-06T11:04:00.200Z",
     "request_id": "550e8432-e29b-41d4-a716-446655440000"
   }
 }
@@ -3462,12 +3921,14 @@ Accept: application/json
 **Request Body**:
 ```json
 {
+  "type_event": "Action",
   "content": "침입 탐지 확인 및 순찰 출동 요청",
   "user": "operator_kim",
-  "from_event": 1001, //이벤트 Id
-  "from_type_event": "Intrusion", //이벤트 타입 ("Intrusion", "Fault")
+  "from_event_id": 1001
 }
 ```
+
+> **PRD v1.5**: `from_type_event` 필드 제거됨. `from_event_id`만으로 원본 이벤트를 참조하며, polymorphic relationship을 통해 이벤트 타입이 자동으로 확인됩니다.
 
 **성공 응답 예시** (201 Created):
 ```json
@@ -3476,22 +3937,36 @@ Accept: application/json
   "message": "Action event created successfully",
   "data": {
     "id": 3001,
-    "type_event": "Intrusion",
+    "type_event": "Action",
     "content": "침입 탐지 확인 및 순찰 출동 요청",
     "user": "operator_kim",
     "from_event": {
-        "id": 1001,
-        "group_event": "GROUP_TEST",
-        "type_event": "Intrusion",
-        "controller": 1,
-        "sensor": 1,
-        "type_device": "PIR",
-        "sequence": 1,
-        "action_reported": "True",  // ← 자동으로 "True"로 업데이트됨
-        "result": "PIR_SENSOR",
-        "created_at": "2025-01-14T11:50:23.736735",
-        "updated_at": "2025-01-14T11:50:25.123456"  // ← updated_at도 자동 갱신
+      "id": 1001,
+      "type_event": "Intrusion",
+      "action_reported": "True",
+      "result": "PIR_SENSOR",
+      "device": {
+        "id": 2,
+        "number_device": 101,
+        "group_device": 999,
+        "name_device": "Test Sensor",
+        "type_device": "Fence",
+        "status": "ACTIVATED",
+        "version": "1.0.0",
+        "ip_address": null,
+        "ip_port": null,
+        "controller_id": 1,
+        "rtsp_uri": null,
+        "rtsp_port": null,
+        "mode": null,
+        "category": null,
+        "is_record": null,
+        "device_groups": []
       },
+      "device_description": "[Fence] Test Sensor (number: 101, id: 2)",
+      "created_at": "2025-01-14T11:50:23.736735",
+      "updated_at": "2025-01-14T11:50:25.123456"
+    },
     "created_at": "2025-01-14T10:43:00.150Z",
     "updated_at": "2025-01-14T10:43:00.150Z"
   },
@@ -3528,14 +4003,23 @@ Accept: application/json
       "user": "operator_kim",
       "from_event": {
         "id": 1002,
-        "group_event": "group_002",
         "type_event": "Intrusion", //(EnumEventType)
-        "controller": 1,
-        "sensor": 2,
-        "type_device": "Fence", //(EnumDeviceType)
-        "sequence": 15,
         "action_reported": "True", //(EnumTrueFalse)
         "result": "THERMAL_SENSOR", //(EnumDetectionType)
+        "device": {
+          "id": 102,
+          "number_device": 2,
+          "group_device": 1,
+          "name_device": "Sensor-A-2",
+          "type_device": "Fence",
+          "version": "v1.5.0",
+          "status": "ACTIVATED",
+          "controller_id": 1,
+          "device_groups": []
+        },
+        "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+        "created_at": "2025-01-10T10:15:00.100Z",
+        "updated_at": "2025-01-10T10:16:00.100Z"
       },
       "created_at": "2025-01-10T10:16:00.100Z",
       "updated_at": "2025-01-10T10:16:00.100Z"
@@ -3547,18 +4031,27 @@ Accept: application/json
       "user": "operator_lee",
       "from_event": {
         "id": 1001,
-        "group_event": "group_fault_002_updated",
         "type_event": "Fault", //(EnumEventType)
-        "controller": 1,
-        "sensor": 4,
-        "type_device": "Multi", //(EnumDeviceType)
-        "sequence": 15,
         "action_reported": "True", //(EnumTrueFalse)
         "reason": "FAULT_ETC", //(EnumFaultType)
         "first_start": 2,
         "first_end": 2,
         "second_start": 5,
         "second_end": 5,
+        "device": {
+          "id": 104,
+          "number_device": 4,
+          "group_device": 1,
+          "name_device": "Sensor-A-4",
+          "type_device": "Multi",
+          "version": "v1.5.0",
+          "status": "ACTIVATED",
+          "controller_id": 1,
+          "device_groups": []
+        },
+        "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+        "created_at": "2025-01-10T10:18:00.150Z",
+        "updated_at": "2025-01-10T10:20:00.150Z"
       },
       "created_at": "2025-01-10T10:20:00.150Z",
       "updated_at": "2025-01-10T10:20:00.150Z"
@@ -3606,14 +4099,23 @@ Accept: application/json
     "user": "operator_kim",
     "from_event": {
       "id": 1002,
-      "group_event": "group_002",
       "type_event": "Intrusion", //(EnumEventType)
-      "controller": 1,
-      "sensor": 2,
-      "type_device": "Fence", //(EnumDeviceType)
-      "sequence": 15,
       "action_reported": "True", //(EnumTrueFalse)
       "result": "THERMAL_SENSOR", //(EnumDetectionType)
+      "device": {
+        "id": 102,
+        "number_device": 2,
+        "group_device": 1,
+        "name_device": "Sensor-A-2",
+        "type_device": "Fence",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": []
+      },
+      "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+      "created_at": "2025-01-10T10:15:00.100Z",
+      "updated_at": "2025-01-10T10:16:00.100Z"
     },
     "created_at": "2025-01-10T10:16:00.100Z",
     "updated_at": "2025-01-10T10:16:00.100Z"
@@ -3667,14 +4169,23 @@ Accept: application/json
     "user": "operator_kim",
     "from_event": {
       "id": 1002,
-      "group_event": "group_002",
       "type_event": "Intrusion", //(EnumEventType)
-      "controller": 1,
-      "sensor": 2,
-      "type_device": "Fence", //(EnumDeviceType)
-      "sequence": 15,
       "action_reported": "True", //(EnumTrueFalse)
       "result": "THERMAL_SENSOR", //(EnumDetectionType)
+      "device": {
+        "id": 102,
+        "number_device": 2,
+        "group_device": 1,
+        "name_device": "Sensor-A-2",
+        "type_device": "Fence",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": []
+      },
+      "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+      "created_at": "2025-01-10T10:15:00.100Z",
+      "updated_at": "2025-01-10T10:16:00.100Z"
     },
     "created_at": "2025-01-10T10:16:00.100Z",
     "updated_at": "2025-01-10T11:08:00.150Z"
@@ -3696,7 +4207,7 @@ Accept: application/json
 ```json
 {
   "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청",
-  "user": "operator_park",
+  "user": "operator_park"
 }
 ```
 
@@ -3712,14 +4223,23 @@ Accept: application/json
     "user": "operator_park",
     "from_event": {
       "id": 1002,
-      "group_event": "group_002",
       "type_event": "Intrusion", //(EnumEventType)
-      "controller": 1,
-      "sensor": 2,
-      "type_device": "Fence", //(EnumDeviceType)
-      "sequence": 15,
       "action_reported": "True", //(EnumTrueFalse)
       "result": "THERMAL_SENSOR", //(EnumDetectionType)
+      "device": {
+        "id": 102,
+        "number_device": 2,
+        "group_device": 1,
+        "name_device": "Sensor-A-2",
+        "type_device": "Fence",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
+        "controller_id": 1,
+        "device_groups": []
+      },
+      "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+      "created_at": "2025-01-10T10:15:00.100Z",
+      "updated_at": "2025-01-10T10:16:00.100Z"
     },
     "created_at": "2025-01-10T10:16:00.100Z",
     "updated_at": "2025-01-10T11:09:00.200Z"
@@ -3848,13 +4368,17 @@ Integration API는 GOP 시스템과 외부 시스템 간의 연동을 위한 설
 
 ### 7.2 EventMapping API
 
+> **v2.3 변경사항 (PRD v2.1)**: `group_event` (VARCHAR) → `device_group_id` (FK) 변경
+> - EventMapping이 DeviceGroup과 FK 관계로 연결됨
+> - Device → DeviceGroup → EventMapping → CameraPreset 흐름으로 이벤트-카메라 연동 가능
+
 #### 7.2.1 EventMapping 목록 조회
 
 **Endpoint**: `GET /api/integrations/event-mappings`
 
 **Query Parameters**:
 - `name_event` (string, optional): 이벤트 이름 필터
-- `group_event` (string, optional): 이벤트 그룹 필터
+- `device_group_id` (int, optional): DeviceGroup ID 필터 **(v2.3 변경: group_event → device_group_id)**
 - `category_event` (string, optional): 이벤트 카테고리 필터
 - `status` (boolean, optional): 활성화 상태 필터
 - `page` (int, optional, default=1): 페이지 번호
@@ -3862,7 +4386,7 @@ Integration API는 GOP 시스템과 외부 시스템 간의 연동을 위한 설
 
 **Request Example**:
 ```http
-GET /api/integrations/event-mappings?group_event=intrusion&status=true&page=1&limit=20 HTTP/1.1
+GET /api/integrations/event-mappings?device_group_id=1&status=true&page=1&limit=20 HTTP/1.1
 Host: control-service.company.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Accept: application/json
@@ -3877,22 +4401,22 @@ Accept: application/json
     {
       "id": 1,
       "name_event": "침입 탐지",
-      "group_event": "intrusion",
+      "device_group_id": 1,
       "category_event": "detection",
       "description": "센서 침입 탐지 이벤트 매핑",
       "status": true,
-      "created_at": "2025-01-10T09:00:00.000Z",
-      "updated_at": "2025-01-10T09:00:00.000Z"
+      "created_at": "2026-01-06T09:00:00.000Z",
+      "updated_at": "2026-01-06T09:00:00.000Z"
     },
     {
       "id": 2,
       "name_event": "장애 발생",
-      "group_event": "malfunction",
-      "category_event": "fault",
+      "device_group_id": 2,
+      "category_event": "malfunction",
       "description": "센서 장애 발생 이벤트 매핑",
       "status": true,
-      "created_at": "2025-01-10T09:10:00.000Z",
-      "updated_at": "2025-01-10T09:10:00.000Z"
+      "created_at": "2026-01-06T09:10:00.000Z",
+      "updated_at": "2026-01-06T09:10:00.000Z"
     }
   ],
   "pagination": {
@@ -3902,7 +4426,7 @@ Accept: application/json
     "total_pages": 1
   },
   "meta": {
-    "timestamp": "2025-01-10T11:00:00.250Z",
+    "timestamp": "2026-01-06T11:00:00.250Z",
     "request_id": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
@@ -3933,15 +4457,15 @@ Accept: application/json
   "data": {
     "id": 1,
     "name_event": "침입 탐지",
-    "group_event": "intrusion",
+    "device_group_id": 1,
     "category_event": "detection",
     "description": "센서 침입 탐지 이벤트 매핑",
     "status": true,
-    "created_at": "2025-01-10T09:00:00.000Z",
-    "updated_at": "2025-01-10T09:00:00.000Z"
+    "created_at": "2026-01-06T09:00:00.000Z",
+    "updated_at": "2026-01-06T09:00:00.000Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:01:00.050Z",
+    "timestamp": "2026-01-06T11:01:00.050Z",
     "request_id": "550e8401-e29b-41d4-a716-446655440000"
   }
 }
@@ -3973,12 +4497,14 @@ Accept: application/json
 ```json
 {
   "name_event": "연결 상태 변경",
-  "group_event": "connection",
-  "category_event": "status",
+  "device_group_id": 3,
+  "category_event": "connection",
   "description": "센서 연결 상태 변경 이벤트 매핑",
   "status": true
 }
 ```
+
+> **v2.3 변경**: `group_event` (VARCHAR) → `device_group_id` (INT, FK) 변경. DeviceGroup.id를 참조합니다.
 
 **Response Example** (201 Created):
 ```json
@@ -3988,15 +4514,15 @@ Accept: application/json
   "data": {
     "id": 3,
     "name_event": "연결 상태 변경",
-    "group_event": "connection",
-    "category_event": "status",
+    "device_group_id": 3,
+    "category_event": "connection",
     "description": "센서 연결 상태 변경 이벤트 매핑",
     "status": true,
-    "created_at": "2025-01-10T11:15:00.000Z",
-    "updated_at": "2025-01-10T11:15:00.000Z"
+    "created_at": "2026-01-06T11:15:00.000Z",
+    "updated_at": "2026-01-06T11:15:00.000Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:15:00.100Z",
+    "timestamp": "2026-01-06T11:15:00.100Z",
     "request_id": "550e8402-e29b-41d4-a716-446655440000"
   }
 }
@@ -4030,6 +4556,7 @@ Accept: application/json
 **Request Body** (부분 수정 가능):
 ```json
 {
+  "device_group_id": 2,
   "description": "센서 침입 탐지 이벤트 - 수정된 설명",
   "status": false
 }
@@ -4043,15 +4570,15 @@ Accept: application/json
   "data": {
     "id": 1,
     "name_event": "침입 탐지",
-    "group_event": "intrusion",
+    "device_group_id": 2,
     "category_event": "detection",
     "description": "센서 침입 탐지 이벤트 - 수정된 설명",
     "status": false,
-    "created_at": "2025-01-10T09:00:00.000Z",
-    "updated_at": "2025-01-10T11:20:00.000Z"
+    "created_at": "2026-01-06T09:00:00.000Z",
+    "updated_at": "2026-01-06T11:20:00.000Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:20:00.150Z",
+    "timestamp": "2026-01-06T11:20:00.150Z",
     "request_id": "550e8403-e29b-41d4-a716-446655440000"
   }
 }
@@ -4070,7 +4597,7 @@ Accept: application/json
 ```json
 {
   "name_event": "침입 탐지 업데이트",
-  "group_event": "intrusion",
+  "device_group_id": 1,
   "category_event": "detection",
   "description": "전체 업데이트된 설명",
   "status": true
@@ -4085,15 +4612,15 @@ Accept: application/json
   "data": {
     "id": 1,
     "name_event": "침입 탐지 업데이트",
-    "group_event": "intrusion",
+    "device_group_id": 1,
     "category_event": "detection",
     "description": "전체 업데이트된 설명",
     "status": true,
-    "created_at": "2025-01-10T09:00:00.000Z",
-    "updated_at": "2025-01-10T11:25:00.000Z"
+    "created_at": "2026-01-06T09:00:00.000Z",
+    "updated_at": "2026-01-06T11:25:00.000Z"
   },
   "meta": {
-    "timestamp": "2025-01-10T11:25:00.200Z",
+    "timestamp": "2026-01-06T11:25:00.200Z",
     "request_id": "550e8404-e29b-41d4-a716-446655440000"
   }
 }
@@ -4817,74 +5344,78 @@ GET /api/servers/summary
 - `DELETE /api/servers/{id}` - 서버 삭제
 - `GET /api/servers/summary` - 대시보드 요약 조회
 
-### 10.2 Event-Device 리팩토링 변경사항 (v2.2)
+### 10.2 Event-Device 리팩토링 변경사항 (v2.3)
 
-> **PRD 문서**: `docs/PRD_Event_Device_Refactoring.md` v1.1
+> **PRD 문서**: `docs/PRD_Event_ActionEvent_Refactoring.md` v2.1, `docs/PRD_Event_Api_Refactoring.md` v1.3
 
 #### 10.2.1 API Request 변경
 
-| Event Type | Before (v2.1 이전) | After (v2.2) |
-|------------|-------------------|--------------|
-| Detection | `controller`, `sensor`, `type_device` | `device_id` |
-| Malfunction | `controller`, `sensor`, `type_device` | `device_id` |
-| Connection | `controller`, `sensor`, `type_device` | `device_id` |
+| Event Type | Before (v2.1 이전) | After (v2.2) | After (v2.3) |
+|------------|-------------------|--------------|--------------|
+| Detection | `controller`, `sensor`, `type_device`, `group_event` | `device_id`, `group_event` | `device_id` (group_event **제거**) |
+| Malfunction | `controller`, `sensor`, `type_device`, `group_event` | `device_id`, `group_event` | `device_id` (group_event **제거**) |
+| Connection | `controller`, `sensor`, `type_device`, `group_event` | `device_id`, `group_event` | `device_id` (group_event **제거**) |
 
-**v2.2 Request 예시**:
+> **v2.3 변경**: Event Request에서 `group_event` 필드 제거됨. DeviceGroup은 Device를 통해 조회.
+
+**v2.3 Request 예시**:
 ```json
 {
-  "group_event": "GROUP_001",
   "type_event": "Intrusion",
   "device_id": 101,
-  "sequence": 10,
   "result": "PIR_SENSOR"
 }
 ```
 
 #### 10.2.2 API Response 변경
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `device` | `DeviceNestedResponse` (nullable) | Device nested 객체. Device 삭제 시 `null` |
-| `device_description` | `string` | Device 정보 스냅샷. Device 삭제 후에도 유지 |
+| 필드 | v2.2 | v2.3 | 설명 |
+|------|------|------|------|
+| `device` | ✅ | ✅ | Device nested 객체. Device 삭제 시 `null` |
+| `device_description` | ✅ | ✅ | Device 정보 스냅샷. Device 삭제 후에도 유지 |
+| `device_id` | ✅ | ❌ **제거** | `device.id`에 포함되어 중복 |
+| `sequence` | ✅ | ❌ **제거** | Request 전용 필드, Response에 불필요 |
+| `group_event` | ✅ | ❌ **제거** | DeviceGroup은 `device.device_groups[]`로 조회 |
 
-**v2.2 Response 예시 (Device 존재)**:
+> **v2.3 변경 (PRD v1.3)**: Response에서 `device_id`, `sequence`, `group_event` 필드 제거됨.
+
+**v2.3 Response 예시 (Device 존재)**:
 ```json
 {
   "id": 1001,
-  "group_event": "GROUP_001",
   "type_event": "Intrusion",
-  "sequence": 10,
   "action_reported": "False",
   "result": "PIR_SENSOR",
   "device": {
     "id": 101,
     "number_device": 1,
-    "group_device": 1,
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Sensor-A-1",
     "type_device": "Multi",
     "version": "v1.5.0",
     "status": "ACTIVATED",
-    "controller_id": 1
+    "controller_id": 1,
+    "device_groups": [
+      {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
+    ]
   },
   "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-  "created_at": "2025-01-10T10:15:23.100Z",
-  "updated_at": "2025-01-10T10:15:23.100Z"
+  "created_at": "2026-01-06T10:15:23.100Z",
+  "updated_at": "2026-01-06T10:15:23.100Z"
 }
 ```
 
-**v2.2 Response 예시 (Device 삭제됨)**:
+**v2.3 Response 예시 (Device 삭제됨)**:
 ```json
 {
   "id": 1001,
-  "group_event": "GROUP_001",
   "type_event": "Intrusion",
-  "sequence": 10,
   "action_reported": "False",
   "result": "PIR_SENSOR",
   "device": null,
   "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-  "created_at": "2025-01-10T10:15:23.100Z",
-  "updated_at": "2025-01-10T10:15:23.100Z"
+  "created_at": "2026-01-06T10:15:23.100Z",
+  "updated_at": "2026-01-06T10:15:23.100Z"
 }
 ```
 
@@ -4909,6 +5440,19 @@ GET /api/servers/summary
 | `mode` | `string` (nullable) | Camera | 카메라 모드 (EnumCameraMode) |
 | `category` | `string` (nullable) | Camera | 카메라 카테고리 (EnumCameraType) |
 | `is_record` | `boolean` (nullable) | Camera | 녹화 여부 |
+| `device_groups` | `array` | 공통 | **v2.3 신규**: 소속 DeviceGroup 목록 (EventMapping 연동 필수) |
+
+> **v2.3 추가 (PRD v1.2)**: `device_groups` 필드 추가. EventMapping.device_group_id와 매칭하여 카메라 프리셋 실행에 사용.
+
+**device_groups 필드 예시**:
+```json
+{
+  "device_groups": [
+    {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5},
+    {"id": 3, "name": "북측 경계그룹", "description": "북측 경계 장비 그룹", "device_count": 8}
+  ]
+}
+```
 
 #### 10.2.4 Event 영속성 보장
 
@@ -4944,10 +5488,63 @@ python scripts/migrate_event_device_id.py
 
 ---
 
+### 10.3 EventMapping 리팩토링 변경사항 (v2.3)
+
+> **PRD 문서**: `docs/PRD_Event_ActionEvent_Refactoring.md` v2.1
+
+#### 10.3.1 EventMapping 테이블 변경
+
+| 필드 | Before (v2.2 이전) | After (v2.3) | 설명 |
+|------|-------------------|--------------|------|
+| `group_event` | VARCHAR(100) | **제거됨** | 자유 문자열, DeviceGroup과 무관 |
+| `device_group_id` | - | INTEGER FK **신규** | DeviceGroup.id 참조 (SET NULL on delete) |
+
+#### 10.3.2 API 변경 요약
+
+| API | Before | After |
+|-----|--------|-------|
+| GET (목록) | `?group_event=xxx` 필터 | `?device_group_id=1` 필터 |
+| GET (단건) | `group_event` 필드 반환 | `device_group_id` 필드 반환 |
+| POST | `group_event` 문자열 입력 | `device_group_id` 정수 입력 |
+| PATCH | `group_event` 수정 가능 | `device_group_id` 수정 가능 |
+| PUT | `group_event` 필수 | `device_group_id` 필수 |
+
+#### 10.3.3 이벤트-카메라 연동 흐름
+
+```
+이벤트 발생 시 카메라 프리셋 연동 흐름 (v2.3):
+
+1. DetectionEvent 발생 (device_id = 101)
+2. Event Response에서 device.device_groups[] 확인
+3. device_groups[].id → EventMapping.device_group_id 매칭
+4. EventMapping에서 category_event + device_group_id로 조회
+5. 매핑된 CameraEventMapping → CameraEventPreset 실행
+
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Event Response │     │  EventMapping   │     │ CameraPreset    │
+│  ─────────────  │     │  ─────────────  │     │ ─────────────   │
+│  device: {      │────►│ device_group_id │────►│ 프리셋 실행      │
+│    device_groups│     │ category_event  │     │                 │
+│    [{id: 1}]   │     │                 │     │                 │
+│  }              │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+#### 10.3.4 EventMapping FK 정책
+
+| 관계 | 동작 | 정책 | 결과 |
+|------|------|------|------|
+| DeviceGroup → EventMapping | DeviceGroup 삭제 | `ON DELETE SET NULL` | EventMapping.device_group_id → NULL |
+
+> **참고**: DeviceGroup이 삭제되어도 EventMapping 자체는 유지됨 (device_group_id만 NULL)
+
+---
+
 ## 변경 이력
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v2.3 | 2026-01-06 | **API 전면 리팩토링 및 Nested Response 규칙 적용**<br><br>**[1. Event API 변경]**<br>- **Request 필드 통합**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합<br>- **Response 필드 제거**: `device_id` (중복), `sequence` (완전 제거), `group_event` (`device.device_groups[]`로 대체)<br>- **Response 필드 추가**: `device` (Polymorphic), `device_description` (스냅샷)<br>- **`action_reported` 자동 관리**: Create 시 항상 "False", ActionEvent 생성/삭제 시 시스템 자동 업데이트<br>- **DB 변경**: `events.sequence` 컬럼 `NOT NULL` → `NULL` 허용 (레거시 호환)<br><br>**[2. Device Polymorphic Response]**<br>- Event Response `device` 필드가 타입별 다른 스키마 반환:<br>  • Sensor → SensorNestedResponse (controller_id 포함)<br>  • Controller → ControllerNestedResponse (ip_address, ip_port 포함)<br>  • Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)<br><br>**[3. ActionEvent API 변경]**<br>- **Request 필드 제거**: `from_type_event` 제거 - `from_event_id`만으로 원본 이벤트 참조<br>- **Request 필드명 변경**: `from_event` → `from_event_id`<br>- **Polymorphic Relationship**: `from_event_id`가 `events.id` FK를 참조하여 이벤트 타입 자동 확인<br><br>**[4. Nested Response 규칙 일관성 적용]**<br>- **규칙**: 주체 Entity만 `created_at`, `updated_at` 포함, Nested 객체는 제외<br>- **Device API**: `device_groups`, `sensors` nested 객체에서 timestamp 제거<br>- **Sensor API**: `controller` nested 객체에서 timestamp 제거, `include_controller` 파라미터 추가<br>- **Camera Preset API**: `rois`, `points` nested 객체에서 timestamp 제거<br>- **신규 스키마**: `ControllerNestedResponse`, `ROINestedResponse`, `ROIListNestedResponse`, `XyPointNestedResponse`<br><br>**[5. Device `number_device` unique 제약 해제]**<br>- **변경**: 동일한 장치 번호를 여러 디바이스에서 사용 가능<br>- **스키마**: `number_device` 설명에서 "(유니크)" 제거, 409 중복 에러 제거<br>- **확인**: DB 스키마와 모델 모두 이미 `unique=False` 상태<br><br>**[6. EventMapping API 변경]**<br>- `group_event` (VARCHAR) → `device_group_id` (INTEGER FK) 변경<br>- 쿼리 파라미터: `?group_event=xxx` → `?device_group_id=1`<br><br>**[7. 문서 업데이트]**<br>- 10.3 EventMapping 리팩토링 변경사항 추가<br>- Camera PATCH/PUT API: `is_record`, `hardware_spec`, `geolocation`, `group_ids` 필드 추가<br>- PRD 참조: v1.3, v1.5, v2.2, v2.7, v2.8, v2.9 |
 | v2.2 | 2025-12-31 | **Event-Device 관계 리팩토링 (PRD v1.1)**<br>- **[변경] Event API Request**: `controller`, `sensor`, `type_device` 3개 필드 → `device_id` 단일 FK로 통합<br>- **[변경] Event API Response**: `device` nested 객체 추가 (Optional, Device 삭제 시 null)<br>- **[신규] `device_description` 필드**: Device 정보 스냅샷 자동 생성 (형식: `[{type_device}] {name_device} (number: {number_device}, id: {id})`)<br>- **[중요] Event 영속성 보장**: Device 삭제 시 Event.device_id → NULL (CASCADE 금지, SET NULL 사용)<br>- **[중요] device_description 유지**: Device 삭제 후에도 device_description은 보존되어 과거 Device 정보 참조 가능<br>- Detection/Malfunction/Connection Event 모두 동일한 패턴 적용<br>- Action Event의 `from_event` 내에도 `device`, `device_description` 포함<br>- 마이그레이션 스크립트 추가: `scripts/migrate_event_device_id.py`<br>- PRD 문서: `docs/PRD_Event_Device_Refactoring.md` v1.1 참조 |
 | v2.1 | 2025-12-31 | **Camera Preset, ROI, XyPoint API 추가**<br>- **[신규] 5.5 Camera Preset API**: PTZ 카메라 프리셋 CRUD API 추가<br>- **[신규] 5.6 ROI API**: Region of Interest CRUD API 추가 (`include_points` 파라미터 지원)<br>- **[신규] 5.7 XyPoint API**: ROI 다각형 꼭지점 좌표 CRUD API 추가<br>- 계층 구조: Camera → CameraPreset → ROI → XyPoint (1:N:N:N)<br>- CameraPreset 목록 조회 시 `include_rois` 파라미터로 ROI 정보 포함 가능<br>- ROI 목록 조회 시 `include_points` 파라미터로 Points 정보 포함 가능<br>- CameraPreset 상세 조회 시 ROI 및 Points 전체 중첩 구조 반환<br>- XyPoint 일괄 수정(PUT) 시 기존 포인트 전체 교체 방식<br>- CASCADE DELETE 지원: Camera 삭제 시 Preset → ROI → XyPoint 순차 삭제<br>- 부록 10.1 Endpoint 목록에 Camera Presets, ROIs, XyPoints 섹션 추가 |
 | v2.0 | 2025-12-31 | **Device Group N:N 관계 및 폴리모픽 응답 지원**<br>- **[신규] EnumDeviceCategory**: 디바이스 카테고리 Enum 추가 (controller, sensor, camera) - Polymorphic Discriminator<br>- **[신규] 5.4 DeviceGroup API**: 디바이스 그룹 CRUD 및 디바이스 할당/제거 API 추가<br>- DeviceGroup 상세 조회 시 폴리모픽 디바이스 목록 반환 (Controller/Sensor/Camera 타입별 다른 필드)<br>- **Controller API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Sensor API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Camera API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가, `is_record`, `hardware_spec`, `geolocation` 필드 추가<br>- Camera `hardware_spec`: 제조사, 모델명, 펌웨어, MAC주소, ONVIF버전 등 JSON 객체<br>- Camera `geolocation`: 위도, 경도, 고도, 설치위치 등 JSON 객체<br>- `version` 필드 nullable 변경 (PRD v1.2 반영) |
@@ -4963,5 +5560,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v2.2
-**최종 업데이트**: 2025-12-31
+**문서 버전**: v2.3
+**최종 업데이트**: 2026-01-06

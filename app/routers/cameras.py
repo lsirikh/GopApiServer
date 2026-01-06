@@ -11,15 +11,15 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation
+from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
 router = APIRouter(tags=["Cameras"])
 
 
-def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA) -> List[DeviceGroupResponse]:
-    """Get device groups for a camera"""
+def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for a camera (v2.4: timestamp 제외)"""
     mappings = db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == device_id,
         DeviceGroupMapping.category_device == category_device
@@ -29,12 +29,14 @@ def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceC
     for mapping in mappings:
         group = db.query(DeviceGroup).filter(DeviceGroup.id == mapping.group_id).first()
         if group:
-            groups.append(DeviceGroupResponse(
+            device_count = db.query(DeviceGroupMapping).filter(
+                DeviceGroupMapping.group_id == group.id
+            ).count()
+            groups.append(DeviceGroupNestedResponse(
                 id=group.id,
                 name=group.name,
                 description=group.description,
-                created_at=group.created_at,
-                updated_at=group.updated_at
+                device_count=device_count
             ))
     return groups
 
@@ -72,8 +74,8 @@ def _camera_to_response(camera: Camera, db: Session) -> CameraResponse:
     if camera.geolocation:
         geo = Geolocation(**camera.geolocation)
 
-    # Get device groups for this camera
-    device_groups = _get_device_groups(db, camera.id, "camera")
+    # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
+    device_groups = _get_device_groups_nested(db, camera.id, EnumDeviceCategory.CAMERA)
 
     return CameraResponse(
         id=camera.id,
@@ -226,7 +228,7 @@ async def create_camera(
     새로운 카메라를 생성합니다.
 
     **Request Body**:
-    - **number_device**: 장치 번호 (필수, 고유값)
+    - **number_device**: 장치 번호 (필수)
     - **group_device**: 장치 그룹 (필수)
     - **name_device**: 장치 이름 (필수)
     - **type_device**: 장치 유형 (필수)
@@ -244,20 +246,8 @@ async def create_camera(
     **Response**: 생성된 카메라 정보
 
     **Error**:
-    - 409: 동일한 number_device를 가진 카메라가 이미 존재함
     - 422: 유효하지 않은 enum 값
     """
-    # Check for duplicate number_device
-    existing = db.query(Camera).filter(
-        Camera.number_device == camera_data.number_device
-    ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Camera with number_device {camera_data.number_device} already exists"
-        )
-
     # Convert string enum values to enum types
     try:
         device_type = EnumDeviceType(camera_data.type_device)
@@ -346,7 +336,6 @@ async def update_camera(
 
     **Error**:
     - 404: 카메라를 찾을 수 없음
-    - 409: 동일한 number_device를 가진 다른 카메라가 존재함
     - 422: 유효하지 않은 enum 값
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
@@ -356,19 +345,6 @@ async def update_camera(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Camera with id {camera_id} not found"
         )
-
-    # Check for number_device conflict
-    if camera_data.number_device is not None:
-        existing = db.query(Camera).filter(
-            Camera.number_device == camera_data.number_device,
-            Camera.id != camera_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Camera with number_device {camera_data.number_device} already exists"
-            )
 
     # Update fields if provided
     update_data = camera_data.model_dump(exclude_unset=True)
@@ -465,7 +441,6 @@ async def replace_camera(
 
     **Error**:
     - 404: 카메라를 찾을 수 없음
-    - 409: 동일한 number_device를 가진 다른 카메라가 존재함
     - 422: 유효하지 않은 enum 값
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
@@ -475,19 +450,6 @@ async def replace_camera(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Camera with id {camera_id} not found"
         )
-
-    # Check for number_device conflict
-    if camera_data.number_device != camera.number_device:
-        existing = db.query(Camera).filter(
-            Camera.number_device == camera_data.number_device,
-            Camera.id != camera_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Camera with number_device {camera_data.number_device} already exists"
-            )
 
     # Convert string enum values to enum types
     try:

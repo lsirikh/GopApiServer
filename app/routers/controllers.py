@@ -11,7 +11,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Controller, Sensor, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorResponse
+from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorNestedResponse, DeviceGroupNestedResponse
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
@@ -19,7 +19,7 @@ router = APIRouter(tags=["Controllers"])
 
 
 def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER) -> List[DeviceGroupResponse]:
-    """Get device groups for a controller"""
+    """Get device groups for a controller (주체용 - timestamp 포함)"""
     mappings = db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == device_id,
         DeviceGroupMapping.category_device == category_device
@@ -41,6 +41,32 @@ def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceC
             ).count(),
             created_at=g.created_at,
             updated_at=g.updated_at
+        )
+        for g in groups
+    ]
+
+
+def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for nested response (v2.4: timestamp 제외)"""
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).all()
+
+    if not mappings:
+        return []
+
+    group_ids = [m.group_id for m in mappings]
+    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+
+    return [
+        DeviceGroupNestedResponse(
+            id=g.id,
+            name=g.name,
+            description=g.description,
+            device_count=db.query(DeviceGroupMapping).filter(
+                DeviceGroupMapping.group_id == g.id
+            ).count()
         )
         for g in groups
     ]
@@ -74,7 +100,8 @@ def _update_device_group_mappings(
 
 def _controller_to_response(controller: Controller, db: Session, include_sensors: bool = False) -> ControllerResponse:
     """Convert Controller model to ControllerResponse schema with device_groups"""
-    device_groups = _get_device_groups(db, controller.id, "controller")
+    # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
+    device_groups = _get_device_groups_nested(db, controller.id, EnumDeviceCategory.CONTROLLER)
 
     response = ControllerResponse(
         id=controller.id,
@@ -93,8 +120,9 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
 
     if include_sensors:
         sensors = db.query(Sensor).filter(Sensor.controller_id == controller.id).all()
+        # v2.4: SensorNestedResponse 사용 (timestamp 제외, device_groups 포함)
         sensor_responses = [
-            SensorResponse(
+            SensorNestedResponse(
                 id=s.id,
                 number_device=s.number_device,
                 group_device=s.group_device,
@@ -103,8 +131,7 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
                 version=s.version,
                 status=s.status.value,
                 controller_id=s.controller_id,
-                created_at=s.created_at,
-                updated_at=s.updated_at
+                device_groups=_get_device_groups_nested(db, s.id, EnumDeviceCategory.SENSOR)
             )
             for s in sensors
         ]
@@ -233,10 +260,9 @@ async def create_controller(
     제어기 생성
 
     새로운 제어기를 생성합니다.
-    number_device는 유니크하므로 중복될 수 없습니다.
 
     **Request Body**:
-    - **number_device**: 장치 번호 (필수, 유니크)
+    - **number_device**: 장치 번호 (필수)
     - **group_device**: 장치 그룹 (필수)
     - **name_device**: 장치 이름 (필수)
     - **type_device**: 장치 타입 EnumDeviceType (필수)
@@ -248,20 +274,8 @@ async def create_controller(
     **Response**: 생성된 제어기 정보
 
     **Error**:
-    - 409: 동일한 number_device가 이미 존재함
     - 422: 잘못된 Enum 값
     """
-    # Check for duplicate number_device
-    existing = db.query(Controller).filter(
-        Controller.number_device == controller_data.number_device
-    ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Controller with number_device {controller_data.number_device} already exists"
-        )
-
     # Convert string enum values to enum types
     try:
         device_type = EnumDeviceType(controller_data.type_device)
@@ -306,6 +320,7 @@ async def create_controller(
 async def update_controller(
     controller_id: int,
     controller_data: ControllerUpdate,
+    include_sensors: bool = Query(default=False, description="센서 목록 포함 여부"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -316,9 +331,10 @@ async def update_controller(
     제공된 필드만 업데이트되며, 나머지는 유지됩니다.
 
     - **controller_id**: 제어기 ID (Path Parameter)
+    - **include_sensors**: 센서 목록 포함 여부
 
     **Request Body** (모든 필드 선택):
-    - **number_device**: 장치 번호 (유니크)
+    - **number_device**: 장치 번호
     - **group_device**: 장치 그룹
     - **name_device**: 장치 이름
     - **type_device**: 장치 타입 EnumDeviceType
@@ -331,7 +347,6 @@ async def update_controller(
 
     **Error**:
     - 404: 제어기를 찾을 수 없음
-    - 409: 변경하려는 number_device가 이미 존재함
     - 422: 잘못된 Enum 값
     """
     controller = db.query(Controller).filter(Controller.id == controller_id).first()
@@ -341,19 +356,6 @@ async def update_controller(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Controller with id {controller_id} not found"
         )
-
-    # Check for number_device conflict
-    if controller_data.number_device is not None:
-        existing = db.query(Controller).filter(
-            Controller.number_device == controller_data.number_device,
-            Controller.id != controller_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Controller with number_device {controller_data.number_device} already exists"
-            )
 
     # Update fields if provided
     update_data = controller_data.model_dump(exclude_unset=True)
@@ -388,7 +390,7 @@ async def update_controller(
     db.commit()
     db.refresh(controller)
 
-    controller_response = _controller_to_response(controller, db)
+    controller_response = _controller_to_response(controller, db, include_sensors)
 
     return ApiResponse(
         success=True,
@@ -401,6 +403,7 @@ async def update_controller(
 async def replace_controller(
     controller_id: int,
     controller_data: ControllerCreate,
+    include_sensors: bool = Query(default=False, description="센서 목록 포함 여부"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -411,9 +414,10 @@ async def replace_controller(
     모든 필드가 필수입니다.
 
     - **controller_id**: 제어기 ID (Path Parameter)
+    - **include_sensors**: 센서 목록 포함 여부
 
     **Request Body** (모든 필드 필수):
-    - **number_device**: 장치 번호 (유니크)
+    - **number_device**: 장치 번호
     - **group_device**: 장치 그룹
     - **name_device**: 장치 이름
     - **type_device**: 장치 타입 EnumDeviceType
@@ -426,7 +430,6 @@ async def replace_controller(
 
     **Error**:
     - 404: 제어기를 찾을 수 없음
-    - 409: 변경하려는 number_device가 이미 존재함
     - 422: 잘못된 Enum 값
     """
     controller = db.query(Controller).filter(Controller.id == controller_id).first()
@@ -436,19 +439,6 @@ async def replace_controller(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Controller with id {controller_id} not found"
         )
-
-    # Check for number_device conflict
-    if controller_data.number_device != controller.number_device:
-        existing = db.query(Controller).filter(
-            Controller.number_device == controller_data.number_device,
-            Controller.id != controller_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Controller with number_device {controller_data.number_device} already exists"
-            )
 
     # Convert string enum values to enum types
     try:
@@ -477,7 +467,7 @@ async def replace_controller(
     db.commit()
     db.refresh(controller)
 
-    controller_response = _controller_to_response(controller, db)
+    controller_response = _controller_to_response(controller, db, include_sensors)
 
     return ApiResponse(
         success=True,

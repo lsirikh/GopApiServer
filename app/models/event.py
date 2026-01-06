@@ -66,7 +66,9 @@ class Event(Base):
         doc="장비 정보 스냅샷 (자동 동기화)"
     )
 
-    sequence = Column(Integer, nullable=False, doc="시퀀스 번호")
+    # PRD v2.7: sequence 필드 제거됨 (Request/Response 모두에서 사용하지 않음)
+    # DB 호환성을 위해 nullable로 유지 (레거시 데이터 보존)
+    sequence = Column(Integer, nullable=True, doc="시퀀스 번호 (Deprecated - PRD v2.7)")
 
     # ===== Timestamps =====
     created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)

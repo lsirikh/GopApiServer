@@ -57,14 +57,17 @@ class DeviceGroupNestedResponse(BaseModel):
     """
     DeviceGroup 경량화 nested response 스키마
 
-    Event 응답의 device.device_groups[]에서 사용됩니다.
+    Event/Device 응답에서 device.device_groups[]로 사용됩니다.
     EventMapping.device_group_id와 매칭하여 카메라 프리셋 실행에 사용됩니다.
 
-    포함 필드: id, name (필수)
-    제외 필드: description, device_count, created_at, updated_at
+    v2.4: Nested Response 규칙 적용
+    포함 필드: id, name, description, device_count (4개 필드)
+    제외 필드: created_at, updated_at (Nested 객체이므로)
     """
     id: int = Field(..., description="DeviceGroup ID (EventMapping FK)")
     name: str = Field(..., description="그룹 이름")
+    description: Optional[str] = Field(None, description="그룹 설명")
+    device_count: int = Field(default=0, description="소속 디바이스 수")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -137,7 +140,7 @@ class ControllerCreate(BaseModel):
 
     컨트롤러는 센서를 관리하는 상위 장치입니다.
     """
-    number_device: int = Field(..., description="장치 번호 (유니크)")
+    number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
     name_device: str = Field(..., max_length=200, description="장치 이름")
     type_device: str = Field(..., description="장치 타입 (Controller)")
@@ -166,9 +169,40 @@ class ControllerResponse(BaseModel):
     ip_port: int = Field(..., description="포트 번호")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
-    sensors: Optional[list['SensorResponse']] = Field(None, description="소속 센서 목록 (include_sensors=true 시)")
-    # Phase 5: device_groups 배열 지원 (N:N 관계)
-    device_groups: List['DeviceGroupResponse'] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
+    # v2.4: SensorNestedResponse 사용 (timestamp 제외, device_groups 포함)
+    sensors: Optional[List['SensorNestedResponse']] = Field(None, description="소속 센서 목록 (include_sensors=true 시)")
+    # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# ControllerNestedResponse: Sensor 조회 시 controller nested 반환용 스키마
+# v2.5: Nested Response 규칙 적용
+# ============================================================================
+
+class ControllerNestedResponse(BaseModel):
+    """
+    컨트롤러 Nested response 스키마
+
+    Sensor 조회 시 include_controller=true로 반환되는 컨트롤러 정보입니다.
+
+    v2.5: Nested Response 규칙 적용
+    - created_at, updated_at 제외 (Nested 객체이므로)
+    - device_groups 포함 (DeviceGroupNestedResponse 사용)
+    """
+    id: int = Field(..., description="컨트롤러 ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="장치 타입")
+    version: Optional[str] = Field(None, description="버전")
+    status: str = Field(..., description="상태")
+    ip_address: str = Field(..., description="IP 주소")
+    ip_port: int = Field(..., description="포트 번호")
+    # v2.5: Nested Response 규칙 - device_groups 포함 (SensorNestedResponse와 일관성)
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -197,7 +231,7 @@ class SensorCreate(BaseModel):
 
     센서는 컨트롤러에 종속된 감지 장치입니다.
     """
-    number_device: int = Field(..., description="장치 번호 (유니크)")
+    number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
     name_device: str = Field(..., max_length=200, description="장치 이름")
     type_device: str = Field(..., description="센서 타입 (Fence|Pir|Fod 등)")
@@ -224,9 +258,39 @@ class SensorResponse(BaseModel):
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
-    controller: Optional['ControllerResponse'] = Field(None, description="소속 컨트롤러 정보")
-    # Phase 5: device_groups 배열 지원 (N:N 관계)
-    device_groups: List['DeviceGroupResponse'] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
+    # v2.5: Nested Response 규칙 적용 - ControllerNestedResponse 사용 (timestamp 제외)
+    controller: Optional['ControllerNestedResponse'] = Field(None, description="소속 컨트롤러 정보 (include_controller=true 시)")
+    # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# SensorNestedResponse: Controller 조회 시 sensors[] nested 반환용 스키마
+# v2.4: Nested Response 규칙 적용
+# ============================================================================
+
+class SensorNestedResponse(BaseModel):
+    """
+    센서 Nested response 스키마
+
+    Controller 조회 시 include_sensors=true로 반환되는 센서 정보입니다.
+
+    v2.4: Nested Response 규칙 적용
+    - created_at, updated_at 제외 (Nested 객체이므로)
+    - device_groups 포함 (DeviceGroupNestedResponse 사용)
+    """
+    id: int = Field(..., description="센서 ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="센서 타입")
+    version: Optional[str] = Field(None, description="버전")
+    status: str = Field(..., description="상태")
+    controller_id: int = Field(..., description="소속 컨트롤러 ID")
+    # v2.4: Nested에서 device_groups 포함 (timestamp 제외된 DeviceGroupNestedResponse 사용)
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -255,7 +319,7 @@ class CameraCreate(BaseModel):
     카메라는 영상 감시 장치로, HardwareSpec과 Geolocation 확장 필드를 지원합니다.
     PRD Section 3.2 참조.
     """
-    number_device: int = Field(..., description="장치 번호 (유니크)")
+    number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
     name_device: str = Field(..., max_length=200, description="장치 이름")
     type_device: str = Field(..., description="장치 타입 (IpCamera)")
@@ -305,8 +369,43 @@ class CameraResponse(BaseModel):
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
-    # Phase 5: device_groups 배열 지원 (N:N 관계)
-    device_groups: List['DeviceGroupResponse'] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
+    # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# CameraNestedResponse: Event 조회 시 device nested 반환용 스키마
+# v2.7: Event의 device polymorphic response 지원
+# ============================================================================
+
+class CameraNestedResponse(BaseModel):
+    """
+    카메라 Nested response 스키마
+
+    Event 조회 시 device가 Camera인 경우 반환되는 정보입니다.
+
+    v2.7: Nested Response 규칙 적용
+    - created_at, updated_at 제외 (Nested 객체이므로)
+    - device_groups 포함 (DeviceGroupNestedResponse 사용)
+    - user_name, user_password, hardware_spec, geolocation 제외 (민감정보/상세정보)
+    """
+    id: int = Field(..., description="카메라 ID")
+    number_device: int = Field(..., description="장치 번호")
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
+    name_device: str = Field(..., description="장치 이름")
+    type_device: str = Field(..., description="장치 타입")
+    version: Optional[str] = Field(None, description="버전")
+    status: str = Field(..., description="상태")
+    ip_address: str = Field(..., description="IP 주소")
+    ip_port: int = Field(..., description="HTTP 포트")
+    rtsp_uri: Optional[str] = Field(None, description="RTSP URI")
+    rtsp_port: int = Field(..., description="RTSP 포트")
+    mode: str = Field(..., description="카메라 모드 (NONE|ONVIF|RTSP)")
+    category: str = Field(..., description="카메라 카테고리 (NONE|PTZ|FIXED|THERMAL)")
+    is_record: bool = Field(False, description="녹화 활성화 여부")
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록")
 
     model_config = ConfigDict(from_attributes=True)
 

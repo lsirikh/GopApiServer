@@ -48,6 +48,14 @@ class EventMapping(Base):
     # ===== Relationships =====
     device_group = relationship("DeviceGroup", back_populates="event_mappings", lazy="joined")
 
+    # Camera Actions (PRD: PRD_CameraEventMapping_Refactoring.md v2.1)
+    cameras = relationship(
+        "EventMappingCamera",
+        back_populates="event_mapping",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+
 
 class CameraEventMapping(Base):
     """CameraEventMapping model for camera event integration settings"""

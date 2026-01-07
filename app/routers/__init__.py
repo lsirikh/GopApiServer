@@ -11,7 +11,7 @@ from app.routers import malfunctions
 from app.routers import connections
 from app.routers import actions
 from app.routers import event_mappings
-from app.routers import camera_event_mappings
+from app.routers import event_mapping_cameras
 from app.routers import server_categories
 from app.routers import servers
 from app.routers import device_groups
@@ -30,7 +30,7 @@ __all__ = [
     "connections",
     "actions",
     "event_mappings",
-    "camera_event_mappings",
+    "event_mapping_cameras",
     "server_categories",
     "servers",
     "device_groups",

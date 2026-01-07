@@ -141,14 +141,18 @@ async def get_device_group(
                     controller_id=device.controller_id
                 ))
             elif isinstance(device, Camera):
+                # PRD_Camera_Urls_JsonB.md: urls JSONB 통합 (rtsp_uri/rtsp_port 제거)
+                from app.schemas.device import CameraUrls
+                urls_data = None
+                if device.urls:
+                    urls_data = CameraUrls.model_validate(device.urls) if isinstance(device.urls, dict) else device.urls
                 devices.append(CameraSummary(
                     **base_data,
                     ip_address=device.ip_address,
                     ip_port=device.ip_port,
                     user_name=device.user_name,
                     user_password=device.user_password,
-                    rtsp_uri=device.rtsp_uri,
-                    rtsp_port=device.rtsp_port,
+                    urls=urls_data,
                     mode=device.mode.value if hasattr(device.mode, 'value') else str(device.mode),
                     camera_category=device.category.value if hasattr(device.category, 'value') else str(device.category),
                     is_record=device.is_record,

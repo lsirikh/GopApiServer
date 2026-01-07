@@ -75,6 +75,10 @@ class Server(Base):
     port = Column(Integer, nullable=False)
     hostname = Column(String(100), nullable=True)
 
+    # ===== 인증 정보 =====
+    user_name = Column(String(100), nullable=True)
+    user_password = Column(String(200), nullable=True)
+
     # 메트릭
     cpu_usage = Column(Float, nullable=True)
     ram_usage = Column(Float, nullable=True)

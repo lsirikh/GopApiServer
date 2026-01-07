@@ -11,10 +11,12 @@ class EnumDeviceCategory(str, Enum):
 
     Used for Joined Table Inheritance discriminator in Device model.
     PRD: PRD_Device_Inheritance_Structure_Refactoring.md Section 8.1
+    PRD: PRD_Speaker_Device.md - SPEAKER added (v2.5)
     """
     CONTROLLER = "controller"
     SENSOR = "sensor"
     CAMERA = "camera"
+    SPEAKER = "speaker"  # v2.5: Speaker Device
 
 
 class EnumDeviceType(str, Enum):
@@ -142,6 +144,18 @@ class EnumEventCategory(str, Enum):
 
 # Backward compatibility alias
 EnumCategoryEvent = EnumEventCategory
+
+
+class EnumSpeakerType(str, Enum):
+    """
+    Speaker device type enumeration
+    Based on EnumBcastDeviceType from NATS message spec
+    PRD: PRD_Speaker_Device.md Section 3.2
+    """
+    NORMAL = "NORMAL"     # 일반 스피커 단말
+    ADMIN = "ADMIN"       # 관리자 단말
+    MONITOR = "MONITOR"   # 모니터링 단말
+    DEV = "DEV"           # 음원/마이크 단말 (입력 장치)
 
 
 class EnumServerType(str, Enum):

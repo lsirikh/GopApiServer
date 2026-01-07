@@ -61,6 +61,8 @@ class ServerCreate(BaseModel):
     ip_address: str
     port: int
     hostname: Optional[str] = None
+    user_name: Optional[str] = None
+    user_password: Optional[str] = None
     cpu_usage: Optional[float] = None
     ram_usage: Optional[float] = None
     disk_usage: Optional[float] = None
@@ -82,6 +84,8 @@ class ServerUpdate(BaseModel):
     ip_address: Optional[str] = None
     port: Optional[int] = None
     hostname: Optional[str] = None
+    user_name: Optional[str] = None
+    user_password: Optional[str] = None
     cpu_usage: Optional[float] = None
     ram_usage: Optional[float] = None
     disk_usage: Optional[float] = None
@@ -97,6 +101,8 @@ class ServerResponse(BaseModel):
     ip_address: str
     port: int
     hostname: Optional[str] = None
+    user_name: Optional[str] = None
+    user_password: Optional[str] = None
     cpu_usage: Optional[float] = None
     ram_usage: Optional[float] = None
     disk_usage: Optional[float] = None
@@ -110,6 +116,29 @@ class ServerResponse(BaseModel):
 # ============================================================
 # Summary/Dashboard Schemas
 # ============================================================
+
+class ServerNestedResponse(BaseModel):
+    """
+    Server Nested Response - for use in other resources (e.g., Speaker)
+    PRD: PRD_Speaker_Device.md Section 5.3
+    Excludes created_at, updated_at per nested response rule
+    """
+    id: int
+    category_id: int
+    name: str
+    status: str  # EnumServerStatus value as string
+    ip_address: str
+    port: int
+    hostname: Optional[str] = None
+    user_name: Optional[str] = None
+    user_password: Optional[str] = None
+    cpu_usage: Optional[float] = None
+    ram_usage: Optional[float] = None
+    disk_usage: Optional[float] = None
+    network_throughput: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class ServerCategoryWithServers(BaseModel):
     """Schema for ServerCategory with nested servers list"""

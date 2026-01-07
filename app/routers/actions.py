@@ -50,6 +50,13 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
                     name=mapping.group.name
                 ))
 
+    # PRD_Camera_Urls_JsonB.md: urls JSONB 통합 (rtsp_uri/rtsp_port 제거)
+    from app.schemas.device import CameraUrls
+    urls_data = None
+    raw_urls = getattr(device, 'urls', None)
+    if raw_urls:
+        urls_data = CameraUrls.model_validate(raw_urls) if isinstance(raw_urls, dict) else raw_urls
+
     return DeviceNestedResponse(
         id=device.id,
         number_device=device.number_device,
@@ -61,11 +68,10 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
         ip_address=getattr(device, 'ip_address', None),
         ip_port=getattr(device, 'ip_port', None),
         controller_id=getattr(device, 'controller_id', None),
-        rtsp_uri=getattr(device, 'rtsp_uri', None),
-        rtsp_port=getattr(device, 'rtsp_port', None),
         mode=getattr(device, 'mode', None).value if hasattr(device, 'mode') and getattr(device, 'mode', None) else None,
         category=getattr(device, 'category', None).value if hasattr(device, 'category') and getattr(device, 'category', None) else None,
         is_record=getattr(device, 'is_record', None),
+        urls=urls_data,
         device_groups=device_groups
     )
 

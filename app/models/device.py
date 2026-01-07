@@ -158,8 +158,7 @@ class Camera(Device):
         ip_port: Port number
         user_name: Username for camera authentication
         user_password: Password for camera authentication
-        rtsp_uri: RTSP stream URI
-        rtsp_port: RTSP port number
+        urls: URL information (JSONB) - replaces rtsp_uri/rtsp_port (PRD_Camera_Urls_JsonB.md)
         mode: Camera operation mode (EnumCameraMode)
         category: Camera category/type (EnumCameraType)
         is_record: Recording enabled (default False)
@@ -176,8 +175,7 @@ class Camera(Device):
     ip_port = Column(Integer, nullable=False)
     user_name = Column(String(100), nullable=True)  # PRD v1.2: nullable
     user_password = Column(String(200), nullable=True)  # PRD v1.2: nullable
-    rtsp_uri = Column(String(500), nullable=True)  # PRD v1.2: nullable
-    rtsp_port = Column(Integer, nullable=False)
+    urls = Column(JSON, nullable=True)  # PRD_Camera_Urls_JsonB.md: replaces rtsp_uri/rtsp_port
     mode = Column(SQLEnum(EnumCameraMode), nullable=False, default=EnumCameraMode.NONE)
     category = Column(SQLEnum(EnumCameraType), nullable=False, default=EnumCameraType.NONE)
 

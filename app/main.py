@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, detections, malfunctions, connections, actions, event_mappings, camera_event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, file_groups
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -49,6 +49,14 @@ tags_metadata = [
         "description": "카메라 디바이스 CRUD API. 영상 감시 장치로 HardwareSpec, Geolocation 확장 필드를 지원합니다. PRD Section 3.2 참조.",
     },
     {
+        "name": "Speakers",
+        "description": "스피커 디바이스 CRUD API. 방송 단말 장치로 Server 연동을 지원합니다. PRD_Speaker_Device.md 참조.",
+    },
+    {
+        "name": "FileGroups",
+        "description": "방송음원 파일풀 관리 API. 서버별 음원 그룹 및 파일 목록을 관리합니다. PRD_Speaker_Device.md 참조.",
+    },
+    {
         "name": "Detections",
         "description": "탐지 이벤트 관리 API. 센서에서 발생하는 탐지 이벤트를 기록합니다.",
     },
@@ -69,8 +77,8 @@ tags_metadata = [
         "description": "외부 시스템 연동을 위한 이벤트 매핑 API.",
     },
     {
-        "name": "CameraEventMappings",
-        "description": "카메라 이벤트 매핑 API. 카메라별 이벤트 연동 설정을 관리합니다.",
+        "name": "Event Mapping Cameras",
+        "description": "이벤트 매핑 카메라 설정 API. EventMapping에 연동된 카메라 동작을 관리합니다. PRD: PRD_CameraEventMapping_Refactoring.md v2.1",
     },
     {
         "name": "Server Categories",
@@ -348,12 +356,14 @@ app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
 app.include_router(controllers.router, prefix="/api/devices/controllers", tags=["Controllers"])
 app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors"])
 app.include_router(cameras.router, prefix="/api/devices/cameras", tags=["Cameras"])
+app.include_router(speakers.router, prefix="/api/devices/speakers", tags=["Speakers"])
+app.include_router(file_groups.router, prefix="/api/file-groups", tags=["FileGroups"])
 app.include_router(detections.router, prefix="/api/events/detections", tags=["Detections"])
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])
 app.include_router(connections.router, prefix="/api/events/connections", tags=["Connections"])
 app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"])
 app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
-app.include_router(camera_event_mappings.router, prefix="/api/integrations/camera-event-mappings", tags=["CameraEventMappings"])
+app.include_router(event_mapping_cameras.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Cameras"])
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
 app.include_router(device_groups.router, prefix="/api", tags=["DeviceGroups"])

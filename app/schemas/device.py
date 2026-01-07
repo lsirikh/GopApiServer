@@ -14,6 +14,61 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
+# Phase 1: Camera URLs JSONB Schema (PRD: PRD_Camera_Urls_JsonB.md)
+# ============================================================================
+
+class CameraUrls(BaseModel):
+    """
+    카메라 URL 통합 스키마 (JSONB) - 단순화 버전
+    PRD: PRD_Camera_Urls_JsonB.md - Section 2.1
+
+    유연한 딕셔너리 기반 구조로 다양한 URL 형식 지원:
+    - homepage: {"url": "https://192.168.0.10/"}
+    - onvif: {"device_service": "http://..."}
+    - streams: {"rtsp": {"main": "rtsp://...", "sub": "rtsp://..."}, "webrtc": {"main": "https://..."}}
+    - snapshot: {"ch1": "http://..."}
+
+    extra="allow"로 벤더 특화 필드 지원
+
+    Example:
+    {
+      "homepage": {"url": "https://192.168.0.10/"},
+      "onvif": {"device_service": "http://192.168.0.10:8000/onvif/device_service"},
+      "streams": {
+        "rtsp": {"main": "rtsp://192.168.0.10:554/Streaming/Channels/101", "sub": "rtsp://192.168.0.10:554/Streaming/Channels/102"},
+        "webrtc": {"main": "https://192.168.0.10/webrtc/main"}
+      },
+      "snapshot": {"ch1": "http://192.168.0.10/cgi-bin/snapshot.cgi"}
+    }
+    """
+    homepage: Optional[dict] = Field(
+        None,
+        description="홈페이지 URL",
+        json_schema_extra={"example": {"url": "https://192.168.0.10/"}}
+    )
+    onvif: Optional[dict] = Field(
+        None,
+        description="ONVIF 서비스 URL",
+        json_schema_extra={"example": {"device_service": "http://192.168.0.10:8000/onvif/device_service"}}
+    )
+    streams: Optional[dict] = Field(
+        None,
+        description="스트림 URL (rtsp, webrtc 등)",
+        json_schema_extra={"example": {
+            "rtsp": {"main": "rtsp://192.168.0.10:554/Streaming/Channels/101", "sub": "rtsp://192.168.0.10:554/Streaming/Channels/102"},
+            "webrtc": {"main": "https://192.168.0.10/webrtc/main"}
+        }}
+    )
+    snapshot: Optional[dict] = Field(
+        None,
+        description="스냅샷 URL",
+        json_schema_extra={"example": {"ch1": "http://192.168.0.10/cgi-bin/snapshot.cgi"}}
+    )
+
+    model_config = ConfigDict(from_attributes=True, extra="allow")
+
+
+# ============================================================================
 # Phase 3: Camera 확장 필드 Composite Types (PRD Section 3.2)
 # ============================================================================
 
@@ -95,10 +150,14 @@ class DeviceNestedResponse(BaseModel):
         controller_id
 
     Camera 전용:
-        ip_address, ip_port, rtsp_uri, rtsp_port, mode, category, is_record
+        ip_address, ip_port, urls, mode, category, is_record
 
     EventMapping 연동:
         device_groups[].id → EventMapping.device_group_id 매칭으로 카메라 프리셋 실행
+
+    Breaking Change (v2.3):
+    - rtsp_uri, rtsp_port 필드 제거
+    - urls JSONB 필드로 통합 (CameraUrls 스키마)
     """
     # 공통 필드 (필수)
     id: int = Field(..., description="Device ID")
@@ -119,11 +178,11 @@ class DeviceNestedResponse(BaseModel):
     controller_id: Optional[int] = Field(None, description="소속 컨트롤러 ID")
 
     # Camera 전용 필드 (선택적)
-    rtsp_uri: Optional[str] = Field(None, description="RTSP 스트림 URI")
-    rtsp_port: Optional[int] = Field(None, description="RTSP 포트")
     mode: Optional[str] = Field(None, description="카메라 모드")
     category: Optional[str] = Field(None, description="카메라 카테고리")
     is_record: Optional[bool] = Field(None, description="녹화 활성화 여부")
+    # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
+    urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
 
     # PRD v1.2: device_groups 추가 (EventMapping 연동 필수)
     device_groups: List[DeviceGroupNestedResponse] = Field(
@@ -317,7 +376,12 @@ class CameraCreate(BaseModel):
     카메라 생성 스키마
 
     카메라는 영상 감시 장치로, HardwareSpec과 Geolocation 확장 필드를 지원합니다.
-    PRD Section 3.2 참조.
+    PRD: PRD_Device_Structure_Refactoring.md Section 3.2
+    PRD: PRD_Camera_Urls_JsonB.md (urls JSONB 통합)
+
+    Breaking Change (v2.3):
+    - rtsp_uri, rtsp_port 필드 제거
+    - urls JSONB 필드로 통합 (CameraUrls 스키마)
     """
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
@@ -329,14 +393,14 @@ class CameraCreate(BaseModel):
     ip_port: int = Field(..., ge=1, le=65535, description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="카메라 접속 사용자명 (PRD v1.2: nullable)")
     user_password: Optional[str] = Field(None, description="카메라 접속 비밀번호 (PRD v1.2: nullable)")
-    rtsp_uri: Optional[str] = Field(None, description="RTSP 스트림 URI (PRD v1.2: nullable)")
-    rtsp_port: int = Field(554, ge=1, le=65535, description="RTSP 포트 (기본: 554)")
     mode: str = Field(..., description="카메라 모드 (NONE|ONVIF|RTSP)")
     category: str = Field(..., description="카메라 카테고리 (NONE|PTZ|FIXED|THERMAL)")
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
     is_record: bool = Field(False, description="녹화 활성화 여부")
     hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보 (JSON)")
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
+    # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
+    urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
     # Phase 5: group_ids 배열 지원 (N:N 관계)
     group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
@@ -346,7 +410,12 @@ class CameraResponse(BaseModel):
     카메라 응답 스키마
 
     카메라 정보, 확장 필드(HardwareSpec, Geolocation) 및 디바이스 그룹 목록을 포함합니다.
-    PRD Section 3.2 참조.
+    PRD: PRD_Device_Structure_Refactoring.md Section 3.2
+    PRD: PRD_Camera_Urls_JsonB.md (urls JSONB 통합)
+
+    Breaking Change (v2.3):
+    - rtsp_uri, rtsp_port 필드 제거
+    - urls JSONB 필드로 통합 (CameraUrls 스키마)
     """
     id: int = Field(..., description="카메라 ID")
     number_device: int = Field(..., description="장치 번호")
@@ -359,14 +428,14 @@ class CameraResponse(BaseModel):
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
     user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
-    rtsp_uri: Optional[str] = Field(None, description="RTSP URI (PRD v1.2: nullable)")
-    rtsp_port: int = Field(..., description="RTSP 포트")
     mode: str = Field(..., description="카메라 모드")
     category: str = Field(..., description="카메라 카테고리")
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
     is_record: bool = Field(False, description="녹화 활성화 여부")
     hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보")
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
+    # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
+    urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
     # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
@@ -390,6 +459,10 @@ class CameraNestedResponse(BaseModel):
     - created_at, updated_at 제외 (Nested 객체이므로)
     - device_groups 포함 (DeviceGroupNestedResponse 사용)
     - user_name, user_password, hardware_spec, geolocation 제외 (민감정보/상세정보)
+
+    Breaking Change (v2.3):
+    - rtsp_uri, rtsp_port 필드 제거
+    - urls JSONB 필드로 통합 (CameraUrls 스키마)
     """
     id: int = Field(..., description="카메라 ID")
     number_device: int = Field(..., description="장치 번호")
@@ -400,11 +473,11 @@ class CameraNestedResponse(BaseModel):
     status: str = Field(..., description="상태")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
-    rtsp_uri: Optional[str] = Field(None, description="RTSP URI")
-    rtsp_port: int = Field(..., description="RTSP 포트")
     mode: str = Field(..., description="카메라 모드 (NONE|ONVIF|RTSP)")
     category: str = Field(..., description="카메라 카테고리 (NONE|PTZ|FIXED|THERMAL)")
     is_record: bool = Field(False, description="녹화 활성화 여부")
+    # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
+    urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
     device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록")
 
     model_config = ConfigDict(from_attributes=True)
@@ -416,6 +489,10 @@ class CameraUpdate(BaseModel):
 
     모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
     확장 필드(hardware_spec, geolocation)도 부분 업데이트를 지원합니다.
+
+    Breaking Change (v2.3):
+    - rtsp_uri, rtsp_port 필드 제거
+    - urls JSONB 필드로 통합 (CameraUrls 스키마)
     """
     number_device: Optional[int] = Field(None, description="장치 번호")
     group_device: Optional[int] = Field(None, description="장치 그룹 번호")
@@ -427,14 +504,14 @@ class CameraUpdate(BaseModel):
     ip_port: Optional[int] = Field(None, description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
     user_password: Optional[str] = Field(None, description="접속 비밀번호")
-    rtsp_uri: Optional[str] = Field(None, description="RTSP URI")
-    rtsp_port: Optional[int] = Field(None, description="RTSP 포트")
     mode: Optional[str] = Field(None, description="카메라 모드")
     category: Optional[str] = Field(None, description="카메라 카테고리")
     # Phase 3: Camera 확장 필드
     is_record: Optional[bool] = Field(None, description="녹화 활성화 여부")
     hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보")
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
+    # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
+    urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
     # Phase 5: group_ids 배열 지원 (N:N 관계)
     group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열")
 

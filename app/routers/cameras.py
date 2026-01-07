@@ -11,7 +11,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse
+from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse, CameraUrls
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
@@ -74,6 +74,11 @@ def _camera_to_response(camera: Camera, db: Session) -> CameraResponse:
     if camera.geolocation:
         geo = Geolocation(**camera.geolocation)
 
+    # Convert urls dict to CameraUrls if exists (PRD_Camera_Urls_JsonB.md)
+    urls = None
+    if camera.urls:
+        urls = CameraUrls(**camera.urls)
+
     # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
     device_groups = _get_device_groups_nested(db, camera.id, EnumDeviceCategory.CAMERA)
 
@@ -89,13 +94,12 @@ def _camera_to_response(camera: Camera, db: Session) -> CameraResponse:
         ip_port=camera.ip_port,
         user_name=camera.user_name,
         user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
         mode=camera.mode.value,
         category=camera.category.value,
         is_record=camera.is_record,
         hardware_spec=hw_spec,
         geolocation=geo,
+        urls=urls,
         created_at=camera.created_at,
         updated_at=camera.updated_at,
         device_groups=device_groups
@@ -236,10 +240,9 @@ async def create_camera(
     - **status**: 상태 (필수)
     - **ip_address**: IP 주소 (필수)
     - **ip_port**: IP 포트 (필수)
-    - **user_name**: 사용자 이름 (필수)
-    - **user_password**: 사용자 비밀번호 (필수)
-    - **rtsp_uri**: RTSP URI (필수)
-    - **rtsp_port**: RTSP 포트 (필수)
+    - **user_name**: 사용자 이름 (선택)
+    - **user_password**: 사용자 비밀번호 (선택)
+    - **urls**: 카메라 URL 정보 JSONB (선택) - PRD_Camera_Urls_JsonB.md
     - **mode**: 카메라 모드 (필수)
     - **category**: 카메라 카테고리 (필수)
 
@@ -263,6 +266,8 @@ async def create_camera(
     # Convert extended fields to dict for JSON storage
     hw_spec_dict = camera_data.hardware_spec.model_dump(exclude_none=True) if camera_data.hardware_spec else None
     geo_dict = camera_data.geolocation.model_dump(exclude_none=True) if camera_data.geolocation else None
+    # PRD_Camera_Urls_JsonB.md: Convert urls to dict for JSONB storage
+    urls_dict = camera_data.urls.model_dump(exclude_none=True) if camera_data.urls else None
 
     # Create new camera with extended fields
     new_camera = Camera(
@@ -276,8 +281,7 @@ async def create_camera(
         ip_port=camera_data.ip_port,
         user_name=camera_data.user_name,
         user_password=camera_data.user_password,
-        rtsp_uri=camera_data.rtsp_uri,
-        rtsp_port=camera_data.rtsp_port,
+        urls=urls_dict,
         mode=camera_mode,
         category=camera_category,
         is_record=camera_data.is_record,
@@ -327,8 +331,7 @@ async def update_camera(
     - **ip_port**: IP 포트
     - **user_name**: 사용자 이름
     - **user_password**: 사용자 비밀번호
-    - **rtsp_uri**: RTSP URI
-    - **rtsp_port**: RTSP 포트
+    - **urls**: 카메라 URL 정보 JSONB (PRD_Camera_Urls_JsonB.md)
     - **mode**: 카메라 모드
     - **category**: 카메라 카테고리
 
@@ -388,6 +391,9 @@ async def update_camera(
         elif field == "geolocation" and value is not None:
             # Convert Pydantic model to dict for JSON storage
             value = value if isinstance(value, dict) else value
+        elif field == "urls" and value is not None:
+            # PRD_Camera_Urls_JsonB.md: Convert Pydantic model to dict for JSONB storage
+            value = value if isinstance(value, dict) else value
         elif field == "group_ids":
             # Handle group_ids separately (N:N relationship)
             if value is not None:
@@ -432,8 +438,7 @@ async def replace_camera(
     - **ip_port**: IP 포트
     - **user_name**: 사용자 이름
     - **user_password**: 사용자 비밀번호
-    - **rtsp_uri**: RTSP URI
-    - **rtsp_port**: RTSP 포트
+    - **urls**: 카메라 URL 정보 JSONB (PRD_Camera_Urls_JsonB.md)
     - **mode**: 카메라 모드
     - **category**: 카메라 카테고리
 
@@ -466,6 +471,8 @@ async def replace_camera(
     # Convert extended fields to dict for JSON storage
     hw_spec_dict = camera_data.hardware_spec.model_dump(exclude_none=True) if camera_data.hardware_spec else None
     geo_dict = camera_data.geolocation.model_dump(exclude_none=True) if camera_data.geolocation else None
+    # PRD_Camera_Urls_JsonB.md: Convert urls to dict for JSONB storage
+    urls_dict = camera_data.urls.model_dump(exclude_none=True) if camera_data.urls else None
 
     # Replace all fields (PUT = full replacement)
     camera.number_device = camera_data.number_device
@@ -478,8 +485,7 @@ async def replace_camera(
     camera.ip_port = camera_data.ip_port
     camera.user_name = camera_data.user_name
     camera.user_password = camera_data.user_password
-    camera.rtsp_uri = camera_data.rtsp_uri
-    camera.rtsp_port = camera_data.rtsp_port
+    camera.urls = urls_dict
     camera.mode = camera_mode
     camera.category = camera_category
     camera.is_record = camera_data.is_record

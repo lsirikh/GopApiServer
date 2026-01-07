@@ -1,10 +1,14 @@
 """
 DeviceGroup Schemas for Pydantic validation
 PRD: PRD_Device_Structure_Refactoring.md - Section 3.1
+PRD: PRD_Camera_Urls_JsonB.md v1.0 - Camera urls JSONB 통합
 """
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Union
+from typing import Optional, List, Union, TYPE_CHECKING
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from app.schemas.device import CameraUrls
 
 
 class DeviceGroupBase(BaseModel):
@@ -61,13 +65,19 @@ class SensorSummary(DeviceSummaryBase):
 
 
 class CameraSummary(DeviceSummaryBase):
-    """Camera 요약 정보 스키마 (전체 필드 포함)"""
+    """
+    Camera 요약 정보 스키마 (전체 필드 포함)
+
+    PRD: PRD_Camera_Urls_JsonB.md v1.0
+    - rtsp_uri, rtsp_port 필드 제거
+    - urls JSONB 필드 추가
+    """
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
     user_password: Optional[str] = Field(None, description="접속 비밀번호")
-    rtsp_uri: Optional[str] = Field(None, description="RTSP URI")
-    rtsp_port: int = Field(..., description="RTSP 포트")
+    # PRD_Camera_Urls_JsonB.md: urls JSONB 통합 (rtsp_uri/rtsp_port 제거)
+    urls: Optional["CameraUrls"] = Field(None, description="카메라 URL 정보 (JSONB)")
     mode: str = Field(..., description="카메라 모드")
     camera_category: str = Field(..., description="카메라 카테고리")
     is_record: bool = Field(..., description="녹화 여부")
@@ -109,3 +119,10 @@ class DeviceRemoveResponse(BaseModel):
     group_id: int = Field(..., description="그룹 ID")
     device_id: int = Field(..., description="제거된 디바이스 ID")
     message: str = Field(..., description="결과 메시지")
+
+
+# Forward reference resolution for CameraUrls
+# This must be done after all classes are defined
+from app.schemas.device import CameraUrls
+
+CameraSummary.model_rebuild()

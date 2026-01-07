@@ -1,9 +1,10 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-06  
-**작성자**: 이기호 차장  
-**목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
+**최종 수정일**: 2026-01-07  
+**버전**: v2.4  
+**작성자**: 이기호 차장    
+**목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성   
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
 
 ---
@@ -22,8 +23,12 @@
    - 5.5 [Camera Preset API](#55-camera-preset-api) *(v2.1 신규)*
    - 5.6 [ROI API](#56-roi-api) *(v2.1 신규)*
    - 5.7 [XyPoint API](#57-xypoint-api) *(v2.1 신규)*
+   - 5.8 [Speaker API](#58-speaker-api) *(v2.4 신규)*
+   - 5.9 [FileGroup API](#59-filegroup-api) *(v2.4 신규)*
 6. [Event API 설계](#6-event-api-설계)
 7. [Integration API 설계](#7-integration-api-설계)
+   - 7.2 [EventMapping API](#72-eventmapping-api)
+   - 7.3 [Event Mapping Cameras API](#73-event-mapping-cameras-api) *(v2.4 신규)*
 8. [Server Monitoring API 설계](#8-server-monitoring-api-설계)
 9. [에러 처리](#9-에러-처리)
 10. [부록](#10-부록)
@@ -289,7 +294,7 @@ public enum EnumCameraType
 }
 ```
 
-#### EnumDeviceCategory (v2.0 신규)
+#### EnumDeviceCategory (v2.0 신규, v2.4 확장)
 ```python
 # Python 정의 - app/utils/enums.py
 # Device Polymorphic Discriminator (Joined Table Inheritance)
@@ -297,6 +302,7 @@ class EnumDeviceCategory(str, Enum):
     CONTROLLER = "controller"   # 컨트롤러
     SENSOR = "sensor"           # 센서
     CAMERA = "camera"           # 카메라
+    SPEAKER = "speaker"         # 스피커 (v2.4 신규)
 ```
 
 **사용처**:
@@ -305,8 +311,23 @@ class EnumDeviceCategory(str, Enum):
 - API 요청 시 디바이스 카테고리 필터링
 
 **참고**: 이 Enum은 `type_device`(EnumDeviceType)와 다릅니다:
-- `category_device`: 상위 카테고리 (controller, sensor, camera)
-- `type_device`: 구체적인 장치 유형 (Controller, Multi, Fence, IpCamera 등)
+- `category_device`: 상위 카테고리 (controller, sensor, camera, speaker)
+- `type_device`: 구체적인 장치 유형 (Controller, Multi, Fence, IpCamera, IpSpeaker 등)
+
+#### EnumSpeakerType (v2.4 신규)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumSpeakerType(str, Enum):
+    """Speaker device type enumeration (NATS EnumBcastDeviceType 기반)"""
+    NORMAL = "NORMAL"     # 일반 스피커 단말
+    ADMIN = "ADMIN"       # 관리자 단말
+    MONITOR = "MONITOR"   # 모니터링 단말
+    DEV = "DEV"           # 음원/마이크 단말 (입력 장치)
+```
+
+**사용처**:
+- `Speaker.speaker_type`: 스피커 장비 유형 구분
+- Query Parameter: `?speaker_type=NORMAL`
 
 ### 4.2 Event Enum
 
@@ -1294,11 +1315,15 @@ Accept: application/json
       "ip_port": 80,
       "user_name": "admin",
       "user_password": "********",
-      "rtsp_uri": "rtsp://192.168.1.109:554/stream1",
-      "rtsp_port": 554,
       "mode": "ONVIF", //(EnumCameraMode)
       "category": "PTZ", //(EnumCameraType)
       "is_record": false,
+      "urls": {
+        "homepage": {"url": "http://192.168.1.109/"},
+        "streams": {
+          "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101"}
+        }
+      },
       "hardware_spec": {
         "name": "GOP 1구역 PTZ 카메라",
         "location": "GOP 1구역 전방 초소",
@@ -1367,11 +1392,18 @@ Accept: application/json
     "ip_port": 80,
     "user_name": "admin",
     "user_password": "password123",
-    "rtsp_uri": "rtsp://192.168.1.109:554/stream1",
-    "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "PTZ", //(EnumCameraType)
     "is_record": true,
+    "urls": {
+      "homepage": {"url": "http://192.168.1.109/"},
+      "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
+      "streams": {
+        "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+        "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+      },
+      "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
+    },
     "hardware_spec": {
       "name": "GOP 1구역 PTZ 카메라",
       "location": "GOP 1구역 전방 초소",
@@ -1438,11 +1470,15 @@ Accept: application/json
   "ip_port": 80,
   "user_name": "admin",
   "user_password": "password123",
-  "rtsp_uri": "rtsp://192.168.1.110:554/stream1",
-  "rtsp_port": 554,
   "mode": "ONVIF", //(EnumCameraMode)
   "category": "FIXED", //(EnumCameraType)
   "is_record": false,
+  "urls": {
+    "homepage": {"url": "http://192.168.1.110/"},
+    "streams": {
+      "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101"}
+    }
+  },
   "hardware_spec": {
     "name": "신규 카메라",
     "manufacturer": "Hanwha Vision",
@@ -1475,11 +1511,15 @@ Accept: application/json
     "ip_port": 80,
     "user_name": "admin",
     "user_password": "password123",
-    "rtsp_uri": "rtsp://192.168.1.110:554/stream1",
-    "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "FIXED", //(EnumCameraType)
     "is_record": false,
+    "urls": {
+      "homepage": {"url": "http://192.168.1.110/"},
+      "streams": {
+        "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101"}
+      }
+    },
     "hardware_spec": {
       "name": "신규 카메라",
       "manufacturer": "Hanwha Vision",
@@ -1549,11 +1589,15 @@ Accept: application/json
     "ip_port": 80,
     "user_name": "admin",
     "user_password": "newpassword456",
-    "rtsp_uri": "rtsp://192.168.1.110:554/stream1",
-    "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "FIXED", //(EnumCameraType)
     "is_record": true,
+    "urls": {
+      "homepage": {"url": "http://192.168.1.110/"},
+      "streams": {
+        "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101"}
+      }
+    },
     "hardware_spec": {
       "name": "신규 카메라",
       "location": "GOP 1구역 후방 초소",
@@ -1600,11 +1644,16 @@ Accept: application/json
   "ip_port": 80,
   "user_name": "admin",
   "user_password": "completepassword789",
-  "rtsp_uri": "rtsp://192.168.1.110:554/stream2",
-  "rtsp_port": 554,
   "mode": "ONVIF", //(EnumCameraMode)
   "category": "PTZ", //(EnumCameraType)
   "is_record": true,
+  "urls": {
+    "homepage": {"url": "http://192.168.1.110/"},
+    "onvif": {"device_service": "http://192.168.1.110:8000/onvif/device_service"},
+    "streams": {
+      "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.110:554/Streaming/Channels/102"}
+    }
+  },
   "hardware_spec": {
     "name": "GOP 1구역 PTZ 카메라",
     "location": "GOP 1구역 전방 초소",
@@ -1646,11 +1695,16 @@ Accept: application/json
     "ip_port": 80,
     "user_name": "admin",
     "user_password": "completepassword789",
-    "rtsp_uri": "rtsp://192.168.1.110:554/stream2",
-    "rtsp_port": 554,
     "mode": "ONVIF", //(EnumCameraMode)
     "category": "PTZ", //(EnumCameraType)
     "is_record": true,
+    "urls": {
+      "homepage": {"url": "http://192.168.1.110/"},
+      "onvif": {"device_service": "http://192.168.1.110:8000/onvif/device_service"},
+      "streams": {
+        "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.110:554/Streaming/Channels/102"}
+      }
+    },
     "hardware_spec": {
       "name": "GOP 1구역 PTZ 카메라",
       "location": "GOP 1구역 전방 초소",
@@ -1707,13 +1761,13 @@ Accept: application/json
 
 ---
 
-### 5.4 DeviceGroup API
+### 5.6 DeviceGroup API
 
 디바이스 그룹은 여러 디바이스(Controller, Sensor, Camera)를 논리적으로 묶어 관리하는 기능입니다.
 - N:N 관계: 하나의 디바이스는 여러 그룹에 속할 수 있고, 하나의 그룹은 여러 디바이스를 포함할 수 있습니다.
 - 폴리모픽 응답: 그룹 상세 조회 시 디바이스 타입별로 다른 필드를 반환합니다.
 
-#### 5.4.1 DeviceGroup 목록 조회
+#### 5.6.1 DeviceGroup 목록 조회
 
 **Endpoint**: `GET /api/devices/groups`
 
@@ -1768,7 +1822,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.2 DeviceGroup 상세 조회 (폴리모픽 디바이스 목록 포함)
+#### 5.6.2 DeviceGroup 상세 조회 (폴리모픽 디바이스 목록 포함)
 
 **Endpoint**: `GET /api/devices/groups/{id}`
 
@@ -1829,11 +1883,14 @@ Accept: application/json
         "ip_port": 80,
         "user_name": "admin",
         "user_password": "admin1234",
-        "rtsp_uri": "rtsp://192.168.1.200:554/stream1",
-        "rtsp_port": 554,
         "mode": "RTSP",
         "camera_category": "PTZ",
         "is_record": true,
+        "urls": {
+          "streams": {
+            "rtsp": {"main": "rtsp://192.168.1.200:554/stream1"}
+          }
+        },
         "hardware_spec": {
           "manufacturer": "Samsung",
           "model": "SNP-6320H",
@@ -1857,7 +1914,7 @@ Accept: application/json
 > **Note**: `devices` 배열은 폴리모픽 응답으로, 디바이스 타입에 따라 다른 필드를 포함합니다:
 > - **Controller**: `ip_address`, `ip_port`
 > - **Sensor**: `controller_id`
-> - **Camera**: `ip_address`, `ip_port`, `user_name`, `user_password`, `rtsp_uri`, `rtsp_port`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
+> - **Camera**: `ip_address`, `ip_port`, `user_name`, `user_password`, `urls`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
 
 **Error Response** (404 Not Found):
 ```json
@@ -1877,7 +1934,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.3 DeviceGroup 생성
+#### 5.6.3 DeviceGroup 생성
 
 **Endpoint**: `POST /api/devices/groups`
 
@@ -1927,7 +1984,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.4 DeviceGroup 수정 (부분)
+#### 5.6.4 DeviceGroup 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/groups/{id}`
 
@@ -1960,7 +2017,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.5 DeviceGroup 수정 (전체)
+#### 5.6.5 DeviceGroup 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/groups/{id}`
 
@@ -1994,7 +2051,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.6 DeviceGroup 삭제
+#### 5.6.6 DeviceGroup 삭제
 
 **Endpoint**: `DELETE /api/devices/groups/{id}`
 
@@ -2015,7 +2072,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.7 디바이스 그룹에 디바이스 할당
+#### 5.6.7 디바이스 그룹에 디바이스 할당
 
 **Endpoint**: `POST /api/devices/groups/{id}/devices`
 
@@ -2046,7 +2103,7 @@ Accept: application/json
 
 ---
 
-#### 5.4.8 디바이스 그룹에서 디바이스 제거
+#### 5.6.8 디바이스 그룹에서 디바이스 제거
 
 **Endpoint**: `DELETE /api/devices/groups/{group_id}/devices/{device_id}`
 
@@ -2085,13 +2142,13 @@ Accept: application/json
 
 ---
 
-### 5.5 Camera Preset API
+### 5.7 Camera Preset API
 
 카메라의 프리셋(Preset)을 관리합니다. PTZ 카메라의 사전 정의된 위치/각도 설정을 저장하고 관리합니다.
 
 **계층 구조**: `Camera` → `CameraPreset` → `ROI` → `XyPoint`
 
-#### 5.5.1 CameraPreset 목록 조회
+#### 5.7.1 CameraPreset 목록 조회
 
 **Endpoint**: `GET /api/devices/cameras/{camera_id}/presets`
 
@@ -2183,7 +2240,7 @@ Accept: application/json
 
 ---
 
-#### 5.5.2 CameraPreset 상세 조회 (ROI 포함)
+#### 5.7.2 CameraPreset 상세 조회 (ROI 포함)
 
 **Endpoint**: `GET /api/devices/cameras/{camera_id}/presets/{preset_id}`
 
@@ -2229,7 +2286,7 @@ Accept: application/json
 
 ---
 
-#### 5.5.3 CameraPreset 생성
+#### 5.7.3 CameraPreset 생성
 
 **Endpoint**: `POST /api/devices/cameras/{camera_id}/presets`
 
@@ -2278,7 +2335,7 @@ Accept: application/json
 
 ---
 
-#### 5.5.4 CameraPreset 수정 (PATCH)
+#### 5.7.4 CameraPreset 수정 (PATCH)
 
 **Endpoint**: `PATCH /api/devices/cameras/{camera_id}/presets/{preset_id}`
 
@@ -2311,7 +2368,7 @@ Accept: application/json
 
 ---
 
-#### 5.5.5 CameraPreset 수정 (PUT - 전체)
+#### 5.7.5 CameraPreset 수정 (PUT - 전체)
 
 **Endpoint**: `PUT /api/devices/cameras/{camera_id}/presets/{preset_id}`
 
@@ -2326,7 +2383,7 @@ Accept: application/json
 
 ---
 
-#### 5.5.6 CameraPreset 삭제
+#### 5.7.6 CameraPreset 삭제
 
 **Endpoint**: `DELETE /api/devices/cameras/{camera_id}/presets/{preset_id}`
 
@@ -2343,11 +2400,11 @@ Accept: application/json
 
 ---
 
-### 5.6 ROI API
+### 5.8 ROI API
 
 프리셋 내 관심 영역(Region of Interest)을 관리합니다. ROI는 영상 내 다각형 영역을 정의합니다.
 
-#### 5.6.1 ROI 목록 조회
+#### 5.8.1 ROI 목록 조회
 
 **Endpoint**: `GET /api/presets/{preset_id}/rois`
 
@@ -2427,7 +2484,7 @@ Accept: application/json
 
 ---
 
-#### 5.6.2 ROI 상세 조회 (Points 포함)
+#### 5.8.2 ROI 상세 조회 (Points 포함)
 
 **Endpoint**: `GET /api/presets/{preset_id}/rois/{roi_id}`
 
@@ -2457,7 +2514,7 @@ Accept: application/json
 
 ---
 
-#### 5.6.3 ROI 생성 (Points 포함)
+#### 5.8.3 ROI 생성 (Points 포함)
 
 **Endpoint**: `POST /api/presets/{preset_id}/rois`
 
@@ -2498,7 +2555,7 @@ Accept: application/json
 
 ---
 
-#### 5.6.4 ROI 수정 (PATCH)
+#### 5.8.4 ROI 수정 (PATCH)
 
 **Endpoint**: `PATCH /api/presets/{preset_id}/rois/{roi_id}`
 
@@ -2512,7 +2569,7 @@ Accept: application/json
 
 ---
 
-#### 5.6.5 ROI 수정 (PUT - 전체)
+#### 5.8.5 ROI 수정 (PUT - 전체)
 
 **Endpoint**: `PUT /api/presets/{preset_id}/rois/{roi_id}`
 
@@ -2528,7 +2585,7 @@ Accept: application/json
 
 ---
 
-#### 5.6.6 ROI 삭제
+#### 5.8.6 ROI 삭제
 
 **Endpoint**: `DELETE /api/presets/{preset_id}/rois/{roi_id}`
 
@@ -2545,11 +2602,11 @@ Accept: application/json
 
 ---
 
-### 5.7 XyPoint API
+### 5.9 XyPoint API
 
 ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값(0.0~1.0) 또는 픽셀 좌표를 사용할 수 있습니다.
 
-#### 5.7.1 XyPoint 목록 조회
+#### 5.9.1 XyPoint 목록 조회
 
 **Endpoint**: `GET /api/rois/{roi_id}/points`
 
@@ -2574,7 +2631,7 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 ---
 
-#### 5.7.2 XyPoint 생성
+#### 5.9.2 XyPoint 생성
 
 **Endpoint**: `POST /api/rois/{roi_id}/points`
 
@@ -2606,7 +2663,7 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 ---
 
-#### 5.7.3 XyPoint 일괄 수정 (전체 교체)
+#### 5.9.3 XyPoint 일괄 수정 (전체 교체)
 
 **Endpoint**: `PUT /api/rois/{roi_id}/points`
 
@@ -2644,7 +2701,7 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 ---
 
-#### 5.7.4 XyPoint 삭제
+#### 5.9.4 XyPoint 삭제
 
 **Endpoint**: `DELETE /api/rois/{roi_id}/points/{point_id}`
 
@@ -2659,6 +2716,219 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 ---
 
+### 5.4 Speaker API
+
+
+Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(SPEAKER_API)와 FK 관계를 가집니다.
+
+#### 5.4.1 Speaker 목록 조회
+
+**Endpoint**: `GET /api/devices/speakers`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| server_id | integer | N | 서버 ID 필터 |
+| status | string | N | 상태 필터 (ACTIVATED, ERROR, DEACTIVATED) |
+| speaker_type | string | N | 스피커 유형 (NORMAL, ADMIN, MONITOR, DEV) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speakers retrieved successfully",
+  "data": [
+    {
+      "id": 101,
+      "category_device": "speaker",
+      "number_device": 2401,
+      "group_device": 0,
+      "name_device": "VCS_2401",
+      "type_device": "IpSpeaker",
+      "version": null,
+      "status": "ACTIVATED",
+      "created_at": "2026-01-07T10:00:00.000000",
+      "updated_at": "2026-01-07T10:00:00.000000",
+      "speaker_type": "NORMAL",
+      "description": "1구역 스피커",
+      "server": {
+        "id": 1,
+        "category_id": 10,
+        "name": "방송서버-01",
+        "status": "NORMAL",
+        "ip_address": "192.168.1.100",
+        "port": 8080,
+        "hostname": "bcast-srv-01",
+        "user_name": "admin",
+        "user_password": "password123",
+        "cpu_usage": 25.5,
+        "ram_usage": 40.2,
+        "disk_usage": 55.0,
+        "network_throughput": "50MB/s"
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 35,
+    "total_pages": 2
+  }
+}
+```
+
+> **Nested Response 규칙**: `server` nested 객체에서 `created_at`, `updated_at` 제외
+
+#### 5.4.2 Speaker 상세 조회
+
+**Endpoint**: `GET /api/devices/speakers/{id}`
+
+**Response (200 OK)**: Speaker 상세 정보 (목록 조회와 동일한 구조)
+
+#### 5.4.3 Speaker 생성
+
+**Endpoint**: `POST /api/devices/speakers`
+
+**Request Body**:
+```json
+{
+  "number_device": 2401,
+  "group_device": 0,
+  "name_device": "VCS_2401",
+  "type_device": "IpSpeaker",
+  "status": "ACTIVATED",
+  "speaker_type": "NORMAL",
+  "server_id": 1,
+  "description": "1구역 스피커"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 단말 번호 (NATS device_no 통합) |
+| group_device | integer | N | 그룹 번호 (기본값: 0) |
+| name_device | string | Y | 장비명 |
+| type_device | string | N | EnumDeviceType (기본값: IpSpeaker) |
+| status | string | N | EnumDeviceStatus (기본값: ACTIVATED) |
+| speaker_type | string | N | EnumSpeakerType (기본값: NORMAL) |
+| server_id | integer | N | 방송서버 ID (FK) |
+| description | string | N | 설명 |
+
+**Response (201 Created)**: 생성된 Speaker 데이터 반환
+
+#### 5.4.4 Speaker 수정 (부분)
+
+**Endpoint**: `PATCH /api/devices/speakers/{id}`
+
+모든 필드 선택적 수정 가능
+
+#### 5.4.5 Speaker 수정 (전체)
+
+**Endpoint**: `PUT /api/devices/speakers/{id}`
+
+#### 5.4.6 Speaker 삭제
+
+**Endpoint**: `DELETE /api/devices/speakers/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speaker deleted successfully",
+  "data": null
+}
+```
+
+---
+
+### 5.5 FileGroup API
+
+
+FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
+
+#### 5.5.1 FileGroup 목록 조회
+
+**Endpoint**: `GET /api/file-groups`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| server_id | integer | N | 서버 ID 필터 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "FileGroups retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "server_id": 1,
+      "group_id": 2,
+      "group_name": "화재경보",
+      "files": ["music01.mp3", "music02.mp3"],
+      "created_at": "2026-01-07T10:00:00.000000",
+      "updated_at": "2026-01-07T10:00:00.000000"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 5,
+    "total_pages": 1
+  }
+}
+```
+
+#### 5.5.2 FileGroup 상세 조회
+
+**Endpoint**: `GET /api/file-groups/{id}`
+
+#### 5.5.3 FileGroup 생성
+
+**Endpoint**: `POST /api/file-groups`
+
+**Request Body**:
+```json
+{
+  "server_id": 1,
+  "group_id": 2,
+  "group_name": "화재경보",
+  "files": ["music01.mp3", "music02.mp3"]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| server_id | integer | Y | 방송서버 ID (FK) |
+| group_id | integer | Y | 방송서버의 파일그룹 ID |
+| group_name | string | Y | 그룹명 |
+| files | array[string] | N | 파일 목록 (JSONB) |
+
+**Constraint**: `UNIQUE(server_id, group_id)`
+
+**Response (201 Created)**: 생성된 FileGroup 데이터 반환
+
+#### 5.5.4 FileGroup 수정 (부분)
+
+**Endpoint**: `PATCH /api/file-groups/{id}`
+
+#### 5.5.5 FileGroup 수정 (전체)
+
+**Endpoint**: `PUT /api/file-groups/{id}`
+
+#### 5.5.6 FileGroup 삭제
+
+**Endpoint**: `DELETE /api/file-groups/{id}`
+
+**FK 정책**: Server 삭제 시 FileGroup CASCADE 삭제
+
+---
+
 ## 6. Event API 설계
 
 ### 6.1 Detection Event API
@@ -2670,15 +2940,15 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 **Query Parameters**:
 - `start_date` (datetime, required): 조회 시작 시간 (ISO 8601)
 - `end_date` (datetime, required): 조회 종료 시간 (ISO 8601)
-- `device_id` (int, optional): 장치 ID 필터 (PRD v2.2)
+- `device_id` (int, optional): 장치 ID 필터 (v2.2)
 - `type_event` (string, optional): 이벤트 타입 필터 (Intrusion)
 - `action_reported` (string, optional): 조치 보고 여부 필터 (True, False)
 - `result` (string, optional): 탐지 결과 필터 (PIR_SENSOR, THERMAL_SENSOR 등)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
-> **PRD v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
+> ** v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> ** v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
 ```json
@@ -2815,7 +3085,7 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/detections`
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
 > **자동 생성**: `device_description`은 서버에서 자동 생성됨
 
 **Request Body**:
@@ -2915,7 +3185,7 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/detections/{id}`
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 
 **Request Body** (전체 업데이트):
 ```json
@@ -3038,7 +3308,7 @@ Accept: application/json
 
 **Response Example** (200 OK):
 
-> **PRD v1.3**: `from_event` 내부는 현재 Detection/Malfunction/Connection Event Response 포맷을 따름
+> **v1.3**: `from_event` 내부는 현재 Detection/Malfunction/Connection Event Response 포맷을 따름
 > - `device` nested 포함 (Device 삭제 시 null)
 > - `device_description` 포함
 > - 레거시 필드 (`group_event`, `controller`, `sensor`, `type_device`, `sequence`, `device_id`) 제거됨
@@ -3121,14 +3391,14 @@ Accept: application/json
 **Query Parameters**:
 - `start_date` (datetime, required): 조회 시작 시간
 - `end_date` (datetime, required): 조회 종료 시간
-- `device_id` (int, optional): 장치 ID 필터 (PRD v2.2)
+- `device_id` (int, optional): 장치 ID 필터 (v2.2)
 - `reason` (string, optional): 장애 원인 필터 (FAULT_CONTROLLER, FAULT_FENCE, FAULT_CABLE_CUTTING 등)
 - `action_reported` (string, optional): 조치 보고 여부 필터 (True, False)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
-> **PRD v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
+> **v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
 ```json
@@ -3260,7 +3530,7 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/malfunctions`
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 > **자동 생성**: `device_description`은 서버에서 자동 생성됨
 
 **Request Body**:
@@ -3376,7 +3646,7 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/malfunctions/{id}`
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 
 **Request Body** (전체 업데이트):
 ```json
@@ -3486,8 +3756,6 @@ Accept: application/json
 
 **Endpoint**: `GET /api/events/malfunctions/{event_id}/action`
 
-**Phase**: 20.2
-
 **설명**:
 특정 Malfunction Event에 연결된 Action Event를 조회합니다.
 - 1:1 관계를 활용한 효율적인 조회
@@ -3507,7 +3775,7 @@ Accept: application/json
 
 **Response Example** (200 OK):
 
-> **PRD v1.3**: `from_event` 내부는 현재 Malfunction Event Response 포맷을 따름
+> **v1.3**: `from_event` 내부는 현재 Malfunction Event Response 포맷을 따름
 > - `device` nested 포함 (Device 삭제 시 null)
 > - `device_description` 포함
 > - 레거시 필드 (`group_event`, `controller`, `sensor`, `type_device`, `sequence`, `device_id`) 제거됨
@@ -3595,12 +3863,12 @@ Accept: application/json
 **Query Parameters**:
 - `start_date` (datetime, required): 조회 시작 시간 (ISO 8601)
 - `end_date` (datetime, required): 조회 종료 시간 (ISO 8601)
-- `device_id` (int, optional): 장치 ID 필터 (PRD v2.2)
+- `device_id` (int, optional): 장치 ID 필터 ( v2.2)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
-> **PRD v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
+> **v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
 ```json
@@ -3733,7 +4001,7 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/connections`
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
 > **자동 생성**: `device_description`은 서버에서 자동 생성됨
 
 **Request Body**:
@@ -3827,7 +4095,7 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/connections/{id}`
 
-> **PRD v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 
 **Request Body** (전체 업데이트):
 ```json
@@ -3928,7 +4196,7 @@ Accept: application/json
 }
 ```
 
-> **PRD v1.5**: `from_type_event` 필드 제거됨. `from_event_id`만으로 원본 이벤트를 참조하며, polymorphic relationship을 통해 이벤트 타입이 자동으로 확인됩니다.
+> **v1.5**: `from_type_event` 필드 제거됨. `from_event_id`만으로 원본 이벤트를 참조하며, polymorphic relationship을 통해 이벤트 타입이 자동으로 확인됩니다.
 
 **성공 응답 예시** (201 Created):
 ```json
@@ -3956,8 +4224,7 @@ Accept: application/json
         "ip_address": null,
         "ip_port": null,
         "controller_id": 1,
-        "rtsp_uri": null,
-        "rtsp_port": null,
+        "urls": null,
         "mode": null,
         "category": null,
         "is_record": null,
@@ -4368,7 +4635,7 @@ Integration API는 GOP 시스템과 외부 시스템 간의 연동을 위한 설
 
 ### 7.2 EventMapping API
 
-> **v2.3 변경사항 (PRD v2.1)**: `group_event` (VARCHAR) → `device_group_id` (FK) 변경
+> **v2.3 변경사항 (v2.1)**: `group_event` (VARCHAR) → `device_group_id` (FK) 변경
 > - EventMapping이 DeviceGroup과 FK 관계로 연결됨
 > - Device → DeviceGroup → EventMapping → CameraPreset 흐름으로 이벤트-카메라 연동 가능
 
@@ -4674,6 +4941,436 @@ Accept: application/json
 
 ---
 
+### 7.3 Event Mapping Cameras API
+
+Event Mapping에 연동된 카메라 동작(PTZ 프리셋 이동 등)을 관리합니다.
+
+> **아키텍처 원칙**:
+> - EventMapping은 다양한 Action 타입(Camera, Speaker, 3rd Party)의 **Base 노드**
+> - 각 Action 타입은 독립적인 하위 API로 관리 (`/cameras`, `/speakers`, `/externals`)
+> - EventMapping API에 `include_cameras` 같은 특정 타입 종속 파라미터 **사용하지 않음**
+
+#### 7.3.1 EventMappingCamera 목록 조회
+
+**Endpoint**: `GET /api/integrations/event-mappings/{mapping_id}/cameras`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+
+**Request Example**:
+```http
+GET /api/integrations/event-mappings/10/cameras?page=1&limit=20 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+
+> **Nested Response 규칙**:
+> - 주체(EventMappingCamera)의 `created_at`, `updated_at` 포함
+> - Nested 객체(camera, target_preset, home_preset)는 **Full Property** (timestamp 제외)
+
+```json
+{
+  "success": true,
+  "message": "Event mapping cameras retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "event_mapping_id": 10,
+        "camera": {
+          "id": 201,
+          "number_device": 1,
+          "group_device": 1,
+          "name_device": "PTZ-Camera-01",
+          "type_device": "IpCamera",
+          "version": "1.0.0",
+          "status": "ACTIVATED",
+          "ip_address": "192.168.1.101",
+          "ip_port": 80,
+          "mode": "ONVIF",
+          "category": "PTZ",
+          "is_record": true,
+          "hardware_spec": {
+            "name": "AXIS P5655-E",
+            "manufacturer": "Axis Communications",
+            "model": "P5655-E",
+            "firmware": "10.12.114"
+          },
+          "geolocation": {
+            "location": "GOP 1구역 전방 초소",
+            "latitude": 37.123456,
+            "longitude": 127.123456
+          },
+          "urls": {
+            "homepage": { "url": "https://192.168.1.101/" },
+            "streams": {
+              "rtsp": { "main": "rtsp://192.168.1.101:554/Streaming/Channels/101" }
+            }
+          },
+          "device_groups": [
+            { "id": 1, "name": "1구역 센서 그룹", "description": "1구역 감시 장비", "device_count": 5 }
+          ]
+        },
+        "target_preset": {
+          "id": 5,
+          "camera_id": 201,
+          "camera_name": "PTZ-Camera-01",
+          "preset_index": 1,
+          "preset_name": "입구 정면",
+          "touring_time": 10
+        },
+        "home_preset": {
+          "id": 6,
+          "camera_id": 201,
+          "camera_name": "PTZ-Camera-01",
+          "preset_index": 0,
+          "preset_name": "Home",
+          "touring_time": 0
+        },
+        "delay_time": 30,
+        "is_enable": true,
+        "priority": 1,
+        "created_at": "2026-01-07T10:00:00.000+09:00",
+        "updated_at": "2026-01-07T10:00:00.000+09:00"
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "message": "Event mapping not found with id=999"
+}
+```
+
+#### 7.3.2 EventMappingCamera 단일 조회
+
+**Endpoint**: `GET /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingCamera ID
+
+**Request Example**:
+```http
+GET /api/integrations/event-mappings/10/cameras/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping camera retrieved successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "camera": {
+      "id": 201,
+      "number_device": 1,
+      "group_device": 1,
+      "name_device": "PTZ-Camera-01",
+      "type_device": "IpCamera",
+      "version": "1.0.0",
+      "status": "ACTIVATED",
+      "ip_address": "192.168.1.101",
+      "ip_port": 80,
+      "mode": "ONVIF",
+      "category": "PTZ",
+      "is_record": true,
+      "hardware_spec": null,
+      "geolocation": null,
+      "urls": {
+        "streams": { "rtsp": { "main": "rtsp://192.168.1.101:554/Streaming/Channels/101" } }
+      },
+      "device_groups": []
+    },
+    "target_preset": {
+      "id": 5,
+      "camera_id": 201,
+      "camera_name": "PTZ-Camera-01",
+      "preset_index": 1,
+      "preset_name": "입구 정면",
+      "touring_time": 10
+    },
+    "home_preset": {
+      "id": 6,
+      "camera_id": 201,
+      "camera_name": "PTZ-Camera-01",
+      "preset_index": 0,
+      "preset_name": "Home",
+      "touring_time": 0
+    },
+    "delay_time": 30,
+    "is_enable": true,
+    "priority": 1,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T10:00:00.000+09:00"
+  }
+}
+```
+
+#### 7.3.3 EventMappingCamera 생성
+
+**Endpoint**: `POST /api/integrations/event-mappings/{mapping_id}/cameras`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+
+**Request Body**:
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| camera_id | integer | Y | 대상 카메라 ID |
+| target_preset_id | integer | N | 이벤트 발생 시 이동할 프리셋 ID |
+| home_preset_id | integer | N | 홈 복귀 프리셋 ID |
+| delay_time | integer | N | target_preset 도착 후 대기 시간 (초, 기본값: 0) |
+| is_enable | boolean | N | 활성화 여부 (기본값: true) |
+| priority | integer | N | 실행 우선순위 (Optional) |
+
+**Request Example**:
+```http
+POST /api/integrations/event-mappings/10/cameras HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "camera_id": 201,
+  "target_preset_id": 5,
+  "home_preset_id": 6,
+  "delay_time": 30,
+  "is_enable": true,
+  "priority": 1
+}
+```
+
+**Response Example** (201 Created):
+```json
+{
+  "success": true,
+  "message": "Event mapping camera created successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "camera": {
+      "id": 201,
+      "number_device": 1,
+      "group_device": 1,
+      "name_device": "PTZ-Camera-01",
+      "type_device": "IpCamera",
+      "version": "1.0.0",
+      "status": "ACTIVATED",
+      "ip_address": "192.168.1.101",
+      "ip_port": 80,
+      "mode": "ONVIF",
+      "category": "PTZ",
+      "is_record": true,
+      "hardware_spec": null,
+      "geolocation": null,
+      "urls": null,
+      "device_groups": []
+    },
+    "target_preset": {
+      "id": 5,
+      "camera_id": 201,
+      "camera_name": "PTZ-Camera-01",
+      "preset_index": 1,
+      "preset_name": "입구 정면",
+      "touring_time": 10
+    },
+    "home_preset": {
+      "id": 6,
+      "camera_id": 201,
+      "camera_name": "PTZ-Camera-01",
+      "preset_index": 0,
+      "preset_name": "Home",
+      "touring_time": 0
+    },
+    "delay_time": 30,
+    "is_enable": true,
+    "priority": 1,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T10:00:00.000+09:00"
+  }
+}
+```
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "message": "Camera not found with id=999"
+}
+```
+
+#### 7.3.4 EventMappingCamera 수정 (부분)
+
+**Endpoint**: `PATCH /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingCamera ID
+
+**Request Body** (모든 필드 Optional):
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| camera_id | integer | 대상 카메라 ID |
+| target_preset_id | integer | 이벤트 발생 시 이동할 프리셋 ID |
+| home_preset_id | integer | 홈 복귀 프리셋 ID |
+| delay_time | integer | target_preset 도착 후 대기 시간 (초) |
+| is_enable | boolean | 활성화 여부 |
+| priority | integer | 실행 우선순위 |
+
+**Request Example**:
+```http
+PATCH /api/integrations/event-mappings/10/cameras/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "delay_time": 60,
+  "is_enable": false
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping camera updated successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "camera": { ... },
+    "target_preset": { ... },
+    "home_preset": { ... },
+    "delay_time": 60,
+    "is_enable": false,
+    "priority": 1,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T11:00:00.000+09:00"
+  }
+}
+```
+
+#### 7.3.5 EventMappingCamera 수정 (전체)
+
+**Endpoint**: `PUT /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingCamera ID
+
+**Request Body** (모든 필드 교체):
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| camera_id | integer | Y | 대상 카메라 ID |
+| target_preset_id | integer | N | 이벤트 발생 시 이동할 프리셋 ID |
+| home_preset_id | integer | N | 홈 복귀 프리셋 ID |
+| delay_time | integer | N | target_preset 도착 후 대기 시간 (초, 기본값: 0) |
+| is_enable | boolean | N | 활성화 여부 (기본값: true) |
+| priority | integer | N | 실행 우선순위 |
+
+**Request Example**:
+```http
+PUT /api/integrations/event-mappings/10/cameras/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "camera_id": 202,
+  "target_preset_id": 10,
+  "home_preset_id": 11,
+  "delay_time": 45,
+  "is_enable": true,
+  "priority": 2
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping camera replaced successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "camera": { ... },
+    "target_preset": { ... },
+    "home_preset": { ... },
+    "delay_time": 45,
+    "is_enable": true,
+    "priority": 2,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T12:00:00.000+09:00"
+  }
+}
+```
+
+#### 7.3.6 EventMappingCamera 삭제
+
+**Endpoint**: `DELETE /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingCamera ID
+
+**Request Example**:
+```http
+DELETE /api/integrations/event-mappings/10/cameras/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping camera deleted successfully",
+  "data": null
+}
+```
+
+#### 7.3.7 FK 정책 및 CASCADE 동작
+
+| 관계 | 동작 | 정책 | 설명 |
+|------|------|------|------|
+| EventMapping → EventMappingCamera | EventMapping 삭제 | `CASCADE` | 연결된 EventMappingCamera 모두 삭제 |
+| Camera → EventMappingCamera | Camera 삭제 | `SET NULL` | EventMappingCamera.camera_id → NULL |
+| CameraPreset → EventMappingCamera | CameraPreset 삭제 | `SET NULL` | target_preset_id, home_preset_id → NULL |
+
+> **참고**: Camera/CameraPreset 삭제 시 EventMappingCamera 자체는 유지되며, 연결만 해제됩니다.
+> EventMapping 삭제 시에만 EventMappingCamera가 함께 삭제됩니다.
+
+---
+
 ## 8. Server Monitoring API 설계
 
 ### 8.1 개요
@@ -4777,6 +5474,8 @@ GET /api/servers/categories/{category_id}
         "ip_address": "192.168.1.10",
         "port": 8080,
         "hostname": "vms-server-01",
+        "user_name": "admin",
+        "user_password": "password123",
         "cpu_usage": 45.0,
         "ram_usage": 62.0,
         "disk_usage": 78.0,
@@ -4925,6 +5624,8 @@ GET /api/servers
       "ip_address": "192.168.1.10",
       "port": 8080,
       "hostname": "vms-server-01",
+      "user_name": "admin",
+      "user_password": "password123",
       "cpu_usage": 45.0,
       "ram_usage": 62.0,
       "disk_usage": 78.0,
@@ -4981,6 +5682,8 @@ POST /api/servers
   "ip_address": "192.168.1.12",
   "port": 8080,
   "hostname": "vms-server-03",
+  "user_name": "admin",
+  "user_password": "password123",
   "cpu_usage": 35.0,
   "ram_usage": 48.0,
   "disk_usage": 55.0,
@@ -4996,6 +5699,8 @@ POST /api/servers
 | ip_address | string | N | IP 주소 |
 | port | integer | N | 포트 번호 |
 | hostname | string | N | 호스트명 |
+| user_name | string | N | 접속 사용자명 *(v2.4 신규)* |
+| user_password | string | N | 접속 비밀번호 *(v2.4 신규)* |
 | cpu_usage | float | N | CPU 사용률 (%) |
 | ram_usage | float | N | RAM 사용률 (%) |
 | disk_usage | float | N | 디스크 사용률 (%) |
@@ -5082,6 +5787,8 @@ GET /api/servers/summary
           "ip_address": "192.168.1.10",
           "port": 8080,
           "hostname": "vms-server-01",
+          "user_name": "admin",
+          "user_password": "password123",
           "cpu_usage": 45.0,
           "ram_usage": 62.0,
           "disk_usage": 78.0,
@@ -5325,6 +6032,14 @@ GET /api/servers/summary
 - `PUT /api/integrations/event-mappings/{id}` - 수정 (전체)
 - `DELETE /api/integrations/event-mappings/{id}` - 삭제
 
+**Event Mapping Cameras** (v2.4 신규):
+- `GET /api/integrations/event-mappings/{mapping_id}/cameras` - 카메라 연동 목록 조회
+- `POST /api/integrations/event-mappings/{mapping_id}/cameras` - 카메라 연동 생성
+- `GET /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 단일 조회
+- `PATCH /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 수정 (부분)
+- `PUT /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 수정 (전체)
+- `DELETE /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 삭제
+
 #### Server Monitoring Endpoints
 
 **Server Categories**:
@@ -5345,8 +6060,6 @@ GET /api/servers/summary
 - `GET /api/servers/summary` - 대시보드 요약 조회
 
 ### 10.2 Event-Device 리팩토링 변경사항 (v2.3)
-
-> **PRD 문서**: `docs/PRD_Event_ActionEvent_Refactoring.md` v2.1, `docs/PRD_Event_Api_Refactoring.md` v1.3
 
 #### 10.2.1 API Request 변경
 
@@ -5377,7 +6090,7 @@ GET /api/servers/summary
 | `sequence` | ✅ | ❌ **제거** | Request 전용 필드, Response에 불필요 |
 | `group_event` | ✅ | ❌ **제거** | DeviceGroup은 `device.device_groups[]`로 조회 |
 
-> **v2.3 변경 (PRD v1.3)**: Response에서 `device_id`, `sequence`, `group_event` 필드 제거됨.
+> **v2.3 변경 (v1.3)**: Response에서 `device_id`, `sequence`, `group_event` 필드 제거됨.
 
 **v2.3 Response 예시 (Device 존재)**:
 ```json
@@ -5435,14 +6148,13 @@ GET /api/servers/summary
 | `ip_address` | `string` (nullable) | Controller, Camera | IP 주소 |
 | `ip_port` | `int` (nullable) | Controller, Camera | 포트 번호 |
 | `controller_id` | `int` (nullable) | Sensor | 연결된 Controller ID |
-| `rtsp_uri` | `string` (nullable) | Camera | RTSP URI |
-| `rtsp_port` | `int` (nullable) | Camera | RTSP 포트 |
+| `urls` | `object` (nullable) | Camera | **v2.4 변경**: 카메라 URL 통합 스키마 (JSONB) |
 | `mode` | `string` (nullable) | Camera | 카메라 모드 (EnumCameraMode) |
 | `category` | `string` (nullable) | Camera | 카메라 카테고리 (EnumCameraType) |
 | `is_record` | `boolean` (nullable) | Camera | 녹화 여부 |
 | `device_groups` | `array` | 공통 | **v2.3 신규**: 소속 DeviceGroup 목록 (EventMapping 연동 필수) |
 
-> **v2.3 추가 (PRD v1.2)**: `device_groups` 필드 추가. EventMapping.device_group_id와 매칭하여 카메라 프리셋 실행에 사용.
+> **v2.3 추가 (v1.2)**: `device_groups` 필드 추가. EventMapping.device_group_id와 매칭하여 카메라 프리셋 실행에 사용.
 
 **device_groups 필드 예시**:
 ```json
@@ -5490,8 +6202,6 @@ python scripts/migrate_event_device_id.py
 
 ### 10.3 EventMapping 리팩토링 변경사항 (v2.3)
 
-> **PRD 문서**: `docs/PRD_Event_ActionEvent_Refactoring.md` v2.1
-
 #### 10.3.1 EventMapping 테이블 변경
 
 | 필드 | Before (v2.2 이전) | After (v2.3) | 설명 |
@@ -5525,7 +6235,7 @@ python scripts/migrate_event_device_id.py
 │  ─────────────  │     │  ─────────────  │     │ ─────────────   │
 │  device: {      │────►│ device_group_id │────►│ 프리셋 실행      │
 │    device_groups│     │ category_event  │     │                 │
-│    [{id: 1}]   │     │                 │     │                 │
+│    [{id: 1}]    │     │                 │     │                 │
 │  }              │     │                 │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
@@ -5544,10 +6254,11 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v2.3 | 2026-01-06 | **API 전면 리팩토링 및 Nested Response 규칙 적용**<br><br>**[1. Event API 변경]**<br>- **Request 필드 통합**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합<br>- **Response 필드 제거**: `device_id` (중복), `sequence` (완전 제거), `group_event` (`device.device_groups[]`로 대체)<br>- **Response 필드 추가**: `device` (Polymorphic), `device_description` (스냅샷)<br>- **`action_reported` 자동 관리**: Create 시 항상 "False", ActionEvent 생성/삭제 시 시스템 자동 업데이트<br>- **DB 변경**: `events.sequence` 컬럼 `NOT NULL` → `NULL` 허용 (레거시 호환)<br><br>**[2. Device Polymorphic Response]**<br>- Event Response `device` 필드가 타입별 다른 스키마 반환:<br>  • Sensor → SensorNestedResponse (controller_id 포함)<br>  • Controller → ControllerNestedResponse (ip_address, ip_port 포함)<br>  • Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)<br><br>**[3. ActionEvent API 변경]**<br>- **Request 필드 제거**: `from_type_event` 제거 - `from_event_id`만으로 원본 이벤트 참조<br>- **Request 필드명 변경**: `from_event` → `from_event_id`<br>- **Polymorphic Relationship**: `from_event_id`가 `events.id` FK를 참조하여 이벤트 타입 자동 확인<br><br>**[4. Nested Response 규칙 일관성 적용]**<br>- **규칙**: 주체 Entity만 `created_at`, `updated_at` 포함, Nested 객체는 제외<br>- **Device API**: `device_groups`, `sensors` nested 객체에서 timestamp 제거<br>- **Sensor API**: `controller` nested 객체에서 timestamp 제거, `include_controller` 파라미터 추가<br>- **Camera Preset API**: `rois`, `points` nested 객체에서 timestamp 제거<br>- **신규 스키마**: `ControllerNestedResponse`, `ROINestedResponse`, `ROIListNestedResponse`, `XyPointNestedResponse`<br><br>**[5. Device `number_device` unique 제약 해제]**<br>- **변경**: 동일한 장치 번호를 여러 디바이스에서 사용 가능<br>- **스키마**: `number_device` 설명에서 "(유니크)" 제거, 409 중복 에러 제거<br>- **확인**: DB 스키마와 모델 모두 이미 `unique=False` 상태<br><br>**[6. EventMapping API 변경]**<br>- `group_event` (VARCHAR) → `device_group_id` (INTEGER FK) 변경<br>- 쿼리 파라미터: `?group_event=xxx` → `?device_group_id=1`<br><br>**[7. 문서 업데이트]**<br>- 10.3 EventMapping 리팩토링 변경사항 추가<br>- Camera PATCH/PUT API: `is_record`, `hardware_spec`, `geolocation`, `group_ids` 필드 추가<br>- PRD 참조: v1.3, v1.5, v2.2, v2.7, v2.8, v2.9 |
-| v2.2 | 2025-12-31 | **Event-Device 관계 리팩토링 (PRD v1.1)**<br>- **[변경] Event API Request**: `controller`, `sensor`, `type_device` 3개 필드 → `device_id` 단일 FK로 통합<br>- **[변경] Event API Response**: `device` nested 객체 추가 (Optional, Device 삭제 시 null)<br>- **[신규] `device_description` 필드**: Device 정보 스냅샷 자동 생성 (형식: `[{type_device}] {name_device} (number: {number_device}, id: {id})`)<br>- **[중요] Event 영속성 보장**: Device 삭제 시 Event.device_id → NULL (CASCADE 금지, SET NULL 사용)<br>- **[중요] device_description 유지**: Device 삭제 후에도 device_description은 보존되어 과거 Device 정보 참조 가능<br>- Detection/Malfunction/Connection Event 모두 동일한 패턴 적용<br>- Action Event의 `from_event` 내에도 `device`, `device_description` 포함<br>- 마이그레이션 스크립트 추가: `scripts/migrate_event_device_id.py`<br>- PRD 문서: `docs/PRD_Event_Device_Refactoring.md` v1.1 참조 |
+| v2.4 | 2026-01-07 | **Camera URLs JSONB 통합, EventMappingCamera API 추가, Server 인증 필드 추가, Speaker Device API 추가**<br><br>**[1. Camera URL 스키마 변경]**<br>- **rtsp_uri, rtsp_port 제거** → `urls` JSONB 필드로 통합<br>- **유연한 dict 기반 구조**: homepage, onvif, streams, snapshot 등<br>- **Example**: `{"homepage": {"url": "http://..."}, "streams": {"rtsp": {"main": "rtsp://...", "sub": "rtsp://..."}, "webrtc": {"main": "https://..."}}, "onvif": {"device_service": "http://..."}, "snapshot": {"ch1": "http://..."}}`<br><br>**[2. EventMappingCamera API 신규 (7.3 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/cameras`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 정책**: EventMapping CASCADE, Camera/CameraPreset SET NULL<br>- **Nested Response**: camera, target_preset, home_preset 포함 (timestamp 제외)<br>- **레거시 CameraEventMappings API 제거**: `/api/integrations/camera-event-mappings` 엔드포인트 및 Swagger 태그 삭제<br><br>**[3. DeviceNestedResponse 변경]**<br>- `rtsp_uri`, `rtsp_port` 필드 제거, `urls` 필드 추가<br><br>**[4. Server 인증 정보 필드 추가]**<br>- **Server 모델 필드 추가**: `user_name` (VARCHAR(100)), `user_password` (VARCHAR(200))<br>- 서버 접속 인증 정보 저장 지원<br>- Server Create/Update Request 및 Response에 필드 추가<br><br>**[5. Speaker Device API 신규]**<br>- **[신규] 5.8 Speaker API**: `/api/devices/speakers` - Device Polymorphic 상속 구조<br>- **[신규] 5.9 FileGroup API**: `/api/file-groups` - 방송음원 파일풀 관리<br>- **EnumDeviceCategory 확장**: `SPEAKER = "speaker"` 추가<br>- **EnumSpeakerType 신규**: NORMAL, ADMIN, MONITOR, DEV<br>- **Speaker 테이블**: id (FK/PK → devices), speaker_type, server_id (FK → servers), description<br>- **FileGroup 테이블**: id, server_id (FK), group_id, group_name, files (JSONB)<br>- **Nested Response**: Speaker Response에서 `server` 객체로 Server 전체 정보 제공 (created_at, updated_at 제외)<br>- **FK 정책**: Speaker.server_id → SET NULL, FileGroup.server_id → CASCADE |
+| v2.3 | 2026-01-06 | **API 전면 리팩토링 및 Nested Response 규칙 적용**<br><br>**[1. Event API 변경]**<br>- **Request 필드 통합**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합<br>- **Response 필드 제거**: `device_id` (중복), `sequence` (완전 제거), `group_event` (`device.device_groups[]`로 대체)<br>- **Response 필드 추가**: `device` (Polymorphic), `device_description` (스냅샷)<br>- **`action_reported` 자동 관리**: Create 시 항상 "False", ActionEvent 생성/삭제 시 시스템 자동 업데이트<br>- **DB 변경**: `events.sequence` 컬럼 `NOT NULL` → `NULL` 허용 (레거시 호환)<br><br>**[2. Device Polymorphic Response]**<br>- Event Response `device` 필드가 타입별 다른 스키마 반환:<br>  • Sensor → SensorNestedResponse (controller_id 포함)<br>  • Controller → ControllerNestedResponse (ip_address, ip_port 포함)<br>  • Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)<br><br>**[3. ActionEvent API 변경]**<br>- **Request 필드 제거**: `from_type_event` 제거 - `from_event_id`만으로 원본 이벤트 참조<br>- **Request 필드명 변경**: `from_event` → `from_event_id`<br>- **Polymorphic Relationship**: `from_event_id`가 `events.id` FK를 참조하여 이벤트 타입 자동 확인<br><br>**[4. Nested Response 규칙 일관성 적용]**<br>- **규칙**: 주체 Entity만 `created_at`, `updated_at` 포함, Nested 객체는 제외<br>- **Device API**: `device_groups`, `sensors` nested 객체에서 timestamp 제거<br>- **Sensor API**: `controller` nested 객체에서 timestamp 제거, `include_controller` 파라미터 추가<br>- **Camera Preset API**: `rois`, `points` nested 객체에서 timestamp 제거<br>- **신규 스키마**: `ControllerNestedResponse`, `ROINestedResponse`, `ROIListNestedResponse`, `XyPointNestedResponse`<br><br>**[5. Device `number_device` unique 제약 해제]**<br>- **변경**: 동일한 장치 번호를 여러 디바이스에서 사용 가능<br>- **스키마**: `number_device` 설명에서 "(유니크)" 제거, 409 중복 에러 제거<br>- **확인**: DB 스키마와 모델 모두 이미 `unique=False` 상태<br><br>**[6. EventMapping API 변경]**<br>- `group_event` (VARCHAR) → `device_group_id` (INTEGER FK) 변경<br>- 쿼리 파라미터: `?group_event=xxx` → `?device_group_id=1`<br><br>**[7. 문서 업데이트]**<br>- 10.3 EventMapping 리팩토링 변경사항 추가<br>- Camera PATCH/PUT API: `is_record`, `hardware_spec`, `geolocation`, `group_ids` 필드 추가<br>-  참조: v1.3, v1.5, v2.2, v2.7, v2.8, v2.9 |
+| v2.2 | 2025-12-31 | **Event-Device 관계 리팩토링 ( v1.1)**<br>- **[변경] Event API Request**: `controller`, `sensor`, `type_device` 3개 필드 → `device_id` 단일 FK로 통합<br>- **[변경] Event API Response**: `device` nested 객체 추가 (Optional, Device 삭제 시 null)<br>- **[신규] `device_description` 필드**: Device 정보 스냅샷 자동 생성 (형식: `[{type_device}] {name_device} (number: {number_device}, id: {id})`)<br>- **[중요] Event 영속성 보장**: Device 삭제 시 Event.device_id → NULL (CASCADE 금지, SET NULL 사용)<br>- **[중요] device_description 유지**: Device 삭제 후에도 device_description은 보존되어 과거 Device 정보 참조 가능<br>- Detection/Malfunction/Connection Event 모두 동일한 패턴 적용<br>- Action Event의 `from_event` 내에도 `device`, `device_description` 포함<br>- 마이그레이션 스크립트 추가: `scripts/migrate_event_device_id.py`<br>-  v1.1 참조 |
 | v2.1 | 2025-12-31 | **Camera Preset, ROI, XyPoint API 추가**<br>- **[신규] 5.5 Camera Preset API**: PTZ 카메라 프리셋 CRUD API 추가<br>- **[신규] 5.6 ROI API**: Region of Interest CRUD API 추가 (`include_points` 파라미터 지원)<br>- **[신규] 5.7 XyPoint API**: ROI 다각형 꼭지점 좌표 CRUD API 추가<br>- 계층 구조: Camera → CameraPreset → ROI → XyPoint (1:N:N:N)<br>- CameraPreset 목록 조회 시 `include_rois` 파라미터로 ROI 정보 포함 가능<br>- ROI 목록 조회 시 `include_points` 파라미터로 Points 정보 포함 가능<br>- CameraPreset 상세 조회 시 ROI 및 Points 전체 중첩 구조 반환<br>- XyPoint 일괄 수정(PUT) 시 기존 포인트 전체 교체 방식<br>- CASCADE DELETE 지원: Camera 삭제 시 Preset → ROI → XyPoint 순차 삭제<br>- 부록 10.1 Endpoint 목록에 Camera Presets, ROIs, XyPoints 섹션 추가 |
-| v2.0 | 2025-12-31 | **Device Group N:N 관계 및 폴리모픽 응답 지원**<br>- **[신규] EnumDeviceCategory**: 디바이스 카테고리 Enum 추가 (controller, sensor, camera) - Polymorphic Discriminator<br>- **[신규] 5.4 DeviceGroup API**: 디바이스 그룹 CRUD 및 디바이스 할당/제거 API 추가<br>- DeviceGroup 상세 조회 시 폴리모픽 디바이스 목록 반환 (Controller/Sensor/Camera 타입별 다른 필드)<br>- **Controller API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Sensor API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Camera API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가, `is_record`, `hardware_spec`, `geolocation` 필드 추가<br>- Camera `hardware_spec`: 제조사, 모델명, 펌웨어, MAC주소, ONVIF버전 등 JSON 객체<br>- Camera `geolocation`: 위도, 경도, 고도, 설치위치 등 JSON 객체<br>- `version` 필드 nullable 변경 (PRD v1.2 반영) |
+| v2.0 | 2025-12-31 | **Device Group N:N 관계 및 폴리모픽 응답 지원**<br>- **[신규] EnumDeviceCategory**: 디바이스 카테고리 Enum 추가 (controller, sensor, camera) - Polymorphic Discriminator<br>- **[신규] 5.4 DeviceGroup API**: 디바이스 그룹 CRUD 및 디바이스 할당/제거 API 추가<br>- DeviceGroup 상세 조회 시 폴리모픽 디바이스 목록 반환 (Controller/Sensor/Camera 타입별 다른 필드)<br>- **Controller API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Sensor API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가<br>- **Camera API 업데이트**: `device_groups` 배열 필드 추가 (응답), `group_ids` 배열 필드 추가 (요청), `group_id` 쿼리 파라미터 추가, `is_record`, `hardware_spec`, `geolocation` 필드 추가<br>- Camera `hardware_spec`: 제조사, 모델명, 펌웨어, MAC주소, ONVIF버전 등 JSON 객체<br>- Camera `geolocation`: 위도, 경도, 고도, 설치위치 등 JSON 객체<br>- `version` 필드 nullable 변경 (v1.2 반영) |
 | v1.9 | 2025-12-29 | **Server Monitoring API 추가**<br>- 섹션 8 Server Monitoring API 설계 신규 추가<br>- `EnumServerType` (26종): VMS, NVR_API, STREAMING, AI_ANALYSIS 등 서버 유형 정의<br>- `EnumServerStatus` (3종): NORMAL, WARNING, ERROR 서버 상태 정의<br>- Server Category CRUD API: `GET/POST/PATCH/PUT/DELETE /api/servers/categories`<br>- Server Instance CRUD API: `GET/POST/PATCH/PUT/DELETE /api/servers`<br>- Dashboard Summary API: `GET /api/servers/summary` (카테고리별 상태 요약)<br>- 9개 기본 서버 카테고리 Seed 데이터 정의<br>- Category 삭제 시 하위 Server Cascade 삭제 지원 |
 | v1.8 | 2025-11-29 | **Enum 타입 통합 및 정리**<br>- 모든 Enum 정의를 `app/utils/enums.py`로 통합 (Single Source of Truth)<br>- `app/models/event.py`, `app/models/device.py`에서 중복 Enum 정의 제거<br>- `EnumCameraType`에서 `FISHEYES`, `THERMAL` 제거 (사용하지 않음)<br>- `EnumTrueFalse`는 Python 키워드 충돌 방지를 위해 `False_`, `True_` 사용<br>- `EnumEventType`에서 `None_` 사용 (Python None 키워드 충돌 방지)<br>- `_missing_` 메서드로 "False"→`False_`, "True"→`True_`, "None"→`None_` 자동 매핑 |
 | v1.7 | 2025-11-27 | **Phase 28: CameraEventPreset URL Schema Refactor**<br>- `CameraEventPreset.rtsp_uri` 단일 필드 → `urls` 객체로 변경<br>- `urls` 객체 구조: `{ "live": "rtsp://...", "record": "rtsp://..." }`<br>- DB 컬럼 변경: `rtsp_uri` → `url_live`, `url_record` 분리<br>- 모든 CameraEventMapping API 영향 (GET/POST/PUT/PATCH)<br>- Breaking Change: API Request/Response 구조 변경 |
@@ -5560,5 +6271,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v2.3
-**최종 업데이트**: 2026-01-06
+**문서 버전**: v2.4
+**최종 업데이트**: 2026-01-07

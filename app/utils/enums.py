@@ -12,11 +12,13 @@ class EnumDeviceCategory(str, Enum):
     Used for Joined Table Inheritance discriminator in Device model.
     PRD: PRD_Device_Inheritance_Structure_Refactoring.md Section 8.1
     PRD: PRD_Speaker_Device.md - SPEAKER added (v2.5)
+    PRD: PRD_Enclosure_Device.md v1.1 - ENCLOSURE added (v2.6)
     """
     CONTROLLER = "controller"
     SENSOR = "sensor"
     CAMERA = "camera"
     SPEAKER = "speaker"  # v2.5: Speaker Device
+    ENCLOSURE = "enclosure"  # v2.6: Enclosure Device (함체관리장비)
 
 
 class EnumDeviceType(str, Enum):
@@ -121,7 +123,25 @@ class EnumTrueFalse(str, Enum):
 
 
 class EnumEventCategory(str, Enum):
-    """Event category enumeration for CameraEventMapping (C# EnumEventCategory)"""
+    """
+    Event category enumeration for Event polymorphic discriminator.
+    PRD: PRD_CategoryEvent_Refactoring.md Section 2.1.1
+
+    Used for Event model's category_event field (detection, malfunction, connection).
+    """
+    DETECTION = "detection"       # 침입 탐지 이벤트
+    MALFUNCTION = "malfunction"   # 장애 이벤트
+    CONNECTION = "connection"     # 연결 이벤트
+
+
+class EnumMappingEventCategory(str, Enum):
+    """
+    Mapping event category enumeration for EventMapping sensor combination type.
+    PRD: PRD_CategoryEvent_Refactoring.md Section 2.1.2
+
+    Used for EventMapping model's category_event_mapping field.
+    (Renamed from EnumEventCategory to avoid confusion)
+    """
     NONE = "NONE"                                       # 미정의
     FENCE_SENSOR_ONLY = "FENCE_SENSOR_ONLY"             # 펜스센서 단독
     FENCE_SENSOR_WITH_MULTI_SENSOR = "FENCE_SENSOR_WITH_MULTI_SENSOR"  # 펜스센서와 멀티센서 And 조건
@@ -143,7 +163,7 @@ class EnumEventCategory(str, Enum):
 
 
 # Backward compatibility alias
-EnumCategoryEvent = EnumEventCategory
+EnumCategoryEvent = EnumMappingEventCategory
 
 
 class EnumSpeakerType(str, Enum):
@@ -210,3 +230,21 @@ class EnumServerStatus(str, Enum):
     NORMAL = "NORMAL"       # 정상 (녹색)
     WARNING = "WARNING"     # 경고 (노란색)
     ERROR = "ERROR"         # 오류 (빨간색)
+
+
+class EnumDoorStatus(str, Enum):
+    """
+    Door status enumeration for Enclosure device
+    PRD: PRD_Enclosure_Device.md v1.1 Section 3.1.1
+
+    Physical door sensor state (separate from EnumDeviceStatus operational state).
+    - CLOSED: 도어 닫힘 (정상 운영 상태)
+    - OPEN: 도어 열림 (센서 감지)
+
+    운영 로직:
+    - status=ACTIVATED + door_status=OPEN → 비정상 개방 알람 발생
+    - status=DEACTIVATED + door_status=OPEN → 점검 중이므로 알람 무시
+    - status=ERROR → 함체 이상 상태
+    """
+    CLOSED = "CLOSED"  # 도어 닫힘
+    OPEN = "OPEN"      # 도어 열림

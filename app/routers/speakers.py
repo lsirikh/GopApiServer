@@ -1,6 +1,7 @@
 """
 Speaker API endpoints
 PRD: PRD_Speaker_Device.md - Section 6.1
+PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation JSONB 추가
 URL Pattern: /api/devices/speakers (Device 하위 리소스)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -10,11 +11,10 @@ import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
-from app.models.speaker import Speaker
+from app.models.device import Speaker
 from app.models.server import Server
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType
-from app.schemas.speaker import SpeakerCreate, SpeakerUpdate, SpeakerResponse
-from app.schemas.server import ServerNestedResponse
+from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse, ServerNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
 router = APIRouter(tags=["Speakers"])
@@ -54,6 +54,7 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
         updated_at=speaker.updated_at,
         speaker_type=speaker.speaker_type.value,
         description=speaker.description,
+        geolocation=speaker.geolocation,  # PRD_Speaker_Geolocation.md v1.0
         server=server_nested
     )
 
@@ -188,6 +189,11 @@ async def create_speaker(
                 detail=f"Server with id {speaker_data.server_id} not found"
             )
 
+    # PRD_Speaker_Geolocation.md v1.0: geolocation 처리
+    geolocation_dict = None
+    if speaker_data.geolocation:
+        geolocation_dict = speaker_data.geolocation.model_dump(exclude_none=True)
+
     # Create new speaker
     new_speaker = Speaker(
         number_device=speaker_data.number_device,
@@ -198,7 +204,8 @@ async def create_speaker(
         status=speaker_data.status,
         speaker_type=speaker_data.speaker_type,
         server_id=speaker_data.server_id,
-        description=speaker_data.description
+        description=speaker_data.description,
+        geolocation=geolocation_dict  # PRD_Speaker_Geolocation.md v1.0
     )
 
     db.add(new_speaker)
@@ -260,6 +267,11 @@ async def update_speaker(
                 detail=f"Server with id {update_data['server_id']} not found"
             )
 
+    # PRD_Speaker_Geolocation.md v1.0: geolocation 처리
+    if "geolocation" in update_data and update_data["geolocation"] is not None:
+        # Pydantic dict로 변환
+        update_data["geolocation"] = {k: v for k, v in update_data["geolocation"].items() if v is not None}
+
     for field, value in update_data.items():
         setattr(speaker, field, value)
 
@@ -315,6 +327,11 @@ async def replace_speaker(
                 detail=f"Server with id {speaker_data.server_id} not found"
             )
 
+    # PRD_Speaker_Geolocation.md v1.0: geolocation 처리
+    geolocation_dict = None
+    if speaker_data.geolocation:
+        geolocation_dict = speaker_data.geolocation.model_dump(exclude_none=True)
+
     # Replace all fields
     speaker.number_device = speaker_data.number_device
     speaker.group_device = speaker_data.group_device
@@ -325,6 +342,7 @@ async def replace_speaker(
     speaker.speaker_type = speaker_data.speaker_type
     speaker.server_id = speaker_data.server_id
     speaker.description = speaker_data.description
+    speaker.geolocation = geolocation_dict  # PRD_Speaker_Geolocation.md v1.0
 
     db.commit()
     db.refresh(speaker)

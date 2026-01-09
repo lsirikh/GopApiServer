@@ -10,17 +10,16 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.dependencies import get_db
-from app.models.integration import EventMapping
-from app.models.event_mapping_camera import EventMappingCamera
+from app.models.integration import EventMapping, EventMappingCamera
 from app.models.device import Camera
 from app.models.camera_preset import CameraPreset
 from app.models.device_group import DeviceGroupMapping
-from app.schemas.event_mapping_camera import (
+from app.schemas.integration import (
     EventMappingCameraCreate,
     EventMappingCameraUpdate,
     EventMappingCameraResponse,
     EventMappingCameraListResponse,
-    CameraNestedResponse,
+    CameraNestedResponseIntegration as CameraNestedResponse,
     PresetNestedResponse
 )
 from app.schemas.device import DeviceGroupNestedResponse

@@ -1,32 +1,40 @@
 """
-Integration schemas: EventMapping, CameraEventMapping, CameraEventPreset
+Integration schemas: EventMapping, EventMappingCamera
+
+PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+PRD: PRD_CameraEventMapping_Refactoring.md v2.1
+PRD: PRD_CategoryEvent_Refactoring.md v1.1
 """
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, List
 
+from app.schemas.device import (
+    CameraUrls,
+    HardwareSpec,
+    Geolocation,
+    DeviceGroupNestedResponse
+)
+from app.utils.enums import EnumMappingEventCategory
+
 
 # ============================================
-# Phase 28: CameraUrls Schema
+# EventMapping Schemas
 # ============================================
-
-class CameraUrls(BaseModel):
-    """Schema for camera URL configuration (live/record streams)"""
-    live: Optional[str] = None
-    record: Optional[str] = None
-
 
 class EventMappingCreate(BaseModel):
     """
     Schema for creating a new EventMapping
 
     PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    PRD: PRD_CategoryEvent_Refactoring.md v1.1
     - group_event 필드 제거됨
     - device_group_id: DeviceGroup FK
+    - category_event → category_event_mapping 변경
     """
     name_event: str
     device_group_id: Optional[int] = None
-    category_event: str
+    category_event_mapping: EnumMappingEventCategory
     description: Optional[str] = None
     status: bool = True
 
@@ -36,13 +44,15 @@ class EventMappingResponse(BaseModel):
     Schema for EventMapping response
 
     PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    PRD: PRD_CategoryEvent_Refactoring.md v1.1
     - group_event 필드 제거됨
     - device_group_id: DeviceGroup FK
+    - category_event → category_event_mapping 변경
     """
     id: int
     name_event: str
     device_group_id: Optional[int] = None
-    category_event: str
+    category_event_mapping: EnumMappingEventCategory
     description: Optional[str]
     status: bool
     created_at: datetime
@@ -56,74 +66,144 @@ class EventMappingUpdate(BaseModel):
     Schema for updating an EventMapping (all fields optional for PATCH)
 
     PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    PRD: PRD_CategoryEvent_Refactoring.md v1.1
     - group_event 필드 제거됨
+    - category_event → category_event_mapping 변경
     """
     name_event: Optional[str] = None
     device_group_id: Optional[int] = None
-    category_event: Optional[str] = None
+    category_event_mapping: Optional[EnumMappingEventCategory] = None
     description: Optional[str] = None
     status: Optional[bool] = None
 
 
 # ============================================
-# CameraEventMapping and CameraEventPreset Schemas
+# EventMappingCamera Nested Response Schemas
 # ============================================
 
-class CameraEventPresetCreate(BaseModel):
-    """Schema for creating a new CameraEventPreset"""
-    cam_id: int
-    urls: Optional[CameraUrls] = None  # Phase 28: Changed from rtsp_uri
-    category: str
-    preset_id: Optional[str] = None
-    preset_time: int = 0
-    home_preset: int = 0
-    home_time: int = 0
+class CameraNestedResponseIntegration(BaseModel):
+    """
+    카메라 Nested 응답 - Full Property (timestamp 제외)
 
-
-class CameraEventPresetResponse(BaseModel):
-    """Schema for CameraEventPreset response"""
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5.2.1
+    PRD: PRD_Camera_Urls_JsonB.md
+    """
     id: int
-    cam_id: int
-    urls: Optional[CameraUrls] = None  # Phase 28: Changed from rtsp_uri
+    number_device: int
+    group_device: int
+    name_device: str
+    type_device: str
+    version: Optional[str] = None
+    status: str
+    ip_address: str
+    ip_port: int
+    mode: str
     category: str
-    preset_id: Optional[str]
-    preset_time: int
-    home_preset: int
-    home_time: int
+    is_record: bool = False
+    hardware_spec: Optional[HardwareSpec] = None
+    geolocation: Optional[Geolocation] = None
+    urls: Optional[CameraUrls] = None
+    device_groups: List[DeviceGroupNestedResponse] = Field(default=[])
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class CameraEventMappingCreate(BaseModel):
-    """Schema for creating a new CameraEventMapping"""
-    name_event: str
-    group_event: str
-    category_event: str
-    description: Optional[str] = None
-    status: bool = True
-    camera_presets: List[CameraEventPresetCreate] = []
+class PresetNestedResponse(BaseModel):
+    """
+    프리셋 Nested 응답 - Full Property (timestamp 제외)
 
-
-class CameraEventMappingResponse(BaseModel):
-    """Schema for CameraEventMapping response"""
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5.2.1
+    """
     id: int
-    name_event: str
-    group_event: str
-    category_event: str
-    description: Optional[str]
-    status: bool
-    camera_presets: List[CameraEventPresetResponse]
+    camera_id: int
+    camera_name: str
+    preset_index: int
+    preset_name: str
+    touring_time: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# EventMappingCamera Create/Update Schemas
+# ============================================
+
+class EventMappingCameraCreate(BaseModel):
+    """
+    카메라 연동 생성 스키마
+
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5.2.2
+    """
+    camera_id: int = Field(..., description="대상 카메라 ID")
+    target_preset_id: Optional[int] = Field(None, description="이벤트 발생 시 이동할 프리셋 ID")
+    home_preset_id: Optional[int] = Field(None, description="홈 복귀 프리셋 ID")
+    delay_time: int = Field(0, ge=0, description="target_preset 도착 후 대기 시간 (초)")
+    is_enable: bool = Field(True, description="활성화 여부")
+    priority: Optional[int] = Field(None, ge=0, description="실행 우선순위 (Optional)")
+
+
+class EventMappingCameraUpdate(BaseModel):
+    """
+    카메라 연동 수정 스키마 (PATCH)
+
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5.2.3
+    """
+    camera_id: Optional[int] = None
+    target_preset_id: Optional[int] = None
+    home_preset_id: Optional[int] = None
+    delay_time: Optional[int] = Field(None, ge=0)
+    is_enable: Optional[bool] = None
+    priority: Optional[int] = Field(None, ge=0)
+
+
+# ============================================
+# EventMappingCamera Response Schemas
+# ============================================
+
+class EventMappingCameraResponse(BaseModel):
+    """
+    카메라 연동 응답 스키마 (주체용 - timestamp 포함)
+
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5.2.1
+    """
+    id: int
+    event_mapping_id: int
+    camera: Optional[CameraNestedResponseIntegration] = None
+    target_preset: Optional[PresetNestedResponse] = None
+    home_preset: Optional[PresetNestedResponse] = None
+    delay_time: int
+    is_enable: bool
+    priority: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class CameraEventMappingUpdate(BaseModel):
-    """Schema for updating a CameraEventMapping (all fields optional for PATCH)"""
-    name_event: Optional[str] = None
-    group_event: Optional[str] = None
-    category_event: Optional[str] = None
-    description: Optional[str] = None
-    status: Optional[bool] = None
-    camera_presets: Optional[List[CameraEventPresetCreate]] = None
+class EventMappingCameraNestedResponse(BaseModel):
+    """
+    카메라 연동 Nested 응답 (EventMapping 내 nested용 - timestamp 제외)
+
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 6.1
+    """
+    id: int
+    camera: Optional[CameraNestedResponseIntegration] = None
+    target_preset: Optional[PresetNestedResponse] = None
+    home_preset: Optional[PresetNestedResponse] = None
+    delay_time: int
+    is_enable: bool
+    priority: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EventMappingCameraListResponse(BaseModel):
+    """
+    카메라 연동 목록 응답 스키마
+
+    PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5.2.1
+    """
+    items: List[EventMappingCameraResponse]
+    total: int
+
+    model_config = ConfigDict(from_attributes=True)

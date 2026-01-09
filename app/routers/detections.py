@@ -257,6 +257,7 @@ async def get_detection_event(
     # PRD v2.1: Include device nested and device_description (group_event 제거됨)
     # PRD v1.3: device_id, sequence 필드 제거
     # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Detail_JsonB.md v1.0: detail JSONB 필드 추가
     event_response = DetectionEventResponse(
         id=event.id,
         type_event=event.type_event,
@@ -264,6 +265,7 @@ async def get_detection_event(
         result=event.result.value,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
+        detail=event.detail,  # PRD_Event_Detail_JsonB.md v1.0
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -323,13 +325,15 @@ async def create_detection_event(
     # Create new detection event with device_id
     # PRD v2.1: group_event, sequence 필드 제거됨
     # PRD v2.8: action_reported는 항상 "False"로 시작 (시스템 자동 관리)
+    # PRD_Event_Detail_JsonB.md v1.0: detail JSONB 필드 추가
     new_event = DetectionEvent(
         category_event="detection",  # Polymorphic discriminator
         type_event=event_data.type_event,
         device_id=event_data.device_id,
         device_description=device_description,
         action_reported=EnumTrueFalse.False_,  # PRD v2.8: 자동 설정
-        result=event_result
+        result=event_result,
+        detail=event_data.detail  # PRD_Event_Detail_JsonB.md v1.0
     )
 
     db.add(new_event)
@@ -339,6 +343,7 @@ async def create_detection_event(
     # PRD v2.1: Include device nested in response (group_event 제거됨)
     # PRD v1.3: device_id, sequence 필드 제거
     # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Detail_JsonB.md v1.0: detail JSONB 필드 추가
     event_response = DetectionEventResponse(
         id=new_event.id,
         type_event=new_event.type_event,
@@ -346,6 +351,7 @@ async def create_detection_event(
         result=new_event.result.value,
         device=_build_device_nested_response(device),
         device_description=new_event.device_description,
+        detail=new_event.detail,  # PRD_Event_Detail_JsonB.md v1.0
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )
@@ -423,6 +429,7 @@ async def update_detection_event(
     db.refresh(event)
 
     # PRD v2.1: Response with device nested
+    # PRD_Event_Detail_JsonB.md v1.0: detail 필드 포함
     event_response = DetectionEventResponse(
         id=event.id,
         type_event=event.type_event,
@@ -430,6 +437,7 @@ async def update_detection_event(
         result=event.result.value,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )

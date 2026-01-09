@@ -1,10 +1,11 @@
 """
-Device models: Device (Base), Controller, Sensor, Camera
+Device models: Device (Base), Controller, Sensor, Camera, Speaker, Enclosure
 PRD: PRD_Device_Structure_Refactoring.md - Section 3.1
+PRD: PRD_Enclosure_Device.md v1.1 - Enclosure Device
 
 Polymorphic Inheritance using Joined Table strategy.
 - Device: Base table with common fields + category_device discriminator
-- Controller, Sensor, Camera: Child tables with specific fields
+- Controller, Sensor, Camera, Speaker, Enclosure: Child tables with specific fields
 """
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
@@ -12,7 +13,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.config import settings
-from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType, EnumDeviceCategory
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType, EnumDeviceCategory, EnumSpeakerType, EnumDoorStatus
 
 
 class Device(Base):
@@ -38,6 +39,8 @@ class Device(Base):
         - "controller" -> Controller
         - "sensor" -> Sensor
         - "camera" -> Camera
+        - "speaker" -> Speaker
+        - "enclosure" -> Enclosure
     """
     __tablename__ = "devices"
 
@@ -93,6 +96,7 @@ class Controller(Device):
     # Controller-specific fields
     ip_address = Column(String(50), nullable=False)
     ip_port = Column(Integer, nullable=False)
+    geolocation = Column(JSON, nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -131,6 +135,7 @@ class Sensor(Device):
 
     # Sensor-specific fields
     controller_id = Column(Integer, ForeignKey("controllers.id"), nullable=False, index=True)
+    geolocation = Column(JSON, nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -197,4 +202,135 @@ class Camera(Device):
             f"<Camera(id={self.id}, number_device={self.number_device}, "
             f"name_device='{self.name_device}', status='{self.status.value}', "
             f"mode='{self.mode.value}', category='{self.category.value}')>"
+        )
+
+
+class Speaker(Device):
+    """
+    Speaker model for managing IP Speaker devices.
+    Inherits from Device using Joined Table Inheritance.
+
+    PRD: PRD_Speaker_Device.md - Section 4.1, 4.2
+    PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation JSONB 추가
+
+    Additional Attributes:
+        speaker_type: Speaker type (EnumSpeakerType: NORMAL, ADMIN, MONITOR, DEV)
+        server_id: FK to Server (SPEAKER_API type), SET NULL on delete
+        description: Description text
+        geolocation: JSONB for location info (v2.6)
+    """
+    __tablename__ = "speakers"
+
+    # Foreign key to devices table (Joined Table Inheritance)
+    id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+
+    # Speaker-specific fields
+    speaker_type = Column(
+        SQLEnum(EnumSpeakerType),
+        nullable=False,
+        default=EnumSpeakerType.NORMAL
+    )
+    server_id = Column(
+        Integer,
+        ForeignKey("servers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    description = Column(String(500), nullable=True)
+    # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
+    geolocation = Column(JSON, nullable=True, default=None)
+
+    # Polymorphic identity
+    __mapper_args__ = {
+        "polymorphic_identity": EnumDeviceCategory.SPEAKER
+    }
+
+    # Relationship to Server
+    server = relationship("Server", foreign_keys=[server_id])
+
+    def __repr__(self):
+        return (
+            f"<Speaker(id={self.id}, number_device={self.number_device}, "
+            f"name_device='{self.name_device}', status='{self.status.value}', "
+            f"speaker_type='{self.speaker_type.value}', server_id={self.server_id})>"
+        )
+
+
+class Enclosure(Device):
+    """
+    함체관리장비 모델 (Enclosure Device)
+    Inherits from Device using Joined Table Inheritance.
+
+    PRD: PRD_Enclosure_Device.md v1.1
+
+    상속 필드 (Device):
+        - status: EnumDeviceStatus (ACTIVATED/DEACTIVATED/ERROR) - 장비 운영 상태
+        - number_device, name_device, type_device, etc.
+
+    고유 필드 (Enclosure):
+        - door_status: EnumDoorStatus (CLOSED/OPEN) - 도어 물리적 상태 (센서 감지)
+        - detail_info: JSONB - 환경 모니터링 데이터 (temperature, humidity, current, voltage, vibration)
+        - geolocation: JSONB - 위치 정보 (location, latitude, longitude, altitude)
+        - threshold_config: JSONB - 알람 임계값 설정
+        - heater_enabled: Boolean - 히터 활성화 상태
+        - fan_enabled: Boolean - 팬 활성화 상태
+
+    운영 로직:
+        - status=ACTIVATED + door_status=OPEN → 비정상 개방 알람 발생
+        - status=DEACTIVATED + door_status=OPEN → 점검 중이므로 알람 무시
+        - status=ERROR → 함체 이상 상태
+    """
+    __tablename__ = "enclosures"
+
+    # Foreign key to devices table (Joined Table Inheritance)
+    id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+
+    # Enclosure-specific fields
+    door_status = Column(
+        SQLEnum(EnumDoorStatus),
+        nullable=False,
+        default=EnumDoorStatus.CLOSED,
+        comment="도어 물리적 상태 (CLOSED/OPEN) - 센서 감지"
+    )
+    detail_info = Column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment="환경 모니터링 데이터 (temperature, humidity, current, voltage, vibration)"
+    )
+    geolocation = Column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment="위치 정보 (location, latitude, longitude, altitude)"
+    )
+    threshold_config = Column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment="알람 임계값 설정"
+    )
+    heater_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="히터 활성화 상태"
+    )
+    fan_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="팬 활성화 상태"
+    )
+
+    # Polymorphic identity
+    __mapper_args__ = {
+        "polymorphic_identity": EnumDeviceCategory.ENCLOSURE
+    }
+
+    def __repr__(self):
+        return (
+            f"<Enclosure(id={self.id}, number_device={self.number_device}, "
+            f"name_device='{self.name_device}', status='{self.status.value}', "
+            f"door_status='{self.door_status.value}')>"
         )

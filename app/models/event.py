@@ -7,12 +7,12 @@ PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - device_description: Device 정보 스냅샷 (Device 삭제 후에도 유지)
 - group_event 필드 제거됨
 """
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime as dt
 
 from app.database import Base
-from app.utils.enums import EnumDeviceType, EnumDetectionType, EnumFaultType, EnumTrueFalse
+from app.utils.enums import EnumDeviceType, EnumDetectionType, EnumFaultType, EnumTrueFalse, EnumEventCategory
 from app.config import settings
 
 
@@ -37,8 +37,9 @@ class Event(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
     # ===== Polymorphic Discriminator =====
+    # PRD: PRD_CategoryEvent_Refactoring.md - Enum 타입으로 변경
     category_event = Column(
-        String(50),
+        SQLEnum(EnumEventCategory),
         nullable=False,
         index=True,
         doc="이벤트 분류 (detection/malfunction/connection)"
@@ -132,6 +133,13 @@ class DetectionEvent(Event):
         doc="탐지 결과 (THERMAL_SENSOR, PIR_SENSOR 등)"
     )
 
+    # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보 JSONB
+    detail = Column(
+        JSON,
+        nullable=True,
+        doc="탐지 상세 정보 (썸네일, AI 객체 등)"
+    )
+
     # ===== Polymorphic Configuration =====
     __mapper_args__ = {
         "polymorphic_identity": "detection"
@@ -149,12 +157,15 @@ class MalfunctionEvent(Event):
     MalfunctionEvent Model - Inherits from Event (Joined Table Inheritance)
 
     PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+    PRD: PRD_Event_Field_Normalization.md v1.0
+
     장비 오동작 이벤트입니다.
     Event의 모든 필드를 상속받고, 추가로 오동작 정보를 가집니다.
 
     Polymorphic Identity: "malfunction"
 
     ※ group_event 필드 제거됨
+    ※ v1.0: first_start/end, second_start/end → detail JSONB로 이동
     """
     __tablename__ = "malfunction_events"
 
@@ -169,10 +180,14 @@ class MalfunctionEvent(Event):
     # ===== Malfunction-Specific Fields =====
     action_reported = Column(String(10), nullable=False, default="False", doc="조치 보고 여부")
     reason = Column(SQLEnum(EnumFaultType), nullable=False, doc="오동작 원인")
-    first_start = Column(Integer, nullable=False)
-    first_end = Column(Integer, nullable=False)
-    second_start = Column(Integer, nullable=False)
-    second_end = Column(Integer, nullable=False)
+
+    # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail JSONB로 이동
+    # first_start, first_end, second_start, second_end 컬럼 제거됨
+    detail = Column(
+        JSON,
+        nullable=True,
+        doc="오동작 상세 정보 (케이블 위치: first_start/end, second_start/end)"
+    )
 
     # ===== Polymorphic Configuration =====
     __mapper_args__ = {

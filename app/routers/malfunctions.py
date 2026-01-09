@@ -177,18 +177,16 @@ async def get_malfunction_events(
     # Convert to response format (PRD v2.1: group_event 제거됨, device nested and device_description 포함)
     # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)
     # PRD v1.4: category_event 필드 제거 (polymorphic 내부용)
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     event_responses = [
         MalfunctionEventResponse(
             id=e.id,
             type_event=e.type_event,
             action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
             reason=e.reason.value,
-            first_start=e.first_start,
-            first_end=e.first_end,
-            second_start=e.second_start,
-            second_end=e.second_end,
             device=_build_device_nested_response(e.device),
             device_description=e.device_description,
+            detail=e.detail,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -243,17 +241,15 @@ async def get_malfunction_event(
     # PRD v2.1: Include device nested and device_description (group_event 제거됨)
     # PRD v1.3: device_id, sequence 필드 제거
     # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     event_response = MalfunctionEventResponse(
         id=event.id,
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        first_start=event.first_start,
-        first_end=event.first_end,
-        second_start=event.second_start,
-        second_end=event.second_end,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -274,16 +270,15 @@ async def create_malfunction_event(
     """
     장애 이벤트 생성
 
+    PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
+
     새로운 장애 이벤트를 생성합니다.
 
-    **Request Body** (PRD v2.8):
+    **Request Body**:
     - **type_event**: 이벤트 유형 (필수)
     - **device_id**: 장치 ID (필수) - Device FK
     - **reason**: 장애 원인 (필수)
-    - **first_start**: 첫 번째 시작 시간 (필수)
-    - **first_end**: 첫 번째 종료 시간 (필수)
-    - **second_start**: 두 번째 시작 시간 (필수)
-    - **second_end**: 두 번째 종료 시간 (필수)
+    - **detail**: 케이블 위치 정보 (선택, first_start, first_end, second_start, second_end)
 
     **자동 설정 (PRD v2.8)**:
     - **action_reported**: 항상 "False"로 시작 (ActionEvent 생성/삭제 시 시스템 자동 관리)
@@ -317,6 +312,7 @@ async def create_malfunction_event(
     # Create new malfunction event with device_id
     # PRD v2.1: group_event, sequence 필드 제거됨
     # PRD v2.8: action_reported는 항상 "False"로 시작 (시스템 자동 관리)
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     new_event = MalfunctionEvent(
         category_event="malfunction",  # Polymorphic discriminator
         type_event=event_data.type_event,
@@ -324,10 +320,7 @@ async def create_malfunction_event(
         device_description=device_description,
         action_reported=EnumTrueFalse.False_,  # PRD v2.8: 자동 설정
         reason=fault_reason,
-        first_start=event_data.first_start,
-        first_end=event_data.first_end,
-        second_start=event_data.second_start,
-        second_end=event_data.second_end
+        detail=event_data.detail  # 케이블 위치 정보 포함
     )
 
     db.add(new_event)
@@ -337,17 +330,15 @@ async def create_malfunction_event(
     # PRD v2.1: Include device nested in response (group_event 제거됨)
     # PRD v1.3: device_id, sequence 필드 제거
     # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     event_response = MalfunctionEventResponse(
         id=new_event.id,
         type_event=new_event.type_event,
         action_reported=new_event.action_reported.value if hasattr(new_event.action_reported, 'value') else new_event.action_reported,
         reason=new_event.reason.value,
-        first_start=new_event.first_start,
-        first_end=new_event.first_end,
-        second_start=new_event.second_start,
-        second_end=new_event.second_end,
         device=_build_device_nested_response(device),
         device_description=new_event.device_description,
+        detail=new_event.detail,
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )
@@ -370,6 +361,7 @@ async def update_malfunction_event(
     장애 이벤트 부분 수정 (PATCH)
 
     PRD v2.1: device_id 기반으로 변경됨
+    PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
 
     장애 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
@@ -380,10 +372,7 @@ async def update_malfunction_event(
     - **type_event**: 이벤트 유형
     - **action_reported**: 조치보고 여부
     - **reason**: 장애 원인
-    - **first_start**: 첫 번째 시작 시간
-    - **first_end**: 첫 번째 종료 시간
-    - **second_start**: 두 번째 시작 시간
-    - **second_end**: 두 번째 종료 시간
+    - **detail**: 케이블 위치 정보 (first_start, first_end, second_start, second_end)
 
     **Response**: 수정된 장애 이벤트 정보
 
@@ -402,7 +391,8 @@ async def update_malfunction_event(
             detail=f"Malfunction event with id {event_id} not found"
         )
 
-    # Update fields if provided (PRD v2.1: type_event, action_reported, reason, first/second_start/end만 수정 가능)
+    # Update fields if provided
+    # PRD_Event_Field_Normalization.md v1.0: type_event, action_reported, reason, detail만 수정 가능
     update_data = event_data.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
@@ -429,17 +419,15 @@ async def update_malfunction_event(
     db.refresh(event)
 
     # PRD v2.1: Response with device nested
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     event_response = MalfunctionEventResponse(
         id=event.id,
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        first_start=event.first_start,
-        first_end=event.first_end,
-        second_start=event.second_start,
-        second_end=event.second_end,
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -462,6 +450,7 @@ async def replace_malfunction_event(
     장애 이벤트 전체 수정 (PUT)
 
     PRD v2.1: device_id 기반으로 변경됨, device_description 자동 갱신
+    PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
 
     장애 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
@@ -472,10 +461,7 @@ async def replace_malfunction_event(
     - **type_event**: 이벤트 유형
     - **device_id**: 장치 ID
     - **reason**: 장애 원인
-    - **first_start**: 첫 번째 시작 시간
-    - **first_end**: 첫 번째 종료 시간
-    - **second_start**: 두 번째 시작 시간
-    - **second_end**: 두 번째 종료 시간
+    - **detail**: 케이블 위치 정보 (first_start, first_end, second_start, second_end)
 
     **자동 관리 (PRD v2.8)**:
     - **action_reported**: PUT 시에도 기존 값 유지 (시스템 자동 관리)
@@ -518,15 +504,13 @@ async def replace_malfunction_event(
     # Replace all fields (PUT = full replacement)
     # PRD v2.1: device_id 기반, group_event/sequence 필드 제거됨
     # PRD v2.8: action_reported는 시스템 자동 관리 (기존 값 유지)
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     event.type_event = event_data.type_event
     event.device_id = event_data.device_id
     event.device_description = device_description
     # event.action_reported는 변경하지 않음 (시스템 자동 관리)
     event.reason = fault_reason
-    event.first_start = event_data.first_start
-    event.first_end = event_data.first_end
-    event.second_start = event_data.second_start
-    event.second_end = event_data.second_end
+    event.detail = event_data.detail  # 케이블 위치 정보 포함
 
     db.commit()
     db.refresh(event)
@@ -536,12 +520,9 @@ async def replace_malfunction_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        first_start=event.first_start,
-        first_end=event.first_end,
-        second_start=event.second_start,
-        second_end=event.second_end,
         device=_build_device_nested_response(device),
         device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -641,17 +622,15 @@ async def get_action_event_for_malfunction(
     # 3. ActionEventResponse 구성 (nested source event 포함)
     # PRD v1.3: device nested 포함, device_id/sequence 제외
     # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     source_event_response = MalfunctionEventResponse(
         id=malfunction.id,
         type_event=malfunction.type_event,
         action_reported=malfunction.action_reported.value if hasattr(malfunction.action_reported, 'value') else malfunction.action_reported,
         reason=malfunction.reason.value,
-        first_start=malfunction.first_start,
-        first_end=malfunction.first_end,
-        second_start=malfunction.second_start,
-        second_end=malfunction.second_end,
         device=_build_device_nested_response(malfunction.device),
         device_description=malfunction.device_description,
+        detail=malfunction.detail,
         created_at=malfunction.created_at,
         updated_at=malfunction.updated_at
     )

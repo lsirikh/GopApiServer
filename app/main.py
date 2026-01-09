@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, file_groups
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, file_groups
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -357,6 +357,7 @@ app.include_router(controllers.router, prefix="/api/devices/controllers", tags=[
 app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors"])
 app.include_router(cameras.router, prefix="/api/devices/cameras", tags=["Cameras"])
 app.include_router(speakers.router, prefix="/api/devices/speakers", tags=["Speakers"])
+app.include_router(enclosures.router, prefix="/api/devices/enclosures", tags=["Enclosures"])
 app.include_router(file_groups.router, prefix="/api/file-groups", tags=["FileGroups"])
 app.include_router(detections.router, prefix="/api/events/detections", tags=["Detections"])
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])

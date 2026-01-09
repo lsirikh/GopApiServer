@@ -11,7 +11,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Sensor, Controller, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import SensorCreate, SensorResponse, SensorUpdate, DeviceGroupNestedResponse
+from app.schemas.device import SensorCreate, SensorResponse, SensorUpdate, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
@@ -75,6 +75,11 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
     # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
     device_groups = _get_device_groups_nested(db, sensor.id, EnumDeviceCategory.SENSOR)
 
+    # PRD_Controller_Sensor_Geolocation.md: Convert geolocation dict to Geolocation schema
+    geolocation = None
+    if sensor.geolocation:
+        geolocation = Geolocation(**sensor.geolocation)
+
     sensor_data = {
         "id": sensor.id,
         "number_device": sensor.number_device,
@@ -84,6 +89,7 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
         "version": sensor.version,
         "status": sensor.status.value,
         "controller_id": sensor.controller_id,
+        "geolocation": geolocation,
         "created_at": sensor.created_at,
         "updated_at": sensor.updated_at,
         "device_groups": device_groups
@@ -95,6 +101,10 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
         from app.schemas.device import ControllerNestedResponse
         # Controller의 device_groups 조회 (Nested 규칙: timestamp 제외)
         controller_device_groups = _get_device_groups_nested(db, sensor.controller.id, EnumDeviceCategory.CONTROLLER)
+        # Controller geolocation 변환
+        controller_geolocation = None
+        if sensor.controller.geolocation:
+            controller_geolocation = Geolocation(**sensor.controller.geolocation)
         sensor_data["controller"] = ControllerNestedResponse(
             id=sensor.controller.id,
             number_device=sensor.controller.number_device,
@@ -105,6 +115,7 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
             status=sensor.controller.status.value,
             ip_address=sensor.controller.ip_address,
             ip_port=sensor.controller.ip_port,
+            geolocation=controller_geolocation,
             device_groups=controller_device_groups
         )
 
@@ -282,7 +293,8 @@ async def create_sensor(
         type_device=device_type,
         version=sensor_data.version,
         status=device_status,
-        controller_id=sensor_data.controller_id
+        controller_id=sensor_data.controller_id,
+        geolocation=sensor_data.geolocation.model_dump() if sensor_data.geolocation else None
     )
 
     db.add(new_sensor)
@@ -358,6 +370,9 @@ async def update_sensor(
     # Handle group_ids separately (N:N relationship)
     group_ids = update_data.pop("group_ids", None)
 
+    # Handle geolocation separately (Pydantic model -> dict)
+    geolocation_data = update_data.pop("geolocation", None)
+
     for field, value in update_data.items():
         if field == "type_device" and value is not None:
             try:
@@ -377,6 +392,10 @@ async def update_sensor(
                 )
 
         setattr(sensor, field, value)
+
+    # Update geolocation if provided
+    if geolocation_data is not None:
+        sensor.geolocation = geolocation_data
 
     # Update group mappings if group_ids was provided
     if group_ids is not None:
@@ -460,6 +479,7 @@ async def replace_sensor(
     sensor.version = sensor_data.version
     sensor.status = device_status
     sensor.controller_id = sensor_data.controller_id
+    sensor.geolocation = sensor_data.geolocation.model_dump() if sensor_data.geolocation else None
 
     # Handle group_ids if provided (N:N relationship)
     if sensor_data.group_ids is not None:

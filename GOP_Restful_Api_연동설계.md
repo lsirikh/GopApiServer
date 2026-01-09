@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-07  
-**버전**: v2.4  
+**최종 수정일**: 2026-01-09  
+**버전**: v2.6  
 **작성자**: 이기호 차장    
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성   
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -19,17 +19,28 @@
    - 5.1 [Controller API](#51-controller-api)
    - 5.2 [Sensor API](#52-sensor-api)
    - 5.3 [Camera API](#53-camera-api)
-   - 5.4 [DeviceGroup API](#54-devicegroup-api)
-   - 5.5 [Camera Preset API](#55-camera-preset-api) *(v2.1 신규)*
-   - 5.6 [ROI API](#56-roi-api) *(v2.1 신규)*
-   - 5.7 [XyPoint API](#57-xypoint-api) *(v2.1 신규)*
-   - 5.8 [Speaker API](#58-speaker-api) *(v2.4 신규)*
-   - 5.9 [FileGroup API](#59-filegroup-api) *(v2.4 신규)*
+   - 5.4 [Speaker API](#54-speaker-api) *(v2.4 신규)*
+   - 5.5 [Enclosure API](#55-enclosure-api) *(v2.4 신규)*
+   - 5.6 [DeviceGroup API](#56-devicegroup-api)
+   - 5.7 [Camera Preset API](#57-camera-preset-api) *(v2.1 신규)*
+   - 5.8 [ROI API](#58-roi-api) *(v2.1 신규)*
+   - 5.9 [XyPoint API](#59-xypoint-api) *(v2.1 신규)*
+   - 5.10 [FileGroup API](#510-filegroup-api) *(v2.4 신규)*
 6. [Event API 설계](#6-event-api-설계)
+   - 6.1 [Detection Event API](#61-detection-event-api)
+   - 6.2 [Malfunction Event API](#62-malfunction-event-api)
+   - 6.3 [Connection Event API](#63-connection-event-api)
+   - 6.4 [Action Event API](#64-action-event-api)
 7. [Integration API 설계](#7-integration-api-설계)
+   - 7.1 [개요](#71-개요)
    - 7.2 [EventMapping API](#72-eventmapping-api)
    - 7.3 [Event Mapping Cameras API](#73-event-mapping-cameras-api) *(v2.4 신규)*
 8. [Server Monitoring API 설계](#8-server-monitoring-api-설계)
+   - 8.1 [개요](#81-개요)
+   - 8.2 [Server Category API](#82-server-category-api)
+   - 8.3 [Server Instance API](#83-server-instance-api)
+   - 8.4 [Dashboard Summary API](#84-dashboard-summary-api)
+   - 8.5 [기본 데이터 (Seed)](#85-기본-데이터-seed)
 9. [에러 처리](#9-에러-처리)
 10. [부록](#10-부록)
     - 10.1 [전체 Endpoint 목록](#101-전체-endpoint-목록)
@@ -303,6 +314,7 @@ class EnumDeviceCategory(str, Enum):
     SENSOR = "sensor"           # 센서
     CAMERA = "camera"           # 카메라
     SPEAKER = "speaker"         # 스피커 (v2.4 신규)
+    ENCLOSURE = "enclosure"     # 함체관리장비 (v2.4 신규)
 ```
 
 **사용처**:
@@ -311,8 +323,8 @@ class EnumDeviceCategory(str, Enum):
 - API 요청 시 디바이스 카테고리 필터링
 
 **참고**: 이 Enum은 `type_device`(EnumDeviceType)와 다릅니다:
-- `category_device`: 상위 카테고리 (controller, sensor, camera, speaker)
-- `type_device`: 구체적인 장치 유형 (Controller, Multi, Fence, IpCamera, IpSpeaker 등)
+- `category_device`: 상위 카테고리 (controller, sensor, camera, speaker, enclosure)
+- `type_device`: 구체적인 장치 유형 (Controller, Multi, Fence, IpCamera, IpSpeaker, IoController 등)
 
 #### EnumSpeakerType (v2.4 신규)
 ```python
@@ -328,6 +340,23 @@ class EnumSpeakerType(str, Enum):
 **사용처**:
 - `Speaker.speaker_type`: 스피커 장비 유형 구분
 - Query Parameter: `?speaker_type=NORMAL`
+
+#### EnumDoorStatus (v2.4 신규)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumDoorStatus(str, Enum):
+    """함체 도어 센서 물리적 상태"""
+    CLOSED = "CLOSED"     # 도어 닫힘
+    OPEN = "OPEN"         # 도어 열림
+```
+
+**사용처**:
+- `Enclosure.door_status`: 함체 도어 센서 물리적 상태
+- Query Parameter: `?door_status=CLOSED`
+
+**참고**: `status`(EnumDeviceStatus)와 구분됩니다:
+- `door_status`: 도어 물리적 상태 (CLOSED/OPEN)
+- `status`: 장비 운영 상태 (ACTIVATED/DEACTIVATED/ERROR) - Device 상속
 
 ### 4.2 Event Enum
 
@@ -388,12 +417,26 @@ public enum EnumFaultType : int
 }
 ```
 
-### 4.3 Integration Enum (CameraEventMapping 전용)
+### 4.3 Integration Enum
 
-#### EnumEventCategory (구 EnumCategoryEvent)
+#### EnumEventCategory (Event 모델용)
+```python
+# Python 정의 - app/utils/enums.py
+# PRD: PRD_CategoryEvent_Refactoring.md v1.1
+class EnumEventCategory(str, Enum):
+    """Event category for Event polymorphic discriminator"""
+    DETECTION = "detection"       # 침입 탐지 이벤트
+    MALFUNCTION = "malfunction"   # 장애 이벤트
+    CONNECTION = "connection"     # 연결 이벤트
+```
+
+**참고**: Event 모델의 `category_event` 필드 (polymorphic discriminator)로 사용됩니다.
+
+#### EnumMappingEventCategory (EventMapping 모델용)
 ```csharp
-//C# 데이터 (참고용) - 2025-11-28 업데이트
-public enum EnumEventCategory
+//C# 데이터 (참고용) - 2026-01-08 업데이트
+// PRD: PRD_CategoryEvent_Refactoring.md v1.1
+public enum EnumMappingEventCategory
 {
     NONE,                           // "NONE" - 미정의
     FENCE_SENSOR_ONLY,              // "FENCE_SENSOR_ONLY" - 펜스센서 단독
@@ -416,9 +459,10 @@ public enum EnumEventCategory
 | `ETC` | - | 제거됨 |
 
 **참고**:
-- `category_event` 필드: `EnumEventCategory` Enum 사용 (위 값 중 하나)
-- `group_event` 필드: 자유 문자열 (Enum 제약 없음, 예: "Intrusion", "Fault", "Action", "Connection" 등)
-- 기존 `EnumCategoryEvent`는 `EnumEventCategory`의 별칭으로 유지되어 하위 호환성 보장
+- EventMapping 모델의 `category_event_mapping` 필드: `EnumMappingEventCategory` Enum 사용 (위 값 중 하나)
+- ⚠️ **Breaking Change**: `category_event` → `category_event_mapping` 필드명 변경 (PRD v1.1)
+- 기존 `EnumCategoryEvent`는 `EnumMappingEventCategory`의 별칭으로 유지되어 하위 호환성 보장
+- `group_event` 필드는 `device_group_id` (FK)로 변경됨 (PRD v2.1)
 
 ### 4.4 Server Monitoring Enum
 
@@ -467,6 +511,50 @@ class EnumServerStatus(str, Enum):
 
 ## 5. Device API 설계
 
+### Device Polymorphic 구조 (Joined Table Inheritance)
+
+Device는 Joined Table Inheritance 패턴을 사용하여 다형성을 지원합니다. 공통 속성은 `devices` 테이블에, 타입별 특화 속성은 각 하위 테이블에 저장됩니다.
+
+```
+                    ┌─────────────────────────────────────┐
+                    │              devices                │
+                    │  (Base Table - 공통 속성)           │
+                    ├─────────────────────────────────────┤
+                    │  id (PK)                            │
+                    │  number_device                      │
+                    │  group_device (레거시)              │
+                    │  name_device                        │
+                    │  type_device (EnumDeviceType)       │
+                    │  version                            │
+                    │  status (EnumDeviceStatus)          │
+                    │  category_device (Discriminator)    │
+                    │  created_at, updated_at             │
+                    └───────────────┬─────────────────────┘
+                                    │
+        ┌───────────────┬───────────┼───────────┬───────────────┐
+        │               │           │           │               │
+        ▼               ▼           ▼           ▼               ▼
+┌───────────────┐ ┌───────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────────┐
+│  controllers  │ │  sensors  │ │ cameras │ │  speakers   │ │   enclosures   │
+│  (v1.0~)      │ │  (v1.0~)  │ │ (v1.0~) │ │  (v2.4~)    │ │   (v2.4~)      │
+├───────────────┤ ├───────────┤ ├─────────┤ ├─────────────┤ ├────────────────┤
+│ id (FK→devices)│ id (FK)   │ │ id (FK) │ │ id (FK)     │ │ id (FK)        │
+│ ip_address    │ │controller_│ │ip_address│ │speaker_type│ │ door_status    │
+│ ip_port       │ │id (FK)   │ │ip_port  │ │server_id   │ │ detail_info    │
+└───────────────┘ └───────────┘ │mode     │ │description │ │ geolocation    │
+                                │category │ └─────────────┘ │ threshold_conf │
+                                │urls(JSONB)               │ │ heater_enabled │
+                                └─────────┘                 │ fan_enabled    │
+                                                            └────────────────┘
+```
+
+**Discriminator 컬럼**: `category_device` (EnumDeviceCategory)
+- `controller`, `sensor`, `camera`, `speaker`, `enclosure`
+
+**FK 정책**: 모든 하위 테이블의 `id`는 `devices.id`를 참조하며, `CASCADE DELETE` 적용
+
+---
+
 ### 5.1 Controller API
 
 #### 5.1.1 Controller 목록 조회
@@ -505,6 +593,7 @@ Accept: application/json
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "ip_address": "192.168.1.100",
       "ip_port": 8001,
+      "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [
@@ -521,6 +610,7 @@ Accept: application/json
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "ip_address": "192.168.1.101",
       "ip_port": 8001,
+      "geolocation": null,
       "created_at": "2025-01-02T00:00:00.000Z",
       "updated_at": "2025-01-10T10:29:00.000Z",
       "device_groups": []
@@ -555,6 +645,7 @@ Accept: application/json
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "ip_address": "192.168.1.100",
       "ip_port": 8001,
+      "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "sensors": [
@@ -567,6 +658,7 @@ Accept: application/json
           "version": "v1.5.0",
           "status": "ACTIVATED", //(EnumDeviceStatus)
           "controller_id": 1,
+          "geolocation": null,
           "device_groups": [
             {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
           ]
@@ -586,6 +678,7 @@ Accept: application/json
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "ip_address": "192.168.1.101",
       "ip_port": 8001,
+      "geolocation": null,
       "created_at": "2025-01-02T00:00:00.000Z",
       "updated_at": "2025-01-10T10:29:00.000Z",
       "sensors": [],
@@ -640,6 +733,7 @@ Accept: application/json
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "ip_address": "192.168.1.100",
     "ip_port": 8001,
+    "geolocation": null,
     "sensors": null,
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-10T10:30:00.000Z",
@@ -669,6 +763,7 @@ Accept: application/json
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "ip_address": "192.168.1.100",
     "ip_port": 8001,
+    "geolocation": null,
     "sensors": [
       {
         "id": 101,
@@ -679,6 +774,7 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED", //(EnumDeviceStatus)
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": [
           {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
         ]
@@ -692,6 +788,7 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED", //(EnumDeviceStatus)
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": []
       }
     ],
@@ -734,13 +831,19 @@ Accept: application/json
 ```json
 {
   "number_device": 3,
-  "group_device": 1, // (Deprecated 예정, 레거시) 
+  "group_device": 1, // (Deprecated 예정, 레거시)
   "name_device": "Controller-C",
   "type_device": "Controller", //(EnumDeviceType)
   "version": "v2.1.0",
   "status": "DEACTIVATED", //(EnumDeviceStatus)
   "ip_address": "192.168.1.102",
   "ip_port": 8001,
+  "geolocation": {  // (optional, v2.4 신규) 위치 정보
+    "location": "GOP 3초소 1제어기",
+    "latitude": 38.1234,
+    "longitude": 127.5678,
+    "altitude": 245.5
+  },
   "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
@@ -753,13 +856,19 @@ Accept: application/json
   "data": {
     "id": 3,
     "number_device": 3,
-    "group_device": 1, // (Deprecated 예정, 레거시) 
+    "group_device": 1, // (Deprecated 예정, 레거시)
     "name_device": "Controller-C",
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.1.0",
     "status": "DEACTIVATED", //(EnumDeviceStatus)
     "ip_address": "192.168.1.102",
     "ip_port": 8001,
+    "geolocation": {  // (v2.4 신규) 위치 정보
+      "location": "GOP 3초소 1제어기",
+      "latitude": 38.1234,
+      "longitude": 127.5678,
+      "altitude": 245.5
+    },
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:34:00.100Z",
     "device_groups": [
@@ -808,6 +917,7 @@ Accept: application/json
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "ip_address": "192.168.1.102",
     "ip_port": 8001,
+    "geolocation": null,
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:35:00.150Z",
     "device_groups": [
@@ -859,6 +969,7 @@ Accept: application/json
     "status": "ACTIVATED",
     "ip_address": "192.168.1.103",
     "ip_port": 8002,
+    "geolocation": null,
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:36:00.200Z",
     "sensors": null,
@@ -928,6 +1039,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "controller_id": 1,
+      "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [
@@ -944,6 +1056,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "controller_id": 1,
+      "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [],
@@ -978,6 +1091,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
       "controller_id": 1,
+      "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [
@@ -993,6 +1107,7 @@ Accept: application/json
         "status": "ACTIVATED",
         "ip_address": "192.168.1.101",
         "ip_port": 8080,
+        "geolocation": null,
         "device_groups": [
           {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
         ]
@@ -1046,6 +1161,7 @@ Accept: application/json
     "version": "v1.5.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
+    "geolocation": null,
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-10T10:30:00.000Z",
     "device_groups": [
@@ -1074,6 +1190,7 @@ Accept: application/json
     "version": "v1.5.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
+    "geolocation": null,
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-10T10:30:00.000Z",
     "device_groups": [
@@ -1089,6 +1206,7 @@ Accept: application/json
       "status": "ACTIVATED",
       "ip_address": "192.168.1.101",
       "ip_port": 8080,
+      "geolocation": null,
       "device_groups": [
         {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
       ]
@@ -1133,6 +1251,12 @@ Accept: application/json
   "version": "v2.1.0",
   "status": "DEACTIVATED", //(EnumDeviceStatus)
   "controller_id": 1,
+  "geolocation": {  // (optional, v2.4 신규) 위치 정보
+    "location": "GOP 3초소 철책 A구간",
+    "latitude": 38.1235,
+    "longitude": 127.5680,
+    "altitude": 148.5
+  },
   "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
@@ -1151,6 +1275,12 @@ Accept: application/json
     "version": "v2.1.0",
     "status": "DEACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
+    "geolocation": {  // (v2.4 신규) 위치 정보
+      "location": "GOP 3초소 철책 A구간",
+      "latitude": 38.1235,
+      "longitude": 127.5680,
+      "altitude": 148.5
+    },
     "created_at": "2025-01-10T10:39:00.100Z",
     "updated_at": "2025-01-10T10:39:00.100Z",
     "device_groups": [
@@ -1198,6 +1328,7 @@ Accept: application/json
     "version": "v2.2.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
+    "geolocation": null,
     "created_at": "2025-01-10T10:39:00.100Z",
     "updated_at": "2025-01-10T10:40:00.150Z",
     "device_groups": [
@@ -1247,6 +1378,7 @@ Accept: application/json
     "version": "v2.3.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
     "controller_id": 1,
+    "geolocation": null,
     "created_at": "2025-01-10T10:39:00.100Z",
     "updated_at": "2025-01-10T10:41:00.200Z"
   },
@@ -1761,9 +1893,382 @@ Accept: application/json
 
 ---
 
+### 5.4 Speaker API
+
+
+Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(SPEAKER_API)와 FK 관계를 가집니다.
+
+#### 5.4.1 Speaker 목록 조회
+
+**Endpoint**: `GET /api/devices/speakers`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| server_id | integer | N | 서버 ID 필터 |
+| status | string | N | 상태 필터 (ACTIVATED, ERROR, DEACTIVATED) |
+| speaker_type | string | N | 스피커 유형 (NORMAL, ADMIN, MONITOR, DEV) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speakers retrieved successfully",
+  "data": [
+    {
+      "id": 101,
+      "category_device": "speaker",
+      "number_device": 2401,
+      "group_device": 0,
+      "name_device": "VCS_2401",
+      "type_device": "IpSpeaker",
+      "version": null,
+      "status": "ACTIVATED",
+      "created_at": "2026-01-07T10:00:00.000000",
+      "updated_at": "2026-01-07T10:00:00.000000",
+      "speaker_type": "NORMAL",
+      "description": "1구역 스피커",
+      "geolocation": {
+        "location": "GOP 3초소 방송실",
+        "latitude": 38.1234,
+        "longitude": 127.5678,
+        "altitude": 245.5
+      },
+      "server": {
+        "id": 1,
+        "category_id": 10,
+        "name": "방송서버-01",
+        "status": "NORMAL",
+        "ip_address": "192.168.1.100",
+        "port": 8080,
+        "hostname": "bcast-srv-01",
+        "user_name": "admin",
+        "user_password": "password123",
+        "cpu_usage": 25.5,
+        "ram_usage": 40.2,
+        "disk_usage": 55.0,
+        "network_throughput": "50MB/s"
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 35,
+    "total_pages": 2
+  }
+}
+```
+
+> **Nested Response 규칙**: `server` nested 객체에서 `created_at`, `updated_at` 제외
+> **v2.6 추가**: `geolocation` JSONB 필드 추가 (PRD_Speaker_Geolocation.md v1.0)
+
+#### 5.4.2 Speaker 상세 조회
+
+**Endpoint**: `GET /api/devices/speakers/{id}`
+
+**Response (200 OK)**: Speaker 상세 정보 (목록 조회와 동일한 구조)
+
+#### 5.4.3 Speaker 생성
+
+**Endpoint**: `POST /api/devices/speakers`
+
+**Request Body**:
+```json
+{
+  "number_device": 2401,
+  "group_device": 0,
+  "name_device": "VCS_2401",
+  "type_device": "IpSpeaker",
+  "status": "ACTIVATED",
+  "speaker_type": "NORMAL",
+  "server_id": 1,
+  "description": "1구역 스피커",
+  "geolocation": {
+    "location": "GOP 3초소 방송실",
+    "latitude": 38.1234,
+    "longitude": 127.5678,
+    "altitude": 245.5
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 단말 번호 (NATS device_no 통합) |
+| group_device | integer | N | 그룹 번호 (기본값: 0) |
+| name_device | string | Y | 장비명 |
+| type_device | string | N | EnumDeviceType (기본값: IpSpeaker) |
+| status | string | N | EnumDeviceStatus (기본값: ACTIVATED) |
+| speaker_type | string | N | EnumSpeakerType (기본값: NORMAL) |
+| server_id | integer | N | 방송서버 ID (FK) |
+| description | string | N | 설명 |
+| geolocation | object | N | 좌표/위치 정보 (JSON, v2.6 신규) |
+
+**Response (201 Created)**: 생성된 Speaker 데이터 반환
+
+#### 5.4.4 Speaker 수정 (부분)
+
+**Endpoint**: `PATCH /api/devices/speakers/{id}`
+
+모든 필드 선택적 수정 가능
+
+#### 5.4.5 Speaker 수정 (전체)
+
+**Endpoint**: `PUT /api/devices/speakers/{id}`
+
+#### 5.4.6 Speaker 삭제
+
+**Endpoint**: `DELETE /api/devices/speakers/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speaker deleted successfully",
+  "data": null
+}
+```
+
+---
+
+### 5.5 Enclosure API
+
+함체관리장비(Enclosure)는 GOP 현장에 설치되어 환경 모니터링 및 제어를 수행하는 장비입니다.
+Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 특화 속성을 저장합니다.
+
+**핵심 특성**:
+- **도어 상태 모니터링**: `door_status` (CLOSED/OPEN) - 물리적 도어 센서 상태
+- **환경 데이터**: `detail_info` (JSONB) - 온도, 습도, 전류, 전압, 진동 등
+- **위치 정보**: `geolocation` (JSONB) - GPS 좌표, 설치 위치명
+- **알람 임계값**: `threshold_config` (JSONB) - 환경 모니터링 알람 설정
+- **제어 기능**: 히터/팬 ON/OFF 제어
+
+#### 5.5.1 Enclosure 목록 조회
+
+**Endpoint**: `GET /api/devices/enclosures`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| door_status | string | N | 도어 상태 필터 (CLOSED/OPEN) |
+| status | string | N | 장비 운영 상태 필터 (ACTIVATED/DEACTIVATED/ERROR) |
+| name_device | string | N | 장비명 검색 (부분 일치) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosures retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "number_device": 101,
+      "group_device": 1,
+      "name_device": "GOP 3초소 함체",
+      "type_device": "IoController",
+      "version": "v1.0.0",
+      "status": "ACTIVATED",
+      "door_status": "CLOSED",
+      "detail_info": {
+        "temperature": 25.5,
+        "humidity": 45.0,
+        "current": 2.5,
+        "voltage": 220.0,
+        "vibration": 0.1,
+        "ups_battery_level": 100,
+        "ups_charging": true,
+        "last_updated": "2026-01-08T10:00:00Z"
+      },
+      "geolocation": {
+        "location": "GOP 3초소",
+        "latitude": 38.1234,
+        "longitude": 127.5678,
+        "altitude": 150.0
+      },
+      "threshold_config": {
+        "temp_high": 40.0,
+        "temp_low": -10.0,
+        "humidity_high": 85.0,
+        "humidity_low": 20.0,
+        "vibration_threshold": 5.0
+      },
+      "heater_enabled": false,
+      "fan_enabled": false,
+      "created_at": "2026-01-08T10:00:00.000000",
+      "updated_at": "2026-01-08T10:00:00.000000"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 5,
+    "total_pages": 1
+  }
+}
+```
+
+#### 5.5.2 Enclosure 상세 조회
+
+**Endpoint**: `GET /api/devices/enclosures/{id}`
+
+**Path Parameters**:
+- `id` (integer, required): 함체 ID
+
+**Response (200 OK)**: 단일 함체 상세 정보 반환
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "detail": "Enclosure with id 999 not found"
+}
+```
+
+#### 5.5.3 Enclosure 생성
+
+**Endpoint**: `POST /api/devices/enclosures`
+
+**Request Body**:
+```json
+{
+  "number_device": 102,
+  "name_device": "GOP 4초소 함체",
+  "group_device": 1,
+  "status": "ACTIVATED",
+  "door_status": "CLOSED",
+  "detail_info": {
+    "temperature": 22.0,
+    "humidity": 50.0
+  },
+  "geolocation": {
+    "location": "GOP 4초소",
+    "latitude": 38.2345,
+    "longitude": 127.6789
+  },
+  "threshold_config": {
+    "temp_high": 45.0,
+    "temp_low": -15.0
+  },
+  "heater_enabled": false,
+  "fan_enabled": false
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 장비 번호 |
+| name_device | string | Y | 장비 이름 |
+| group_device | integer | N | 장치 그룹 번호 (레거시) |
+| type_device | string | N | 장치 타입 (기본값: IoController) |
+| version | string | N | 장비 버전 |
+| status | string | N | 장비 운영 상태 (기본값: ACTIVATED) |
+| door_status | string | N | 도어 상태 (기본값: CLOSED) |
+| detail_info | object | N | 환경 데이터 (JSONB) |
+| geolocation | object | N | 위치 정보 (JSONB) |
+| threshold_config | object | N | 알람 임계값 (JSONB) |
+| heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
+| fan_enabled | boolean | N | 팬 활성화 (기본값: false) |
+
+**Response (201 Created)**: 생성된 함체 데이터 반환
+
+#### 5.5.4 Enclosure 수정 (부분)
+
+**Endpoint**: `PATCH /api/devices/enclosures/{id}`
+
+**Request Body** (모든 필드 선택):
+```json
+{
+  "name_device": "GOP 3초소 함체 (수정)",
+  "door_status": "OPEN",
+  "status": "DEACTIVATED"
+}
+```
+
+**Response (200 OK)**: 수정된 함체 데이터 반환
+
+#### 5.5.5 Enclosure 수정 (전체)
+
+**Endpoint**: `PUT /api/devices/enclosures/{id}`
+
+전체 필드를 교체합니다. 필수 필드는 반드시 포함해야 합니다.
+
+#### 5.5.6 Enclosure 삭제
+
+**Endpoint**: `DELETE /api/devices/enclosures/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure deleted successfully",
+  "data": {
+    "id": 1
+  }
+}
+```
+
+**FK 정책**: Enclosure 삭제 시 Device 레코드도 CASCADE 삭제
+
+#### 5.5.7 환경 데이터 업데이트 (특수 엔드포인트)
+
+**Endpoint**: `PATCH /api/devices/enclosures/{id}/status`
+
+외부 센서 장비에서 주기적으로 환경 데이터를 업데이트할 때 사용합니다.
+
+**Request Body**:
+```json
+{
+  "detail_info": {
+    "temperature": 28.5,
+    "humidity": 55.0,
+    "current": 3.2,
+    "voltage": 218.5,
+    "vibration": 0.2,
+    "ups_battery_level": 95,
+    "ups_charging": false,
+    "last_updated": "2026-01-08T11:00:00Z"
+  },
+  "door_status": "OPEN"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| detail_info | object | N | 환경 모니터링 데이터 |
+| door_status | string | N | 도어 물리적 상태 (CLOSED/OPEN) |
+
+**Response (200 OK)**: 업데이트된 함체 데이터 반환
+
+#### 5.5.8 히터/팬 제어 (특수 엔드포인트)
+
+**Endpoint**: `POST /api/devices/enclosures/{id}/control`
+
+함체 내부 온도 조절을 위한 히터 및 팬을 제어합니다.
+
+**Request Body**:
+```json
+{
+  "heater_enabled": true,
+  "fan_enabled": false
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| heater_enabled | boolean | N | 히터 ON/OFF |
+| fan_enabled | boolean | N | 팬 ON/OFF |
+
+**Response (200 OK)**: 제어 후 함체 데이터 반환
+
+---
+
 ### 5.6 DeviceGroup API
 
-디바이스 그룹은 여러 디바이스(Controller, Sensor, Camera)를 논리적으로 묶어 관리하는 기능입니다.
+디바이스 그룹은 여러 디바이스(Controller, Sensor, Camera, Speaker, Enclosure 등)를 논리적으로 묶어 관리하는 기능입니다.
 - N:N 관계: 하나의 디바이스는 여러 그룹에 속할 수 있고, 하나의 그룹은 여러 디바이스를 포함할 수 있습니다.
 - 폴리모픽 응답: 그룹 상세 조회 시 디바이스 타입별로 다른 필드를 반환합니다.
 
@@ -1859,7 +2364,8 @@ Accept: application/json
         "version": "v2.1.0",
         "status": "ACTIVATED",
         "ip_address": "192.168.1.100",
-        "ip_port": 8001
+        "ip_port": 8001,
+        "geolocation": null
       },
       {
         "id": 101,
@@ -1869,7 +2375,8 @@ Accept: application/json
         "type_device": "Multi",
         "version": "v1.5.0",
         "status": "ACTIVATED",
-        "controller_id": 1
+        "controller_id": 1,
+        "geolocation": null
       },
       {
         "id": 201,
@@ -1912,8 +2419,8 @@ Accept: application/json
 ```
 
 > **Note**: `devices` 배열은 폴리모픽 응답으로, 디바이스 타입에 따라 다른 필드를 포함합니다:
-> - **Controller**: `ip_address`, `ip_port`
-> - **Sensor**: `controller_id`
+> - **Controller**: `ip_address`, `ip_port`, `geolocation`
+> - **Sensor**: `controller_id`, `geolocation`
 > - **Camera**: `ip_address`, `ip_port`, `user_name`, `user_password`, `urls`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
 
 **Error Response** (404 Not Found):
@@ -2716,139 +3223,12 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 ---
 
-### 5.4 Speaker API
-
-
-Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(SPEAKER_API)와 FK 관계를 가집니다.
-
-#### 5.4.1 Speaker 목록 조회
-
-**Endpoint**: `GET /api/devices/speakers`
-
-**Query Parameters**:
-| 파라미터 | 타입 | 필수 | 설명 |
-|---------|------|------|------|
-| page | integer | N | 페이지 번호 (기본값: 1) |
-| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
-| server_id | integer | N | 서버 ID 필터 |
-| status | string | N | 상태 필터 (ACTIVATED, ERROR, DEACTIVATED) |
-| speaker_type | string | N | 스피커 유형 (NORMAL, ADMIN, MONITOR, DEV) |
-
-**Response (200 OK)**:
-```json
-{
-  "success": true,
-  "message": "Speakers retrieved successfully",
-  "data": [
-    {
-      "id": 101,
-      "category_device": "speaker",
-      "number_device": 2401,
-      "group_device": 0,
-      "name_device": "VCS_2401",
-      "type_device": "IpSpeaker",
-      "version": null,
-      "status": "ACTIVATED",
-      "created_at": "2026-01-07T10:00:00.000000",
-      "updated_at": "2026-01-07T10:00:00.000000",
-      "speaker_type": "NORMAL",
-      "description": "1구역 스피커",
-      "server": {
-        "id": 1,
-        "category_id": 10,
-        "name": "방송서버-01",
-        "status": "NORMAL",
-        "ip_address": "192.168.1.100",
-        "port": 8080,
-        "hostname": "bcast-srv-01",
-        "user_name": "admin",
-        "user_password": "password123",
-        "cpu_usage": 25.5,
-        "ram_usage": 40.2,
-        "disk_usage": 55.0,
-        "network_throughput": "50MB/s"
-      }
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 35,
-    "total_pages": 2
-  }
-}
-```
-
-> **Nested Response 규칙**: `server` nested 객체에서 `created_at`, `updated_at` 제외
-
-#### 5.4.2 Speaker 상세 조회
-
-**Endpoint**: `GET /api/devices/speakers/{id}`
-
-**Response (200 OK)**: Speaker 상세 정보 (목록 조회와 동일한 구조)
-
-#### 5.4.3 Speaker 생성
-
-**Endpoint**: `POST /api/devices/speakers`
-
-**Request Body**:
-```json
-{
-  "number_device": 2401,
-  "group_device": 0,
-  "name_device": "VCS_2401",
-  "type_device": "IpSpeaker",
-  "status": "ACTIVATED",
-  "speaker_type": "NORMAL",
-  "server_id": 1,
-  "description": "1구역 스피커"
-}
-```
-
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 단말 번호 (NATS device_no 통합) |
-| group_device | integer | N | 그룹 번호 (기본값: 0) |
-| name_device | string | Y | 장비명 |
-| type_device | string | N | EnumDeviceType (기본값: IpSpeaker) |
-| status | string | N | EnumDeviceStatus (기본값: ACTIVATED) |
-| speaker_type | string | N | EnumSpeakerType (기본값: NORMAL) |
-| server_id | integer | N | 방송서버 ID (FK) |
-| description | string | N | 설명 |
-
-**Response (201 Created)**: 생성된 Speaker 데이터 반환
-
-#### 5.4.4 Speaker 수정 (부분)
-
-**Endpoint**: `PATCH /api/devices/speakers/{id}`
-
-모든 필드 선택적 수정 가능
-
-#### 5.4.5 Speaker 수정 (전체)
-
-**Endpoint**: `PUT /api/devices/speakers/{id}`
-
-#### 5.4.6 Speaker 삭제
-
-**Endpoint**: `DELETE /api/devices/speakers/{id}`
-
-**Response (200 OK)**:
-```json
-{
-  "success": true,
-  "message": "Speaker deleted successfully",
-  "data": null
-}
-```
-
----
-
-### 5.5 FileGroup API
+### 5.10 FileGroup API
 
 
 FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 
-#### 5.5.1 FileGroup 목록 조회
+#### 5.10.1 FileGroup 목록 조회
 
 **Endpoint**: `GET /api/file-groups`
 
@@ -2884,11 +3264,11 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 }
 ```
 
-#### 5.5.2 FileGroup 상세 조회
+#### 5.10.2 FileGroup 상세 조회
 
 **Endpoint**: `GET /api/file-groups/{id}`
 
-#### 5.5.3 FileGroup 생성
+#### 5.10.3 FileGroup 생성
 
 **Endpoint**: `POST /api/file-groups`
 
@@ -2913,15 +3293,15 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 
 **Response (201 Created)**: 생성된 FileGroup 데이터 반환
 
-#### 5.5.4 FileGroup 수정 (부분)
+#### 5.10.4 FileGroup 수정 (부분)
 
 **Endpoint**: `PATCH /api/file-groups/{id}`
 
-#### 5.5.5 FileGroup 수정 (전체)
+#### 5.10.5 FileGroup 수정 (전체)
 
 **Endpoint**: `PUT /api/file-groups/{id}`
 
-#### 5.5.6 FileGroup 삭제
+#### 5.10.6 FileGroup 삭제
 
 **Endpoint**: `DELETE /api/file-groups/{id}`
 
@@ -2932,6 +3312,11 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 ## 6. Event API 설계
 
 ### 6.1 Detection Event API
+
+> **v2.6 변경사항 (PRD_Event_Field_Normalization.md v1.0)**:
+> - `result`: 별도 필드로 유지 (핵심 분류 필드, 필수)
+> - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)
+> - Request/Response 모두 result가 별도 필드로 분리됨
 
 #### 6.1.1 Detection Event 목록 조회
 
@@ -2960,7 +3345,6 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
       "id": 1001,
       "type_event": "Intrusion",
       "action_reported": "True",
-      "result": "PIR_SENSOR",
       "device": {
         "id": 101,
         "number_device": 1,
@@ -2970,11 +3354,22 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": [
           {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
         ]
       },
       "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+      "result": "AI_DETECT", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+        "signal": 1500,
+        "objects": [
+          {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
+        ],
+        "model": "yolov8n",
+        "inference_ms": 45
+      },
       "created_at": "2026-01-06T10:15:23.100Z",
       "updated_at": "2026-01-06T10:15:23.100Z"
     }
@@ -3002,9 +3397,10 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
       "id": 1001,
       "type_event": "Intrusion",
       "action_reported": "True",
-      "result": "PIR_SENSOR",
       "device": null,
       "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": null,
       "created_at": "2026-01-06T10:15:23.100Z",
       "updated_at": "2026-01-06T10:15:23.100Z"
     }
@@ -3038,7 +3434,6 @@ Accept: application/json
     "id": 1001,
     "type_event": "Intrusion", //(EnumEventType)
     "action_reported": "True", //(EnumTrueFalse)
-    "result": "PIR_SENSOR", //(EnumDetectionType)
     "device": {
       "id": 101,
       "number_device": 1,
@@ -3048,11 +3443,22 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "result": "AI_DETECT", //(EnumDetectionType) - v2.7 별도 필드
+    "detail": {
+      "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+      "signal": 1500,
+      "objects": [
+        {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
+      ],
+      "model": "yolov8n",
+      "inference_ms": 45
+    },
     "created_at": "2026-01-06T10:15:23.100Z",
     "updated_at": "2026-01-06T10:15:23.100Z"
   },
@@ -3093,7 +3499,16 @@ Accept: application/json
 {
   "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
-  "result": "THERMAL_SENSOR" //(EnumDetectionType)
+  "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드 (필수)
+  "detail": { //(optional, 상세 정보만)
+    "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+    "signal": 1800,
+    "objects": [
+      {"label": "person", "confidence": 0.92, "bbox": [150, 220, 60, 120]}
+    ],
+    "model": "yolov8n",
+    "inference_ms": 42
+  }
 }
 ```
 
@@ -3106,7 +3521,6 @@ Accept: application/json
     "id": 1002,
     "type_event": "Intrusion", //(EnumEventType)
     "action_reported": "False", //(EnumTrueFalse)
-    "result": "THERMAL_SENSOR", //(EnumDetectionType)
     "device": {
       "id": 101,
       "number_device": 1,
@@ -3116,11 +3530,22 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+    "detail": {
+      "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+      "signal": 1800,
+      "objects": [
+        {"label": "person", "confidence": 0.92, "bbox": [150, 220, 60, 120]}
+      ],
+      "model": "yolov8n",
+      "inference_ms": 42
+    },
     "created_at": "2026-01-06T10:51:00.100Z",
     "updated_at": "2026-01-06T10:51:00.100Z"
   },
@@ -3141,7 +3566,12 @@ Accept: application/json
 ```json
 {
   "type_event": "Intrusion", //(EnumEventType, optional)
-  "result": "VIBRATION_SENSOR" //(EnumDetectionType, optional)
+  "result": "VIBRATION_SENSOR", //(EnumDetectionType, optional) - v2.7 별도 필드
+  "detail": { //(optional, 상세 정보만)
+    "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_updated.jpg",
+    "signal": 2000,
+    "model": "yolov8n_updated"
+  }
 }
 ```
 
@@ -3154,7 +3584,6 @@ Accept: application/json
     "id": 1002,
     "type_event": "Intrusion", //(EnumEventType)
     "action_reported": "False", //(EnumTrueFalse)
-    "result": "VIBRATION_SENSOR", //(EnumDetectionType)
     "device": {
       "id": 101,
       "number_device": 1,
@@ -3164,11 +3593,18 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "result": "VIBRATION_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+    "detail": {
+      "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_updated.jpg",
+      "signal": 2000,
+      "model": "yolov8n_updated"
+    },
     "created_at": "2026-01-06T10:51:00.100Z",
     "updated_at": "2026-01-06T10:52:00.150Z"
   },
@@ -3193,7 +3629,16 @@ Accept: application/json
   "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
   "action_reported": "True", //(EnumTrueFalse)
-  "result": "DISTANCE_SENSOR" //(EnumDetectionType)
+  "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.7 별도 필드 (필수)
+  "detail": { //(optional, 상세 정보만)
+    "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
+    "signal": 2500,
+    "objects": [
+      {"label": "vehicle", "confidence": 0.88, "bbox": [200, 300, 80, 60]}
+    ],
+    "model": "yolov8m",
+    "inference_ms": 65
+  }
 }
 ```
 
@@ -3206,7 +3651,6 @@ Accept: application/json
     "id": 1002,
     "type_event": "Intrusion", //(EnumEventType)
     "action_reported": "True", //(EnumTrueFalse)
-    "result": "DISTANCE_SENSOR", //(EnumDetectionType)
     "device": {
       "id": 101,
       "number_device": 1,
@@ -3216,11 +3660,22 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+    "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+    "detail": {
+      "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
+      "signal": 2500,
+      "objects": [
+        {"label": "vehicle", "confidence": 0.88, "bbox": [200, 300, 80, 60]}
+      ],
+      "model": "yolov8m",
+      "inference_ms": 65
+    },
     "created_at": "2026-01-06T10:51:00.100Z",
     "updated_at": "2026-01-06T10:53:00.200Z"
   },
@@ -3326,7 +3781,6 @@ Accept: application/json
       "id": 1001,
       "type_event": "Intrusion",
       "action_reported": "True",
-      "result": "PIR_SENSOR",
       "device": {
         "id": 103,
         "number_device": 3,
@@ -3336,11 +3790,17 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": [
           {"id": 1, "name": "A구역 센서그룹"}
         ]
       },
       "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
+      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+        "signal": 1500
+      },
       "created_at": "2025-01-14T10:15:23.100Z",
       "updated_at": "2025-01-14T10:15:23.100Z"
     },
@@ -3384,6 +3844,11 @@ Accept: application/json
 
 ### 6.2 Malfunction Event API
 
+> **v2.6 변경사항 (PRD_Event_Field_Normalization.md v1.0)**:
+> - `reason`: 별도 필드로 유지 (핵심 분류 필드, 필수)
+> - `detail`: 상세 정보만 포함 (first_start, first_end, second_start, second_end)
+> - Request/Response 모두 reason이 별도 필드로 분리됨
+
 #### 6.2.1 Malfunction Event 목록 조회
 
 **Endpoint**: `GET /api/events/malfunctions`
@@ -3410,11 +3875,6 @@ Accept: application/json
       "id": 2001,
       "type_event": "Fault",
       "action_reported": "True",
-      "reason": "FAULT_CABLE_CUTTING",
-      "first_start": 10,
-      "first_end": 15,
-      "second_start": 20,
-      "second_end": 25,
       "device": {
         "id": 103,
         "number_device": 3,
@@ -3424,11 +3884,19 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": [
           {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
         ]
       },
       "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
+      "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType) - v2.7 별도 필드
+      "detail": {
+        "first_start": 10,
+        "first_end": 15,
+        "second_start": 20,
+        "second_end": 25
+      },
       "created_at": "2026-01-06T14:20:00.500Z",
       "updated_at": "2026-01-06T14:20:00.500Z"
     }
@@ -3447,11 +3915,13 @@ Accept: application/json
 ```
 
 **Malfunction Event 필드 설명**:
-- `reason` (string): 장애 원인 (EnumFaultType)
-- `first_start` (int): 첫 번째 케이블 시작점
-- `first_end` (int): 첫 번째 케이블 끝점
-- `second_start` (int): 두 번째 케이블 시작점
-- `second_end` (int): 두 번째 케이블 끝점
+- `reason` (string, required): 장애 원인 (EnumFaultType) - v2.7 별도 필드
+  - FAULT_CONTROLLER, FAULT_FENCE, FAULT_MULTI, FAULT_CABLE_CUTTING, FAULT_ETC
+- `detail` (object, optional): 오동작 상세 정보
+  - `first_start` (int): 첫 번째 케이블 시작점
+  - `first_end` (int): 첫 번째 케이블 끝점
+  - `second_start` (int): 두 번째 케이블 시작점
+  - `second_end` (int): 두 번째 케이블 끝점
 
 ---
 
@@ -3479,11 +3949,6 @@ Accept: application/json
     "id": 2001,
     "type_event": "Fault", //(EnumEventType)
     "action_reported": "True", //(EnumTrueFalse)
-    "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType)
-    "first_start": 5,
-    "first_end": 5,
-    "second_start": 0,
-    "second_end": 0,
     "device": {
       "id": 103,
       "number_device": 3,
@@ -3493,11 +3958,19 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
+    "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType) - v2.7 별도 필드
+    "detail": {
+      "first_start": 5,
+      "first_end": 5,
+      "second_start": 0,
+      "second_end": 0
+    },
     "created_at": "2026-01-06T14:20:00.500Z",
     "updated_at": "2026-01-06T14:20:00.500Z"
   },
@@ -3538,11 +4011,13 @@ Accept: application/json
 {
   "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
-  "reason": "FAULT_FENCE", //(EnumFaultType)
-  "first_start": 3,
-  "first_end": 3,
-  "second_start": 0,
-  "second_end": 0
+  "reason": "FAULT_FENCE", //(EnumFaultType) - v2.7 별도 필드 (필수)
+  "detail": { //(optional, 상세 정보만)
+    "first_start": 3,
+    "first_end": 3,
+    "second_start": 0,
+    "second_end": 0
+  }
 }
 ```
 
@@ -3555,11 +4030,6 @@ Accept: application/json
     "id": 2002,
     "type_event": "Fault", //(EnumEventType)
     "action_reported": "False", //(EnumTrueFalse)
-    "reason": "FAULT_FENCE", //(EnumFaultType)
-    "first_start": 3,
-    "first_end": 3,
-    "second_start": 0,
-    "second_end": 0,
     "device": {
       "id": 104,
       "number_device": 4,
@@ -3569,11 +4039,19 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+    "reason": "FAULT_FENCE", //(EnumFaultType) - v2.7 별도 필드
+    "detail": {
+      "first_start": 3,
+      "first_end": 3,
+      "second_start": 0,
+      "second_end": 0
+    },
     "created_at": "2026-01-06T10:56:00.100Z",
     "updated_at": "2026-01-06T10:56:00.100Z"
   },
@@ -3594,11 +4072,11 @@ Accept: application/json
 ```json
 {
   "type_event": "Fault", //(EnumEventType, optional)
-  "reason": "FAULT_MULTI", //(EnumFaultType, optional)
-  "first_start": 3, //(optional)
-  "first_end": 3, //(optional)
-  "second_start": 0, //(optional)
-  "second_end": 0 //(optional)
+  "reason": "FAULT_MULTI", //(EnumFaultType, optional) - v2.7 별도 필드
+  "detail": { //(optional, 상세 정보만)
+    "first_start": 3, //(optional)
+    "first_end": 3 //(optional)
+  }
 }
 ```
 
@@ -3611,11 +4089,6 @@ Accept: application/json
     "id": 2002,
     "type_event": "Fault", //(EnumEventType)
     "action_reported": "False", //(EnumTrueFalse)
-    "reason": "FAULT_MULTI", //(EnumFaultType)
-    "first_start": 3,
-    "first_end": 3,
-    "second_start": 0,
-    "second_end": 0,
     "device": {
       "id": 104,
       "number_device": 4,
@@ -3625,11 +4098,19 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+    "reason": "FAULT_MULTI", //(EnumFaultType) - v2.7 별도 필드
+    "detail": {
+      "first_start": 3,
+      "first_end": 3,
+      "second_start": 0,
+      "second_end": 0
+    },
     "created_at": "2026-01-06T10:56:00.100Z",
     "updated_at": "2026-01-06T10:57:00.150Z"
   },
@@ -3654,11 +4135,13 @@ Accept: application/json
   "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
   "action_reported": "True", //(EnumTrueFalse)
-  "reason": "FAULT_ETC", //(EnumFaultType)
-  "first_start": 2,
-  "first_end": 2,
-  "second_start": 5,
-  "second_end": 5
+  "reason": "FAULT_ETC", //(EnumFaultType) - v2.7 별도 필드 (필수)
+  "detail": { //(optional, 상세 정보만)
+    "first_start": 2,
+    "first_end": 2,
+    "second_start": 5,
+    "second_end": 5
+  }
 }
 ```
 
@@ -3671,11 +4154,6 @@ Accept: application/json
     "id": 2002,
     "type_event": "Fault", //(EnumEventType)
     "action_reported": "True", //(EnumTrueFalse)
-    "reason": "FAULT_ETC", //(EnumFaultType)
-    "first_start": 2,
-    "first_end": 2,
-    "second_start": 5,
-    "second_end": 5,
     "device": {
       "id": 104,
       "number_device": 4,
@@ -3685,11 +4163,19 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
     },
     "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+    "reason": "FAULT_ETC", //(EnumFaultType) - v2.7 별도 필드
+    "detail": {
+      "first_start": 2,
+      "first_end": 2,
+      "second_start": 5,
+      "second_end": 5
+    },
     "created_at": "2026-01-06T10:56:00.100Z",
     "updated_at": "2026-01-06T10:58:00.200Z"
   },
@@ -3793,11 +4279,6 @@ Accept: application/json
       "id": 2001,
       "type_event": "Fault",
       "action_reported": "True",
-      "reason": "FAULT_CONTROLLER",
-      "first_start": 100,
-      "first_end": 200,
-      "second_start": 300,
-      "second_end": 400,
       "device": {
         "id": 2,
         "number_device": 2,
@@ -3808,11 +4289,19 @@ Accept: application/json
         "version": "v2.0.0",
         "ip_address": "192.168.1.102",
         "ip_port": 8080,
+        "geolocation": null,
         "device_groups": [
           { "id": 2, "name": "B구역 컨트롤러 그룹" }
         ]
       },
       "device_description": "[Controller] Controller-B (number: 2, id: 2)",
+      "detail": {
+        "reason": "FAULT_CONTROLLER", //(EnumFaultType)
+        "first_start": 100,
+        "first_end": 200,
+        "second_start": 300,
+        "second_end": 400
+      },
       "created_at": "2025-01-14T11:00:00.000Z",
       "updated_at": "2025-01-14T11:00:00.000Z"
     },
@@ -3888,6 +4377,7 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": [
           {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
         ]
@@ -3908,6 +4398,7 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": [
           {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
         ]
@@ -3964,6 +4455,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
@@ -4029,6 +4521,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
@@ -4074,6 +4567,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
@@ -4122,6 +4616,7 @@ Accept: application/json
       "version": "v1.5.0",
       "status": "ACTIVATED",
       "controller_id": 1,
+      "geolocation": null,
       "device_groups": [
         {"id": 1, "name": "A구역 센서그룹", "description": "A구역 센서 장비 그룹", "device_count": 5}
       ]
@@ -4212,7 +4707,6 @@ Accept: application/json
       "id": 1001,
       "type_event": "Intrusion",
       "action_reported": "True",
-      "result": "PIR_SENSOR",
       "device": {
         "id": 2,
         "number_device": 101,
@@ -4224,6 +4718,7 @@ Accept: application/json
         "ip_address": null,
         "ip_port": null,
         "controller_id": 1,
+        "geolocation": null,
         "urls": null,
         "mode": null,
         "category": null,
@@ -4231,6 +4726,11 @@ Accept: application/json
         "device_groups": []
       },
       "device_description": "[Fence] Test Sensor (number: 101, id: 2)",
+      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+        "signal": 1500
+      },
       "created_at": "2025-01-14T11:50:23.736735",
       "updated_at": "2025-01-14T11:50:25.123456"
     },
@@ -4272,7 +4772,6 @@ Accept: application/json
         "id": 1002,
         "type_event": "Intrusion", //(EnumEventType)
         "action_reported": "True", //(EnumTrueFalse)
-        "result": "THERMAL_SENSOR", //(EnumDetectionType)
         "device": {
           "id": 102,
           "number_device": 2,
@@ -4282,9 +4781,15 @@ Accept: application/json
           "version": "v1.5.0",
           "status": "ACTIVATED",
           "controller_id": 1,
+          "geolocation": null,
           "device_groups": []
         },
         "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+        "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+        "detail": {
+          "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+          "signal": 1800
+        },
         "created_at": "2025-01-10T10:15:00.100Z",
         "updated_at": "2025-01-10T10:16:00.100Z"
       },
@@ -4300,11 +4805,6 @@ Accept: application/json
         "id": 1001,
         "type_event": "Fault", //(EnumEventType)
         "action_reported": "True", //(EnumTrueFalse)
-        "reason": "FAULT_ETC", //(EnumFaultType)
-        "first_start": 2,
-        "first_end": 2,
-        "second_start": 5,
-        "second_end": 5,
         "device": {
           "id": 104,
           "number_device": 4,
@@ -4314,9 +4814,17 @@ Accept: application/json
           "version": "v1.5.0",
           "status": "ACTIVATED",
           "controller_id": 1,
+          "geolocation": null,
           "device_groups": []
         },
         "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
+        "reason": "FAULT_ETC", //(EnumFaultType) - v2.7 별도 필드
+        "detail": {
+          "first_start": 2,
+          "first_end": 2,
+          "second_start": 5,
+          "second_end": 5
+        },
         "created_at": "2025-01-10T10:18:00.150Z",
         "updated_at": "2025-01-10T10:20:00.150Z"
       },
@@ -4368,7 +4876,6 @@ Accept: application/json
       "id": 1002,
       "type_event": "Intrusion", //(EnumEventType)
       "action_reported": "True", //(EnumTrueFalse)
-      "result": "THERMAL_SENSOR", //(EnumDetectionType)
       "device": {
         "id": 102,
         "number_device": 2,
@@ -4378,9 +4885,15 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": []
       },
       "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+        "signal": 1800
+      },
       "created_at": "2025-01-10T10:15:00.100Z",
       "updated_at": "2025-01-10T10:16:00.100Z"
     },
@@ -4438,7 +4951,6 @@ Accept: application/json
       "id": 1002,
       "type_event": "Intrusion", //(EnumEventType)
       "action_reported": "True", //(EnumTrueFalse)
-      "result": "THERMAL_SENSOR", //(EnumDetectionType)
       "device": {
         "id": 102,
         "number_device": 2,
@@ -4448,9 +4960,15 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": []
       },
       "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+        "signal": 1800
+      },
       "created_at": "2025-01-10T10:15:00.100Z",
       "updated_at": "2025-01-10T10:16:00.100Z"
     },
@@ -4492,7 +5010,6 @@ Accept: application/json
       "id": 1002,
       "type_event": "Intrusion", //(EnumEventType)
       "action_reported": "True", //(EnumTrueFalse)
-      "result": "THERMAL_SENSOR", //(EnumDetectionType)
       "device": {
         "id": 102,
         "number_device": 2,
@@ -4502,9 +5019,15 @@ Accept: application/json
         "version": "v1.5.0",
         "status": "ACTIVATED",
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": []
       },
       "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
+      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+        "signal": 1800
+      },
       "created_at": "2025-01-10T10:15:00.100Z",
       "updated_at": "2025-01-10T10:16:00.100Z"
     },
@@ -4638,6 +5161,10 @@ Integration API는 GOP 시스템과 외부 시스템 간의 연동을 위한 설
 > **v2.3 변경사항 (v2.1)**: `group_event` (VARCHAR) → `device_group_id` (FK) 변경
 > - EventMapping이 DeviceGroup과 FK 관계로 연결됨
 > - Device → DeviceGroup → EventMapping → CameraPreset 흐름으로 이벤트-카메라 연동 가능
+>
+> **v2.4 변경사항 (PRD_CategoryEvent_Refactoring.md v1.1)**: ⚠️ **Breaking Change**
+> - `category_event` (VARCHAR) → `category_event_mapping` (Enum) 필드명 변경
+> - 타입: `EnumMappingEventCategory` (FENCE_SENSOR_ONLY, MULTI_SENSOR_ONLY 등)
 
 #### 7.2.1 EventMapping 목록 조회
 
@@ -4646,7 +5173,7 @@ Integration API는 GOP 시스템과 외부 시스템 간의 연동을 위한 설
 **Query Parameters**:
 - `name_event` (string, optional): 이벤트 이름 필터
 - `device_group_id` (int, optional): DeviceGroup ID 필터 **(v2.3 변경: group_event → device_group_id)**
-- `category_event` (string, optional): 이벤트 카테고리 필터
+- `category_event_mapping` (EnumMappingEventCategory, optional): 이벤트 매핑 카테고리 필터 **(v2.4 변경: category_event → category_event_mapping)**
 - `status` (boolean, optional): 활성화 상태 필터
 - `page` (int, optional, default=1): 페이지 번호
 - `limit` (int, optional, default=20): 페이지당 항목 수
@@ -4669,7 +5196,7 @@ Accept: application/json
       "id": 1,
       "name_event": "침입 탐지",
       "device_group_id": 1,
-      "category_event": "detection",
+      "category_event_mapping": "FENCE_SENSOR_ONLY",
       "description": "센서 침입 탐지 이벤트 매핑",
       "status": true,
       "created_at": "2026-01-06T09:00:00.000Z",
@@ -4679,7 +5206,7 @@ Accept: application/json
       "id": 2,
       "name_event": "장애 발생",
       "device_group_id": 2,
-      "category_event": "malfunction",
+      "category_event_mapping": "MULTI_SENSOR_ONLY",
       "description": "센서 장애 발생 이벤트 매핑",
       "status": true,
       "created_at": "2026-01-06T09:10:00.000Z",
@@ -4725,7 +5252,7 @@ Accept: application/json
     "id": 1,
     "name_event": "침입 탐지",
     "device_group_id": 1,
-    "category_event": "detection",
+    "category_event_mapping": "FENCE_SENSOR_ONLY",
     "description": "센서 침입 탐지 이벤트 매핑",
     "status": true,
     "created_at": "2026-01-06T09:00:00.000Z",
@@ -4765,13 +5292,14 @@ Accept: application/json
 {
   "name_event": "연결 상태 변경",
   "device_group_id": 3,
-  "category_event": "connection",
+  "category_event_mapping": "SENSOR_WITH_CAMERA",
   "description": "센서 연결 상태 변경 이벤트 매핑",
   "status": true
 }
 ```
 
 > **v2.3 변경**: `group_event` (VARCHAR) → `device_group_id` (INT, FK) 변경. DeviceGroup.id를 참조합니다.
+> **v2.4 변경**: `category_event` (VARCHAR) → `category_event_mapping` (EnumMappingEventCategory) 변경.
 
 **Response Example** (201 Created):
 ```json
@@ -4782,7 +5310,7 @@ Accept: application/json
     "id": 3,
     "name_event": "연결 상태 변경",
     "device_group_id": 3,
-    "category_event": "connection",
+    "category_event_mapping": "SENSOR_WITH_CAMERA",
     "description": "센서 연결 상태 변경 이벤트 매핑",
     "status": true,
     "created_at": "2026-01-06T11:15:00.000Z",
@@ -4838,7 +5366,7 @@ Accept: application/json
     "id": 1,
     "name_event": "침입 탐지",
     "device_group_id": 2,
-    "category_event": "detection",
+    "category_event_mapping": "FENCE_SENSOR_ONLY",
     "description": "센서 침입 탐지 이벤트 - 수정된 설명",
     "status": false,
     "created_at": "2026-01-06T09:00:00.000Z",
@@ -4865,7 +5393,7 @@ Accept: application/json
 {
   "name_event": "침입 탐지 업데이트",
   "device_group_id": 1,
-  "category_event": "detection",
+  "category_event_mapping": "FENCE_SENSOR_ONLY",
   "description": "전체 업데이트된 설명",
   "status": true
 }
@@ -4880,7 +5408,7 @@ Accept: application/json
     "id": 1,
     "name_event": "침입 탐지 업데이트",
     "device_group_id": 1,
-    "category_event": "detection",
+    "category_event_mapping": "FENCE_SENSOR_ONLY",
     "description": "전체 업데이트된 설명",
     "status": true,
     "created_at": "2026-01-06T09:00:00.000Z",
@@ -5990,6 +6518,32 @@ GET /api/servers/summary
 - `PUT /api/rois/{roi_id}/points` - 포인트 일괄 수정 (전체 교체)
 - `DELETE /api/rois/{roi_id}/points/{point_id}` - 포인트 삭제
 
+**Speakers** (v2.4 신규):
+- `GET /api/devices/speakers` - 스피커 목록 조회
+- `POST /api/devices/speakers` - 스피커 생성
+- `GET /api/devices/speakers/{id}` - 스피커 단일 조회
+- `PATCH /api/devices/speakers/{id}` - 스피커 수정 (부분)
+- `PUT /api/devices/speakers/{id}` - 스피커 수정 (전체)
+- `DELETE /api/devices/speakers/{id}` - 스피커 삭제
+
+**FileGroups** (v2.4 신규):
+- `GET /api/file-groups` - 파일그룹 목록 조회
+- `POST /api/file-groups` - 파일그룹 생성
+- `GET /api/file-groups/{id}` - 파일그룹 단일 조회
+- `PATCH /api/file-groups/{id}` - 파일그룹 수정 (부분)
+- `PUT /api/file-groups/{id}` - 파일그룹 수정 (전체)
+- `DELETE /api/file-groups/{id}` - 파일그룹 삭제
+
+**Enclosures** (v2.4 신규):
+- `GET /api/devices/enclosures` - 함체 목록 조회
+- `POST /api/devices/enclosures` - 함체 생성
+- `GET /api/devices/enclosures/{id}` - 함체 단일 조회
+- `PATCH /api/devices/enclosures/{id}` - 함체 수정 (부분)
+- `PUT /api/devices/enclosures/{id}` - 함체 수정 (전체)
+- `DELETE /api/devices/enclosures/{id}` - 함체 삭제
+- `PATCH /api/devices/enclosures/{id}/status` - 함체 환경 데이터 업데이트
+- `POST /api/devices/enclosures/{id}/control` - 함체 제어 (히터/팬)
+
 #### Event Endpoints
 
 **Detection Events**:
@@ -6076,7 +6630,9 @@ GET /api/servers/summary
 {
   "type_event": "Intrusion",
   "device_id": 101,
-  "result": "PIR_SENSOR"
+  "detail": {
+    "result": "PIR_SENSOR" //(EnumDetectionType)
+  }
 }
 ```
 
@@ -6098,7 +6654,6 @@ GET /api/servers/summary
   "id": 1001,
   "type_event": "Intrusion",
   "action_reported": "False",
-  "result": "PIR_SENSOR",
   "device": {
     "id": 101,
     "number_device": 1,
@@ -6113,6 +6668,9 @@ GET /api/servers/summary
     ]
   },
   "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+  "detail": {
+    "result": "PIR_SENSOR" //(EnumDetectionType)
+  },
   "created_at": "2026-01-06T10:15:23.100Z",
   "updated_at": "2026-01-06T10:15:23.100Z"
 }
@@ -6124,9 +6682,11 @@ GET /api/servers/summary
   "id": 1001,
   "type_event": "Intrusion",
   "action_reported": "False",
-  "result": "PIR_SENSOR",
   "device": null,
   "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+  "detail": {
+    "result": "PIR_SENSOR" //(EnumDetectionType)
+  },
   "created_at": "2026-01-06T10:15:23.100Z",
   "updated_at": "2026-01-06T10:15:23.100Z"
 }
@@ -6222,22 +6782,22 @@ python scripts/migrate_event_device_id.py
 #### 10.3.3 이벤트-카메라 연동 흐름
 
 ```
-이벤트 발생 시 카메라 프리셋 연동 흐름 (v2.3):
+이벤트 발생 시 카메라 프리셋 연동 흐름 (v2.4):
 
 1. DetectionEvent 발생 (device_id = 101)
 2. Event Response에서 device.device_groups[] 확인
 3. device_groups[].id → EventMapping.device_group_id 매칭
-4. EventMapping에서 category_event + device_group_id로 조회
-5. 매핑된 CameraEventMapping → CameraEventPreset 실행
+4. EventMapping에서 category_event_mapping + device_group_id로 조회
+5. 매핑된 EventMappingCamera → CameraPreset 실행
 
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Event Response │     │  EventMapping   │     │ CameraPreset    │
-│  ─────────────  │     │  ─────────────  │     │ ─────────────   │
-│  device: {      │────►│ device_group_id │────►│ 프리셋 실행      │
-│    device_groups│     │ category_event  │     │                 │
-│    [{id: 1}]    │     │                 │     │                 │
-│  }              │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌─────────────────────┐     ┌─────────────────┐
+│  Event Response │     │    EventMapping     │     │ CameraPreset    │
+│  ─────────────  │     │  ─────────────────  │     │ ─────────────   │
+│  device: {      │────►│ device_group_id     │────►│ 프리셋 실행      │
+│    device_groups│     │ category_event_     │     │                 │
+│    [{id: 1}]    │     │ mapping (Enum)      │     │                 │
+│  }              │     │                     │     │                 │
+└─────────────────┘     └─────────────────────┘     └─────────────────┘
 ```
 
 #### 10.3.4 EventMapping FK 정책
@@ -6254,7 +6814,8 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v2.4 | 2026-01-07 | **Camera URLs JSONB 통합, EventMappingCamera API 추가, Server 인증 필드 추가, Speaker Device API 추가**<br><br>**[1. Camera URL 스키마 변경]**<br>- **rtsp_uri, rtsp_port 제거** → `urls` JSONB 필드로 통합<br>- **유연한 dict 기반 구조**: homepage, onvif, streams, snapshot 등<br>- **Example**: `{"homepage": {"url": "http://..."}, "streams": {"rtsp": {"main": "rtsp://...", "sub": "rtsp://..."}, "webrtc": {"main": "https://..."}}, "onvif": {"device_service": "http://..."}, "snapshot": {"ch1": "http://..."}}`<br><br>**[2. EventMappingCamera API 신규 (7.3 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/cameras`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 정책**: EventMapping CASCADE, Camera/CameraPreset SET NULL<br>- **Nested Response**: camera, target_preset, home_preset 포함 (timestamp 제외)<br>- **레거시 CameraEventMappings API 제거**: `/api/integrations/camera-event-mappings` 엔드포인트 및 Swagger 태그 삭제<br><br>**[3. DeviceNestedResponse 변경]**<br>- `rtsp_uri`, `rtsp_port` 필드 제거, `urls` 필드 추가<br><br>**[4. Server 인증 정보 필드 추가]**<br>- **Server 모델 필드 추가**: `user_name` (VARCHAR(100)), `user_password` (VARCHAR(200))<br>- 서버 접속 인증 정보 저장 지원<br>- Server Create/Update Request 및 Response에 필드 추가<br><br>**[5. Speaker Device API 신규]**<br>- **[신규] 5.8 Speaker API**: `/api/devices/speakers` - Device Polymorphic 상속 구조<br>- **[신규] 5.9 FileGroup API**: `/api/file-groups` - 방송음원 파일풀 관리<br>- **EnumDeviceCategory 확장**: `SPEAKER = "speaker"` 추가<br>- **EnumSpeakerType 신규**: NORMAL, ADMIN, MONITOR, DEV<br>- **Speaker 테이블**: id (FK/PK → devices), speaker_type, server_id (FK → servers), description<br>- **FileGroup 테이블**: id, server_id (FK), group_id, group_name, files (JSONB)<br>- **Nested Response**: Speaker Response에서 `server` 객체로 Server 전체 정보 제공 (created_at, updated_at 제외)<br>- **FK 정책**: Speaker.server_id → SET NULL, FileGroup.server_id → CASCADE |
+| v2.6 | 2026-01-09 | **Speaker Geolocation 추가 및 Event 필드 정규화**<br><br>**[1. Speaker Geolocation 추가]** (PRD_Speaker_Geolocation.md v1.0)<br>- **speakers.geolocation JSONB 추가**: Speaker 장비 위치 정보<br>- **API 변경**: POST/PATCH/PUT Request에 geolocation 필드 추가<br>- **Response 변경**: GET 응답에 geolocation 필드 포함<br>- **Swagger/Docs 업데이트**: SpeakerCreate, SpeakerUpdate, SpeakerResponse 스키마에 geolocation 필드 추가<br><br>**[2. Event 필드 정규화]** (PRD_Event_Field_Normalization.md v1.0)<br>- **Detection Event**: `result` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)<br>  - 모든 Request/Response에서 result가 별도 필드<br>- **Malfunction Event**: `reason` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (first_start, first_end, second_start, second_end)<br>  - 모든 Request/Response에서 reason이 별도 필드<br>- **Action Event**: `from_event` nested response에 분리된 필드 적용 |
+| v2.4 | 2026-01-08 | **Camera URLs, Speaker/Enclosure Device, Controller/Sensor Geolocation, EventMappingCamera API**<br><br>**[0. ⚠️ Breaking Change: Category Event Refactoring]** (PRD_CategoryEvent_Refactoring.md v1.1)<br>- **EventMapping 필드명 변경**: `category_event` (VARCHAR) → `category_event_mapping` (Enum)<br>- **EnumEventCategory 신규**: Event 모델 polymorphic discriminator용 (DETECTION, MALFUNCTION, CONNECTION)<br>- **EnumMappingEventCategory**: EventMapping 센서 조합 타입용 (FENCE_SENSOR_ONLY, MULTI_SENSOR_ONLY 등)<br>- **Query Parameter 변경**: `?category_event=xxx` → `?category_event_mapping=FENCE_SENSOR_ONLY`<br><br>**[1. Camera URL 스키마 변경]**<br>- **rtsp_uri, rtsp_port 제거** → `urls` JSONB 필드로 통합<br>- **유연한 dict 기반 구조**: homepage, onvif, streams, snapshot 등<br><br>**[2. EventMappingCamera API 신규 (7.3 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/cameras`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **레거시 CameraEventMappings API 제거**<br><br>**[3. Server 인증 정보 필드 추가]**<br>- **Server 모델 필드 추가**: `user_name`, `user_password`<br><br>**[4. Speaker Device API 신규]**<br>- **[신규] 5.8 Speaker API**: `/api/devices/speakers` - Device Polymorphic 상속 구조<br>- **[신규] 5.9 FileGroup API**: `/api/file-groups` - 방송음원 파일풀 관리<br>- **EnumDeviceCategory 확장**: `SPEAKER = "speaker"` 추가<br>- **EnumSpeakerType 신규**: NORMAL, ADMIN, MONITOR, DEV<br><br>**[5. Enclosure Device API 신규]** (PRD_Enclosure_Device.md v1.1)<br>- **[신규] 5.10 Enclosure API**: `/api/devices/enclosures` - 함체관리장비<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **특수 엔드포인트**: `PATCH /{id}/status` (환경 데이터), `POST /{id}/control` (히터/팬 제어)<br>- **EnumDeviceCategory 확장**: `ENCLOSURE = "enclosure"` 추가<br>- **EnumDoorStatus 신규**: CLOSED, OPEN - 도어 물리적 상태<br>- **Enclosure 테이블**: door_status, detail_info (JSONB), geolocation (JSONB), threshold_config (JSONB), heater_enabled, fan_enabled<br><br>**[6. Controller/Sensor Geolocation 추가]** (PRD_Controller_Sensor_Geolocation.md v1.0)<br>- **controllers.geolocation JSONB 추가**: Controller 장비 위치 정보<br>- **sensors.geolocation JSONB 추가**: Sensor 장비 위치 정보<br>- **geolocation JSON 구조**: `{location, latitude, longitude, altitude}` |
 | v2.3 | 2026-01-06 | **API 전면 리팩토링 및 Nested Response 규칙 적용**<br><br>**[1. Event API 변경]**<br>- **Request 필드 통합**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합<br>- **Response 필드 제거**: `device_id` (중복), `sequence` (완전 제거), `group_event` (`device.device_groups[]`로 대체)<br>- **Response 필드 추가**: `device` (Polymorphic), `device_description` (스냅샷)<br>- **`action_reported` 자동 관리**: Create 시 항상 "False", ActionEvent 생성/삭제 시 시스템 자동 업데이트<br>- **DB 변경**: `events.sequence` 컬럼 `NOT NULL` → `NULL` 허용 (레거시 호환)<br><br>**[2. Device Polymorphic Response]**<br>- Event Response `device` 필드가 타입별 다른 스키마 반환:<br>  • Sensor → SensorNestedResponse (controller_id 포함)<br>  • Controller → ControllerNestedResponse (ip_address, ip_port 포함)<br>  • Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)<br><br>**[3. ActionEvent API 변경]**<br>- **Request 필드 제거**: `from_type_event` 제거 - `from_event_id`만으로 원본 이벤트 참조<br>- **Request 필드명 변경**: `from_event` → `from_event_id`<br>- **Polymorphic Relationship**: `from_event_id`가 `events.id` FK를 참조하여 이벤트 타입 자동 확인<br><br>**[4. Nested Response 규칙 일관성 적용]**<br>- **규칙**: 주체 Entity만 `created_at`, `updated_at` 포함, Nested 객체는 제외<br>- **Device API**: `device_groups`, `sensors` nested 객체에서 timestamp 제거<br>- **Sensor API**: `controller` nested 객체에서 timestamp 제거, `include_controller` 파라미터 추가<br>- **Camera Preset API**: `rois`, `points` nested 객체에서 timestamp 제거<br>- **신규 스키마**: `ControllerNestedResponse`, `ROINestedResponse`, `ROIListNestedResponse`, `XyPointNestedResponse`<br><br>**[5. Device `number_device` unique 제약 해제]**<br>- **변경**: 동일한 장치 번호를 여러 디바이스에서 사용 가능<br>- **스키마**: `number_device` 설명에서 "(유니크)" 제거, 409 중복 에러 제거<br>- **확인**: DB 스키마와 모델 모두 이미 `unique=False` 상태<br><br>**[6. EventMapping API 변경]**<br>- `group_event` (VARCHAR) → `device_group_id` (INTEGER FK) 변경<br>- 쿼리 파라미터: `?group_event=xxx` → `?device_group_id=1`<br><br>**[7. 문서 업데이트]**<br>- 10.3 EventMapping 리팩토링 변경사항 추가<br>- Camera PATCH/PUT API: `is_record`, `hardware_spec`, `geolocation`, `group_ids` 필드 추가<br>-  참조: v1.3, v1.5, v2.2, v2.7, v2.8, v2.9 |
 | v2.2 | 2025-12-31 | **Event-Device 관계 리팩토링 ( v1.1)**<br>- **[변경] Event API Request**: `controller`, `sensor`, `type_device` 3개 필드 → `device_id` 단일 FK로 통합<br>- **[변경] Event API Response**: `device` nested 객체 추가 (Optional, Device 삭제 시 null)<br>- **[신규] `device_description` 필드**: Device 정보 스냅샷 자동 생성 (형식: `[{type_device}] {name_device} (number: {number_device}, id: {id})`)<br>- **[중요] Event 영속성 보장**: Device 삭제 시 Event.device_id → NULL (CASCADE 금지, SET NULL 사용)<br>- **[중요] device_description 유지**: Device 삭제 후에도 device_description은 보존되어 과거 Device 정보 참조 가능<br>- Detection/Malfunction/Connection Event 모두 동일한 패턴 적용<br>- Action Event의 `from_event` 내에도 `device`, `device_description` 포함<br>- 마이그레이션 스크립트 추가: `scripts/migrate_event_device_id.py`<br>-  v1.1 참조 |
 | v2.1 | 2025-12-31 | **Camera Preset, ROI, XyPoint API 추가**<br>- **[신규] 5.5 Camera Preset API**: PTZ 카메라 프리셋 CRUD API 추가<br>- **[신규] 5.6 ROI API**: Region of Interest CRUD API 추가 (`include_points` 파라미터 지원)<br>- **[신규] 5.7 XyPoint API**: ROI 다각형 꼭지점 좌표 CRUD API 추가<br>- 계층 구조: Camera → CameraPreset → ROI → XyPoint (1:N:N:N)<br>- CameraPreset 목록 조회 시 `include_rois` 파라미터로 ROI 정보 포함 가능<br>- ROI 목록 조회 시 `include_points` 파라미터로 Points 정보 포함 가능<br>- CameraPreset 상세 조회 시 ROI 및 Points 전체 중첩 구조 반환<br>- XyPoint 일괄 수정(PUT) 시 기존 포인트 전체 교체 방식<br>- CASCADE DELETE 지원: Camera 삭제 시 Preset → ROI → XyPoint 순차 삭제<br>- 부록 10.1 Endpoint 목록에 Camera Presets, ROIs, XyPoints 섹션 추가 |
@@ -6271,5 +6832,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v2.4
-**최종 업데이트**: 2026-01-07
+**문서 버전**: v2.6
+**최종 업데이트**: 2026-01-09

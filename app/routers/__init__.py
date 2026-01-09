@@ -18,6 +18,9 @@ from app.routers import device_groups
 from app.routers import camera_presets
 from app.routers import rois
 from app.routers import xypoints
+from app.routers import speakers
+from app.routers import enclosures
+from app.routers import file_groups
 
 __all__ = [
     "auth",
@@ -37,4 +40,7 @@ __all__ = [
     "camera_presets",
     "rois",
     "xypoints",
+    "speakers",
+    "enclosures",
+    "file_groups",
 ]

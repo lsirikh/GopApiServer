@@ -11,7 +11,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Controller, Sensor, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorNestedResponse, DeviceGroupNestedResponse
+from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorNestedResponse, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 
@@ -103,6 +103,11 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
     # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
     device_groups = _get_device_groups_nested(db, controller.id, EnumDeviceCategory.CONTROLLER)
 
+    # PRD_Controller_Sensor_Geolocation.md: Convert geolocation dict to Geolocation schema
+    geolocation = None
+    if controller.geolocation:
+        geolocation = Geolocation(**controller.geolocation)
+
     response = ControllerResponse(
         id=controller.id,
         number_device=controller.number_device,
@@ -113,6 +118,7 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
         status=controller.status.value,
         ip_address=controller.ip_address,
         ip_port=controller.ip_port,
+        geolocation=geolocation,
         created_at=controller.created_at,
         updated_at=controller.updated_at,
         device_groups=device_groups
@@ -131,6 +137,7 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
                 version=s.version,
                 status=s.status.value,
                 controller_id=s.controller_id,
+                geolocation=Geolocation(**s.geolocation) if s.geolocation else None,
                 device_groups=_get_device_groups_nested(db, s.id, EnumDeviceCategory.SENSOR)
             )
             for s in sensors
@@ -295,7 +302,8 @@ async def create_controller(
         version=controller_data.version,
         status=device_status,
         ip_address=controller_data.ip_address,
-        ip_port=controller_data.ip_port
+        ip_port=controller_data.ip_port,
+        geolocation=controller_data.geolocation.model_dump() if controller_data.geolocation else None
     )
 
     db.add(new_controller)
@@ -363,6 +371,9 @@ async def update_controller(
     # Handle group_ids separately (N:N relationship)
     group_ids = update_data.pop("group_ids", None)
 
+    # Handle geolocation separately (Pydantic model -> dict)
+    geolocation_data = update_data.pop("geolocation", None)
+
     for field, value in update_data.items():
         if field == "type_device" and value is not None:
             try:
@@ -382,6 +393,10 @@ async def update_controller(
                 )
 
         setattr(controller, field, value)
+
+    # Update geolocation if provided
+    if geolocation_data is not None:
+        controller.geolocation = geolocation_data
 
     # Update group mappings if group_ids was provided
     if group_ids is not None:
@@ -459,6 +474,7 @@ async def replace_controller(
     controller.status = device_status
     controller.ip_address = controller_data.ip_address
     controller.ip_port = controller_data.ip_port
+    controller.geolocation = controller_data.geolocation.model_dump() if controller_data.geolocation else None
 
     # Handle group_ids if provided (N:N relationship)
     if controller_data.group_ids is not None:

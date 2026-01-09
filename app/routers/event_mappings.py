@@ -1,5 +1,8 @@
 """
 EventMapping API endpoints
+
+PRD: PRD_CategoryEvent_Refactoring.md v1.1
+- category_event → category_event_mapping 필드명 변경
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -11,6 +14,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.integration import EventMapping
 from app.schemas.integration import EventMappingCreate, EventMappingResponse, EventMappingUpdate
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.utils.enums import EnumMappingEventCategory
 
 router = APIRouter(tags=[])
 
@@ -21,7 +25,7 @@ async def get_event_mappings(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     name_event: Optional[str] = Query(None, description="이벤트 이름으로 필터링"),
     device_group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링"),
-    category_event: Optional[str] = Query(None, description="이벤트 카테고리로 필터링"),
+    category_event_mapping: Optional[EnumMappingEventCategory] = Query(None, description="이벤트 매핑 카테고리로 필터링"),
     status_filter: Optional[bool] = Query(None, alias="status", description="상태로 필터링"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
@@ -30,6 +34,7 @@ async def get_event_mappings(
     이벤트 매핑 목록 조회 (페이지네이션)
 
     PRD v2.1: group_event → device_group_id (DeviceGroup FK)
+    PRD: PRD_CategoryEvent_Refactoring.md - category_event → category_event_mapping
 
     이벤트 매핑 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
@@ -38,7 +43,7 @@ async def get_event_mappings(
     - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
     - **name_event**: 이벤트 이름으로 필터링
     - **device_group_id**: DeviceGroup ID로 필터링
-    - **category_event**: 이벤트 카테고리로 필터링
+    - **category_event_mapping**: 이벤트 매핑 카테고리로 필터링 (센서 조합 타입)
     - **status**: 상태로 필터링
 
     **Response**: 이벤트 매핑 목록 및 페이지네이션 정보
@@ -51,8 +56,8 @@ async def get_event_mappings(
         query = query.filter(EventMapping.name_event == name_event)
     if device_group_id is not None:
         query = query.filter(EventMapping.device_group_id == device_group_id)
-    if category_event is not None:
-        query = query.filter(EventMapping.category_event == category_event)
+    if category_event_mapping is not None:
+        query = query.filter(EventMapping.category_event_mapping == category_event_mapping)
     if status_filter is not None:
         query = query.filter(EventMapping.status == status_filter)
 
@@ -66,13 +71,13 @@ async def get_event_mappings(
     # Get paginated results
     mappings = query.offset(skip).limit(limit).all()
 
-    # Convert to response format (PRD v2.1: device_group_id 사용)
+    # Convert to response format (PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping)
     mapping_responses = [
         EventMappingResponse(
             id=m.id,
             name_event=m.name_event,
             device_group_id=m.device_group_id,
-            category_event=m.category_event,
+            category_event_mapping=m.category_event_mapping,
             description=m.description,
             status=m.status,
             created_at=m.created_at,
@@ -123,12 +128,12 @@ async def get_event_mapping(
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
-    # PRD v2.1: device_group_id 사용
+    # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
         id=mapping.id,
         name_event=mapping.name_event,
         device_group_id=mapping.device_group_id,
-        category_event=mapping.category_event,
+        category_event_mapping=mapping.category_event_mapping,
         description=mapping.description,
         status=mapping.status,
         created_at=mapping.created_at,
@@ -154,11 +159,12 @@ async def create_event_mapping(
     새로운 이벤트 매핑을 생성합니다.
 
     PRD v2.1: group_event → device_group_id (DeviceGroup FK)
+    PRD: PRD_CategoryEvent_Refactoring.md - category_event → category_event_mapping
 
     **Request Body**:
     - **name_event**: 이벤트 이름 (필수)
     - **device_group_id**: DeviceGroup ID (선택)
-    - **category_event**: 이벤트 카테고리 (필수)
+    - **category_event_mapping**: 이벤트 매핑 카테고리 (필수, 센서 조합 타입)
     - **description**: 설명 (선택)
     - **status**: 상태 (필수)
 
@@ -167,7 +173,7 @@ async def create_event_mapping(
     new_mapping = EventMapping(
         name_event=mapping.name_event,
         device_group_id=mapping.device_group_id,
-        category_event=mapping.category_event,
+        category_event_mapping=mapping.category_event_mapping,
         description=mapping.description,
         status=mapping.status
     )
@@ -176,12 +182,12 @@ async def create_event_mapping(
     db.commit()
     db.refresh(new_mapping)
 
-    # PRD v2.1: device_group_id 사용
+    # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
         id=new_mapping.id,
         name_event=new_mapping.name_event,
         device_group_id=new_mapping.device_group_id,
-        category_event=new_mapping.category_event,
+        category_event_mapping=new_mapping.category_event_mapping,
         description=new_mapping.description,
         status=new_mapping.status,
         created_at=new_mapping.created_at,
@@ -211,11 +217,12 @@ async def update_event_mapping_partial(
     - **mapping_id**: 이벤트 매핑 ID (Path Parameter)
 
     PRD v2.1: group_event → device_group_id (DeviceGroup FK)
+    PRD: PRD_CategoryEvent_Refactoring.md - category_event → category_event_mapping
 
     **Request Body** (모든 필드 선택):
     - **name_event**: 이벤트 이름
     - **device_group_id**: DeviceGroup ID
-    - **category_event**: 이벤트 카테고리
+    - **category_event_mapping**: 이벤트 매핑 카테고리 (센서 조합 타입)
     - **description**: 설명
     - **status**: 상태
 
@@ -240,12 +247,12 @@ async def update_event_mapping_partial(
     db.commit()
     db.refresh(existing_mapping)
 
-    # PRD v2.1: device_group_id 사용
+    # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
         id=existing_mapping.id,
         name_event=existing_mapping.name_event,
         device_group_id=existing_mapping.device_group_id,
-        category_event=existing_mapping.category_event,
+        category_event_mapping=existing_mapping.category_event_mapping,
         description=existing_mapping.description,
         status=existing_mapping.status,
         created_at=existing_mapping.created_at,
@@ -275,11 +282,12 @@ async def update_event_mapping_full(
     - **mapping_id**: 이벤트 매핑 ID (Path Parameter)
 
     PRD v2.1: group_event → device_group_id (DeviceGroup FK)
+    PRD: PRD_CategoryEvent_Refactoring.md - category_event → category_event_mapping
 
     **Request Body** (모든 필드 필수):
     - **name_event**: 이벤트 이름
     - **device_group_id**: DeviceGroup ID
-    - **category_event**: 이벤트 카테고리
+    - **category_event_mapping**: 이벤트 매핑 카테고리 (센서 조합 타입)
     - **description**: 설명
     - **status**: 상태
 
@@ -296,22 +304,22 @@ async def update_event_mapping_full(
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
-    # Update all fields (PRD v2.1: device_group_id 사용)
+    # Update all fields (PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping)
     existing_mapping.name_event = mapping.name_event
     existing_mapping.device_group_id = mapping.device_group_id
-    existing_mapping.category_event = mapping.category_event
+    existing_mapping.category_event_mapping = mapping.category_event_mapping
     existing_mapping.description = mapping.description
     existing_mapping.status = mapping.status
 
     db.commit()
     db.refresh(existing_mapping)
 
-    # PRD v2.1: device_group_id 사용
+    # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
         id=existing_mapping.id,
         name_event=existing_mapping.name_event,
         device_group_id=existing_mapping.device_group_id,
-        category_event=existing_mapping.category_event,
+        category_event_mapping=existing_mapping.category_event_mapping,
         description=existing_mapping.description,
         status=existing_mapping.status,
         created_at=existing_mapping.created_at,

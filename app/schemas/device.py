@@ -169,6 +169,7 @@ class DeviceNestedResponse(BaseModel):
     name_device: str = Field(..., description="장치 이름")
     type_device: str = Field(..., description="장치 타입")
     status: str = Field(..., description="장치 상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
 
     # 공통 필드 (선택적) - PRD v1.2: nullable
     version: Optional[str] = Field(None, description="장치 버전")
@@ -208,6 +209,7 @@ class ControllerCreate(BaseModel):
     type_device: str = Field(..., description="장치 타입 (Controller)")
     version: str = Field(..., max_length=50, description="펌웨어/소프트웨어 버전")
     status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
+    is_enable: bool = Field(True, description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., ge=1, le=65535, description="포트 번호")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
@@ -229,6 +231,7 @@ class ControllerResponse(BaseModel):
     type_device: str = Field(..., description="장치 타입")
     version: str = Field(..., description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="포트 번호")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
@@ -265,6 +268,7 @@ class ControllerNestedResponse(BaseModel):
     type_device: str = Field(..., description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="포트 번호")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
@@ -287,6 +291,7 @@ class ControllerUpdate(BaseModel):
     type_device: Optional[str] = Field(None, description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: Optional[str] = Field(None, description="상태")
+    is_enable: Optional[bool] = Field(None, description="장비 활성화 여부")
     ip_address: Optional[str] = Field(None, description="IP 주소")
     ip_port: Optional[int] = Field(None, description="포트 번호")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
@@ -307,6 +312,7 @@ class SensorCreate(BaseModel):
     type_device: str = Field(..., description="센서 타입 (Fence|Pir|Fod 등)")
     version: str = Field(..., max_length=50, description="버전")
     status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
+    is_enable: bool = Field(True, description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
@@ -327,6 +333,7 @@ class SensorResponse(BaseModel):
     type_device: str = Field(..., description="센서 타입")
     version: str = Field(..., description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
@@ -362,6 +369,7 @@ class SensorNestedResponse(BaseModel):
     type_device: str = Field(..., description="센서 타입")
     version: Optional[str] = Field(None, description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
@@ -383,6 +391,7 @@ class SensorUpdate(BaseModel):
     type_device: Optional[str] = Field(None, description="센서 타입")
     version: Optional[str] = Field(None, description="버전")
     status: Optional[str] = Field(None, description="상태")
+    is_enable: Optional[bool] = Field(None, description="장비 활성화 여부")
     controller_id: Optional[int] = Field(None, description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
@@ -408,6 +417,7 @@ class CameraCreate(BaseModel):
     type_device: str = Field(..., description="장치 타입 (IpCamera)")
     version: str = Field(..., max_length=50, description="버전")
     status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
+    is_enable: bool = Field(True, description="장비 활성화 여부")
     ip_address: str = Field(..., description="카메라 IP 주소")
     ip_port: int = Field(..., ge=1, le=65535, description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="카메라 접속 사용자명 (PRD v1.2: nullable)")
@@ -443,6 +453,7 @@ class CameraResponse(BaseModel):
     type_device: str = Field(..., description="장치 타입")
     version: str = Field(..., description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
@@ -461,6 +472,26 @@ class CameraResponse(BaseModel):
     device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# CameraWithPresetsResponse: Camera 단일 조회 시 presets 포함 응답
+# PRD: PRD_API_Gap_Analysis.md (IMP-001, IMP-002)
+# ============================================================================
+
+class CameraWithPresetsResponse(CameraResponse):
+    """
+    카메라 + 프리셋 응답 스키마
+
+    PRD: PRD_API_Gap_Analysis.md (IMP-001, IMP-002)
+    Camera 단일 조회 시 include_presets=true, include_rois=true 파라미터 지원
+
+    presets 필드는 CameraPresetNestedResponse 리스트로 반환됩니다.
+    """
+    presets: List = Field(
+        default=[],
+        description="카메라 프리셋 목록 (include_presets=true일 때 포함)"
+    )
 
 
 # ============================================================================
@@ -490,6 +521,7 @@ class CameraNestedResponse(BaseModel):
     type_device: str = Field(..., description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     mode: str = Field(..., description="카메라 모드 (NONE|ONVIF|RTSP)")
@@ -519,6 +551,7 @@ class CameraUpdate(BaseModel):
     type_device: Optional[str] = Field(None, description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: Optional[str] = Field(None, description="상태")
+    is_enable: Optional[bool] = Field(None, description="장비 활성화 여부")
     ip_address: Optional[str] = Field(None, description="IP 주소")
     ip_port: Optional[int] = Field(None, description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
@@ -576,6 +609,7 @@ class SpeakerCreate(BaseModel):
     type_device: EnumDeviceType = Field(EnumDeviceType.IpSpeaker, description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: EnumDeviceStatus = Field(EnumDeviceStatus.ACTIVATED, description="상태")
+    is_enable: bool = Field(True, description="장비 활성화 여부")
 
     # Speaker-specific fields
     speaker_type: EnumSpeakerType = Field(EnumSpeakerType.NORMAL, description="스피커 타입")
@@ -596,6 +630,7 @@ class SpeakerUpdate(BaseModel):
     name_device: Optional[str] = Field(None, description="표시명")
     version: Optional[str] = Field(None, description="버전")
     status: Optional[EnumDeviceStatus] = Field(None, description="상태")
+    is_enable: Optional[bool] = Field(None, description="장비 활성화 여부")
 
     # Speaker-specific fields (Optional)
     speaker_type: Optional[EnumSpeakerType] = Field(None, description="스피커 타입")
@@ -619,6 +654,7 @@ class SpeakerResponse(BaseModel):
     type_device: str = Field(..., description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 
@@ -645,6 +681,7 @@ class SpeakerNestedResponse(BaseModel):
     name_device: str = Field(..., description="표시명")
     type_device: str = Field(..., description="장치 타입")
     status: str = Field(..., description="상태")
+    is_enable: bool = Field(..., description="장비 활성화 여부")
     speaker_type: str = Field(..., description="스피커 타입")
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")

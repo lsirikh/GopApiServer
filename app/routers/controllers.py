@@ -116,6 +116,7 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
         type_device=controller.type_device.value,
         version=controller.version,
         status=controller.status.value,
+        is_enable=controller.is_enable,
         ip_address=controller.ip_address,
         ip_port=controller.ip_port,
         geolocation=geolocation,
@@ -136,6 +137,7 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
                 type_device=s.type_device.value,
                 version=s.version,
                 status=s.status.value,
+                is_enable=s.is_enable,
                 controller_id=s.controller_id,
                 geolocation=Geolocation(**s.geolocation) if s.geolocation else None,
                 device_groups=_get_device_groups_nested(db, s.id, EnumDeviceCategory.SENSOR)

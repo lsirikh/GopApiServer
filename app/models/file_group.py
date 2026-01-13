@@ -53,6 +53,9 @@ class FileGroup(Base):
     # Relationship to Server
     server = relationship("Server", foreign_keys=[server_id])
 
+    # Relationship to EventMappingSpeaker (PRD: PRD_EventMappingSpeaker.md v1.0)
+    event_mapping_speakers = relationship("EventMappingSpeaker", back_populates="file_group")
+
     def __repr__(self):
         return (
             f"<FileGroup(id={self.id}, server_id={self.server_id}, "

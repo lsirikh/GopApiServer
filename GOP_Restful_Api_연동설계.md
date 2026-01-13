@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
-**작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-09  
-**버전**: v2.6  
+**작성일**: 2025-12-31
+**최종 수정일**: 2026-01-12
+**버전**: v2.8  
 **작성자**: 이기호 차장    
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성   
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -35,6 +35,7 @@
    - 7.1 [개요](#71-개요)
    - 7.2 [EventMapping API](#72-eventmapping-api)
    - 7.3 [Event Mapping Cameras API](#73-event-mapping-cameras-api) *(v2.4 신규)*
+   - 7.4 [Event Mapping Speakers API](#74-event-mapping-speakers-api) *(v2.8 신규)*
 8. [Server Monitoring API 설계](#8-server-monitoring-api-설계)
    - 8.1 [개요](#81-개요)
    - 8.2 [Server Category API](#82-server-category-api)
@@ -538,12 +539,12 @@ Device는 Joined Table Inheritance 패턴을 사용하여 다형성을 지원합
 │  controllers  │ │  sensors  │ │ cameras │ │  speakers   │ │   enclosures   │
 │  (v1.0~)      │ │  (v1.0~)  │ │ (v1.0~) │ │  (v2.4~)    │ │   (v2.4~)      │
 ├───────────────┤ ├───────────┤ ├─────────┤ ├─────────────┤ ├────────────────┤
-│ id (FK→devices)│ id (FK)   │ │ id (FK) │ │ id (FK)     │ │ id (FK)        │
+│ id (FK→devices)│ id (FK)    │ │ id (FK) │ │ id (FK)     │ │ id (FK)        │
 │ ip_address    │ │controller_│ │ip_address│ │speaker_type│ │ door_status    │
-│ ip_port       │ │id (FK)   │ │ip_port  │ │server_id   │ │ detail_info    │
-└───────────────┘ └───────────┘ │mode     │ │description │ │ geolocation    │
+│ ip_port       │ │id (FK)    │ │ip_port  │ │server_id    │ │ detail_info    │
+└───────────────┘ └───────────┘ │mode     │ │description  │ │ geolocation    │
                                 │category │ └─────────────┘ │ threshold_conf │
-                                │urls(JSONB)               │ │ heater_enabled │
+                                │urls(JSONB)                │ heater_enabled │
                                 └─────────┘                 │ fan_enabled    │
                                                             └────────────────┘
 ```
@@ -698,6 +699,21 @@ Accept: application/json
 }
 ```
 
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
+  }
+}
+```
+
 ---
 
 #### 5.1.2 Controller 단일 조회
@@ -827,6 +843,30 @@ Accept: application/json
 
 **Endpoint**: `POST /api/devices/controllers`
 
+**Request Example**:
+```http
+POST /api/devices/controllers HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 3,
+  "name_device": "Controller-C",
+  "ip_address": "192.168.1.102",
+  "ip_port": 8001,
+  "version": "v2.1.0",
+  "status": "DEACTIVATED",
+  "geolocation": {
+    "location": "GOP 3초소 1제어기",
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  },
+  "group_ids": [1, 2]
+}
+```
+
 **Request Body**:
 ```json
 {
@@ -847,6 +887,19 @@ Accept: application/json
   "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 장치 번호 |
+| group_device | integer | N | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | 장치 이름 |
+| type_device | string | N | 장치 타입 (EnumDeviceType, 기본값: Controller) |
+| version | string | N | 펌웨어 버전 |
+| status | string | N | 상태 (EnumDeviceStatus, 기본값: DEACTIVATED) |
+| ip_address | string | Y | IP 주소 |
+| ip_port | integer | Y | 포트 번호 |
+| geolocation | object | N | 위치 정보 (v2.4 신규) |
+| group_ids | array[int] | N | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (201 Created):
 ```json
@@ -883,11 +936,47 @@ Accept: application/json
 }
 ```
 
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "ip_address", "message": "Invalid IP address format"},
+      {"field": "number_device", "message": "Field required"}
+    ]
+  }
+}
+```
+
 ---
 
 #### 5.1.4 Controller 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/controllers/{id}`
+
+**Request Example**:
+```http
+PATCH /api/devices/controllers/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_device": "Controller-C-Updated",
+  "status": "ACTIVATED",
+  "version": "v2.2.0",
+  "group_ids": [1]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Controller ID |
 
 **Query Parameters**:
 - `include_sensors` (boolean, optional): 센서 목록 포함 여부 (기본값: false)
@@ -931,11 +1020,48 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Controller with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.1.5 Controller 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/controllers/{id}`
+
+**Request Example**:
+```http
+PUT /api/devices/controllers/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 3,
+  "group_device": 1,
+  "name_device": "Controller-C-Complete-Update",
+  "type_device": "Controller",
+  "version": "v2.3.0",
+  "status": "ACTIVATED",
+  "ip_address": "192.168.1.103",
+  "ip_port": 8002
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Controller ID |
 
 **Query Parameters**:
 - `include_sensors` (boolean, optional): 센서 목록 포함 여부 (기본값: false)
@@ -984,11 +1110,36 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Controller with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.1.6 Controller 삭제
 
 **Endpoint**: `DELETE /api/devices/controllers/{id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/controllers/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Controller ID |
 
 **Response Example** (200 OK):
 ```json
@@ -1002,6 +1153,18 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:36:00.100Z",
     "request_id": "550e8406-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Controller with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -1023,6 +1186,14 @@ Accept: application/json
 - `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
+
+**Request Example**:
+```http
+GET /api/devices/sensors?type_device=Fence&status=ACTIVATED&include_controller=true HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response Example** (200 OK):
 ```json
@@ -1123,6 +1294,21 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:37:00.100Z",
     "request_id": "550e8407-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
   }
 }
 ```
@@ -1241,6 +1427,30 @@ Accept: application/json
 
 **Endpoint**: `POST /api/devices/sensors`
 
+**Request Example**:
+```http
+POST /api/devices/sensors HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 3,
+  "name_device": "Fence-001",
+  "type_device": "Fence",
+  "controller_id": 1,
+  "version": "v2.1.0",
+  "status": "DEACTIVATED",
+  "geolocation": {
+    "location": "GOP 3초소 철책 A구간",
+    "latitude": 38.1235,
+    "longitude": 127.5680
+  },
+  "group_ids": [1, 2]
+}
+```
+
 **Request Body**:
 ```json
 {
@@ -1260,6 +1470,18 @@ Accept: application/json
   "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 장치 번호 |
+| group_device | integer | N | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | 장치 이름 |
+| type_device | string | N | 센서 타입 (EnumDeviceType, 기본값: Multi) |
+| version | string | N | 펌웨어 버전 |
+| status | string | N | 상태 (EnumDeviceStatus, 기본값: DEACTIVATED) |
+| controller_id | integer | N | 연결된 제어기 ID |
+| geolocation | object | N | 위치 정보 (v2.4 신규) |
+| group_ids | array[int] | N | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (201 Created):
 ```json
@@ -1295,11 +1517,47 @@ Accept: application/json
 }
 ```
 
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "number_device", "message": "Field required"},
+      {"field": "name_device", "message": "Field required"}
+    ]
+  }
+}
+```
+
 ---
 
 #### 5.2.4 Sensor 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/sensors/{id}`
+
+**Request Example**:
+```http
+PATCH /api/devices/sensors/103 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_device": "Fence-001-Updated",
+  "status": "ACTIVATED",
+  "version": "v2.2.0",
+  "group_ids": [1]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Sensor ID |
 
 **Query Parameters**:
 - `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
@@ -1342,11 +1600,47 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Sensor with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.2.5 Sensor 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/sensors/{id}`
+
+**Request Example**:
+```http
+PUT /api/devices/sensors/103 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 3,
+  "group_device": 1,
+  "name_device": "Fence-001-Complete-Update",
+  "type_device": "Fence",
+  "version": "v2.3.0",
+  "status": "ACTIVATED",
+  "controller_id": 1
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Sensor ID |
 
 **Query Parameters**:
 - `include_controller` (boolean, optional): 컨트롤러 정보 포함 여부 (기본값: false)
@@ -1389,11 +1683,36 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Sensor with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.2.6 Sensor 삭제
 
 **Endpoint**: `DELETE /api/devices/sensors/{id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/sensors/103 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Sensor ID |
 
 **Response Example** (200 OK):
 ```json
@@ -1407,6 +1726,18 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:42:00.100Z",
     "request_id": "550e8412-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Sensor with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -1428,6 +1759,14 @@ Accept: application/json
 - `status` (string, optional): 상태 필터 (ACTIVATED, ERROR, DEACTIVATED)
 - `page` (int, optional): 페이지 번호 (기본값: 1)
 - `limit` (int, optional): 페이지당 항목 수 (기본값: 20, 최대 100개)
+
+**Request Example**:
+```http
+GET /api/devices/cameras?mode=ONVIF&category=PTZ&status=ACTIVATED HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response Example** (200 OK):
 ```json
@@ -1452,9 +1791,12 @@ Accept: application/json
       "is_record": false,
       "urls": {
         "homepage": {"url": "http://192.168.1.109/"},
+        "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
         "streams": {
-          "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101"}
-        }
+          "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+          "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+        },
+        "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
       },
       "hardware_spec": {
         "name": "GOP 1구역 PTZ 카메라",
@@ -1486,6 +1828,21 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:33:00.080Z",
     "request_id": "550e8403-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
   }
 }
 ```
@@ -1589,6 +1946,37 @@ Accept: application/json
 
 **Endpoint**: `POST /api/devices/cameras`
 
+**Request Example**:
+```http
+POST /api/devices/cameras HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 110,
+  "name_device": "Camera-110",
+  "type_device": "IpCamera",
+  "ip_address": "192.168.1.110",
+  "ip_port": 80,
+  "user_name": "admin",
+  "user_password": "password123",
+  "mode": "ONVIF",
+  "category": "FIXED",
+  "is_record": false,
+  "urls": {
+    "homepage": {"url": "http://192.168.1.109/"},
+    "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
+    "streams": {
+      "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+      "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+    },
+    "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
+  },
+}
+```
+
 **Request Body**:
 ```json
 {
@@ -1606,10 +1994,13 @@ Accept: application/json
   "category": "FIXED", //(EnumCameraType)
   "is_record": false,
   "urls": {
-    "homepage": {"url": "http://192.168.1.110/"},
+    "homepage": {"url": "http://192.168.1.109/"},
+    "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
     "streams": {
-      "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101"}
-    }
+      "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+      "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+    },
+    "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
   },
   "hardware_spec": {
     "name": "신규 카메라",
@@ -1623,6 +2014,26 @@ Accept: application/json
   "group_ids": [1, 2]
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 장치 번호 |
+| group_device | integer | N | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | 장치 이름 |
+| type_device | string | N | 장치 타입 (EnumDeviceType, 기본값: IpCamera) |
+| version | string | N | 펌웨어 버전 |
+| status | string | N | 상태 (EnumDeviceStatus, 기본값: DEACTIVATED) |
+| ip_address | string | Y | IP 주소 |
+| ip_port | integer | Y | 포트 번호 |
+| user_name | string | N | 카메라 접속 사용자명 |
+| user_password | string | N | 카메라 접속 비밀번호 |
+| mode | string | N | 카메라 모드 (EnumCameraMode) |
+| category | string | N | 카메라 타입 (EnumCameraType: NONE, FIXED, PTZ) |
+| is_record | boolean | N | 녹화 여부 (기본값: false) |
+| urls | object | N | 카메라 URL 정보 (JSONB) |
+| hardware_spec | object | N | 하드웨어 사양 정보 |
+| geolocation | object | N | 위치 정보 |
+| group_ids | array[int] | N | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 > **Note**: `group_ids`는 N:N 관계로 여러 그룹에 할당 (권장), `group_device`는 레거시 호환용
 
@@ -1647,10 +2058,13 @@ Accept: application/json
     "category": "FIXED", //(EnumCameraType)
     "is_record": false,
     "urls": {
-      "homepage": {"url": "http://192.168.1.110/"},
+      "homepage": {"url": "http://192.168.1.109/"},
+      "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
       "streams": {
-        "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101"}
-      }
+        "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+        "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+      },
+      "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
     },
     "hardware_spec": {
       "name": "신규 카메라",
@@ -1675,11 +2089,58 @@ Accept: application/json
 }
 ```
 
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "ip_address", "message": "Invalid IP address format"},
+      {"field": "number_device", "message": "Field required"}
+    ]
+  }
+}
+```
+
 ---
 
 #### 5.3.4 Camera 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/cameras/{id}`
+
+**Request Example**:
+```http
+PATCH /api/devices/cameras/202 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_device": "Camera-110-Updated",
+  "status": "ACTIVATED",
+  "user_password": "newpassword456",
+  "is_record": true,
+  "hardware_spec": {
+    "firmware": "2.42.00",
+    "location": "GOP 1구역 후방 초소"
+  },
+  "geolocation": {
+    "latitude": 38.1250,
+    "longitude": 127.5700,
+    "altitude": 250.0,
+    "install_location": "GOP 1구역 후방 초소"
+  },
+  "group_ids": [1, 3]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Camera ID |
 
 **Request Body** (부분 업데이트 - 변경할 필드만 포함):
 ```json
@@ -1725,10 +2186,13 @@ Accept: application/json
     "category": "FIXED", //(EnumCameraType)
     "is_record": true,
     "urls": {
-      "homepage": {"url": "http://192.168.1.110/"},
+      "homepage": {"url": "http://192.168.1.109/"},
+      "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
       "streams": {
-        "rtsp": {"main": "rtsp://192.168.1.110:554/Streaming/Channels/101"}
-      }
+        "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+        "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+      },
+      "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
     },
     "hardware_spec": {
       "name": "신규 카메라",
@@ -1757,11 +2221,74 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Camera with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.3.5 Camera 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/cameras/{id}`
+
+**Request Example**:
+```http
+PUT /api/devices/cameras/202 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 110,
+  "group_device": 1,
+  "name_device": "Camera-110-Complete-Update",
+  "type_device": "IpCamera",
+  "version": "v3.3.0",
+  "status": "ACTIVATED",
+  "ip_address": "192.168.1.110",
+  "ip_port": 80,
+  "user_name": "admin",
+  "user_password": "completepassword789",
+  "mode": "ONVIF",
+  "category": "PTZ",
+  "is_record": true,
+  "urls": {
+    "homepage": {"url": "http://192.168.1.109/"},
+    "onvif": {"device_service": "http://192.168.1.109:8000/onvif/device_service"},
+    "streams": {
+      "rtsp": {"main": "rtsp://192.168.1.109:554/Streaming/Channels/101", "sub": "rtsp://192.168.1.109:554/Streaming/Channels/102"},
+      "webrtc": {"main": "https://192.168.1.109/webrtc/main"}
+    },
+    "snapshot": {"ch1": "http://192.168.1.109/cgi-bin/snapshot.cgi"}
+  },
+  "hardware_spec": {
+    "name": "GOP 1구역 PTZ 카메라",
+    "location": "GOP 1구역 전방 초소",
+    "manufacturer": "Hanwha Vision",
+    "model": "XNP-6320RH"
+  },
+  "geolocation": {
+    "location": "GOP 1구역 전방 초소",
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  },
+  "group_ids": [1, 3]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Camera ID |
 
 **Request Body** (전체 업데이트 - 모든 필드 필수):
 ```json
@@ -1869,11 +2396,36 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Camera with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.3.6 Camera 삭제
 
 **Endpoint**: `DELETE /api/devices/cameras/{id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/cameras/202 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Camera ID |
 
 **Response Example** (200 OK):
 ```json
@@ -1887,6 +2439,18 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:48:00.100Z",
     "request_id": "550e8417-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Camera with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -1911,6 +2475,14 @@ Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(S
 | status | string | N | 상태 필터 (ACTIVATED, ERROR, DEACTIVATED) |
 | speaker_type | string | N | 스피커 유형 (NORMAL, ADMIN, MONITOR, DEV) |
 
+**Request Example**:
+```http
+GET /api/devices/speakers?status=ACTIVATED&speaker_type=NORMAL HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
 **Response (200 OK)**:
 ```json
 {
@@ -1919,7 +2491,6 @@ Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(S
   "data": [
     {
       "id": 101,
-      "category_device": "speaker",
       "number_device": 2401,
       "group_device": 0,
       "name_device": "VCS_2401",
@@ -1958,6 +2529,25 @@ Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(S
     "limit": 20,
     "total": 35,
     "total_pages": 2
+  },
+  "meta": {
+    "timestamp": "2026-01-07T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
   }
 }
 ```
@@ -1965,15 +2555,104 @@ Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(S
 > **Nested Response 규칙**: `server` nested 객체에서 `created_at`, `updated_at` 제외
 > **v2.6 추가**: `geolocation` JSONB 필드 추가 (PRD_Speaker_Geolocation.md v1.0)
 
+---
+
 #### 5.4.2 Speaker 상세 조회
 
 **Endpoint**: `GET /api/devices/speakers/{id}`
 
-**Response (200 OK)**: Speaker 상세 정보 (목록 조회와 동일한 구조)
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | Speaker ID |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speaker retrieved successfully",
+  "data": {
+    "id": 101,
+    "number_device": 2401,
+    "group_device": 0,
+    "name_device": "VCS_2401",
+    "type_device": "IpSpeaker",
+    "version": null,
+    "status": "ACTIVATED",
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T10:00:00.000000",
+    "speaker_type": "NORMAL",
+    "description": "1구역 스피커",
+    "geolocation": {
+      "location": "GOP 3초소 방송실",
+      "latitude": 38.1234,
+      "longitude": 127.5678,
+      "altitude": 245.5
+    },
+    "server": {
+      "id": 1,
+      "category_id": 10,
+      "name": "방송서버-01",
+      "status": "NORMAL",
+      "ip_address": "192.168.1.100",
+      "port": 8080,
+      "hostname": "bcast-srv-01",
+      "user_name": "admin",
+      "user_password": "password123",
+      "cpu_usage": 25.5,
+      "ram_usage": 40.2,
+      "disk_usage": 55.0,
+      "network_throughput": "50MB/s"
+    }
+  },
+  "meta": {
+    "timestamp": "2026-01-07T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440001"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Speaker with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
 
 #### 5.4.3 Speaker 생성
 
 **Endpoint**: `POST /api/devices/speakers`
+
+**Request Example**:
+```http
+POST /api/devices/speakers HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 2401,
+  "name_device": "VCS_2401",
+  "type_device": "IpSpeaker",
+  "status": "ACTIVATED",
+  "speaker_type": "NORMAL",
+  "server_id": 1,
+  "description": "1구역 스피커",
+  "geolocation": {
+    "location": "GOP 3초소 방송실",
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  }
+}
+```
 
 **Request Body**:
 ```json
@@ -2007,28 +2686,378 @@ Speaker(방송장비)는 Device Polymorphic 상속 구조를 따르며, Server(S
 | description | string | N | 설명 |
 | geolocation | object | N | 좌표/위치 정보 (JSON, v2.6 신규) |
 
-**Response (201 Created)**: 생성된 Speaker 데이터 반환
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Speaker created successfully",
+  "data": {
+    "id": 101,
+    "number_device": 2401,
+    "group_device": 0,
+    "name_device": "VCS_2401",
+    "type_device": "IpSpeaker",
+    "version": null,
+    "status": "ACTIVATED",
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T10:00:00.000000",
+    "speaker_type": "NORMAL",
+    "description": "1구역 스피커",
+    "geolocation": {
+      "location": "GOP 3초소 방송실",
+      "latitude": 38.1234,
+      "longitude": 127.5678,
+      "altitude": 245.5
+    },
+    "server": {
+      "id": 1,
+      "category_id": 10,
+      "name": "방송서버-01",
+      "status": "NORMAL",
+      "ip_address": "192.168.1.100",
+      "port": 8080,
+      "hostname": "bcast-srv-01",
+      "user_name": "admin",
+      "user_password": "password123",
+      "cpu_usage": 25.5,
+      "ram_usage": 40.2,
+      "disk_usage": 55.0,
+      "network_throughput": "50MB/s"
+    }
+  },
+  "meta": {
+    "timestamp": "2026-01-07T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440002"
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "number_device", "message": "Field required"},
+      {"field": "name_device", "message": "Field required"}
+    ]
+  }
+}
+```
+
+**Error Response (404 Not Found)** - server_id가 존재하지 않을 경우:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
 
 #### 5.4.4 Speaker 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/speakers/{id}`
 
-모든 필드 선택적 수정 가능
+**Request Example**:
+```http
+PATCH /api/devices/speakers/101 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_device": "VCS_2401_Updated",
+  "speaker_type": "ADMIN",
+  "description": "1구역 관리자 스피커로 변경",
+  "geolocation": {
+    "location": "GOP 3초소 방송실 (이동)",
+    "latitude": 38.1235,
+    "longitude": 127.5679,
+    "altitude": 246.0
+  }
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | Speaker ID |
+
+**Request Body** (모든 필드 선택):
+```json
+{
+  "name_device": "VCS_2401_Updated",
+  "speaker_type": "ADMIN",
+  "description": "1구역 관리자 스피커로 변경",
+  "geolocation": {
+    "location": "GOP 3초소 방송실 (이동)",
+    "latitude": 38.1235,
+    "longitude": 127.5679,
+    "altitude": 246.0
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | N | 단말 번호 |
+| group_device | integer | N | 그룹 번호 |
+| name_device | string | N | 장비명 |
+| version | string | N | 버전 |
+| status | string | N | EnumDeviceStatus |
+| speaker_type | string | N | EnumSpeakerType |
+| server_id | integer | N | 방송서버 ID (null 허용) |
+| description | string | N | 설명 |
+| geolocation | object | N | 좌표/위치 정보 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speaker updated successfully",
+  "data": {
+    "id": 101,
+    "number_device": 2401,
+    "group_device": 0,
+    "name_device": "VCS_2401_Updated",
+    "type_device": "IpSpeaker",
+    "version": null,
+    "status": "ACTIVATED",
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T11:30:00.000000",
+    "speaker_type": "ADMIN",
+    "description": "1구역 관리자 스피커로 변경",
+    "geolocation": {
+      "location": "GOP 3초소 방송실 (이동)",
+      "latitude": 38.1235,
+      "longitude": 127.5679,
+      "altitude": 246.0
+    },
+    "server": {
+      "id": 1,
+      "category_id": 10,
+      "name": "방송서버-01",
+      "status": "NORMAL",
+      "ip_address": "192.168.1.100",
+      "port": 8080,
+      "hostname": "bcast-srv-01",
+      "user_name": "admin",
+      "user_password": "password123",
+      "cpu_usage": 25.5,
+      "ram_usage": 40.2,
+      "disk_usage": 55.0,
+      "network_throughput": "50MB/s"
+    }
+  },
+  "meta": {
+    "timestamp": "2026-01-07T11:30:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440003"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Speaker with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
 
 #### 5.4.5 Speaker 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/speakers/{id}`
 
+**Request Example**:
+```http
+PUT /api/devices/speakers/101 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 2401,
+  "group_device": 0,
+  "name_device": "VCS_2401_Replaced",
+  "type_device": "IpSpeaker",
+  "status": "ACTIVATED",
+  "speaker_type": "MONITOR",
+  "server_id": 2,
+  "description": "모니터링 전용 스피커",
+  "geolocation": {
+    "location": "GOP 본부 상황실",
+    "latitude": 38.1300,
+    "longitude": 127.5700,
+    "altitude": 250.0
+  }
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | Speaker ID |
+
+**Request Body** (필수 필드 포함):
+```json
+{
+  "number_device": 2401,
+  "group_device": 0,
+  "name_device": "VCS_2401_Replaced",
+  "type_device": "IpSpeaker",
+  "status": "ACTIVATED",
+  "speaker_type": "MONITOR",
+  "server_id": 2,
+  "description": "모니터링 전용 스피커",
+  "geolocation": {
+    "location": "GOP 본부 상황실",
+    "latitude": 38.1300,
+    "longitude": 127.5700,
+    "altitude": 250.0
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 단말 번호 |
+| group_device | integer | N | 그룹 번호 (기본값: 0) |
+| name_device | string | Y | 장비명 |
+| type_device | string | N | EnumDeviceType (기본값: IpSpeaker) |
+| status | string | N | EnumDeviceStatus (기본값: ACTIVATED) |
+| speaker_type | string | N | EnumSpeakerType (기본값: NORMAL) |
+| server_id | integer | N | 방송서버 ID |
+| description | string | N | 설명 |
+| geolocation | object | N | 좌표/위치 정보 (미제공 시 null) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Speaker replaced successfully",
+  "data": {
+    "id": 101,
+    "number_device": 2401,
+    "group_device": 0,
+    "name_device": "VCS_2401_Replaced",
+    "type_device": "IpSpeaker",
+    "version": null,
+    "status": "ACTIVATED",
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T12:00:00.000000",
+    "speaker_type": "MONITOR",
+    "description": "모니터링 전용 스피커",
+    "geolocation": {
+      "location": "GOP 본부 상황실",
+      "latitude": 38.1300,
+      "longitude": 127.5700,
+      "altitude": 250.0
+    },
+    "server": {
+      "id": 2,
+      "category_id": 10,
+      "name": "방송서버-02",
+      "status": "NORMAL",
+      "ip_address": "192.168.1.101",
+      "port": 8080,
+      "hostname": "bcast-srv-02",
+      "user_name": "admin",
+      "user_password": "password456",
+      "cpu_usage": 30.0,
+      "ram_usage": 45.5,
+      "disk_usage": 60.0,
+      "network_throughput": "60MB/s"
+    }
+  },
+  "meta": {
+    "timestamp": "2026-01-07T12:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440004"
+  }
+}
+```
+
+**Error Response (404 Not Found)** - Speaker 없음:
+```json
+{
+  "success": false,
+  "message": "Speaker with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response (404 Not Found)** - Server 없음:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
 #### 5.4.6 Speaker 삭제
 
 **Endpoint**: `DELETE /api/devices/speakers/{id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/speakers/101 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | Speaker ID |
 
 **Response (200 OK)**:
 ```json
 {
   "success": true,
   "message": "Speaker deleted successfully",
-  "data": null
+  "data": {
+    "id": 101
+  },
+  "meta": {
+    "timestamp": "2026-01-07T12:30:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440005"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Speaker with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
 }
 ```
 
@@ -2058,6 +3087,14 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 | door_status | string | N | 도어 상태 필터 (CLOSED/OPEN) |
 | status | string | N | 장비 운영 상태 필터 (ACTIVATED/DEACTIVATED/ERROR) |
 | name_device | string | N | 장비명 검색 (부분 일치) |
+
+**Request Example**:
+```http
+GET /api/devices/enclosures?door_status=CLOSED&status=ACTIVATED HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response (200 OK)**:
 ```json
@@ -2112,6 +3149,21 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 }
 ```
 
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
+  }
+}
+```
+
 #### 5.5.2 Enclosure 상세 조회
 
 **Endpoint**: `GET /api/devices/enclosures/{id}`
@@ -2124,13 +3176,43 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 **Error Response (404 Not Found)**:
 ```json
 {
-  "detail": "Enclosure with id 999 not found"
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
 }
 ```
 
 #### 5.5.3 Enclosure 생성
 
 **Endpoint**: `POST /api/devices/enclosures`
+
+**Request Example**:
+```http
+POST /api/devices/enclosures HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 102,
+  "name_device": "GOP 4초소 함체",
+  "status": "ACTIVATED",
+  "door_status": "CLOSED",
+  "detail_info": {
+    "temperature": 22.0,
+    "humidity": 50.0
+  },
+  "geolocation": {
+    "location": "GOP 4초소",
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  }
+}
+```
 
 **Request Body**:
 ```json
@@ -2173,11 +3255,79 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 | heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
 | fan_enabled | boolean | N | 팬 활성화 (기본값: false) |
 
-**Response (201 Created)**: 생성된 함체 데이터 반환
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure created successfully",
+  "data": {
+    "id": 2,
+    "number_device": 102,
+    "group_device": 1,
+    "name_device": "GOP 4초소 함체",
+    "type_device": "IoController",
+    "version": null,
+    "status": "ACTIVATED",
+    "door_status": "CLOSED",
+    "detail_info": {
+      "temperature": 22.0,
+      "humidity": 50.0
+    },
+    "geolocation": {
+      "location": "GOP 4초소",
+      "latitude": 38.2345,
+      "longitude": 127.6789
+    },
+    "threshold_config": {
+      "temp_high": 45.0,
+      "temp_low": -15.0
+    },
+    "heater_enabled": false,
+    "fan_enabled": false,
+    "created_at": "2026-01-08T11:00:00.000000",
+    "updated_at": "2026-01-08T11:00:00.000000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "number_device", "message": "Field required"},
+      {"field": "name_device", "message": "Field required"}
+    ]
+  }
+}
+```
 
 #### 5.5.4 Enclosure 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/enclosures/{id}`
+
+**Request Example**:
+```http
+PATCH /api/devices/enclosures/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_device": "GOP 3초소 함체 (수정)",
+  "door_status": "OPEN",
+  "status": "DEACTIVATED"
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | 함체 ID |
 
 **Request Body** (모든 필드 선택):
 ```json
@@ -2188,17 +3338,196 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 }
 ```
 
-**Response (200 OK)**: 수정된 함체 데이터 반환
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure updated successfully",
+  "data": {
+    "id": 1,
+    "number_device": 101,
+    "group_device": 1,
+    "name_device": "GOP 3초소 함체 (수정)",
+    "type_device": "IoController",
+    "version": "v1.0.0",
+    "status": "DEACTIVATED",
+    "door_status": "OPEN",
+    "detail_info": {
+      "temperature": 25.5,
+      "humidity": 45.0
+    },
+    "geolocation": {
+      "location": "GOP 3초소",
+      "latitude": 38.1234,
+      "longitude": 127.5678
+    },
+    "threshold_config": null,
+    "heater_enabled": false,
+    "fan_enabled": false,
+    "created_at": "2026-01-08T10:00:00.000000",
+    "updated_at": "2026-01-08T11:30:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 #### 5.5.5 Enclosure 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/enclosures/{id}`
 
+**Request Example**:
+```http
+PUT /api/devices/enclosures/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "number_device": 101,
+  "name_device": "GOP 3초소 함체 (전체수정)",
+  "group_device": 1,
+  "type_device": "IoController",
+  "version": "v1.1.0",
+  "status": "ACTIVATED",
+  "door_status": "CLOSED",
+  "detail_info": {
+    "temperature": 22.0,
+    "humidity": 50.0,
+    "current": 2.0,
+    "voltage": 220.0
+  }
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | 함체 ID |
+
 전체 필드를 교체합니다. 필수 필드는 반드시 포함해야 합니다.
+
+**Request Body**:
+```json
+{
+  "number_device": 101,
+  "name_device": "GOP 3초소 함체 (전체수정)",
+  "group_device": 1,
+  "type_device": "IoController",
+  "version": "v1.1.0",
+  "status": "ACTIVATED",
+  "door_status": "CLOSED",
+  "detail_info": {
+    "temperature": 22.0,
+    "humidity": 50.0,
+    "current": 2.0,
+    "voltage": 220.0
+  },
+  "geolocation": {
+    "location": "GOP 3초소 (수정)",
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  },
+  "threshold_config": {
+    "temp_high": 45.0,
+    "temp_low": -15.0
+  },
+  "heater_enabled": true,
+  "fan_enabled": false
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| number_device | integer | Y | 장비 번호 |
+| name_device | string | Y | 장비 이름 |
+| group_device | integer | N | 장치 그룹 번호 (레거시) |
+| type_device | string | N | 장치 타입 (기본값: IoController) |
+| version | string | N | 장비 버전 |
+| status | string | N | 장비 운영 상태 (기본값: ACTIVATED) |
+| door_status | string | N | 도어 상태 (기본값: CLOSED) |
+| detail_info | object | N | 환경 데이터 (JSONB) |
+| geolocation | object | N | 위치 정보 (JSONB) |
+| threshold_config | object | N | 알람 임계값 (JSONB) |
+| heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
+| fan_enabled | boolean | N | 팬 활성화 (기본값: false) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure replaced successfully",
+  "data": {
+    "id": 1,
+    "number_device": 101,
+    "group_device": 1,
+    "name_device": "GOP 3초소 함체 (전체수정)",
+    "type_device": "IoController",
+    "version": "v1.1.0",
+    "status": "ACTIVATED",
+    "door_status": "CLOSED",
+    "detail_info": {
+      "temperature": 22.0,
+      "humidity": 50.0,
+      "current": 2.0,
+      "voltage": 220.0
+    },
+    "geolocation": {
+      "location": "GOP 3초소 (수정)",
+      "latitude": 38.1234,
+      "longitude": 127.5678
+    },
+    "threshold_config": {
+      "temp_high": 45.0,
+      "temp_low": -15.0
+    },
+    "heater_enabled": true,
+    "fan_enabled": false,
+    "created_at": "2026-01-08T10:00:00.000000",
+    "updated_at": "2026-01-08T12:00:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 #### 5.5.6 Enclosure 삭제
 
 **Endpoint**: `DELETE /api/devices/enclosures/{id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/enclosures/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | Enclosure ID |
 
 **Response (200 OK)**:
 ```json
@@ -2211,6 +3540,18 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 **FK 정책**: Enclosure 삭제 시 Device 레코드도 CASCADE 삭제
 
 #### 5.5.7 환경 데이터 업데이트 (특수 엔드포인트)
@@ -2219,8 +3560,19 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 
 외부 센서 장비에서 주기적으로 환경 데이터를 업데이트할 때 사용합니다.
 
-**Request Body**:
-```json
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | 함체 ID |
+
+**Request Example**:
+```http
+PATCH /api/devices/enclosures/1/status HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
 {
   "detail_info": {
     "temperature": 28.5,
@@ -2241,7 +3593,62 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 | detail_info | object | N | 환경 모니터링 데이터 |
 | door_status | string | N | 도어 물리적 상태 (CLOSED/OPEN) |
 
-**Response (200 OK)**: 업데이트된 함체 데이터 반환
+**Response Example (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure status updated successfully",
+  "data": {
+    "id": 1,
+    "number_device": 101,
+    "group_device": 1,
+    "name_device": "GOP 3초소 함체",
+    "type_device": "IoController",
+    "version": "v1.0.0",
+    "status": "ACTIVATED",
+    "door_status": "OPEN",
+    "detail_info": {
+      "temperature": 28.5,
+      "humidity": 55.0,
+      "current": 3.2,
+      "voltage": 218.5,
+      "vibration": 0.2,
+      "ups_battery_level": 95,
+      "ups_charging": false,
+      "last_updated": "2026-01-08T11:00:00Z"
+    },
+    "geolocation": {
+      "location": "GOP 3초소",
+      "latitude": 38.1234,
+      "longitude": 127.5678
+    },
+    "threshold_config": {
+      "temp_high": 45.0,
+      "temp_low": -15.0
+    },
+    "heater_enabled": false,
+    "fan_enabled": false,
+    "created_at": "2026-01-08T10:00:00.000000",
+    "updated_at": "2026-01-08T11:00:00.000000"
+  },
+  "meta": {
+    "timestamp": "2026-01-08T11:00:00.100Z",
+    "request_id": "550e8420-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 #### 5.5.8 히터/팬 제어 (특수 엔드포인트)
 
@@ -2249,8 +3656,19 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 
 함체 내부 온도 조절을 위한 히터 및 팬을 제어합니다.
 
-**Request Body**:
-```json
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | 함체 ID |
+
+**Request Example**:
+```http
+POST /api/devices/enclosures/1/control HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
 {
   "heater_enabled": true,
   "fan_enabled": false
@@ -2262,7 +3680,58 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 | heater_enabled | boolean | N | 히터 ON/OFF |
 | fan_enabled | boolean | N | 팬 ON/OFF |
 
-**Response (200 OK)**: 제어 후 함체 데이터 반환
+**Response Example (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure control updated successfully",
+  "data": {
+    "id": 1,
+    "number_device": 101,
+    "group_device": 1,
+    "name_device": "GOP 3초소 함체",
+    "type_device": "IoController",
+    "version": "v1.0.0",
+    "status": "ACTIVATED",
+    "door_status": "CLOSED",
+    "detail_info": {
+      "temperature": 25.0,
+      "humidity": 50.0,
+      "current": 3.5,
+      "voltage": 220.0
+    },
+    "geolocation": {
+      "location": "GOP 3초소",
+      "latitude": 38.1234,
+      "longitude": 127.5678
+    },
+    "threshold_config": {
+      "temp_high": 45.0,
+      "temp_low": -15.0
+    },
+    "heater_enabled": true,
+    "fan_enabled": false,
+    "created_at": "2026-01-08T10:00:00.000000",
+    "updated_at": "2026-01-08T11:30:00.000000"
+  },
+  "meta": {
+    "timestamp": "2026-01-08T11:30:00.100Z",
+    "request_id": "550e8421-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 ---
 
@@ -2321,6 +3790,21 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:30:00.000Z",
     "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
   }
 }
 ```
@@ -2445,6 +3929,20 @@ Accept: application/json
 
 **Endpoint**: `POST /api/devices/groups`
 
+**Request Example**:
+```http
+POST /api/devices/groups HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "GOP 3구역",
+  "description": "GOP 3구역 장비 그룹"
+}
+```
+
 **Request Body**:
 ```json
 {
@@ -2452,6 +3950,11 @@ Accept: application/json
   "description": "GOP 3구역 장비 그룹"
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| name | string | Y | 그룹명 (UNIQUE) |
+| description | string | N | 그룹 설명 |
 
 **Response Example** (201 Created):
 ```json
@@ -2489,11 +3992,43 @@ Accept: application/json
 }
 ```
 
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "name", "message": "Field required"}
+    ]
+  }
+}
+```
+
 ---
 
 #### 5.6.4 DeviceGroup 수정 (부분)
 
 **Endpoint**: `PATCH /api/devices/groups/{id}`
+
+**Request Example**:
+```http
+PATCH /api/devices/groups/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "description": "GOP 3구역 장비 그룹 - 수정됨"
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | DeviceGroup ID |
 
 **Request Body** (부분 업데이트):
 ```json
@@ -2501,6 +4036,11 @@ Accept: application/json
   "description": "GOP 3구역 장비 그룹 - 수정됨"
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| name | string | N | 그룹 이름 |
+| description | string | N | 그룹 설명 |
 
 **Response Example** (200 OK):
 ```json
@@ -2522,11 +4062,42 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "DeviceGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.6.5 DeviceGroup 수정 (전체)
 
 **Endpoint**: `PUT /api/devices/groups/{id}`
+
+**Request Example**:
+```http
+PUT /api/devices/groups/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "GOP 3구역 - 전체수정",
+  "description": "GOP 3구역 장비 그룹 - 전체 수정됨"
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | DeviceGroup ID |
 
 **Request Body** (전체 업데이트):
 ```json
@@ -2535,6 +4106,11 @@ Accept: application/json
   "description": "GOP 3구역 장비 그룹 - 전체 수정됨"
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| name | string | Y | 그룹 이름 |
+| description | string | N | 그룹 설명 |
 
 **Response Example** (200 OK):
 ```json
@@ -2556,11 +4132,36 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "DeviceGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.6.6 DeviceGroup 삭제
 
 **Endpoint**: `DELETE /api/devices/groups/{id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/groups/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | DeviceGroup ID |
 
 **Response Example** (200 OK):
 ```json
@@ -2577,11 +4178,41 @@ Accept: application/json
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "DeviceGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.6.7 디바이스 그룹에 디바이스 할당
 
 **Endpoint**: `POST /api/devices/groups/{id}/devices`
+
+**Request Example**:
+```http
+POST /api/devices/groups/1/devices HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_ids": [1, 2, 3]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | integer | Y | DeviceGroup ID |
 
 **Request Body**:
 ```json
@@ -2589,6 +4220,10 @@ Accept: application/json
   "device_ids": [1, 2, 3]
 }
 ```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| device_ids | array[integer] | Y | 할당할 디바이스 ID 목록 |
 
 **Response Example** (200 OK):
 ```json
@@ -2604,6 +4239,18 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:39:00.000Z",
     "request_id": "550e8406-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "DeviceGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -2701,6 +4348,10 @@ Accept: application/json
     "limit": 10,
     "total": 1,
     "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -2741,6 +4392,10 @@ Accept: application/json
     "limit": 10,
     "total": 1,
     "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440001"
   }
 }
 ```
@@ -2787,6 +4442,10 @@ Accept: application/json
         ]
       }
     ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440002"
   }
 }
 ```
@@ -2798,7 +4457,24 @@ Accept: application/json
 **Endpoint**: `POST /api/devices/cameras/{camera_id}/presets`
 
 **Path Parameters**:
-- `camera_id` (int, required): 카메라 ID
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| camera_id | integer | Y | 카메라 ID |
+
+**Request Example**:
+```http
+POST /api/devices/cameras/201/presets HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "preset_index": 1,
+  "preset_name": "입구 정면",
+  "touring_time": 15
+}
+```
 
 **Request Body**:
 ```json
@@ -2808,6 +4484,13 @@ Accept: application/json
   "touring_time": 15
 }
 ```
+
+**Request Body 필드 설명**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| preset_index | integer | Y | 프리셋 인덱스 (카메라 내 고유) |
+| preset_name | string | Y | 프리셋 이름 |
+| touring_time | integer | N | 투어링 시간 (초) |
 
 **Response Example** (201 Created):
 ```json
@@ -2824,6 +4507,10 @@ Accept: application/json
     "roi_count": 0,
     "created_at": "2025-01-10T10:00:00.000Z",
     "updated_at": "2025-01-10T10:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -2832,10 +4519,25 @@ Accept: application/json
 ```json
 {
   "success": false,
+  "message": "Preset with index 1 already exists for this camera",
   "error": {
     "code": "CONFLICT",
-    "message": "Preset with index 1 already exists for this camera",
     "details": "preset_index must be unique within the same camera"
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "preset_index", "message": "Field required"},
+      {"field": "preset_name", "message": "Field required"}
+    ]
   }
 }
 ```
@@ -2845,6 +4547,12 @@ Accept: application/json
 #### 5.7.4 CameraPreset 수정 (PATCH)
 
 **Endpoint**: `PATCH /api/devices/cameras/{camera_id}/presets/{preset_id}`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| camera_id | integer | Y | 카메라 ID |
+| preset_id | integer | Y | 프리셋 ID |
 
 **Request Body** (부분 업데이트):
 ```json
@@ -2869,6 +4577,22 @@ Accept: application/json
     "roi_count": 2,
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-10T10:30:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:30:00.000Z",
+    "request_id": "550e8401-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "CameraPreset with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -2879,6 +4603,12 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/devices/cameras/{camera_id}/presets/{preset_id}`
 
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| camera_id | integer | Y | 카메라 ID |
+| preset_id | integer | Y | 프리셋 ID |
+
 **Request Body** (모든 필드 필수):
 ```json
 {
@@ -2888,11 +4618,60 @@ Accept: application/json
 }
 ```
 
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Camera preset replaced successfully",
+  "data": {
+    "id": 1,
+    "camera_id": 201,
+    "camera_name": "Camera-A-1",
+    "preset_index": 1,
+    "preset_name": "입구 정면 - 전체 수정",
+    "touring_time": 25,
+    "roi_count": 2,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-10T11:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T11:00:00.000Z",
+    "request_id": "550e8402-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "CameraPreset with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.7.6 CameraPreset 삭제
 
 **Endpoint**: `DELETE /api/devices/cameras/{camera_id}/presets/{preset_id}`
+
+**Request Example**:
+```http
+DELETE /api/devices/cameras/202/presets/3 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| camera_id | integer | Y | 카메라 ID |
+| preset_id | integer | Y | 프리셋 ID |
 
 > **Note**: CASCADE 삭제로 인해 하위 ROI 및 XyPoint도 함께 삭제됩니다.
 
@@ -2901,7 +4680,23 @@ Accept: application/json
 {
   "success": true,
   "message": "Camera preset deleted successfully",
-  "data": null
+  "data": null,
+  "meta": {
+    "timestamp": "2025-01-10T11:30:00.000Z",
+    "request_id": "550e8403-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "CameraPreset with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
 }
 ```
 
@@ -2922,6 +4717,14 @@ Accept: application/json
 - `include_points` (bool, optional): Points 정보 포함 여부 (기본값: false)
 - `page` (int, optional): 페이지 번호 (기본값: 1)
 - `limit` (int, optional): 페이지당 항목 수 (기본값: 10, 최대: 100)
+
+**Request Example**:
+```http
+GET /api/presets/1/rois?include_points=true HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response Example** (200 OK, `include_points=false` 기본값):
 ```json
@@ -2949,6 +4752,10 @@ Accept: application/json
     "limit": 10,
     "total": 1,
     "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8410-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -2985,6 +4792,10 @@ Accept: application/json
     "limit": 10,
     "total": 1,
     "total_pages": 1
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8411-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -3015,6 +4826,10 @@ Accept: application/json
       {"id": 3, "x": 0.9, "y": 0.9, "order": 2},
       {"id": 4, "x": 0.1, "y": 0.9, "order": 3}
     ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8412-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -3024,6 +4839,33 @@ Accept: application/json
 #### 5.8.3 ROI 생성 (Points 포함)
 
 **Endpoint**: `POST /api/presets/{preset_id}/rois`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| preset_id | integer | Y | 프리셋 ID |
+
+**Request Example**:
+```http
+POST /api/presets/1/rois HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "새로운 감시 영역",
+  "resolution_width": 1920.0,
+  "resolution_height": 1080.0,
+  "is_enable": true,
+  "points": [
+    {"x": 0.1, "y": 0.1, "order": 0},
+    {"x": 0.9, "y": 0.1, "order": 1},
+    {"x": 0.9, "y": 0.9, "order": 2},
+    {"x": 0.1, "y": 0.9, "order": 3}
+  ]
+}
+```
 
 **Request Body**:
 ```json
@@ -3041,6 +4883,18 @@ Accept: application/json
 }
 ```
 
+**Request Body 필드 설명**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| name | string | Y | ROI 이름 |
+| resolution_width | float | N | 해상도 너비 (기본값: 1920.0) |
+| resolution_height | float | N | 해상도 높이 (기본값: 1080.0) |
+| is_enable | boolean | N | 활성화 여부 (기본값: true) |
+| points | array | N | 다각형 꼭지점 배열 |
+| points[].x | float | Y | X 좌표 (0.0~1.0 정규화) |
+| points[].y | float | Y | Y 좌표 (0.0~1.0 정규화) |
+| points[].order | integer | Y | 꼭지점 순서 |
+
 **Response Example** (201 Created):
 ```json
 {
@@ -3056,6 +4910,24 @@ Accept: application/json
     "point_count": 4,
     "created_at": "2025-01-10T10:00:00.000Z",
     "updated_at": "2025-01-10T10:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8413-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "name", "message": "Field required"}
+    ]
   }
 }
 ```
@@ -3066,6 +4938,12 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/presets/{preset_id}/rois/{roi_id}`
 
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| preset_id | integer | Y | 프리셋 ID |
+| roi_id | integer | Y | ROI ID |
+
 **Request Body** (부분 업데이트):
 ```json
 {
@@ -3074,11 +4952,52 @@ Accept: application/json
 }
 ```
 
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "ROI updated successfully",
+  "data": {
+    "id": 1,
+    "preset_id": 1,
+    "name": "감시 영역 - 수정",
+    "resolution_width": 1920.0,
+    "resolution_height": 1080.0,
+    "is_enable": false,
+    "point_count": 4,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-10T11:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T11:00:00.000Z",
+    "request_id": "550e8414-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "ROI with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.8.5 ROI 수정 (PUT - 전체)
 
 **Endpoint**: `PUT /api/presets/{preset_id}/rois/{roi_id}`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| preset_id | integer | Y | 프리셋 ID |
+| roi_id | integer | Y | ROI ID |
 
 **Request Body** (모든 필드 필수):
 ```json
@@ -3090,11 +5009,60 @@ Accept: application/json
 }
 ```
 
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "ROI replaced successfully",
+  "data": {
+    "id": 1,
+    "preset_id": 1,
+    "name": "감시 영역 - 전체 수정",
+    "resolution_width": 1280.0,
+    "resolution_height": 720.0,
+    "is_enable": true,
+    "point_count": 4,
+    "created_at": "2025-01-01T00:00:00.000Z",
+    "updated_at": "2025-01-10T12:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T12:00:00.000Z",
+    "request_id": "550e8415-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "ROI with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 ---
 
 #### 5.8.6 ROI 삭제
 
 **Endpoint**: `DELETE /api/presets/{preset_id}/rois/{roi_id}`
+
+**Request Example**:
+```http
+DELETE /api/presets/1/rois/2 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| preset_id | integer | Y | 프리셋 ID |
+| roi_id | integer | Y | ROI ID |
 
 > **Note**: CASCADE 삭제로 인해 하위 XyPoint도 함께 삭제됩니다.
 
@@ -3103,7 +5071,23 @@ Accept: application/json
 {
   "success": true,
   "message": "ROI deleted successfully",
-  "data": null
+  "data": null,
+  "meta": {
+    "timestamp": "2025-01-10T12:30:00.000Z",
+    "request_id": "550e8416-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "ROI with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
 }
 ```
 
@@ -3120,6 +5104,14 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 **Path Parameters**:
 - `roi_id` (int, required): ROI ID
 
+**Request Example**:
+```http
+GET /api/rois/1/points HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
 **Response Example** (200 OK):
 ```json
 {
@@ -3132,6 +5124,10 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
       {"id": 3, "roi_id": 1, "x": 0.9, "y": 0.9, "order": 2},
       {"id": 4, "roi_id": 1, "x": 0.1, "y": 0.9, "order": 3}
     ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8420-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -3142,6 +5138,26 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 **Endpoint**: `POST /api/rois/{roi_id}/points`
 
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| roi_id | integer | Y | ROI ID |
+
+**Request Example**:
+```http
+POST /api/rois/1/points HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "x": 0.5,
+  "y": 0.5,
+  "order": 4
+}
+```
+
 **Request Body**:
 ```json
 {
@@ -3150,6 +5166,13 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
   "order": 4
 }
 ```
+
+**Request Body 필드 설명**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| x | float | Y | X 좌표 (0.0~1.0 정규화) |
+| y | float | Y | Y 좌표 (0.0~1.0 정규화) |
+| order | integer | Y | 꼭지점 순서 |
 
 **Response Example** (201 Created):
 ```json
@@ -3164,6 +5187,26 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
     "order": 4,
     "created_at": "2025-01-10T10:00:00.000Z",
     "updated_at": "2025-01-10T10:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:00:00.000Z",
+    "request_id": "550e8421-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "x", "message": "Field required"},
+      {"field": "y", "message": "Field required"},
+      {"field": "order", "message": "Field required"}
+    ]
   }
 }
 ```
@@ -3173,6 +5216,11 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 #### 5.9.3 XyPoint 일괄 수정 (전체 교체)
 
 **Endpoint**: `PUT /api/rois/{roi_id}/points`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| roi_id | integer | Y | ROI ID |
 
 > **Note**: 기존 포인트를 모두 삭제하고 새 포인트로 교체합니다.
 
@@ -3202,6 +5250,22 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
       {"id": 16, "roi_id": 1, "x": 0.15, "y": 0.85, "order": 3},
       {"id": 17, "roi_id": 1, "x": 0.5, "y": 0.5, "order": 4}
     ]
+  },
+  "meta": {
+    "timestamp": "2025-01-10T10:30:00.000Z",
+    "request_id": "550e8422-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "ROI with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -3212,12 +5276,42 @@ ROI 다각형의 꼭지점 좌표를 관리합니다. 좌표는 정규화된 값
 
 **Endpoint**: `DELETE /api/rois/{roi_id}/points/{point_id}`
 
+**Request Example**:
+```http
+DELETE /api/rois/1/points/5 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| roi_id | integer | Y | ROI ID |
+| point_id | integer | Y | Point ID |
+
 **Response Example** (200 OK):
 ```json
 {
   "success": true,
   "message": "Point deleted successfully",
-  "data": null
+  "data": null,
+  "meta": {
+    "timestamp": "2025-01-10T11:00:00.000Z",
+    "request_id": "550e8423-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "XyPoint not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": "XyPoint with id 999 not found"
+  }
 }
 ```
 
@@ -3238,6 +5332,14 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 | page | integer | N | 페이지 번호 (기본값: 1) |
 | limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
 | server_id | integer | N | 서버 ID 필터 |
+
+**Request Example**:
+```http
+GET /api/file-groups?server_id=1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response (200 OK)**:
 ```json
@@ -3264,13 +5366,80 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 }
 ```
 
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "Page must be greater than 0"},
+      {"field": "limit", "message": "Limit must be between 1 and 100"}
+    ]
+  }
+}
+```
+
 #### 5.10.2 FileGroup 상세 조회
 
 **Endpoint**: `GET /api/file-groups/{id}`
 
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | FileGroup ID |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "FileGroup retrieved",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "group_id": 2,
+    "group_name": "화재경보",
+    "files": ["music01.mp3", "music02.mp3"],
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T10:00:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "FileGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
 #### 5.10.3 FileGroup 생성
 
 **Endpoint**: `POST /api/file-groups`
+
+**Request Example**:
+```http
+POST /api/file-groups HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "server_id": 1,
+  "group_id": 2,
+  "group_name": "화재경보",
+  "files": ["music01.mp3", "music02.mp3"]
+}
+```
 
 **Request Body**:
 ```json
@@ -3291,19 +5460,257 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 
 **Constraint**: `UNIQUE(server_id, group_id)`
 
-**Response (201 Created)**: 생성된 FileGroup 데이터 반환
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "FileGroup created",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "group_id": 2,
+    "group_name": "화재경보",
+    "files": ["music01.mp3", "music02.mp3"],
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T10:00:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)** - Server가 없는 경우:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response (409 Conflict)** - 중복 생성 시도:
+```json
+{
+  "success": false,
+  "message": "Resource already exists",
+  "error": {
+    "code": "CONFLICT",
+    "details": "FileGroup with server_id=1 and group_id=2 already exists"
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "server_id", "message": "Field required"},
+      {"field": "group_id", "message": "Field required"}
+    ]
+  }
+}
+```
+
+---
 
 #### 5.10.4 FileGroup 수정 (부분)
 
 **Endpoint**: `PATCH /api/file-groups/{id}`
 
+**Request Example**:
+```http
+PATCH /api/file-groups/2 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "group_name": "비상경보",
+  "files": ["alarm01.mp3", "alarm02.mp3", "alarm03.mp3"]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | FileGroup ID |
+
+**Request Body** (모든 필드 선택):
+```json
+{
+  "group_name": "비상경보",
+  "files": ["alarm01.mp3", "alarm02.mp3", "alarm03.mp3"]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| group_name | string | N | 그룹명 |
+| files | array[string] | N | 파일 목록 (JSONB) |
+
+> **Note**: `server_id`, `group_id`는 PATCH로 수정 불가 (UNIQUE 제약 보호)
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "FileGroup updated",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "group_id": 2,
+    "group_name": "비상경보",
+    "files": ["alarm01.mp3", "alarm02.mp3", "alarm03.mp3"],
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T11:30:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "FileGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
 #### 5.10.5 FileGroup 수정 (전체)
 
 **Endpoint**: `PUT /api/file-groups/{id}`
 
+**Request Example**:
+```http
+PUT /api/file-groups/2 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "server_id": 1,
+  "group_id": 2,
+  "group_name": "긴급대피안내",
+  "files": ["evacuation01.mp3", "evacuation02.mp3"]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | FileGroup ID |
+
+**Request Body** (모든 필드 필수):
+```json
+{
+  "server_id": 1,
+  "group_id": 2,
+  "group_name": "긴급대피안내",
+  "files": ["evacuation01.mp3", "evacuation02.mp3"]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| server_id | integer | Y | 방송서버 ID (FK) |
+| group_id | integer | Y | 방송서버의 파일그룹 ID |
+| group_name | string | Y | 그룹명 |
+| files | array[string] | N | 파일 목록 (미제공 시 null) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "FileGroup replaced",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "group_id": 2,
+    "group_name": "긴급대피안내",
+    "files": ["evacuation01.mp3", "evacuation02.mp3"],
+    "created_at": "2026-01-07T10:00:00.000000",
+    "updated_at": "2026-01-07T12:00:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)** - FileGroup 없음:
+```json
+{
+  "success": false,
+  "message": "FileGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response (404 Not Found)** - 변경할 Server 없음:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
 #### 5.10.6 FileGroup 삭제
 
 **Endpoint**: `DELETE /api/file-groups/{id}`
+
+**Request Example**:
+```http
+DELETE /api/file-groups/2 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | FileGroup ID |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "FileGroup deleted",
+  "data": {
+    "id": 1
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "FileGroup with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 **FK 정책**: Server 삭제 시 FileGroup CASCADE 삭제
 
@@ -3331,6 +5738,14 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
 - `result` (string, optional): 탐지 결과 필터 (PIR_SENSOR, THERMAL_SENSOR 등)
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
+
+**Request Example**:
+```http
+GET /api/events/detections?start_date=2025-01-01T00:00:00&end_date=2025-01-31T23:59:59&type_event=Intrusion HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 > ** v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 > ** v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
@@ -3360,7 +5775,7 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
         ]
       },
       "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-      "result": "AI_DETECT", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "AI_DETECT", //(EnumDetectionType) - v2.6 별도 필드
       "detail": {
         "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
         "signal": 1500,
@@ -3399,12 +5814,27 @@ FileGroup은 방송음원 파일풀을 관리하는 독립 리소스입니다.
       "action_reported": "True",
       "device": null,
       "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
       "detail": null,
       "created_at": "2026-01-06T10:15:23.100Z",
       "updated_at": "2026-01-06T10:15:23.100Z"
     }
   ]
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 날짜 형식:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "start_date", "message": "Invalid datetime format. Use ISO 8601 format (e.g., 2026-01-06T00:00:00Z)"},
+      {"field": "end_date", "message": "end_date must be greater than start_date"}
+    ]
+  }
 }
 ```
 
@@ -3449,7 +5879,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-    "result": "AI_DETECT", //(EnumDetectionType) - v2.7 별도 필드
+    "result": "AI_DETECT", //(EnumDetectionType) - v2.6 별도 필드
     "detail": {
       "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
       "signal": 1500,
@@ -3491,15 +5921,34 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/detections`
 
-> **변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
+> **변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 > **자동 생성**: `device_description`은 서버에서 자동 생성됨
+
+**Request Example**:
+```http
+POST /api/events/detections HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_id": 101,
+  "type_event": "Intrusion",
+  "result": "THERMAL_SENSOR",
+  "detail": {
+    "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
+    "signal": 1800
+  }
+}
+```
 
 **Request Body**:
 ```json
 {
   "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
-  "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드 (필수)
+  "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
     "signal": 1800,
@@ -3536,7 +5985,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-    "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+    "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
     "detail": {
       "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
       "signal": 1800,
@@ -3562,11 +6011,30 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/events/detections/{id}`
 
+**Request Example**:
+```http
+PATCH /api/events/detections/1002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "type_event": "Intrusion",
+  "result": "VIBRATION_SENSOR",
+  "detail": {
+    "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_updated.jpg",
+    "signal": 2000,
+    "model": "yolov8n_updated"
+  }
+}
+```
+
 **Request Body** (부분 업데이트):
 ```json
 {
   "type_event": "Intrusion", //(EnumEventType, optional)
-  "result": "VIBRATION_SENSOR", //(EnumDetectionType, optional) - v2.7 별도 필드
+  "result": "VIBRATION_SENSOR", //(EnumDetectionType, optional) - v2.6 별도 필드
   "detail": { //(optional, 상세 정보만)
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_updated.jpg",
     "signal": 2000,
@@ -3599,7 +6067,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-    "result": "VIBRATION_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+    "result": "VIBRATION_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
     "detail": {
       "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_updated.jpg",
       "signal": 2000,
@@ -3621,6 +6089,27 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/detections/{id}`
 
+**Request Example**:
+```http
+PUT /api/events/detections/1002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_id": 101,
+  "type_event": "Intrusion",
+  "action_reported": "True",
+  "result": "DISTANCE_SENSOR",
+  "detail": {
+    "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
+    "signal": 2500,
+    "model": "yolov8m"
+  }
+}
+```
+
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 
 **Request Body** (전체 업데이트):
@@ -3629,7 +6118,7 @@ Accept: application/json
   "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
   "action_reported": "True", //(EnumTrueFalse)
-  "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.7 별도 필드 (필수)
+  "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
     "signal": 2500,
@@ -3666,7 +6155,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
-    "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+    "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
     "detail": {
       "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
       "signal": 2500,
@@ -3691,6 +6180,14 @@ Accept: application/json
 #### 6.1.6 Detection Event 삭제
 
 **Endpoint**: `DELETE /api/events/detections/{id}`
+
+**Request Example**:
+```http
+DELETE /api/events/detections/1002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **삭제 제약**:
 - `action_reported="True"`인 DetectionEvent는 삭제할 수 없습니다
@@ -3796,7 +6293,7 @@ Accept: application/json
         ]
       },
       "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
-      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
       "detail": {
         "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
         "signal": 1500
@@ -3862,6 +6359,14 @@ Accept: application/json
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
+**Request Example**:
+```http
+GET /api/events/malfunctions?start_date=2025-01-01T00:00:00&end_date=2025-01-31T23:59:59&reason=FAULT_FENCE HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
 > **v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
@@ -3890,7 +6395,7 @@ Accept: application/json
         ]
       },
       "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
-      "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType) - v2.7 별도 필드
+      "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType) - v2.6 별도 필드
       "detail": {
         "first_start": 10,
         "first_end": 15,
@@ -3915,13 +6420,28 @@ Accept: application/json
 ```
 
 **Malfunction Event 필드 설명**:
-- `reason` (string, required): 장애 원인 (EnumFaultType) - v2.7 별도 필드
+- `reason` (string, required): 장애 원인 (EnumFaultType) - v2.6 별도 필드
   - FAULT_CONTROLLER, FAULT_FENCE, FAULT_MULTI, FAULT_CABLE_CUTTING, FAULT_ETC
 - `detail` (object, optional): 오동작 상세 정보
   - `first_start` (int): 첫 번째 케이블 시작점
   - `first_end` (int): 첫 번째 케이블 끝점
   - `second_start` (int): 두 번째 케이블 시작점
   - `second_end` (int): 두 번째 케이블 끝점
+
+**Error Response (422 Validation Error)** - 잘못된 날짜 형식:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "start_date", "message": "Invalid datetime format. Use ISO 8601 format (e.g., 2026-01-06T00:00:00Z)"},
+      {"field": "end_date", "message": "end_date must be greater than start_date"}
+    ]
+  }
+}
+```
 
 ---
 
@@ -3964,7 +6484,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
-    "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType) - v2.7 별도 필드
+    "reason": "FAULT_CABLE_CUTTING", //(EnumFaultType) - v2.6 별도 필드
     "detail": {
       "first_start": 5,
       "first_end": 5,
@@ -4006,12 +6526,33 @@ Accept: application/json
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 > **자동 생성**: `device_description`은 서버에서 자동 생성됨
 
+**Request Example**:
+```http
+POST /api/events/malfunctions HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_id": 103,
+  "type_event": "Fault",
+  "reason": "FAULT_CABLE_CUTTING",
+  "detail": {
+    "first_start": 10,
+    "first_end": 15,
+    "second_start": 20,
+    "second_end": 25
+  }
+}
+```
+
 **Request Body**:
 ```json
 {
   "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
-  "reason": "FAULT_FENCE", //(EnumFaultType) - v2.7 별도 필드 (필수)
+  "reason": "FAULT_FENCE", //(EnumFaultType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "first_start": 3,
     "first_end": 3,
@@ -4045,7 +6586,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
-    "reason": "FAULT_FENCE", //(EnumFaultType) - v2.7 별도 필드
+    "reason": "FAULT_FENCE", //(EnumFaultType) - v2.6 별도 필드
     "detail": {
       "first_start": 3,
       "first_end": 3,
@@ -4068,11 +6609,29 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/events/malfunctions/{id}`
 
+**Request Example**:
+```http
+PATCH /api/events/malfunctions/2002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "type_event": "Fault",
+  "reason": "FAULT_MULTI",
+  "detail": {
+    "first_start": 3,
+    "first_end": 3
+  }
+}
+```
+
 **Request Body** (부분 업데이트):
 ```json
 {
   "type_event": "Fault", //(EnumEventType, optional)
-  "reason": "FAULT_MULTI", //(EnumFaultType, optional) - v2.7 별도 필드
+  "reason": "FAULT_MULTI", //(EnumFaultType, optional) - v2.6 별도 필드
   "detail": { //(optional, 상세 정보만)
     "first_start": 3, //(optional)
     "first_end": 3 //(optional)
@@ -4104,7 +6663,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
-    "reason": "FAULT_MULTI", //(EnumFaultType) - v2.7 별도 필드
+    "reason": "FAULT_MULTI", //(EnumFaultType) - v2.6 별도 필드
     "detail": {
       "first_start": 3,
       "first_end": 3,
@@ -4127,6 +6686,28 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/malfunctions/{id}`
 
+**Request Example**:
+```http
+PUT /api/events/malfunctions/2002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_id": 104,
+  "type_event": "Fault",
+  "action_reported": "True",
+  "reason": "FAULT_ETC",
+  "detail": {
+    "first_start": 2,
+    "first_end": 2,
+    "second_start": 5,
+    "second_end": 5
+  }
+}
+```
+
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 
 **Request Body** (전체 업데이트):
@@ -4135,7 +6716,7 @@ Accept: application/json
   "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
   "action_reported": "True", //(EnumTrueFalse)
-  "reason": "FAULT_ETC", //(EnumFaultType) - v2.7 별도 필드 (필수)
+  "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "first_start": 2,
     "first_end": 2,
@@ -4169,7 +6750,7 @@ Accept: application/json
       ]
     },
     "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
-    "reason": "FAULT_ETC", //(EnumFaultType) - v2.7 별도 필드
+    "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드
     "detail": {
       "first_start": 2,
       "first_end": 2,
@@ -4191,6 +6772,14 @@ Accept: application/json
 #### 6.2.6 Malfunction Event 삭제
 
 **Endpoint**: `DELETE /api/events/malfunctions/{id}`
+
+**Request Example**:
+```http
+DELETE /api/events/malfunctions/2002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **삭제 제약**:
 - `action_reported="True"`인 MalfunctionEvent는 삭제할 수 없습니다
@@ -4356,7 +6945,15 @@ Accept: application/json
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
-> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
+**Request Example**:
+```http
+GET /api/events/connections?start_date=2025-01-01T00:00:00&end_date=2025-01-31T23:59:59 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 > **v1.3 변경**: Response에서 `device_id`, `sequence` 필드 제거 (device.id에 포함, sequence는 Request 전용)
 
 **Response Example** (200 OK):
@@ -4417,6 +7014,21 @@ Accept: application/json
   "meta": {
     "timestamp": "2026-01-06T11:00:00.250Z",
     "request_id": "550e8428-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 날짜 형식:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "start_date", "message": "Invalid datetime format. Use ISO 8601 format (e.g., 2026-01-06T00:00:00Z)"},
+      {"field": "end_date", "message": "end_date must be greater than start_date"}
+    ]
   }
 }
 ```
@@ -4493,8 +7105,22 @@ Accept: application/json
 
 **Endpoint**: `POST /api/events/connections`
 
-> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합  
+> **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 > **자동 생성**: `device_description`은 서버에서 자동 생성됨
+
+**Request Example**:
+```http
+POST /api/events/connections HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_id": 101,
+  "type_event": "Connection"
+}
+```
 
 **Request Body**:
 ```json
@@ -4543,6 +7169,19 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/events/connections/{id}`
 
+**Request Example**:
+```http
+PATCH /api/events/connections/3002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "type_event": "Connection"
+}
+```
+
 **Request Body** (부분 업데이트):
 ```json
 {
@@ -4588,6 +7227,20 @@ Accept: application/json
 #### 6.3.5 Connection Event 수정 (전체)
 
 **Endpoint**: `PUT /api/events/connections/{id}`
+
+**Request Example**:
+```http
+PUT /api/events/connections/3003 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_id": 104,
+  "type_event": "Connection"
+}
+```
 
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
 
@@ -4638,6 +7291,14 @@ Accept: application/json
 
 **Endpoint**: `DELETE /api/events/connections/{id}`
 
+**Request Example**:
+```http
+DELETE /api/events/connections/3002 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
 **삭제 제약**: 없음 (ConnectionEvent는 `action_reported` 필드가 없으므로 언제든 삭제 가능)
 
 **성공 응답 예시** (200 OK):
@@ -4673,6 +7334,22 @@ Accept: application/json
 #### 6.4.1 Action Event 생성
 
 **Endpoint**: `POST /api/events/actions`
+
+**Request Example**:
+```http
+POST /api/events/actions HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "type_event": "Action",
+  "content": "침입 탐지 확인 및 순찰 출동 요청",
+  "user": "operator_kim",
+  "from_event_id": 1001
+}
+```
 
 **자동 동작**:
 - ActionEvent 생성 시 source event의 `action_reported` 필드가 자동으로 "True"로 업데이트됩니다
@@ -4726,7 +7403,7 @@ Accept: application/json
         "device_groups": []
       },
       "device_description": "[Fence] Test Sensor (number: 101, id: 2)",
-      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
       "detail": {
         "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
         "signal": 1500
@@ -4757,6 +7434,14 @@ Accept: application/json
 - `page` (int, optional): 페이지 번호
 - `limit` (int, optional): 페이지당 항목 수
 
+**Request Example**:
+```http
+GET /api/events/actions?start_date=2025-01-01T00:00:00&end_date=2025-01-31T23:59:59&user=operator_kim HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
 **Response Example** (200 OK):
 ```json
 {
@@ -4785,7 +7470,7 @@ Accept: application/json
           "device_groups": []
         },
         "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
-        "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+        "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
         "detail": {
           "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
           "signal": 1800
@@ -4818,7 +7503,7 @@ Accept: application/json
           "device_groups": []
         },
         "device_description": "[Multi] Sensor-A-4 (number: 4, id: 104)",
-        "reason": "FAULT_ETC", //(EnumFaultType) - v2.7 별도 필드
+        "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드
         "detail": {
           "first_start": 2,
           "first_end": 2,
@@ -4841,6 +7526,21 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T11:06:00.250Z",
     "request_id": "550e8434-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 날짜 형식:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "start_date", "message": "Invalid datetime format. Use ISO 8601 format (e.g., 2026-01-06T00:00:00Z)"},
+      {"field": "end_date", "message": "end_date must be greater than start_date"}
+    ]
   }
 }
 ```
@@ -4889,7 +7589,7 @@ Accept: application/json
         "device_groups": []
       },
       "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
-      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
       "detail": {
         "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
         "signal": 1800
@@ -4929,11 +7629,25 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/events/actions/{id}`
 
+**Request Example**:
+```http
+PATCH /api/events/actions/4001 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "content": "침입 탐지 확인 완료 - 오탐지로 판명",
+  "user": "operator_kim"
+}
+```
+
 **Request Body** (부분 업데이트):
 ```json
 {
   "content": "침입 탐지 확인 완료 - 오탐지로 판명", // 이중 하나
-  "user": "operator_kim", // 이중 하나
+  "user": "operator_kim" // 이중 하나
 }
 ```
 
@@ -4964,7 +7678,7 @@ Accept: application/json
         "device_groups": []
       },
       "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
-      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
       "detail": {
         "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
         "signal": 1800
@@ -4987,6 +7701,20 @@ Accept: application/json
 #### 6.4.5 Action Event 수정 (전체)
 
 **Endpoint**: `PUT /api/events/actions/{id}`
+
+**Request Example**:
+```http
+PUT /api/events/actions/4001 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청",
+  "user": "operator_park"
+}
+```
 
 **Request Body** (전체 업데이트):
 ```json
@@ -5023,7 +7751,7 @@ Accept: application/json
         "device_groups": []
       },
       "device_description": "[Fence] Sensor-A-2 (number: 2, id: 102)",
-      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.7 별도 필드
+      "result": "THERMAL_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
       "detail": {
         "thumbnail": "http://192.168.1.50:8080/events/1002/thumb.jpg",
         "signal": 1800
@@ -5046,6 +7774,14 @@ Accept: application/json
 #### 6.4.6 Action Event 삭제
 
 **Endpoint**: `DELETE /api/events/actions/{id}`
+
+**Request Example**:
+```http
+DELETE /api/events/actions/4001 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **자동 동작**:
 - ActionEvent 삭제 시 source event의 `action_reported` 필드가 자동으로 "False"로 복원됩니다
@@ -5226,6 +7962,21 @@ Accept: application/json
 }
 ```
 
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "page must be a positive integer"},
+      {"field": "limit", "message": "limit must be between 1 and 100"}
+    ]
+  }
+}
+```
+
 ---
 
 #### 7.2.2 EventMapping 단일 조회
@@ -5287,6 +8038,23 @@ Accept: application/json
 
 **Endpoint**: `POST /api/integrations/event-mappings`
 
+**Request Example**:
+```http
+POST /api/integrations/event-mappings HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_event": "연결 상태 변경",
+  "device_group_id": 3,
+  "category_event_mapping": "SENSOR_WITH_CAMERA",
+  "description": "센서 연결 상태 변경 이벤트 매핑",
+  "status": true
+}
+```
+
 **Request Body**:
 ```json
 {
@@ -5345,6 +8113,21 @@ Accept: application/json
 
 **Endpoint**: `PATCH /api/integrations/event-mappings/{id}`
 
+**Request Example**:
+```http
+PATCH /api/integrations/event-mappings/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_group_id": 2,
+  "description": "센서 침입 탐지 이벤트 - 수정된 설명",
+  "status": false
+}
+```
+
 **Path Parameters**:
 - `id` (int, required): EventMapping ID
 
@@ -5384,6 +8167,23 @@ Accept: application/json
 #### 7.2.5 EventMapping 수정 (전체)
 
 **Endpoint**: `PUT /api/integrations/event-mappings/{id}`
+
+**Request Example**:
+```http
+PUT /api/integrations/event-mappings/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name_event": "침입 탐지 업데이트",
+  "device_group_id": 1,
+  "category_event_mapping": "FENCE_SENSOR_ONLY",
+  "description": "전체 업데이트된 설명",
+  "status": true
+}
+```
 
 **Path Parameters**:
 - `id` (int, required): EventMapping ID
@@ -5587,6 +8387,21 @@ Accept: application/json
 {
   "success": false,
   "message": "Event mapping not found with id=999"
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "page must be a positive integer"},
+      {"field": "limit", "message": "limit must be between 1 and 100"}
+    ]
+  }
 }
 ```
 
@@ -5897,6 +8712,354 @@ Accept: application/json
 > **참고**: Camera/CameraPreset 삭제 시 EventMappingCamera 자체는 유지되며, 연결만 해제됩니다.
 > EventMapping 삭제 시에만 EventMappingCamera가 함께 삭제됩니다.
 
+### 7.4 Event Mapping Speakers API
+
+Event Mapping에 연동된 스피커 방송 동작을 관리합니다.
+
+> **아키텍처 원칙**:
+> - EventMapping은 다양한 Action 타입(Camera, Speaker, 3rd Party)의 **Base 노드**
+> - 각 Action 타입은 독립적인 하위 API로 관리 (`/cameras`, `/speakers`, `/externals`)
+> - EventMapping API에 `include_speakers` 같은 특정 타입 종속 파라미터 **사용하지 않음**
+
+#### 7.4.1 EventMappingSpeaker 목록 조회
+
+**Endpoint**: `GET /api/integrations/event-mappings/{mapping_id}/speakers`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+
+**Request Example**:
+```http
+GET /api/integrations/event-mappings/10/speakers?page=1&limit=20 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+
+> **Nested Response 규칙**:
+> - 주체(EventMappingSpeaker)의 `created_at`, `updated_at` 포함
+> - Nested 객체(speaker, file_group)는 **Full Property** (timestamp 제외)
+
+```json
+{
+  "success": true,
+  "message": "Event mapping speakers retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "event_mapping_id": 10,
+        "speaker": {
+          "id": 301,
+          "number_device": 1,
+          "name_device": "Main-Speaker-01",
+          "type_device": "Speaker",
+          "status": "ACTIVATED",
+          "speaker_type": "NORMAL"
+        },
+        "file_group": {
+          "id": 1,
+          "server_id": 1,
+          "group_id": 100,
+          "group_name": "경고 방송 그룹",
+          "files": ["alert_01.wav", "alert_02.wav"]
+        },
+        "repeat_count": 3,
+        "is_enable": true,
+        "priority": 1,
+        "created_at": "2026-01-07T10:00:00.000+09:00",
+        "updated_at": "2026-01-07T10:00:00.000+09:00"
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "message": "Event mapping with id 999 not found"
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "page must be a positive integer"},
+      {"field": "limit", "message": "limit must be between 1 and 100"}
+    ]
+  }
+}
+```
+
+#### 7.4.2 EventMappingSpeaker 단일 조회
+
+**Endpoint**: `GET /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingSpeaker ID
+
+**Request Example**:
+```http
+GET /api/integrations/event-mappings/10/speakers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping speaker retrieved successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "speaker": {
+      "id": 301,
+      "number_device": 1,
+      "name_device": "Main-Speaker-01",
+      "type_device": "Speaker",
+      "status": "ACTIVATED",
+      "speaker_type": "NORMAL"
+    },
+    "file_group": {
+      "id": 1,
+      "server_id": 1,
+      "group_id": 100,
+      "group_name": "경고 방송 그룹",
+      "files": ["alert_01.wav", "alert_02.wav"]
+    },
+    "repeat_count": 3,
+    "is_enable": true,
+    "priority": 1,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T10:00:00.000+09:00"
+  }
+}
+```
+
+#### 7.4.3 EventMappingSpeaker 생성
+
+**Endpoint**: `POST /api/integrations/event-mappings/{mapping_id}/speakers`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+
+**Request Body**:
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| speaker_id | integer | Y | 대상 스피커 ID |
+| file_group_id | integer | N | 방송 파일 그룹 ID |
+| repeat_count | integer | N | 방송 반복 횟수 (기본값: 1, 최소값: 1) |
+| is_enable | boolean | N | 활성화 여부 (기본값: true) |
+| priority | integer | N | 실행 우선순위 (Optional) |
+
+**Request Example**:
+```http
+POST /api/integrations/event-mappings/10/speakers HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "speaker_id": 301,
+  "file_group_id": 1,
+  "repeat_count": 3,
+  "is_enable": true,
+  "priority": 1
+}
+```
+
+**Response Example** (201 Created):
+```json
+{
+  "success": true,
+  "message": "Event mapping speaker created successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "speaker_id": 301,
+    "file_group_id": 1,
+    "repeat_count": 3,
+    "is_enable": true,
+    "priority": 1
+  }
+}
+```
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "message": "Speaker with id 999 not found"
+}
+```
+
+**Error Response** (422 Unprocessable Entity):
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "repeat_count"],
+      "msg": "Input should be greater than or equal to 1",
+      "type": "value_error"
+    }
+  ]
+}
+```
+
+#### 7.4.4 EventMappingSpeaker 수정 (부분)
+
+**Endpoint**: `PATCH /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingSpeaker ID
+
+**Request Body** (모든 필드 Optional):
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| speaker_id | integer | 대상 스피커 ID |
+| file_group_id | integer | 방송 파일 그룹 ID |
+| repeat_count | integer | 방송 반복 횟수 (최소값: 1) |
+| is_enable | boolean | 활성화 여부 |
+| priority | integer | 실행 우선순위 |
+
+**Request Example**:
+```http
+PATCH /api/integrations/event-mappings/10/speakers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "repeat_count": 5,
+  "is_enable": false
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping speaker updated successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "speaker_id": 301,
+    "file_group_id": 1,
+    "repeat_count": 5,
+    "is_enable": false,
+    "priority": 1
+  }
+}
+```
+
+#### 7.4.5 EventMappingSpeaker 수정 (전체)
+
+**Endpoint**: `PUT /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingSpeaker ID
+
+**Request Body** (모든 필드 교체):
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| speaker_id | integer | Y | 대상 스피커 ID |
+| file_group_id | integer | N | 방송 파일 그룹 ID |
+| repeat_count | integer | Y | 방송 반복 횟수 (최소값: 1) |
+| is_enable | boolean | Y | 활성화 여부 |
+| priority | integer | N | 실행 우선순위 |
+
+**Request Example**:
+```http
+PUT /api/integrations/event-mappings/10/speakers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "speaker_id": 302,
+  "file_group_id": 2,
+  "repeat_count": 2,
+  "is_enable": true,
+  "priority": 2
+}
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping speaker replaced successfully",
+  "data": {
+    "id": 1,
+    "event_mapping_id": 10,
+    "speaker_id": 302,
+    "file_group_id": 2,
+    "repeat_count": 2,
+    "is_enable": true,
+    "priority": 2
+  }
+}
+```
+
+#### 7.4.6 EventMappingSpeaker 삭제
+
+**Endpoint**: `DELETE /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}`
+
+**Path Parameters**:
+- `mapping_id` (int, required): EventMapping ID
+- `config_id` (int, required): EventMappingSpeaker ID
+
+**Request Example**:
+```http
+DELETE /api/integrations/event-mappings/10/speakers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event mapping speaker deleted successfully"
+}
+```
+
+#### 7.4.7 FK 정책 및 CASCADE 동작
+
+| 관계 | 동작 | 정책 | 설명 |
+|------|------|------|------|
+| EventMapping → EventMappingSpeaker | EventMapping 삭제 | `CASCADE` | 연결된 EventMappingSpeaker 모두 삭제 |
+| Speaker → EventMappingSpeaker | Speaker 삭제 | `SET NULL` | EventMappingSpeaker.speaker_id → NULL |
+| FileGroup → EventMappingSpeaker | FileGroup 삭제 | `SET NULL` | EventMappingSpeaker.file_group_id → NULL |
+
+> **참고**: Speaker/FileGroup 삭제 시 EventMappingSpeaker 자체는 유지되며, 연결만 해제됩니다.
+> EventMapping 삭제 시에만 EventMappingSpeaker가 함께 삭제됩니다.
+
 ---
 
 ## 8. Server Monitoring API 설계
@@ -5925,15 +9088,21 @@ Accept: application/json
 
 #### 8.2.1 카테고리 목록 조회
 
-```http
-GET /api/servers/categories
-```
+**Endpoint**: `GET /api/servers/categories`
 
 **Query Parameters**:
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
 | page | integer | N | 페이지 번호 (기본값: 1) |
 | limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+
+**Request Example**:
+```http
+GET /api/servers/categories?page=1&limit=20 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response (200 OK)**:
 ```json
@@ -5965,6 +9134,21 @@ GET /api/servers/categories
     "limit": 20,
     "total": 9,
     "total_pages": 1
+  }
+}
+```
+
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "page must be a positive integer"},
+      {"field": "limit", "message": "limit must be between 1 and 100"}
+    ]
   }
 }
 ```
@@ -6016,10 +9200,36 @@ GET /api/servers/categories/{category_id}
 }
 ```
 
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server category with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 #### 8.2.3 카테고리 생성
 
+**Endpoint**: `POST /api/servers/categories`
+
+**Request Example**:
 ```http
-POST /api/servers/categories
+POST /api/servers/categories HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "새로운 서버 카테고리",
+  "type_server": "ETC",
+  "description": "카테고리 설명",
+  "sort_order": 10
+}
 ```
 
 **Request Body**:
@@ -6069,9 +9279,26 @@ POST /api/servers/categories
 
 #### 8.2.4 카테고리 수정 (부분)
 
+**Endpoint**: `PATCH /api/servers/categories/{category_id}`
+
+**Request Example**:
 ```http
-PATCH /api/servers/categories/{category_id}
+PATCH /api/servers/categories/10 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "description": "수정된 설명",
+  "sort_order": 5
+}
 ```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| category_id | integer | Y | 카테고리 ID |
 
 **Request Body** (모든 필드 선택적):
 ```json
@@ -6081,13 +9308,59 @@ PATCH /api/servers/categories/{category_id}
 }
 ```
 
-**Response (200 OK)**: 수정된 카테고리 데이터 반환
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server category updated successfully",
+  "data": {
+    "id": 10,
+    "name": "VMS 서버",
+    "type_server": "VMS",
+    "description": "수정된 설명",
+    "sort_order": 5,
+    "created_at": "2025-12-29T07:00:00.000000",
+    "updated_at": "2026-01-12T10:30:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server category with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 #### 8.2.5 카테고리 수정 (전체)
 
+**Endpoint**: `PUT /api/servers/categories/{category_id}`
+
+**Request Example**:
 ```http
-PUT /api/servers/categories/{category_id}
+PUT /api/servers/categories/10 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "수정된 카테고리명",
+  "type_server": "VMS",
+  "description": "수정된 설명",
+  "sort_order": 1
+}
 ```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| category_id | integer | Y | 카테고리 ID |
 
 **Request Body** (모든 필드 필수):
 ```json
@@ -6099,11 +9372,51 @@ PUT /api/servers/categories/{category_id}
 }
 ```
 
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server category replaced successfully",
+  "data": {
+    "id": 10,
+    "name": "수정된 카테고리명",
+    "type_server": "VMS",
+    "description": "수정된 설명",
+    "sort_order": 1,
+    "created_at": "2025-12-29T07:00:00.000000",
+    "updated_at": "2026-01-12T10:35:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server category with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
 #### 8.2.6 카테고리 삭제
 
+**Endpoint**: `DELETE /api/servers/categories/{category_id}`
+
+**Request Example**:
 ```http
-DELETE /api/servers/categories/{category_id}
+DELETE /api/servers/categories/10 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
 ```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| category_id | integer | Y | 카테고리 ID |
 
 **Response (200 OK)**:
 ```json
@@ -6112,6 +9425,18 @@ DELETE /api/servers/categories/{category_id}
   "message": "Server category deleted successfully",
   "data": {
     "id": 10
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server category with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -6126,9 +9451,7 @@ DELETE /api/servers/categories/{category_id}
 
 #### 8.3.1 서버 목록 조회
 
-```http
-GET /api/servers
-```
+**Endpoint**: `GET /api/servers`
 
 **Query Parameters**:
 | 파라미터 | 타입 | 필수 | 설명 |
@@ -6137,6 +9460,14 @@ GET /api/servers
 | limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
 | category_id | integer | N | 카테고리 ID 필터 |
 | status | string | N | 상태 필터 (NORMAL, WARNING, ERROR) |
+
+**Request Example**:
+```http
+GET /api/servers?category_id=1&status=NORMAL HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response (200 OK)**:
 ```json
@@ -6171,6 +9502,22 @@ GET /api/servers
 }
 ```
 
+**Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "page", "message": "page must be a positive integer"},
+      {"field": "limit", "message": "limit must be between 1 and 100"},
+      {"field": "status", "message": "status must be one of: NORMAL, WARNING, ERROR"}
+    ]
+  }
+}
+```
+
 #### 8.3.2 서버 상세 조회
 
 ```http
@@ -6182,15 +9529,51 @@ GET /api/servers/{server_id}
 |---------|------|------|------|
 | server_id | integer | Y | 서버 ID |
 
-**Response (200 OK)**: 서버 상세 정보 반환
+**Request Example**:
+```http
+GET /api/servers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server retrieved successfully",
+  "data": {
+    "id": 1,
+    "category_id": 1,
+    "name": "VMS-ab1120",
+    "status": "NORMAL",
+    "ip_address": "192.168.1.10",
+    "port": 8080,
+    "hostname": "vms-server-01",
+    "user_name": "admin",
+    "user_password": "password123",
+    "cpu_usage": 45.0,
+    "ram_usage": 62.0,
+    "disk_usage": 78.0,
+    "network_throughput": "125MB/s",
+    "created_at": "2025-12-29T06:46:01.150000",
+    "updated_at": "2025-12-29T06:46:01.150000"
+  },
+  "meta": {
+    "timestamp": "2026-01-12T10:00:00.100Z",
+    "request_id": "550e8500-e29b-41d4-a716-446655440000"
+  }
+}
+```
 
 **Error Response (404 Not Found)**:
 ```json
 {
   "success": false,
+  "message": "Server with id 999 not found",
   "error": {
     "code": "NOT_FOUND",
-    "message": "Server with id 999 not found"
+    "details": null
   }
 }
 ```
@@ -6201,8 +9584,14 @@ GET /api/servers/{server_id}
 POST /api/servers
 ```
 
-**Request Body**:
-```json
+**Request Example**:
+```http
+POST /api/servers HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
 {
   "category_id": 1,
   "name": "VMS-ab1122",
@@ -6234,13 +9623,85 @@ POST /api/servers
 | disk_usage | float | N | 디스크 사용률 (%) |
 | network_throughput | string | N | 네트워크 처리량 |
 
-**Response (201 Created)**: 생성된 서버 데이터 반환
+**Response Example (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Server created successfully",
+  "data": {
+    "id": 10,
+    "category_id": 1,
+    "name": "VMS-ab1122",
+    "status": "NORMAL",
+    "ip_address": "192.168.1.12",
+    "port": 8080,
+    "hostname": "vms-server-03",
+    "user_name": "admin",
+    "user_password": "password123",
+    "cpu_usage": 35.0,
+    "ram_usage": 48.0,
+    "disk_usage": 55.0,
+    "network_throughput": "100MB/s",
+    "created_at": "2026-01-12T10:30:00.000000",
+    "updated_at": "2026-01-12T10:30:00.000000"
+  },
+  "meta": {
+    "timestamp": "2026-01-12T10:30:00.100Z",
+    "request_id": "550e8501-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)** - 존재하지 않는 카테고리:
+```json
+{
+  "success": false,
+  "message": "ServerCategory with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response (422 Validation Error)**:
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {"field": "category_id", "message": "Field required"},
+      {"field": "name", "message": "Field required"}
+    ]
+  }
+}
+```
 
 #### 8.3.4 서버 수정 (부분)
 
+**Endpoint**: `PATCH /api/servers/{server_id}`
+
+**Request Example**:
 ```http
-PATCH /api/servers/{server_id}
+PATCH /api/servers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "status": "WARNING",
+  "cpu_usage": 85.0,
+  "ram_usage": 78.0
+}
 ```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | 서버 ID |
 
 **Request Body** (모든 필드 선택적):
 ```json
@@ -6253,21 +9714,162 @@ PATCH /api/servers/{server_id}
 
 > **사용 사례**: 서버 메트릭 주기적 업데이트에 사용
 
-**Response (200 OK)**: 수정된 서버 데이터 반환
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server updated successfully",
+  "data": {
+    "id": 1,
+    "category_id": 1,
+    "name": "VMS-ab1120",
+    "status": "WARNING",
+    "ip_address": "192.168.1.10",
+    "port": 8080,
+    "hostname": "vms-server-01",
+    "user_name": "admin",
+    "user_password": "password123",
+    "cpu_usage": 85.0,
+    "ram_usage": 78.0,
+    "disk_usage": 55.0,
+    "network_throughput": "100MB/s",
+    "created_at": "2025-12-29T07:00:00.000000",
+    "updated_at": "2026-01-12T11:00:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 #### 8.3.5 서버 수정 (전체)
 
+**Endpoint**: `PUT /api/servers/{server_id}`
+
+**Request Example**:
 ```http
-PUT /api/servers/{server_id}
+PUT /api/servers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "category_id": 1,
+  "name": "VMS-ab1120-updated",
+  "status": "NORMAL",
+  "ip_address": "192.168.1.10",
+  "port": 8080,
+  "hostname": "vms-server-01",
+  "user_name": "admin",
+  "user_password": "newpassword123",
+  "cpu_usage": 35.0,
+  "ram_usage": 48.0,
+  "disk_usage": 55.0,
+  "network_throughput": "100MB/s"
+}
 ```
 
-모든 필드를 포함한 전체 데이터로 교체합니다.
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | 서버 ID |
+
+**Request Body** (모든 필드 필수):
+```json
+{
+  "category_id": 1,
+  "name": "VMS-ab1120-updated",
+  "status": "NORMAL",
+  "ip_address": "192.168.1.10",
+  "port": 8080,
+  "hostname": "vms-server-01",
+  "user_name": "admin",
+  "user_password": "newpassword123",
+  "cpu_usage": 35.0,
+  "ram_usage": 48.0,
+  "disk_usage": 55.0,
+  "network_throughput": "100MB/s"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| category_id | integer | Y | 카테고리 ID |
+| name | string | Y | 서버 이름 |
+| status | EnumServerStatus | N | 상태 (기본값: NORMAL) |
+| ip_address | string | N | IP 주소 |
+| port | integer | N | 포트 번호 |
+| hostname | string | N | 호스트명 |
+| user_name | string | N | 접속 사용자명 |
+| user_password | string | N | 접속 비밀번호 |
+| cpu_usage | float | N | CPU 사용률 (%) |
+| ram_usage | float | N | RAM 사용률 (%) |
+| disk_usage | float | N | 디스크 사용률 (%) |
+| network_throughput | string | N | 네트워크 처리량 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server replaced successfully",
+  "data": {
+    "id": 1,
+    "category_id": 1,
+    "name": "VMS-ab1120-updated",
+    "status": "NORMAL",
+    "ip_address": "192.168.1.10",
+    "port": 8080,
+    "hostname": "vms-server-01",
+    "user_name": "admin",
+    "user_password": "newpassword123",
+    "cpu_usage": 35.0,
+    "ram_usage": 48.0,
+    "disk_usage": 55.0,
+    "network_throughput": "100MB/s",
+    "created_at": "2025-12-29T07:00:00.000000",
+    "updated_at": "2026-01-12T11:05:00.000000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
 
 #### 8.3.6 서버 삭제
 
+**Endpoint**: `DELETE /api/servers/{server_id}`
+
+**Request Example**:
 ```http
-DELETE /api/servers/{server_id}
+DELETE /api/servers/1 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
 ```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | 서버 ID |
 
 **Response (200 OK)**:
 ```json
@@ -6276,6 +9878,18 @@ DELETE /api/servers/{server_id}
   "message": "Server deleted successfully",
   "data": {
     "id": 1
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
   }
 }
 ```
@@ -6594,6 +10208,14 @@ GET /api/servers/summary
 - `PUT /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 수정 (전체)
 - `DELETE /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 삭제
 
+**Event Mapping Speakers** (v2.8 신규):
+- `GET /api/integrations/event-mappings/{mapping_id}/speakers` - 스피커 연동 목록 조회
+- `POST /api/integrations/event-mappings/{mapping_id}/speakers` - 스피커 연동 생성
+- `GET /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 단일 조회
+- `PATCH /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 수정 (부분)
+- `PUT /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 수정 (전체)
+- `DELETE /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 삭제
+
 #### Server Monitoring Endpoints
 
 **Server Categories**:
@@ -6814,6 +10436,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v2.8 | 2026-01-12 | **Event Mapping Speakers API 추가**<br><br>**[1. EventMappingSpeaker API 신규 (7.4 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/speakers`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **아키텍처**: EventMapping을 Base 노드로 하는 확장 가능한 Speaker Action 구조<br>- **FK 관계**:<br>  • `event_mapping_id` (CASCADE): EventMapping 삭제 시 함께 삭제<br>  • `speaker_id` (SET NULL): Speaker 삭제 시 연결만 해제<br>  • `file_group_id` (SET NULL): FileGroup 삭제 시 연결만 해제<br>- **주요 필드**: repeat_count (방송 반복 횟수), is_enable, priority<br>- **Nested Response**: speaker, file_group 상세 정보 포함 |
 | v2.6 | 2026-01-09 | **Speaker Geolocation 추가 및 Event 필드 정규화**<br><br>**[1. Speaker Geolocation 추가]** (PRD_Speaker_Geolocation.md v1.0)<br>- **speakers.geolocation JSONB 추가**: Speaker 장비 위치 정보<br>- **API 변경**: POST/PATCH/PUT Request에 geolocation 필드 추가<br>- **Response 변경**: GET 응답에 geolocation 필드 포함<br>- **Swagger/Docs 업데이트**: SpeakerCreate, SpeakerUpdate, SpeakerResponse 스키마에 geolocation 필드 추가<br><br>**[2. Event 필드 정규화]** (PRD_Event_Field_Normalization.md v1.0)<br>- **Detection Event**: `result` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)<br>  - 모든 Request/Response에서 result가 별도 필드<br>- **Malfunction Event**: `reason` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (first_start, first_end, second_start, second_end)<br>  - 모든 Request/Response에서 reason이 별도 필드<br>- **Action Event**: `from_event` nested response에 분리된 필드 적용 |
 | v2.4 | 2026-01-08 | **Camera URLs, Speaker/Enclosure Device, Controller/Sensor Geolocation, EventMappingCamera API**<br><br>**[0. ⚠️ Breaking Change: Category Event Refactoring]** (PRD_CategoryEvent_Refactoring.md v1.1)<br>- **EventMapping 필드명 변경**: `category_event` (VARCHAR) → `category_event_mapping` (Enum)<br>- **EnumEventCategory 신규**: Event 모델 polymorphic discriminator용 (DETECTION, MALFUNCTION, CONNECTION)<br>- **EnumMappingEventCategory**: EventMapping 센서 조합 타입용 (FENCE_SENSOR_ONLY, MULTI_SENSOR_ONLY 등)<br>- **Query Parameter 변경**: `?category_event=xxx` → `?category_event_mapping=FENCE_SENSOR_ONLY`<br><br>**[1. Camera URL 스키마 변경]**<br>- **rtsp_uri, rtsp_port 제거** → `urls` JSONB 필드로 통합<br>- **유연한 dict 기반 구조**: homepage, onvif, streams, snapshot 등<br><br>**[2. EventMappingCamera API 신규 (7.3 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/cameras`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **레거시 CameraEventMappings API 제거**<br><br>**[3. Server 인증 정보 필드 추가]**<br>- **Server 모델 필드 추가**: `user_name`, `user_password`<br><br>**[4. Speaker Device API 신규]**<br>- **[신규] 5.8 Speaker API**: `/api/devices/speakers` - Device Polymorphic 상속 구조<br>- **[신규] 5.9 FileGroup API**: `/api/file-groups` - 방송음원 파일풀 관리<br>- **EnumDeviceCategory 확장**: `SPEAKER = "speaker"` 추가<br>- **EnumSpeakerType 신규**: NORMAL, ADMIN, MONITOR, DEV<br><br>**[5. Enclosure Device API 신규]** (PRD_Enclosure_Device.md v1.1)<br>- **[신규] 5.10 Enclosure API**: `/api/devices/enclosures` - 함체관리장비<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **특수 엔드포인트**: `PATCH /{id}/status` (환경 데이터), `POST /{id}/control` (히터/팬 제어)<br>- **EnumDeviceCategory 확장**: `ENCLOSURE = "enclosure"` 추가<br>- **EnumDoorStatus 신규**: CLOSED, OPEN - 도어 물리적 상태<br>- **Enclosure 테이블**: door_status, detail_info (JSONB), geolocation (JSONB), threshold_config (JSONB), heater_enabled, fan_enabled<br><br>**[6. Controller/Sensor Geolocation 추가]** (PRD_Controller_Sensor_Geolocation.md v1.0)<br>- **controllers.geolocation JSONB 추가**: Controller 장비 위치 정보<br>- **sensors.geolocation JSONB 추가**: Sensor 장비 위치 정보<br>- **geolocation JSON 구조**: `{location, latitude, longitude, altitude}` |
 | v2.3 | 2026-01-06 | **API 전면 리팩토링 및 Nested Response 규칙 적용**<br><br>**[1. Event API 변경]**<br>- **Request 필드 통합**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합<br>- **Response 필드 제거**: `device_id` (중복), `sequence` (완전 제거), `group_event` (`device.device_groups[]`로 대체)<br>- **Response 필드 추가**: `device` (Polymorphic), `device_description` (스냅샷)<br>- **`action_reported` 자동 관리**: Create 시 항상 "False", ActionEvent 생성/삭제 시 시스템 자동 업데이트<br>- **DB 변경**: `events.sequence` 컬럼 `NOT NULL` → `NULL` 허용 (레거시 호환)<br><br>**[2. Device Polymorphic Response]**<br>- Event Response `device` 필드가 타입별 다른 스키마 반환:<br>  • Sensor → SensorNestedResponse (controller_id 포함)<br>  • Controller → ControllerNestedResponse (ip_address, ip_port 포함)<br>  • Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)<br><br>**[3. ActionEvent API 변경]**<br>- **Request 필드 제거**: `from_type_event` 제거 - `from_event_id`만으로 원본 이벤트 참조<br>- **Request 필드명 변경**: `from_event` → `from_event_id`<br>- **Polymorphic Relationship**: `from_event_id`가 `events.id` FK를 참조하여 이벤트 타입 자동 확인<br><br>**[4. Nested Response 규칙 일관성 적용]**<br>- **규칙**: 주체 Entity만 `created_at`, `updated_at` 포함, Nested 객체는 제외<br>- **Device API**: `device_groups`, `sensors` nested 객체에서 timestamp 제거<br>- **Sensor API**: `controller` nested 객체에서 timestamp 제거, `include_controller` 파라미터 추가<br>- **Camera Preset API**: `rois`, `points` nested 객체에서 timestamp 제거<br>- **신규 스키마**: `ControllerNestedResponse`, `ROINestedResponse`, `ROIListNestedResponse`, `XyPointNestedResponse`<br><br>**[5. Device `number_device` unique 제약 해제]**<br>- **변경**: 동일한 장치 번호를 여러 디바이스에서 사용 가능<br>- **스키마**: `number_device` 설명에서 "(유니크)" 제거, 409 중복 에러 제거<br>- **확인**: DB 스키마와 모델 모두 이미 `unique=False` 상태<br><br>**[6. EventMapping API 변경]**<br>- `group_event` (VARCHAR) → `device_group_id` (INTEGER FK) 변경<br>- 쿼리 파라미터: `?group_event=xxx` → `?device_group_id=1`<br><br>**[7. 문서 업데이트]**<br>- 10.3 EventMapping 리팩토링 변경사항 추가<br>- Camera PATCH/PUT API: `is_record`, `hardware_spec`, `geolocation`, `group_ids` 필드 추가<br>-  참조: v1.3, v1.5, v2.2, v2.7, v2.8, v2.9 |
@@ -6832,5 +10455,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v2.6
-**최종 업데이트**: 2026-01-09
+**문서 버전**: v2.8
+**최종 업데이트**: 2026-01-12

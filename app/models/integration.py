@@ -60,6 +60,14 @@ class EventMapping(Base):
         lazy="dynamic"
     )
 
+    # Speaker Actions (PRD: PRD_EventMappingSpeaker.md v1.0)
+    speakers = relationship(
+        "EventMappingSpeaker",
+        back_populates="event_mapping",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+
 
 class EventMappingCamera(Base):
     """
@@ -128,3 +136,62 @@ class EventMappingCamera(Base):
     camera = relationship("Camera", foreign_keys=[camera_id])
     target_preset = relationship("CameraPreset", foreign_keys=[target_preset_id])
     home_preset = relationship("CameraPreset", foreign_keys=[home_preset_id])
+
+
+class EventMappingSpeaker(Base):
+    """
+    이벤트 매핑 스피커 연동 설정
+
+    PRD: PRD_EventMappingSpeaker.md v1.0
+
+    EventMapping에서 특정 이벤트 발생 시 실행할 스피커 방송을 정의합니다.
+
+    FK Behavior:
+    - event_mapping_id: CASCADE DELETE (EventMapping 삭제 시 함께 삭제)
+    - speaker_id: SET NULL (Speaker 삭제 시 NULL로 설정)
+    - file_group_id: SET NULL (FileGroup 삭제 시 NULL로 설정)
+    """
+    __tablename__ = "event_mapping_speakers"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+
+    # FK: EventMapping (CASCADE DELETE)
+    event_mapping_id = Column(
+        Integer,
+        ForeignKey("event_mappings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # FK: Speaker (SET NULL - 스피커 삭제 시 연결만 해제)
+    speaker_id = Column(
+        Integer,
+        ForeignKey("speakers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # FK: FileGroup (SET NULL - 파일그룹 삭제 시 연결만 해제)
+    file_group_id = Column(
+        Integer,
+        ForeignKey("file_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # 방송 반복 횟수 (기본값: 1)
+    repeat_count = Column(Integer, nullable=False, default=1)
+
+    # 상태 및 우선순위
+    is_enable = Column(Boolean, nullable=False, default=True)
+    priority = Column(Integer, nullable=True, default=None)
+
+    # 타임스탬프
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz),
+                        onupdate=lambda: dt.now(settings.tz), nullable=False)
+
+    # Relationships
+    event_mapping = relationship("EventMapping", back_populates="speakers")
+    speaker = relationship("Speaker", foreign_keys=[speaker_id])
+    file_group = relationship("FileGroup", foreign_keys=[file_group_id])

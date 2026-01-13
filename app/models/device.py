@@ -54,6 +54,7 @@ class Device(Base):
     type_device = Column(SQLEnum(EnumDeviceType), nullable=False)
     version = Column(String(50), nullable=True)  # PRD v1.2: nullable
     status = Column(SQLEnum(EnumDeviceStatus), nullable=False, default=EnumDeviceStatus.ACTIVATED)
+    is_enable = Column(Boolean, nullable=False, default=True)  # PRD_Device_IsEnable_Field.md: 장비 활성화 여부
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
 
@@ -247,6 +248,9 @@ class Speaker(Device):
 
     # Relationship to Server
     server = relationship("Server", foreign_keys=[server_id])
+
+    # Relationship to EventMappingSpeaker (PRD: PRD_EventMappingSpeaker.md v1.0)
+    event_mapping_speakers = relationship("EventMappingSpeaker", back_populates="speaker")
 
     def __repr__(self):
         return (

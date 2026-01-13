@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, file_groups
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -79,6 +79,10 @@ tags_metadata = [
     {
         "name": "Event Mapping Cameras",
         "description": "이벤트 매핑 카메라 설정 API. EventMapping에 연동된 카메라 동작을 관리합니다. PRD: PRD_CameraEventMapping_Refactoring.md v2.1",
+    },
+    {
+        "name": "Event Mapping Speakers",
+        "description": "이벤트 매핑 스피커 설정 API. EventMapping에 연동된 스피커 방송을 관리합니다. PRD: PRD_EventMappingSpeaker.md v1.0",
     },
     {
         "name": "Server Categories",
@@ -365,6 +369,7 @@ app.include_router(connections.router, prefix="/api/events/connections", tags=["
 app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"])
 app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
 app.include_router(event_mapping_cameras.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Cameras"])
+app.include_router(event_mapping_speakers.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Speakers"])
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
 app.include_router(device_groups.router, prefix="/api", tags=["DeviceGroups"])

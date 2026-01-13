@@ -11,9 +11,11 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
-from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse, CameraUrls
+from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse, CameraUrls, CameraWithPresetsResponse
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.camera_preset import CameraPresetNestedResponse, ROIListNestedResponse
+from app.models.camera_preset import CameraPreset, ROI
 
 router = APIRouter(tags=["Cameras"])
 
@@ -186,9 +188,11 @@ async def get_cameras(
     )
 
 
-@router.get("/{camera_id}", response_model=ApiResponse[CameraResponse])
+@router.get("/{camera_id}")
 async def get_camera(
     camera_id: int,
+    include_presets: bool = Query(False, description="프리셋 정보 포함 여부 (기본값: false)"),
+    include_rois: bool = Query(False, description="ROI 정보 포함 여부 (기본값: false, include_presets=true 필요)"),
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -199,8 +203,10 @@ async def get_camera(
 
     **파라미터**:
     - **camera_id**: 카메라 ID (Path Parameter)
+    - **include_presets**: 프리셋 정보 포함 여부 (기본값: false)
+    - **include_rois**: ROI 정보 포함 여부 (기본값: false, include_presets=true일 때만 유효)
 
-    **Response**: 카메라 상세 정보
+    **Response**: 카메라 상세 정보 (include_presets=true 시 presets 포함)
 
     **Error**:
     - 404: 카메라를 찾을 수 없음
@@ -213,11 +219,68 @@ async def get_camera(
             detail=f"Camera with id {camera_id} not found"
         )
 
+    # include_rois=true implies include_presets=true
+    if include_rois:
+        include_presets = True
+
+    # If include_presets is requested, return CameraWithPresetsResponse
+    if include_presets:
+        camera_response = _camera_to_response(camera, db)
+        presets = _get_camera_presets_nested(db, camera_id, include_rois)
+
+        return ApiResponse(
+            success=True,
+            message="Camera retrieved successfully",
+            data=CameraWithPresetsResponse(
+                **camera_response.model_dump(),
+                presets=presets
+            )
+        )
+
     return ApiResponse(
         success=True,
         message="Camera retrieved successfully",
         data=_camera_to_response(camera, db)
     )
+
+
+def _get_camera_presets_nested(db: Session, camera_id: int, include_rois: bool = False) -> List[CameraPresetNestedResponse]:
+    """Get camera presets as nested response (v2.11: for include_presets query param)"""
+    from app.models.camera_preset import XyPoint  # Import for point_count query
+
+    presets = db.query(CameraPreset).filter(CameraPreset.camera_id == camera_id).all()
+
+    result = []
+    for preset in presets:
+        rois_list = []
+        if include_rois:
+            rois = db.query(ROI).filter(ROI.preset_id == preset.id).all()
+            for roi in rois:
+                # Use explicit query instead of lazy-loaded dynamic relationship
+                point_count = db.query(XyPoint).filter(XyPoint.roi_id == roi.id).count()
+                rois_list.append(ROIListNestedResponse(
+                    id=roi.id,
+                    preset_id=roi.preset_id,
+                    name=roi.name,
+                    resolution_width=roi.resolution_width,
+                    resolution_height=roi.resolution_height,
+                    is_enable=roi.is_enable,
+                    point_count=point_count
+                ))
+
+        roi_count = db.query(ROI).filter(ROI.preset_id == preset.id).count()
+
+        result.append(CameraPresetNestedResponse(
+            id=preset.id,
+            camera_id=preset.camera_id,
+            preset_index=preset.preset_index,
+            preset_name=preset.preset_name,
+            touring_time=preset.touring_time,
+            roi_count=roi_count,
+            rois=rois_list
+        ))
+
+    return result
 
 
 @router.post("", response_model=ApiResponse[CameraResponse], status_code=status.HTTP_201_CREATED)

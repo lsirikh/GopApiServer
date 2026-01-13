@@ -25,12 +25,53 @@ from app.schemas.device_group import (
     SensorSummary,
     CameraSummary,
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, PaginationMeta, ValidationErrorResponse
 
 router = APIRouter(prefix="/devices/groups", tags=["DeviceGroups"])
 
 
-@router.get("", response_model=ApiResponse[list[DeviceGroupResponse]])
+@router.get(
+    "",
+    response_model=ApiResponse[list[DeviceGroupResponse]],
+    responses={
+        200: {
+            "description": "디바이스 그룹 목록 조회 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "디바이스 그룹 목록 조회 성공",
+                        "data": [
+                            {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5, "created_at": "2025-01-01T00:00:00.000Z", "updated_at": "2025-01-01T00:00:00.000Z"},
+                            {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3, "created_at": "2025-01-02T00:00:00.000Z", "updated_at": "2025-01-02T00:00:00.000Z"}
+                        ],
+                        "pagination": {"page": 1, "limit": 20, "total": 2, "total_pages": 1},
+                        "meta": {"timestamp": "2025-01-10T10:30:00.000Z", "request_id": "550e8400-e29b-41d4-a716-446655440000"}
+                    }
+                }
+            }
+        },
+        422: {
+            "model": ValidationErrorResponse,
+            "description": "Validation Error - 잘못된 쿼리 파라미터",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "Validation error",
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "details": [
+                                {"field": "page", "message": "Page must be greater than 0"},
+                                {"field": "limit", "message": "Limit must be between 1 and 100"}
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_device_groups(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
@@ -87,9 +128,140 @@ async def get_device_groups(
     )
 
 
-@router.get("/{group_id}", response_model=ApiResponse[DeviceGroupDetailResponse])
+@router.get(
+    "/{group_id}",
+    responses={
+        200: {
+            "description": "디바이스 그룹 상세 조회 성공",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "include_devices_true": {
+                            "summary": "include_devices=true (기본값) - 디바이스 목록 포함",
+                            "value": {
+                                "success": True,
+                                "message": "디바이스 그룹 조회 성공",
+                                "data": {
+                                    "id": 1,
+                                    "name": "GOP 1구역",
+                                    "description": "GOP 1구역 장비 그룹",
+                                    "device_count": 3,
+                                    "created_at": "2025-01-01T00:00:00.000Z",
+                                    "updated_at": "2025-01-01T00:00:00.000Z",
+                                    "devices": [
+                                        {
+                                            "id": 1,
+                                            "number_device": 1,
+                                            "group_device": 1,
+                                            "name_device": "Controller-A",
+                                            "type_device": "Controller",
+                                            "version": "v2.1.0",
+                                            "status": "ACTIVATED",
+                                            "ip_address": "192.168.1.100",
+                                            "ip_port": 8001,
+                                            "geolocation": {
+                                                "location": "GOP 1구역 전방 초소",
+                                                "latitude": 38.1234,
+                                                "longitude": 127.5678
+                                            },
+                                            "device_groups": [
+                                                {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+                                            ]
+                                        },
+                                        {
+                                            "id": 101,
+                                            "number_device": 1,
+                                            "group_device": 1,
+                                            "name_device": "Sensor-A-1",
+                                            "type_device": "Multi",
+                                            "version": "v1.5.0",
+                                            "status": "ACTIVATED",
+                                            "controller_id": 1,
+                                            "geolocation": {
+                                                "location": "GOP 1구역 전방 초소",
+                                                "latitude": 38.1234,
+                                                "longitude": 127.5678
+                                            },
+                                            "device_groups": [
+                                                {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+                                            ]
+                                        },
+                                        {
+                                            "id": 201,
+                                            "number_device": 1,
+                                            "group_device": 1,
+                                            "name_device": "Camera-A-1",
+                                            "type_device": "IpCamera",
+                                            "version": "v1.0.0",
+                                            "status": "ACTIVATED",
+                                            "ip_address": "192.168.1.200",
+                                            "ip_port": 80,
+                                            "user_name": "admin",
+                                            "user_password": "admin1234",
+                                            "mode": "RTSP",
+                                            "camera_category": "PTZ",
+                                            "is_record": True,
+                                            "urls": {
+                                                "streams": {
+                                                    "rtsp": {"main": "rtsp://192.168.1.200:554/stream1"}
+                                                }
+                                            },
+                                            "hardware_spec": {
+                                                "manufacturer": "Samsung",
+                                                "model": "SNP-6320H",
+                                                "firmware": "2.20.01"
+                                            },
+                                            "geolocation": {
+                                                "location": "GOP 1구역 전방 초소",
+                                                "latitude": 38.1234,
+                                                "longitude": 127.5678
+                                            },
+                                            "device_groups": [
+                                                {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "meta": {"timestamp": "2025-01-10T10:31:00.000Z", "request_id": "550e8401-e29b-41d4-a716-446655440000"}
+                            }
+                        },
+                        "include_devices_false": {
+                            "summary": "include_devices=false - 디바이스 목록 미포함",
+                            "value": {
+                                "success": True,
+                                "message": "디바이스 그룹 조회 성공",
+                                "data": {
+                                    "id": 1,
+                                    "name": "GOP 1구역",
+                                    "description": "GOP 1구역 장비 그룹",
+                                    "device_count": 3,
+                                    "created_at": "2025-01-01T00:00:00.000Z",
+                                    "updated_at": "2025-01-01T00:00:00.000Z"
+                                },
+                                "meta": {"timestamp": "2025-01-10T10:31:00.000Z", "request_id": "550e8401-e29b-41d4-a716-446655440000"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "DeviceGroup not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {"code": "NOT_FOUND", "message": "DeviceGroup ID 999 not found", "details": "No device group exists with the specified ID"},
+                        "meta": {"timestamp": "2025-01-10T10:31:00.000Z", "request_id": "550e8401-e29b-41d4-a716-446655440000"}
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_device_group(
     group_id: int,
+    include_devices: bool = Query(True, description="디바이스 목록 포함 여부 (기본값: true)"),
     current_user=Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -97,11 +269,16 @@ async def get_device_group(
     디바이스 그룹 상세 조회
 
     ID로 디바이스 그룹을 조회합니다.
-    소속된 디바이스 목록도 함께 반환합니다.
+    include_devices=true(기본값)이면 소속된 디바이스 목록도 함께 반환합니다.
 
     - **group_id**: 그룹 ID
+    - **include_devices**: 디바이스 목록 포함 여부 (기본값: true)
 
-    **Response**: 디바이스 그룹 상세 정보
+    **Response**:
+    - include_devices=true (기본값): DeviceGroupDetailResponse (devices 포함)
+    - include_devices=false: DeviceGroupResponse (devices 미포함)
+
+    PRD: PRD_API_Gap_Analysis.md (IMP-003)
     """
     group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
     if not group:
@@ -110,6 +287,26 @@ async def get_device_group(
             detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
         )
 
+    # Device count calculation (always needed)
+    device_count = group.device_mappings.count()
+
+    # include_devices=false: return basic response without devices
+    if not include_devices:
+        response = DeviceGroupResponse(
+            id=group.id,
+            name=group.name,
+            description=group.description,
+            device_count=device_count,
+            created_at=group.created_at,
+            updated_at=group.updated_at
+        )
+        return ApiResponse(
+            success=True,
+            data=response,
+            message="디바이스 그룹 조회 성공"
+        )
+
+    # include_devices=true (default): return detail response with devices
     # 소속 디바이스 목록 조회 (Device Base 클래스로 polymorphic query)
     mappings = group.device_mappings.all()
     devices = []

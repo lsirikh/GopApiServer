@@ -145,6 +145,24 @@ class CameraPresetWithROIsResponse(CameraPresetResponse):
     rois: List[ROIListNestedResponse] = Field(default_factory=list)
 
 
+class CameraPresetNestedResponse(CameraPresetBase):
+    """Schema for CameraPreset nested response (Camera내 nested - timestamp 제외)
+
+    PRD: PRD_API_Gap_Analysis.md (IMP-001, IMP-002)
+    Camera 단일 조회 시 include_presets=true 응답에 사용
+
+    v2.11: Nested Response 규칙 적용
+    - created_at, updated_at 제외 (Nested 객체이므로)
+    - rois는 선택적 (include_rois=true일 때만 포함)
+    """
+    id: int
+    camera_id: int
+    roi_count: int = Field(default=0, description="Number of ROIs in preset")
+    rois: List[ROIListNestedResponse] = Field(default_factory=list, description="ROIs (include_rois=true일 때만 포함)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CameraPresetDetailResponse(CameraPresetBase):
     """Schema for CameraPreset detail response (with ROIs and points)
 

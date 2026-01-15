@@ -42,6 +42,8 @@
    - 8.3 [Server Instance API](#83-server-instance-api)
    - 8.4 [Dashboard Summary API](#84-dashboard-summary-api)
    - 8.5 [기본 데이터 (Seed)](#85-기본-데이터-seed)
+   - 8.6 [Server Metrics API](#86-server-metrics-api) *(v2.9 신규)*
+   - 8.7 [System Events API](#87-system-events-api) *(v2.9 신규)*
 9. [에러 처리](#9-에러-처리)
 10. [부록](#10-부록)
     - 10.1 [전체 Endpoint 목록](#101-전체-endpoint-목록)
@@ -541,7 +543,7 @@ Device는 Joined Table Inheritance 패턴을 사용하여 다형성을 지원합
 ├───────────────┤ ├───────────┤ ├─────────┤ ├─────────────┤ ├────────────────┤
 │ id (FK→devices)│ id (FK)    │ │ id (FK) │ │ id (FK)     │ │ id (FK)        │
 │ ip_address    │ │controller_│ │ip_address│ │speaker_type│ │ door_status    │
-│ ip_port       │ │id (FK)    │ │ip_port  │ │server_id    │ │ detail_info    │
+│ ip_port       │ │id (FK)    │ │ip_port  │ │server_id    │ │ geolocation    │
 └───────────────┘ └───────────┘ │mode     │ │description  │ │ geolocation    │
                                 │category │ └─────────────┘ │ threshold_conf │
                                 │urls(JSONB)                │ heater_enabled │
@@ -2517,10 +2519,12 @@ Accept: application/json
         "hostname": "bcast-srv-01",
         "user_name": "admin",
         "user_password": "password123",
-        "cpu_usage": 25.5,
-        "ram_usage": 40.2,
-        "disk_usage": 55.0,
-        "network_throughput": "50MB/s"
+        "threshold_config": {
+          "cpu": {"warning": 80, "critical": 95},
+          "ram": {"warning": 75, "critical": 90},
+          "disk": {"warning": 80, "critical": 95},
+          "network": {"warning_mbps": 800, "critical_mbps": 950}
+        }
       }
     }
   ],
@@ -2599,10 +2603,12 @@ Accept: application/json
       "hostname": "bcast-srv-01",
       "user_name": "admin",
       "user_password": "password123",
-      "cpu_usage": 25.5,
-      "ram_usage": 40.2,
-      "disk_usage": 55.0,
-      "network_throughput": "50MB/s"
+      "threshold_config": {
+        "cpu": {"warning": 80, "critical": 95},
+        "ram": {"warning": 75, "critical": 90},
+        "disk": {"warning": 80, "critical": 95},
+        "network": {"warning_mbps": 800, "critical_mbps": 950}
+      }
     }
   },
   "meta": {
@@ -2719,10 +2725,12 @@ Accept: application/json
       "hostname": "bcast-srv-01",
       "user_name": "admin",
       "user_password": "password123",
-      "cpu_usage": 25.5,
-      "ram_usage": 40.2,
-      "disk_usage": 55.0,
-      "network_throughput": "50MB/s"
+      "threshold_config": {
+        "cpu": {"warning": 80, "critical": 95},
+        "ram": {"warning": 75, "critical": 90},
+        "disk": {"warning": 80, "critical": 95},
+        "network": {"warning_mbps": 800, "critical_mbps": 950}
+      }
     }
   },
   "meta": {
@@ -2851,10 +2859,12 @@ Accept: application/json
       "hostname": "bcast-srv-01",
       "user_name": "admin",
       "user_password": "password123",
-      "cpu_usage": 25.5,
-      "ram_usage": 40.2,
-      "disk_usage": 55.0,
-      "network_throughput": "50MB/s"
+      "threshold_config": {
+        "cpu": {"warning": 80, "critical": 95},
+        "ram": {"warning": 75, "critical": 90},
+        "disk": {"warning": 80, "critical": 95},
+        "network": {"warning_mbps": 800, "critical_mbps": 950}
+      }
     }
   },
   "meta": {
@@ -2978,10 +2988,12 @@ Accept: application/json
       "hostname": "bcast-srv-02",
       "user_name": "admin",
       "user_password": "password456",
-      "cpu_usage": 30.0,
-      "ram_usage": 45.5,
-      "disk_usage": 60.0,
-      "network_throughput": "60MB/s"
+      "threshold_config": {
+        "cpu": {"warning": 80, "critical": 95},
+        "ram": {"warning": 75, "critical": 90},
+        "disk": {"warning": 80, "critical": 95},
+        "network": {"warning_mbps": 800, "critical_mbps": 950}
+      }
     }
   },
   "meta": {
@@ -3070,10 +3082,12 @@ Device Polymorphic 상속 구조를 따르며, `enclosures` 테이블에 함체 
 
 **핵심 특성**:
 - **도어 상태 모니터링**: `door_status` (CLOSED/OPEN) - 물리적 도어 센서 상태
-- **환경 데이터**: `detail_info` (JSONB) - 온도, 습도, 전류, 전압, 진동 등
 - **위치 정보**: `geolocation` (JSONB) - GPS 좌표, 설치 위치명
 - **알람 임계값**: `threshold_config` (JSONB) - 환경 모니터링 알람 설정
 - **제어 기능**: 히터/팬 ON/OFF 제어
+
+> **환경 모니터링 데이터**: 온도, 습도, 전류, 전압, 진동 등 실시간 측정값은 `enclosure_metrics` API를 통해 별도 관리됩니다.
+> - PRD 참조: PRD_Enclosure_Metrics_Separation.md v1.0
 
 #### 5.5.1 Enclosure 목록 조회
 
@@ -3110,17 +3124,8 @@ Accept: application/json
       "type_device": "IoController",
       "version": "v1.0.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "door_status": "CLOSED",
-      "detail_info": {
-        "temperature": 25.5,
-        "humidity": 45.0,
-        "current": 2.5,
-        "voltage": 220.0,
-        "vibration": 0.1,
-        "ups_battery_level": 100,
-        "ups_charging": true,
-        "last_updated": "2026-01-08T10:00:00Z"
-      },
       "geolocation": {
         "location": "GOP 3초소",
         "latitude": 38.1234,
@@ -3148,6 +3153,8 @@ Accept: application/json
   }
 }
 ```
+
+> **Note**: 환경 모니터링 데이터(온도, 습도 등)는 `GET /api/devices/enclosures/{id}/metrics` API를 통해 조회합니다.
 
 **Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
 ```json
@@ -3202,10 +3209,6 @@ Accept: application/json
   "name_device": "GOP 4초소 함체",
   "status": "ACTIVATED",
   "door_status": "CLOSED",
-  "detail_info": {
-    "temperature": 22.0,
-    "humidity": 50.0
-  },
   "geolocation": {
     "location": "GOP 4초소",
     "latitude": 38.1234,
@@ -3222,10 +3225,6 @@ Accept: application/json
   "group_device": 1,
   "status": "ACTIVATED",
   "door_status": "CLOSED",
-  "detail_info": {
-    "temperature": 22.0,
-    "humidity": 50.0
-  },
   "geolocation": {
     "location": "GOP 4초소",
     "latitude": 38.2345,
@@ -3249,11 +3248,12 @@ Accept: application/json
 | version | string | N | 장비 버전 |
 | status | string | N | 장비 운영 상태 (기본값: ACTIVATED) |
 | door_status | string | N | 도어 상태 (기본값: CLOSED) |
-| detail_info | object | N | 환경 데이터 (JSONB) |
 | geolocation | object | N | 위치 정보 (JSONB) |
 | threshold_config | object | N | 알람 임계값 (JSONB) |
 | heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
 | fan_enabled | boolean | N | 팬 활성화 (기본값: false) |
+
+> **Note**: 환경 모니터링 데이터(온도, 습도 등)는 `POST /api/devices/enclosures/{id}/metrics` API를 통해 별도 저장합니다.
 
 **Response (201 Created)**:
 ```json
@@ -3268,11 +3268,8 @@ Accept: application/json
     "type_device": "IoController",
     "version": null,
     "status": "ACTIVATED",
+    "is_enable": true,
     "door_status": "CLOSED",
-    "detail_info": {
-      "temperature": 22.0,
-      "humidity": 50.0
-    },
     "geolocation": {
       "location": "GOP 4초소",
       "latitude": 38.2345,
@@ -3351,11 +3348,8 @@ Accept: application/json
     "type_device": "IoController",
     "version": "v1.0.0",
     "status": "DEACTIVATED",
+    "is_enable": true,
     "door_status": "OPEN",
-    "detail_info": {
-      "temperature": 25.5,
-      "humidity": 45.0
-    },
     "geolocation": {
       "location": "GOP 3초소",
       "latitude": 38.1234,
@@ -3401,13 +3395,7 @@ Accept: application/json
   "type_device": "IoController",
   "version": "v1.1.0",
   "status": "ACTIVATED",
-  "door_status": "CLOSED",
-  "detail_info": {
-    "temperature": 22.0,
-    "humidity": 50.0,
-    "current": 2.0,
-    "voltage": 220.0
-  }
+  "door_status": "CLOSED"
 }
 ```
 
@@ -3428,12 +3416,6 @@ Accept: application/json
   "version": "v1.1.0",
   "status": "ACTIVATED",
   "door_status": "CLOSED",
-  "detail_info": {
-    "temperature": 22.0,
-    "humidity": 50.0,
-    "current": 2.0,
-    "voltage": 220.0
-  },
   "geolocation": {
     "location": "GOP 3초소 (수정)",
     "latitude": 38.1234,
@@ -3457,7 +3439,6 @@ Accept: application/json
 | version | string | N | 장비 버전 |
 | status | string | N | 장비 운영 상태 (기본값: ACTIVATED) |
 | door_status | string | N | 도어 상태 (기본값: CLOSED) |
-| detail_info | object | N | 환경 데이터 (JSONB) |
 | geolocation | object | N | 위치 정보 (JSONB) |
 | threshold_config | object | N | 알람 임계값 (JSONB) |
 | heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
@@ -3476,13 +3457,8 @@ Accept: application/json
     "type_device": "IoController",
     "version": "v1.1.0",
     "status": "ACTIVATED",
+    "is_enable": true,
     "door_status": "CLOSED",
-    "detail_info": {
-      "temperature": 22.0,
-      "humidity": 50.0,
-      "current": 2.0,
-      "voltage": 220.0
-    },
     "geolocation": {
       "location": "GOP 3초소 (수정)",
       "latitude": 38.1234,
@@ -3554,11 +3530,14 @@ Accept: application/json
 
 **FK 정책**: Enclosure 삭제 시 Device 레코드도 CASCADE 삭제
 
-#### 5.5.7 환경 데이터 업데이트 (특수 엔드포인트)
+#### 5.5.7 도어 상태 업데이트 (특수 엔드포인트)
 
 **Endpoint**: `PATCH /api/devices/enclosures/{id}/status`
 
-외부 센서 장비에서 주기적으로 환경 데이터를 업데이트할 때 사용합니다.
+외부 센서 장비에서 도어 상태를 업데이트할 때 사용합니다.
+
+> **Note**: 환경 모니터링 데이터(온도, 습도 등)는 `POST /api/devices/enclosures/{id}/metrics` API를 통해 별도 저장합니다.
+> - PRD 참조: PRD_Enclosure_Metrics_Separation.md v1.0
 
 **Path Parameters**:
 | 파라미터 | 타입 | 필수 | 설명 |
@@ -3574,23 +3553,12 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "detail_info": {
-    "temperature": 28.5,
-    "humidity": 55.0,
-    "current": 3.2,
-    "voltage": 218.5,
-    "vibration": 0.2,
-    "ups_battery_level": 95,
-    "ups_charging": false,
-    "last_updated": "2026-01-08T11:00:00Z"
-  },
   "door_status": "OPEN"
 }
 ```
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| detail_info | object | N | 환경 모니터링 데이터 |
 | door_status | string | N | 도어 물리적 상태 (CLOSED/OPEN) |
 
 **Response Example (200 OK)**:
@@ -3606,17 +3574,8 @@ Accept: application/json
     "type_device": "IoController",
     "version": "v1.0.0",
     "status": "ACTIVATED",
+    "is_enable": true,
     "door_status": "OPEN",
-    "detail_info": {
-      "temperature": 28.5,
-      "humidity": 55.0,
-      "current": 3.2,
-      "voltage": 218.5,
-      "vibration": 0.2,
-      "ups_battery_level": 95,
-      "ups_charging": false,
-      "last_updated": "2026-01-08T11:00:00Z"
-    },
     "geolocation": {
       "location": "GOP 3초소",
       "latitude": 38.1234,
@@ -3630,10 +3589,6 @@ Accept: application/json
     "fan_enabled": false,
     "created_at": "2026-01-08T10:00:00.000000",
     "updated_at": "2026-01-08T11:00:00.000000"
-  },
-  "meta": {
-    "timestamp": "2026-01-08T11:00:00.100Z",
-    "request_id": "550e8420-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -3693,13 +3648,8 @@ Accept: application/json
     "type_device": "IoController",
     "version": "v1.0.0",
     "status": "ACTIVATED",
+    "is_enable": true,
     "door_status": "CLOSED",
-    "detail_info": {
-      "temperature": 25.0,
-      "humidity": 50.0,
-      "current": 3.5,
-      "voltage": 220.0
-    },
     "geolocation": {
       "location": "GOP 3초소",
       "latitude": 38.1234,
@@ -3713,10 +3663,6 @@ Accept: application/json
     "fan_enabled": false,
     "created_at": "2026-01-08T10:00:00.000000",
     "updated_at": "2026-01-08T11:30:00.000000"
-  },
-  "meta": {
-    "timestamp": "2026-01-08T11:30:00.100Z",
-    "request_id": "550e8421-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -3747,7 +3693,6 @@ Accept: application/json
 **Request Body**:
 ```json
 {
-  "collected_at": "2026-01-15T10:30:00Z",
   "temperature": 25.5,
   "humidity": 45.0,
   "current": 2.5,
@@ -3764,7 +3709,6 @@ Accept: application/json
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| collected_at | datetime | Y | 데이터 수집 시각 (ISO 8601) |
 | temperature | number | N | 온도 (°C) |
 | humidity | number | N | 습도 (%) |
 | current | number | N | 전류 (A) |
@@ -3782,7 +3726,6 @@ Accept: application/json
   "data": {
     "id": 1,
     "enclosure_id": 1,
-    "collected_at": "2026-01-15T10:30:00",
     "temperature": "25.5",
     "humidity": "45.0",
     "current": "2.5",
@@ -3856,7 +3799,6 @@ Accept: application/json
     {
       "id": 10,
       "enclosure_id": 1,
-      "collected_at": "2026-01-15T10:30:00",
       "temperature": "25.5",
       "humidity": "45.0",
       "current": "2.5",
@@ -3870,7 +3812,6 @@ Accept: application/json
     {
       "id": 9,
       "enclosure_id": 1,
-      "collected_at": "2026-01-15T10:00:00",
       "temperature": "24.8",
       "humidity": "46.2",
       "current": "2.4",
@@ -3886,7 +3827,7 @@ Accept: application/json
 ```
 
 **Response 특이사항**:
-- 결과는 `collected_at` 기준 **내림차순** (최신순) 정렬
+- 결과는 `created_at` 기준 **내림차순** (최신순) 정렬
 - 시간 범위 필터 지원: `start_time` ~ `end_time`
 
 #### 5.5.11 Enclosure 최신 메트릭 조회 *(v2.9 신규)*
@@ -3906,7 +3847,6 @@ Accept: application/json
   "data": {
     "id": 10,
     "enclosure_id": 1,
-    "collected_at": "2026-01-15T10:30:00",
     "temperature": "25.5",
     "humidity": "45.0",
     "current": "2.5",
@@ -9423,10 +9363,12 @@ GET /api/servers/categories/{category_id}
         "hostname": "vms-server-01",
         "user_name": "admin",
         "user_password": "password123",
-        "cpu_usage": 45.0,
-        "ram_usage": 62.0,
-        "disk_usage": 78.0,
-        "network_throughput": "125MB/s",
+        "threshold_config": {
+          "cpu": {"warning": 80, "critical": 95},
+          "ram": {"warning": 75, "critical": 90},
+          "disk": {"warning": 80, "critical": 95},
+          "network": {"warning_mbps": 800, "critical_mbps": 950}
+        },
         "created_at": "2025-12-29T06:46:01.150000",
         "updated_at": "2025-12-29T06:46:01.150000"
       }
@@ -9720,10 +9662,12 @@ Accept: application/json
       "hostname": "vms-server-01",
       "user_name": "admin",
       "user_password": "password123",
-      "cpu_usage": 45.0,
-      "ram_usage": 62.0,
-      "disk_usage": 78.0,
-      "network_throughput": "125MB/s",
+      "threshold_config": {
+        "cpu": {"warning": 80, "critical": 95},
+        "ram": {"warning": 75, "critical": 90},
+        "disk": {"warning": 80, "critical": 95},
+        "network": {"warning_mbps": 800, "critical_mbps": 950}
+      },
       "created_at": "2025-12-29T06:46:01.150000",
       "updated_at": "2025-12-29T06:46:01.150000"
     }
@@ -9736,6 +9680,8 @@ Accept: application/json
   }
 }
 ```
+
+> **Note (v2.9 변경)**: `cpu_usage`, `ram_usage`, `disk_usage`, `network_throughput` 필드는 `server_metrics` API로 분리되었습니다. 실시간 리소스 모니터링은 [8.6 Server Metrics API](#86-server-metrics-api)를 사용하세요.
 
 **Error Response (422 Validation Error)** - 잘못된 쿼리 파라미터:
 ```json
@@ -9787,10 +9733,12 @@ Accept: application/json
     "hostname": "vms-server-01",
     "user_name": "admin",
     "user_password": "password123",
-    "cpu_usage": 45.0,
-    "ram_usage": 62.0,
-    "disk_usage": 78.0,
-    "network_throughput": "125MB/s",
+    "threshold_config": {
+      "cpu": {"warning": 80, "critical": 95},
+      "ram": {"warning": 75, "critical": 90},
+      "disk": {"warning": 80, "critical": 95},
+      "network": {"warning_mbps": 800, "critical_mbps": 950}
+    },
     "created_at": "2025-12-29T06:46:01.150000",
     "updated_at": "2025-12-29T06:46:01.150000"
   },
@@ -9836,10 +9784,12 @@ Accept: application/json
   "hostname": "vms-server-03",
   "user_name": "admin",
   "user_password": "password123",
-  "cpu_usage": 35.0,
-  "ram_usage": 48.0,
-  "disk_usage": 55.0,
-  "network_throughput": "100MB/s"
+  "threshold_config": {
+    "cpu": {"warning": 80, "critical": 95},
+    "ram": {"warning": 75, "critical": 90},
+    "disk": {"warning": 80, "critical": 95},
+    "network": {"warning_mbps": 800, "critical_mbps": 950}
+  }
 }
 ```
 
@@ -9853,10 +9803,9 @@ Accept: application/json
 | hostname | string | N | 호스트명 |
 | user_name | string | N | 접속 사용자명 *(v2.4 신규)* |
 | user_password | string | N | 접속 비밀번호 *(v2.4 신규)* |
-| cpu_usage | float | N | CPU 사용률 (%) |
-| ram_usage | float | N | RAM 사용률 (%) |
-| disk_usage | float | N | 디스크 사용률 (%) |
-| network_throughput | string | N | 네트워크 처리량 |
+| threshold_config | object | N | 임계치 설정 JSONB *(v2.9 신규)* |
+
+> **Note (v2.9 변경)**: `cpu_usage`, `ram_usage`, `disk_usage`, `network_throughput` 필드가 제거되었습니다. 리소스 메트릭은 [8.6 Server Metrics API](#86-server-metrics-api)를 통해 기록합니다.
 
 **Response Example (201 Created)**:
 ```json
@@ -9873,10 +9822,12 @@ Accept: application/json
     "hostname": "vms-server-03",
     "user_name": "admin",
     "user_password": "password123",
-    "cpu_usage": 35.0,
-    "ram_usage": 48.0,
-    "disk_usage": 55.0,
-    "network_throughput": "100MB/s",
+    "threshold_config": {
+      "cpu": {"warning": 80, "critical": 95},
+      "ram": {"warning": 75, "critical": 90},
+      "disk": {"warning": 80, "critical": 95},
+      "network": {"warning_mbps": 800, "critical_mbps": 950}
+    },
     "created_at": "2026-01-12T10:30:00.000000",
     "updated_at": "2026-01-12T10:30:00.000000"
   },
@@ -9928,8 +9879,12 @@ Accept: application/json
 
 {
   "status": "WARNING",
-  "cpu_usage": 85.0,
-  "ram_usage": 78.0
+  "threshold_config": {
+    "cpu": {"warning": 80, "critical": 95},
+    "ram": {"warning": 75, "critical": 90},
+    "disk": {"warning": 80, "critical": 95},
+    "network": {"warning_mbps": 800, "critical_mbps": 950}
+  }
 }
 ```
 
@@ -9942,12 +9897,16 @@ Accept: application/json
 ```json
 {
   "status": "WARNING",
-  "cpu_usage": 85.0,
-  "ram_usage": 78.0
+  "threshold_config": {
+    "cpu": {"warning": 80, "critical": 95},
+    "ram": {"warning": 75, "critical": 90},
+    "disk": {"warning": 80, "critical": 95},
+    "network": {"warning_mbps": 800, "critical_mbps": 950}
+  }
 }
 ```
 
-> **사용 사례**: 서버 메트릭 주기적 업데이트에 사용
+> **사용 사례 (v2.9 변경)**: 서버 상태 및 임계치 설정 업데이트에 사용. 리소스 메트릭(CPU, RAM 등)은 [8.6 Server Metrics API](#86-server-metrics-api)를 통해 기록합니다.
 
 **Response (200 OK)**:
 ```json
@@ -9964,10 +9923,12 @@ Accept: application/json
     "hostname": "vms-server-01",
     "user_name": "admin",
     "user_password": "password123",
-    "cpu_usage": 85.0,
-    "ram_usage": 78.0,
-    "disk_usage": 55.0,
-    "network_throughput": "100MB/s",
+    "threshold_config": {
+      "cpu": {"warning": 80, "critical": 95},
+      "ram": {"warning": 75, "critical": 90},
+      "disk": {"warning": 80, "critical": 95},
+      "network": {"warning_mbps": 800, "critical_mbps": 950}
+    },
     "created_at": "2025-12-29T07:00:00.000000",
     "updated_at": "2026-01-12T11:00:00.000000"
   }
@@ -10007,10 +9968,12 @@ Accept: application/json
   "hostname": "vms-server-01",
   "user_name": "admin",
   "user_password": "newpassword123",
-  "cpu_usage": 35.0,
-  "ram_usage": 48.0,
-  "disk_usage": 55.0,
-  "network_throughput": "100MB/s"
+  "threshold_config": {
+    "cpu": {"warning": 80, "critical": 95},
+    "ram": {"warning": 75, "critical": 90},
+    "disk": {"warning": 80, "critical": 95},
+    "network": {"warning_mbps": 800, "critical_mbps": 950}
+  }
 }
 ```
 
@@ -10030,10 +9993,12 @@ Accept: application/json
   "hostname": "vms-server-01",
   "user_name": "admin",
   "user_password": "newpassword123",
-  "cpu_usage": 35.0,
-  "ram_usage": 48.0,
-  "disk_usage": 55.0,
-  "network_throughput": "100MB/s"
+  "threshold_config": {
+    "cpu": {"warning": 80, "critical": 95},
+    "ram": {"warning": 75, "critical": 90},
+    "disk": {"warning": 80, "critical": 95},
+    "network": {"warning_mbps": 800, "critical_mbps": 950}
+  }
 }
 ```
 
@@ -10047,10 +10012,9 @@ Accept: application/json
 | hostname | string | N | 호스트명 |
 | user_name | string | N | 접속 사용자명 |
 | user_password | string | N | 접속 비밀번호 |
-| cpu_usage | float | N | CPU 사용률 (%) |
-| ram_usage | float | N | RAM 사용률 (%) |
-| disk_usage | float | N | 디스크 사용률 (%) |
-| network_throughput | string | N | 네트워크 처리량 |
+| threshold_config | object | N | 임계치 설정 JSONB *(v2.9 신규)* |
+
+> **Note (v2.9 변경)**: `cpu_usage`, `ram_usage`, `disk_usage`, `network_throughput` 필드가 제거되었습니다.
 
 **Response (200 OK)**:
 ```json
@@ -10067,10 +10031,12 @@ Accept: application/json
     "hostname": "vms-server-01",
     "user_name": "admin",
     "user_password": "newpassword123",
-    "cpu_usage": 35.0,
-    "ram_usage": 48.0,
-    "disk_usage": 55.0,
-    "network_throughput": "100MB/s",
+    "threshold_config": {
+      "cpu": {"warning": 80, "critical": 95},
+      "ram": {"warning": 75, "critical": 90},
+      "disk": {"warning": 80, "critical": 95},
+      "network": {"warning_mbps": 800, "critical_mbps": 950}
+    },
     "created_at": "2025-12-29T07:00:00.000000",
     "updated_at": "2026-01-12T11:05:00.000000"
   }
@@ -10166,10 +10132,12 @@ GET /api/servers/summary
           "hostname": "vms-server-01",
           "user_name": "admin",
           "user_password": "password123",
-          "cpu_usage": 45.0,
-          "ram_usage": 62.0,
-          "disk_usage": 78.0,
-          "network_throughput": "125MB/s",
+          "threshold_config": {
+            "cpu": {"warning": 80, "critical": 95},
+            "ram": {"warning": 75, "critical": 90},
+            "disk": {"warning": 80, "critical": 95},
+            "network": {"warning_mbps": 800, "critical_mbps": 950}
+          },
           "created_at": "2025-12-29T06:46:01.150000",
           "updated_at": "2025-12-29T06:46:01.150000"
         }
@@ -10228,6 +10196,438 @@ GET /api/servers/summary
 | 7 | NVR API 서버 | NVR_API | Network Video Recorder API 서버 |
 | 8 | SPEAKER API 서버 | SPEAKER_API | 스피커 제어 API 서버 |
 | 9 | 함체관리 API 서버 | ENCLOSURE_API | 함체 관리 API 서버 |
+
+---
+
+### 8.6 Server Metrics API
+
+서버의 리소스 사용량을 시계열로 기록하고 조회합니다.
+
+> **PRD Reference**: PRD_System_Event.md Section 2.4
+
+**리소스 구조**:
+```
+/api/servers/{server_id}/metrics        - 서버 메트릭 CRUD
+/api/servers/{server_id}/metrics/latest - 최신 메트릭 조회
+```
+
+#### 8.6.1 메트릭 기록 (Create)
+
+**Endpoint**: `POST /api/servers/{server_id}/metrics`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | 서버 ID |
+
+**Request Body**:
+```json
+{
+  "cpu_usage": 45.5,
+  "ram_usage": 62.0,
+  "ram_total_gb": 64.0,
+  "ram_used_gb": 39.68,
+  "disk_usage": 78.5,
+  "disk_total_gb": 500.0,
+  "disk_used_gb": 392.5,
+  "network_in_mbps": 125.0,
+  "network_out_mbps": 50.0,
+  "process_count": 142,
+  "detail": {"gpu_usage": 35.0},
+  "collected_at": "2026-01-15T10:30:00.000000"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| cpu_usage | float | N | CPU 사용률 (%) |
+| ram_usage | float | N | RAM 사용률 (%) |
+| ram_total_gb | float | N | 전체 RAM (GB) |
+| ram_used_gb | float | N | 사용 RAM (GB) |
+| disk_usage | float | N | 디스크 사용률 (%) |
+| disk_total_gb | float | N | 전체 디스크 (GB) |
+| disk_used_gb | float | N | 사용 디스크 (GB) |
+| network_in_mbps | float | N | 수신 네트워크 (Mbps) |
+| network_out_mbps | float | N | 송신 네트워크 (Mbps) |
+| process_count | integer | N | 프로세스 수 |
+| detail | object | N | 추가 상세 정보 (JSONB) |
+| collected_at | datetime | N | 수집 시간 (기본값: 현재 시간) |
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Server metrics recorded successfully",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "cpu_usage": 45.5,
+    "ram_usage": 62.0,
+    "ram_total_gb": 64.0,
+    "ram_used_gb": 39.68,
+    "disk_usage": 78.5,
+    "disk_total_gb": 500.0,
+    "disk_used_gb": 392.5,
+    "network_in_mbps": 125.0,
+    "network_out_mbps": 50.0,
+    "process_count": 142,
+    "detail": {"gpu_usage": 35.0},
+    "collected_at": "2026-01-15T10:30:00.000000",
+    "created_at": "2026-01-15T10:30:01.000000",
+    "threshold_exceeded": {
+      "disk": {"level": "warning", "value": 78.5, "threshold": 70.0}
+    }
+  }
+}
+```
+
+**임계치 초과 시**: 서버의 `threshold_config`에 설정된 임계치를 초과하면 자동으로 `SystemEvent`가 생성됩니다.
+
+#### 8.6.2 메트릭 이력 조회
+
+**Endpoint**: `GET /api/servers/{server_id}/metrics`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| start_date | datetime | N | 시작 일시 (ISO 8601) |
+| end_date | datetime | N | 종료 일시 (ISO 8601) |
+| limit | integer | N | 최대 조회 건수 (기본값: 100, 최대: 1000) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Server metrics retrieved successfully",
+  "data": [
+    {
+      "id": 10,
+      "server_id": 1,
+      "cpu_usage": 45.5,
+      "ram_usage": 62.0,
+      "collected_at": "2026-01-15T10:30:00.000000"
+    }
+  ]
+}
+```
+
+#### 8.6.3 최신 메트릭 조회
+
+**Endpoint**: `GET /api/servers/{server_id}/metrics/latest`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Latest server metrics retrieved successfully",
+  "data": {
+    "metrics": {
+      "id": 10,
+      "server_id": 1,
+      "cpu_usage": 45.5,
+      "ram_usage": 62.0,
+      "collected_at": "2026-01-15T10:30:00.000000"
+    },
+    "threshold_config": {
+      "cpu": {"warning": 80, "critical": 95},
+      "ram": {"warning": 75, "critical": 90},
+      "disk": {"warning": 80, "critical": 95},
+      "network": {"warning_mbps": 800, "critical_mbps": 950}
+    }
+  }
+}
+```
+
+#### 8.6.4 메트릭 삭제
+
+**Endpoint**: `DELETE /api/servers/{server_id}/metrics`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| before_date | datetime | N | 이 날짜 이전의 메트릭 삭제 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Deleted 150 metrics",
+  "data": {"deleted_count": 150}
+}
+```
+
+---
+
+### 8.7 System Events API
+
+서버 레벨의 시스템 이벤트(로그, 알람)를 관리합니다.
+
+> **PRD Reference**: PRD_System_Event.md Section 3
+
+**리소스 구조**:
+```
+/api/system-events          - 이벤트 목록/생성
+/api/system-events/{id}     - 단건 조회/수정/삭제
+/api/system-events/{id}/acknowledge - 확인 처리
+/api/system-events/summary  - 요약 통계
+```
+
+#### 8.7.1 이벤트 유형 및 심각도
+
+**EnumSystemEventType** (이벤트 유형):
+| 값 | 설명 |
+|----|------|
+| server_start | 서버 시작 |
+| server_stop | 서버 중지 |
+| server_restart | 서버 재시작 |
+| threshold_warning | 임계치 경고 |
+| threshold_critical | 임계치 위험 |
+| connection_lost | 연결 끊김 |
+| connection_restored | 연결 복구 |
+| config_change | 설정 변경 |
+| backup_complete | 백업 완료 |
+| backup_failed | 백업 실패 |
+| update_available | 업데이트 가능 |
+| security_alert | 보안 경고 |
+| system_error | 시스템 오류 |
+| custom | 사용자 정의 |
+
+**EnumSystemEventSeverity** (심각도):
+| 값 | 설명 |
+|----|------|
+| INFO | 정보 |
+| WARNING | 경고 |
+| ERROR | 오류 |
+| CRITICAL | 심각 |
+
+#### 8.7.2 이벤트 목록 조회
+
+**Endpoint**: `GET /api/system-events`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| page | integer | N | 페이지 번호 (기본값: 1) |
+| limit | integer | N | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| server_id | integer | N | 서버 ID 필터 |
+| type_event | string | N | 이벤트 유형 필터 |
+| severity | string | N | 심각도 필터 |
+| is_acknowledged | boolean | N | 확인 여부 필터 |
+| start_date | datetime | N | 시작 일시 |
+| end_date | datetime | N | 종료 일시 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System events retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "server_id": 1,
+      "server_description": "VMS-ab1120",
+      "type_event": "threshold_warning",
+      "severity": "WARNING",
+      "title": "CPU 사용률 임계치 초과",
+      "message": "CPU 사용률이 70%를 초과했습니다 (현재: 75.5%)",
+      "detail": {"resource": "cpu", "value": 75.5, "threshold": 70},
+      "source": "server_metrics",
+      "is_acknowledged": false,
+      "acknowledged_by": null,
+      "acknowledged_at": null,
+      "created_at": "2026-01-15T10:30:00.000000",
+      "updated_at": null
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+#### 8.7.3 이벤트 상세 조회
+
+**Endpoint**: `GET /api/system-events/{event_id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System event retrieved successfully",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "server_description": "VMS-ab1120",
+    "type_event": "threshold_warning",
+    "severity": "WARNING",
+    "title": "CPU 사용률 임계치 초과",
+    "message": "CPU 사용률이 70%를 초과했습니다",
+    "detail": {"resource": "cpu", "value": 75.5, "threshold": 70},
+    "source": "server_metrics",
+    "is_acknowledged": false,
+    "acknowledged_by": null,
+    "acknowledged_at": null,
+    "created_at": "2026-01-15T10:30:00.000000",
+    "updated_at": null
+  }
+}
+```
+
+#### 8.7.4 이벤트 생성
+
+**Endpoint**: `POST /api/system-events`
+
+**Request Body**:
+```json
+{
+  "server_id": 1,
+  "server_description": "VMS-ab1120",
+  "type_event": "custom",
+  "severity": "INFO",
+  "title": "시스템 점검 완료",
+  "message": "정기 시스템 점검이 완료되었습니다.",
+  "detail": {"inspector": "admin", "duration_minutes": 30},
+  "source": "manual"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| server_id | integer | N | 서버 ID (전역 이벤트는 NULL) |
+| server_description | string | N | 서버 설명 (서버 삭제 후에도 유지) |
+| type_event | EnumSystemEventType | Y | 이벤트 유형 |
+| severity | EnumSystemEventSeverity | N | 심각도 (기본값: INFO) |
+| title | string | Y | 이벤트 제목 (최대 200자) |
+| message | string | N | 이벤트 메시지 (최대 1000자) |
+| detail | object | N | 추가 상세 정보 (JSONB) |
+| source | string | N | 이벤트 발생 소스 (최대 100자) |
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "System event created successfully",
+  "data": {
+    "id": 2,
+    "server_id": 1,
+    "server_description": "VMS-ab1120",
+    "type_event": "custom",
+    "severity": "INFO",
+    "title": "시스템 점검 완료",
+    "message": "정기 시스템 점검이 완료되었습니다.",
+    "detail": {"inspector": "admin", "duration_minutes": 30},
+    "source": "manual",
+    "is_acknowledged": false,
+    "acknowledged_by": null,
+    "acknowledged_at": null,
+    "created_at": "2026-01-15T11:00:00.000000",
+    "updated_at": null
+  }
+}
+```
+
+#### 8.7.5 이벤트 확인 (Acknowledge)
+
+**Endpoint**: `POST /api/system-events/{event_id}/acknowledge`
+
+**Request Body**:
+```json
+{
+  "acknowledged_by": "admin_user"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System event acknowledged successfully",
+  "data": {
+    "id": 1,
+    "is_acknowledged": true,
+    "acknowledged_by": "admin_user",
+    "acknowledged_at": "2026-01-15T11:30:00.000000"
+  }
+}
+```
+
+#### 8.7.6 이벤트 수정
+
+**Endpoint**: `PATCH /api/system-events/{event_id}`
+
+**Request Body** (부분 업데이트):
+```json
+{
+  "severity": "ERROR",
+  "message": "CPU 사용률이 계속 높습니다"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System event updated successfully",
+  "data": {
+    "id": 1,
+    "severity": "ERROR",
+    "message": "CPU 사용률이 계속 높습니다",
+    "updated_at": "2026-01-15T12:00:00.000000"
+  }
+}
+```
+
+#### 8.7.7 이벤트 삭제
+
+**Endpoint**: `DELETE /api/system-events/{event_id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System event deleted successfully",
+  "data": null
+}
+```
+
+#### 8.7.8 요약 통계 조회
+
+**Endpoint**: `GET /api/system-events/summary`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System event summary retrieved successfully",
+  "data": {
+    "total_count": 150,
+    "unacknowledged_count": 12,
+    "by_severity": {
+      "INFO": 100,
+      "WARNING": 35,
+      "ERROR": 10,
+      "CRITICAL": 5
+    },
+    "by_type": {
+      "threshold_warning": 25,
+      "threshold_critical": 5,
+      "server_start": 50,
+      "connection_lost": 10
+    },
+    "recent_critical": [
+      {
+        "id": 145,
+        "title": "디스크 용량 위험",
+        "severity": "CRITICAL",
+        "created_at": "2026-01-15T09:00:00.000000"
+      }
+    ]
+  }
+}
+```
 
 ---
 
@@ -10476,6 +10876,21 @@ GET /api/servers/summary
 - `DELETE /api/servers/{id}` - 서버 삭제
 - `GET /api/servers/summary` - 대시보드 요약 조회
 
+**Server Metrics** (v2.9 신규):
+- `POST /api/servers/{server_id}/metrics` - 메트릭 기록
+- `GET /api/servers/{server_id}/metrics` - 메트릭 이력 조회
+- `GET /api/servers/{server_id}/metrics/latest` - 최신 메트릭 조회
+- `DELETE /api/servers/{server_id}/metrics` - 메트릭 삭제
+
+**System Events** (v2.9 신규):
+- `GET /api/system-events` - 이벤트 목록 조회
+- `POST /api/system-events` - 이벤트 생성
+- `GET /api/system-events/{id}` - 이벤트 상세 조회
+- `PATCH /api/system-events/{id}` - 이벤트 수정
+- `DELETE /api/system-events/{id}` - 이벤트 삭제
+- `POST /api/system-events/{id}/acknowledge` - 이벤트 확인
+- `GET /api/system-events/summary` - 요약 통계 조회
+
 ### 10.2 Event-Device 리팩토링 변경사항 (v2.3)
 
 #### 10.2.1 API Request 변경
@@ -10677,7 +11092,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v2.9 | 2026-01-15 | **Device is_enable 필드 추가 및 Enclosure Metrics API 추가**<br><br>**[1. Device 공통 필드 추가]** (PRD_Device_IsEnable_Field.md v1.0)<br>- **is_enable (BOOLEAN)**: 장비 활성화 여부 (기본값: TRUE)<br>- Controller, Sensor, Camera, Speaker, Enclosure 모든 Device 타입에 적용<br><br>**[2. API 스키마 변경 (is_enable)]**<br>- **Create 스키마**: `is_enable` 필드 추가 (optional, default=true)<br>- **Response 스키마**: `is_enable` 필드 포함<br>- **Update 스키마**: `is_enable` 필드 추가 (optional)<br>- **NestedResponse 스키마**: `is_enable` 필드 포함<br><br>**[3. DeviceGroup/Event 연관 스키마]**<br>- DeviceGroup devices 배열 내 Device 객체에 is_enable 포함<br>- Event device nested 객체에 is_enable 포함<br><br>**[4. Enclosure Metrics API 신규]** (PRD_Enclosure_Metrics_Separation.md v1.0)<br>- **5.5.9 POST /{enclosure_id}/metrics**: 환경 모니터링 메트릭 저장<br>- **5.5.10 GET /{enclosure_id}/metrics**: 메트릭 목록 조회 (시간 필터링 지원)<br>- **5.5.11 GET /{enclosure_id}/metrics/latest**: 최신 메트릭 단건 조회<br>- **5.5.12 DELETE /{enclosure_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자산/시계열 데이터 분리**: enclosures (자산) ↔ enclosure_metrics (측정값) |
+| v2.9 | 2026-01-15 | **Device is_enable 필드 추가, Enclosure Metrics API, Server Metrics/System Events API 추가**<br><br>**[1. Device 공통 필드 추가]** (PRD_Device_IsEnable_Field.md v1.0)<br>- **is_enable (BOOLEAN)**: 장비 활성화 여부 (기본값: TRUE)<br>- Controller, Sensor, Camera, Speaker, Enclosure 모든 Device 타입에 적용<br><br>**[2. API 스키마 변경 (is_enable)]**<br>- **Create 스키마**: `is_enable` 필드 추가 (optional, default=true)<br>- **Response 스키마**: `is_enable` 필드 포함<br>- **Update 스키마**: `is_enable` 필드 추가 (optional)<br>- **NestedResponse 스키마**: `is_enable` 필드 포함<br><br>**[3. DeviceGroup/Event 연관 스키마]**<br>- DeviceGroup devices 배열 내 Device 객체에 is_enable 포함<br>- Event device nested 객체에 is_enable 포함<br><br>**[4. Enclosure Metrics API 신규]** (PRD_Enclosure_Metrics_Separation.md v1.0)<br>- **5.5.9 POST /{enclosure_id}/metrics**: 환경 모니터링 메트릭 저장<br>- **5.5.10 GET /{enclosure_id}/metrics**: 메트릭 목록 조회 (시간 필터링 지원)<br>- **5.5.11 GET /{enclosure_id}/metrics/latest**: 최신 메트릭 단건 조회<br>- **5.5.12 DELETE /{enclosure_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자산/시계열 데이터 분리**: enclosures (자산) ↔ enclosure_metrics (측정값)<br>- **⚠️ Enclosure API 변경**: `detail_info` 필드 제거 → enclosure_metrics API로 이관<br>- **5.5.7 엔드포인트 변경**: "환경 데이터 업데이트" → "도어 상태 업데이트" (door_status만 지원)<br><br>**[5. Server Metrics API 신규]** (PRD_System_Event.md v1.2 Section 2.4)<br>- **8.6.1 POST /servers/{server_id}/metrics**: 서버 리소스 메트릭 기록<br>- **8.6.2 GET /servers/{server_id}/metrics**: 메트릭 이력 조회 (시간 필터링 지원)<br>- **8.6.3 GET /servers/{server_id}/metrics/latest**: 최신 메트릭 조회 (threshold_config 포함)<br>- **8.6.4 DELETE /servers/{server_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자동 SystemEvent 생성**: 임계치 초과 시 threshold_warning/threshold_critical 이벤트 자동 생성<br>- **servers.threshold_config JSONB**: 서버별 임계치 설정 (cpu, ram, disk, network - warning/critical 레벨)<br><br>**[6. System Events API 신규]** (PRD_System_Event.md v1.2 Section 3)<br>- **8.7.1 GET /system-events**: 이벤트 목록 조회 (필터링, 페이지네이션)<br>- **8.7.2 GET /system-events/{id}**: 이벤트 상세 조회<br>- **8.7.3 POST /system-events**: 이벤트 생성<br>- **8.7.4 POST /system-events/{id}/acknowledge**: 이벤트 확인 처리<br>- **8.7.5 PATCH /system-events/{id}**: 이벤트 수정<br>- **8.7.6 DELETE /system-events/{id}**: 이벤트 삭제<br>- **8.7.7 GET /system-events/summary**: 요약 통계 (severity별, type별, 미확인 수 등)<br>- **EnumSystemEventType (14종)**: server_start, server_stop, threshold_warning, threshold_critical, connection_lost 등<br>- **EnumSystemEventSeverity (4종)**: INFO, WARNING, ERROR, CRITICAL<br>- **source 필드 (PRD 3.2)**: 이벤트 발생 소스 (server_metrics, manual 등)<br>- **updated_at 필드 (PRD 3.2)**: 수정 시간 자동 관리<br>- **server_description 스냅샷**: 서버 삭제 후에도 이벤트 기록 유지 |
 | v2.8 | 2026-01-12 | **Event Mapping Speakers API 추가**<br><br>**[1. EventMappingSpeaker API 신규 (7.4 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/speakers`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **아키텍처**: EventMapping을 Base 노드로 하는 확장 가능한 Speaker Action 구조<br>- **FK 관계**:<br>  • `event_mapping_id` (CASCADE): EventMapping 삭제 시 함께 삭제<br>  • `speaker_id` (SET NULL): Speaker 삭제 시 연결만 해제<br>  • `file_group_id` (SET NULL): FileGroup 삭제 시 연결만 해제<br>- **주요 필드**: repeat_count (방송 반복 횟수), is_enable, priority<br>- **Nested Response**: speaker, file_group 상세 정보 포함 |
 | v2.6 | 2026-01-09 | **Speaker Geolocation 추가 및 Event 필드 정규화**<br><br>**[1. Speaker Geolocation 추가]** (PRD_Speaker_Geolocation.md v1.0)<br>- **speakers.geolocation JSONB 추가**: Speaker 장비 위치 정보<br>- **API 변경**: POST/PATCH/PUT Request에 geolocation 필드 추가<br>- **Response 변경**: GET 응답에 geolocation 필드 포함<br>- **Swagger/Docs 업데이트**: SpeakerCreate, SpeakerUpdate, SpeakerResponse 스키마에 geolocation 필드 추가<br><br>**[2. Event 필드 정규화]** (PRD_Event_Field_Normalization.md v1.0)<br>- **Detection Event**: `result` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)<br>  - 모든 Request/Response에서 result가 별도 필드<br>- **Malfunction Event**: `reason` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (first_start, first_end, second_start, second_end)<br>  - 모든 Request/Response에서 reason이 별도 필드<br>- **Action Event**: `from_event` nested response에 분리된 필드 적용 |
 | v2.4 | 2026-01-08 | **Camera URLs, Speaker/Enclosure Device, Controller/Sensor Geolocation, EventMappingCamera API**<br><br>**[0. ⚠️ Breaking Change: Category Event Refactoring]** (PRD_CategoryEvent_Refactoring.md v1.1)<br>- **EventMapping 필드명 변경**: `category_event` (VARCHAR) → `category_event_mapping` (Enum)<br>- **EnumEventCategory 신규**: Event 모델 polymorphic discriminator용 (DETECTION, MALFUNCTION, CONNECTION)<br>- **EnumMappingEventCategory**: EventMapping 센서 조합 타입용 (FENCE_SENSOR_ONLY, MULTI_SENSOR_ONLY 등)<br>- **Query Parameter 변경**: `?category_event=xxx` → `?category_event_mapping=FENCE_SENSOR_ONLY`<br><br>**[1. Camera URL 스키마 변경]**<br>- **rtsp_uri, rtsp_port 제거** → `urls` JSONB 필드로 통합<br>- **유연한 dict 기반 구조**: homepage, onvif, streams, snapshot 등<br><br>**[2. EventMappingCamera API 신규 (7.3 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/cameras`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **레거시 CameraEventMappings API 제거**<br><br>**[3. Server 인증 정보 필드 추가]**<br>- **Server 모델 필드 추가**: `user_name`, `user_password`<br><br>**[4. Speaker Device API 신규]**<br>- **[신규] 5.8 Speaker API**: `/api/devices/speakers` - Device Polymorphic 상속 구조<br>- **[신규] 5.9 FileGroup API**: `/api/file-groups` - 방송음원 파일풀 관리<br>- **EnumDeviceCategory 확장**: `SPEAKER = "speaker"` 추가<br>- **EnumSpeakerType 신규**: NORMAL, ADMIN, MONITOR, DEV<br><br>**[5. Enclosure Device API 신규]** (PRD_Enclosure_Device.md v1.1)<br>- **[신규] 5.10 Enclosure API**: `/api/devices/enclosures` - 함체관리장비<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **특수 엔드포인트**: `PATCH /{id}/status` (환경 데이터), `POST /{id}/control` (히터/팬 제어)<br>- **EnumDeviceCategory 확장**: `ENCLOSURE = "enclosure"` 추가<br>- **EnumDoorStatus 신규**: CLOSED, OPEN - 도어 물리적 상태<br>- **Enclosure 테이블**: door_status, detail_info (JSONB), geolocation (JSONB), threshold_config (JSONB), heater_enabled, fan_enabled<br><br>**[6. Controller/Sensor Geolocation 추가]** (PRD_Controller_Sensor_Geolocation.md v1.0)<br>- **controllers.geolocation JSONB 추가**: Controller 장비 위치 정보<br>- **sensors.geolocation JSONB 추가**: Sensor 장비 위치 정보<br>- **geolocation JSON 구조**: `{location, latitude, longitude, altitude}` |

@@ -356,7 +356,6 @@ class EnclosureMetric(Base):
     Attributes:
         id: Primary key
         enclosure_id: FK to Enclosure (CASCADE DELETE)
-        collected_at: 데이터 수집 시각
         temperature: 온도 (°C)
         humidity: 습도 (%)
         current: 전류 (A)
@@ -376,7 +375,6 @@ class EnclosureMetric(Base):
         nullable=False,
         index=True
     )
-    collected_at = Column(DateTime, nullable=False, index=True)
     temperature = Column(String(10), nullable=True)  # Decimal(5,2) as string for SQLite compatibility
     humidity = Column(String(10), nullable=True)
     current = Column(String(10), nullable=True)
@@ -393,5 +391,5 @@ class EnclosureMetric(Base):
     def __repr__(self):
         return (
             f"<EnclosureMetric(id={self.id}, enclosure_id={self.enclosure_id}, "
-            f"collected_at='{self.collected_at}', temperature={self.temperature})>"
+            f"temperature={self.temperature}, created_at='{self.created_at}')>"
         )

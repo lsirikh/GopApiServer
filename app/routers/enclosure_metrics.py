@@ -23,7 +23,6 @@ def _metric_to_response(metric: EnclosureMetric) -> dict:
     return {
         "id": metric.id,
         "enclosure_id": metric.enclosure_id,
-        "collected_at": metric.collected_at.isoformat() if metric.collected_at else None,
         "temperature": metric.temperature,
         "humidity": metric.humidity,
         "current": metric.current,
@@ -71,7 +70,6 @@ def create_enclosure_metric(
     # Create metric
     metric = EnclosureMetric(
         enclosure_id=enclosure_id,
-        collected_at=metric_data.collected_at,
         temperature=str(metric_data.temperature) if metric_data.temperature is not None else None,
         humidity=str(metric_data.humidity) if metric_data.humidity is not None else None,
         current=str(metric_data.current) if metric_data.current is not None else None,
@@ -210,11 +208,11 @@ def get_enclosure_metrics(
     query = db.query(EnclosureMetric).filter(EnclosureMetric.enclosure_id == enclosure_id)
 
     if start_time:
-        query = query.filter(EnclosureMetric.collected_at >= start_time)
+        query = query.filter(EnclosureMetric.created_at >= start_time)
     if end_time:
-        query = query.filter(EnclosureMetric.collected_at <= end_time)
+        query = query.filter(EnclosureMetric.created_at <= end_time)
 
-    query = query.order_by(EnclosureMetric.collected_at.desc())
+    query = query.order_by(EnclosureMetric.created_at.desc())
     metrics = query.limit(limit).all()
 
     return {
@@ -256,7 +254,7 @@ def get_enclosure_metrics_latest(
     # Get latest metric
     metric = db.query(EnclosureMetric).filter(
         EnclosureMetric.enclosure_id == enclosure_id
-    ).order_by(EnclosureMetric.collected_at.desc()).first()
+    ).order_by(EnclosureMetric.created_at.desc()).first()
 
     if not metric:
         raise HTTPException(
@@ -306,7 +304,7 @@ def delete_enclosure_metrics(
     query = db.query(EnclosureMetric).filter(EnclosureMetric.enclosure_id == enclosure_id)
 
     if before_date:
-        query = query.filter(EnclosureMetric.collected_at < before_date)
+        query = query.filter(EnclosureMetric.created_at < before_date)
 
     # Count and delete
     deleted_count = query.delete(synchronize_session=False)

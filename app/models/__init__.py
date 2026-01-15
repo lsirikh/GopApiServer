@@ -1,13 +1,14 @@
 """
 Models package for GOP API
 """
-from app.models.device import Controller, Sensor, Camera, Speaker
+from app.models.device import Controller, Sensor, Camera, Speaker, Enclosure, EnclosureMetric
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.models.event import DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
-from app.models.integration import EventMapping, EventMappingCamera
+from app.models.integration import EventMapping, EventMappingCamera, EventMappingSpeaker
 from app.models.server import ServerCategory, Server, ServerMetrics
 from app.models.system_event import SystemEvent
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
+from app.models.file_group import FileGroup
 
 __all__ = [
     # Device models
@@ -15,6 +16,8 @@ __all__ = [
     "Sensor",
     "Camera",
     "Speaker",
+    "Enclosure",
+    "EnclosureMetric",
     # DeviceGroup models
     "DeviceGroup",
     "DeviceGroupMapping",
@@ -26,6 +29,7 @@ __all__ = [
     # Integration models
     "EventMapping",
     "EventMappingCamera",
+    "EventMappingSpeaker",
     # Server models
     "ServerCategory",
     "Server",
@@ -36,4 +40,6 @@ __all__ = [
     "CameraPreset",
     "ROI",
     "XyPoint",
+    # FileGroup models
+    "FileGroup",
 ]

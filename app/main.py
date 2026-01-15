@@ -103,6 +103,26 @@ tags_metadata = [
         "description": "시스템 이벤트 관리 API. PRD: PRD_System_Event.md Section 3",
     },
     {
+        "name": "Enclosures",
+        "description": "함체(Enclosure) 디바이스 CRUD API. IoController 디바이스로 환경 모니터링 및 문 상태 관리를 제공합니다.",
+    },
+    {
+        "name": "Enclosure Metrics",
+        "description": "함체 환경 모니터링 메트릭 API. 온도, 습도, 전류, 전압, 진동, UPS 상태 등을 기록하고 임계치 초과를 감지합니다. PRD: PRD_Enclosure_Metrics_Separation.md v1.0",
+    },
+    {
+        "name": "CameraPresets",
+        "description": "카메라 프리셋 관리 API. 카메라별 PTZ 프리셋 위치를 관리합니다.",
+    },
+    {
+        "name": "ROIs",
+        "description": "관심 영역(ROI) 관리 API. 프리셋에 대한 ROI 영역을 정의합니다.",
+    },
+    {
+        "name": "XyPoints",
+        "description": "XY 좌표점 관리 API. ROI의 다각형 좌표점을 관리합니다.",
+    },
+    {
         "name": "Logs",
         "description": "시스템 로그 조회 및 뷰어 API.",
     },

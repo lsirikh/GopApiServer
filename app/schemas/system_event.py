@@ -27,6 +27,7 @@ class SystemEventCreate(BaseModel):
         title: 이벤트 제목 (필수)
         message: 이벤트 메시지 (선택)
         detail: 추가 상세 정보 (JSONB, 선택)
+        source: 이벤트 발생 소스 (PRD 3.2)
     """
     server_id: Optional[int] = Field(None, description="서버 ID (선택 - 전역 이벤트는 NULL)")
     server_description: Optional[str] = Field(None, max_length=200, description="서버 설명")
@@ -38,6 +39,7 @@ class SystemEventCreate(BaseModel):
     title: str = Field(..., max_length=200, description="이벤트 제목")
     message: Optional[str] = Field(None, max_length=1000, description="이벤트 메시지")
     detail: Optional[Dict[str, Any]] = Field(None, description="추가 상세 정보 (JSONB)")
+    source: Optional[str] = Field(None, max_length=100, description="이벤트 발생 소스 (PRD 3.2)")
 
 
 class SystemEventUpdate(BaseModel):
@@ -52,6 +54,7 @@ class SystemEventUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=200, description="이벤트 제목")
     message: Optional[str] = Field(None, max_length=1000, description="이벤트 메시지")
     detail: Optional[Dict[str, Any]] = Field(None, description="추가 상세 정보 (JSONB)")
+    source: Optional[str] = Field(None, max_length=100, description="이벤트 발생 소스 (PRD 3.2)")
 
 
 class SystemEventResponse(BaseModel):
@@ -68,10 +71,12 @@ class SystemEventResponse(BaseModel):
     title: str = Field(..., description="이벤트 제목")
     message: Optional[str] = Field(None, description="이벤트 메시지")
     detail: Optional[Dict[str, Any]] = Field(None, description="추가 상세 정보")
+    source: Optional[str] = Field(None, description="이벤트 발생 소스 (PRD 3.2)")
     is_acknowledged: bool = Field(..., description="확인 여부")
     acknowledged_by: Optional[str] = Field(None, description="확인자")
     acknowledged_at: Optional[datetime] = Field(None, description="확인 시간")
     created_at: datetime = Field(..., description="생성 시간")
+    updated_at: Optional[datetime] = Field(None, description="수정 시간 (PRD 3.2)")
 
     model_config = ConfigDict(from_attributes=True)
 

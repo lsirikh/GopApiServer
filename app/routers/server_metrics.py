@@ -78,6 +78,24 @@ def _check_thresholds(metrics: ServerMetrics, threshold_config: dict) -> dict:
         elif disk_config.get("warning") and metrics.disk_usage >= disk_config["warning"]:
             exceeded["disk"] = {"level": "warning", "value": metrics.disk_usage, "threshold": disk_config["warning"]}
 
+    # Network 체크 (PRD: threshold_config.network)
+    if "network" in threshold_config:
+        network_config = threshold_config["network"]
+        # network_in_mbps와 network_out_mbps 중 큰 값으로 체크
+        network_max = None
+        if metrics.network_in_mbps is not None and metrics.network_out_mbps is not None:
+            network_max = max(metrics.network_in_mbps, metrics.network_out_mbps)
+        elif metrics.network_in_mbps is not None:
+            network_max = metrics.network_in_mbps
+        elif metrics.network_out_mbps is not None:
+            network_max = metrics.network_out_mbps
+
+        if network_max is not None:
+            if network_config.get("critical_mbps") and network_max >= network_config["critical_mbps"]:
+                exceeded["network"] = {"level": "critical", "value": network_max, "threshold": network_config["critical_mbps"]}
+            elif network_config.get("warning_mbps") and network_max >= network_config["warning_mbps"]:
+                exceeded["network"] = {"level": "warning", "value": network_max, "threshold": network_config["warning_mbps"]}
+
     return exceeded if exceeded else None
 
 

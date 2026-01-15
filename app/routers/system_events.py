@@ -47,10 +47,12 @@ def _system_event_to_response(event: SystemEvent) -> dict:
         "title": event.title,
         "message": event.message,
         "detail": event.detail,
+        "source": event.source,  # PRD 3.2
         "is_acknowledged": event.is_acknowledged,
         "acknowledged_by": event.acknowledged_by,
         "acknowledged_at": event.acknowledged_at,
-        "created_at": event.created_at
+        "created_at": event.created_at,
+        "updated_at": event.updated_at  # PRD 3.2
     }
 
 
@@ -243,6 +245,7 @@ def create_system_event(event_data: SystemEventCreate, db: Session = Depends(get
         title=event_data.title,
         message=event_data.message,
         detail=event_data.detail,
+        source=event_data.source,  # PRD 3.2
         is_acknowledged=False
     )
 

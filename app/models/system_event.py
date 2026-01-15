@@ -24,10 +24,12 @@ class SystemEvent(Base):
         title: 이벤트 제목
         message: 이벤트 메시지
         detail: 추가 상세 정보 (JSONB)
+        source: 이벤트 발생 소스 (PRD 3.2)
         is_acknowledged: 확인 여부
         acknowledged_by: 확인자
         acknowledged_at: 확인 시간
         created_at: 생성 시간
+        updated_at: 수정 시간 (PRD 3.2)
         server: Relationship to Server
 
     PRD Reference: PRD_System_Event.md Section 3
@@ -60,6 +62,7 @@ class SystemEvent(Base):
     title = Column(String(200), nullable=False)
     message = Column(String(1000), nullable=True)
     detail = Column(JSON, nullable=True)  # 추가 상세 정보
+    source = Column(String(100), nullable=True)  # 이벤트 발생 소스 (PRD 3.2)
 
     # 확인(Acknowledge) 관련
     is_acknowledged = Column(Boolean, nullable=False, default=False, index=True)
@@ -73,6 +76,12 @@ class SystemEvent(Base):
         nullable=False,
         index=True
     )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(settings.tz),
+        onupdate=lambda: datetime.now(settings.tz),
+        nullable=True
+    )  # PRD 3.2: 수정 시간
 
     # Relationship to server (SET NULL)
     server = relationship("Server", back_populates="system_events")

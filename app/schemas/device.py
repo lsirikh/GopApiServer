@@ -858,7 +858,6 @@ class EnclosureMetricCreate(BaseModel):
     함체 메트릭 생성 스키마
     PRD: PRD_Enclosure_Metrics_Separation.md v1.0 - Section 3.3
     """
-    collected_at: datetime = Field(..., description="데이터 수집 시각")
     temperature: Optional[float] = Field(None, description="온도 (°C)")
     humidity: Optional[float] = Field(None, ge=0, le=100, description="습도 (%)")
     current: Optional[float] = Field(None, ge=0, description="전류 (A)")
@@ -878,7 +877,6 @@ class EnclosureMetricResponse(BaseModel):
     """
     id: int = Field(..., description="메트릭 ID")
     enclosure_id: int = Field(..., description="함체 ID (FK)")
-    collected_at: datetime = Field(..., description="데이터 수집 시각")
     temperature: Optional[float] = Field(None, description="온도 (°C)")
     humidity: Optional[float] = Field(None, description="습도 (%)")
     current: Optional[float] = Field(None, description="전류 (A)")

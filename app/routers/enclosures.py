@@ -173,7 +173,6 @@ async def create_enclosure(
     - **group_device**: 장치 그룹 번호 (레거시)
     - **status**: 장비 운영 상태 (ACTIVATED/DEACTIVATED/ERROR)
     - **door_status**: 도어 물리적 상태 (CLOSED/OPEN)
-    - **detail_info**: 환경 모니터링 데이터 (JSONB)
     - **geolocation**: 위치 정보 (JSONB)
     - **threshold_config**: 알람 임계값 (JSONB)
     - **heater_enabled**: 히터 활성화
@@ -191,7 +190,6 @@ async def create_enclosure(
         status=enclosure_data.status,
         is_enable=enclosure_data.is_enable,
         door_status=enclosure_data.door_status,
-        detail_info=enclosure_data.detail_info.model_dump(mode='json') if enclosure_data.detail_info else None,
         geolocation=enclosure_data.geolocation.model_dump(mode='json') if enclosure_data.geolocation else None,
         threshold_config=enclosure_data.threshold_config.model_dump(mode='json') if enclosure_data.threshold_config else None,
         heater_enabled=enclosure_data.heater_enabled,
@@ -229,7 +227,6 @@ async def update_enclosure(
     - **name_device**: 장비 이름
     - **status**: 장비 운영 상태 (ACTIVATED/DEACTIVATED/ERROR)
     - **door_status**: 도어 물리적 상태 (CLOSED/OPEN)
-    - **detail_info**: 환경 모니터링 데이터
     - **geolocation**: 위치 정보
     - **threshold_config**: 알람 임계값
     - **heater_enabled**: 히터 활성화
@@ -252,8 +249,8 @@ async def update_enclosure(
     update_data = enclosure_data.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
-        # Handle nested Pydantic models
-        if field in ['detail_info', 'geolocation', 'threshold_config'] and value is not None:
+        # Handle nested Pydantic models (JSONB fields)
+        if field in ['geolocation', 'threshold_config'] and value is not None:
             setattr(enclosure, field, value if isinstance(value, dict) else value.model_dump(mode='json'))
         else:
             setattr(enclosure, field, value)
@@ -310,7 +307,6 @@ async def replace_enclosure(
     enclosure.status = enclosure_data.status
     enclosure.is_enable = enclosure_data.is_enable
     enclosure.door_status = enclosure_data.door_status
-    enclosure.detail_info = enclosure_data.detail_info.model_dump(mode='json') if enclosure_data.detail_info else None
     enclosure.geolocation = enclosure_data.geolocation.model_dump(mode='json') if enclosure_data.geolocation else None
     enclosure.threshold_config = enclosure_data.threshold_config.model_dump(mode='json') if enclosure_data.threshold_config else None
     enclosure.heater_enabled = enclosure_data.heater_enabled
@@ -376,17 +372,17 @@ async def update_enclosure_status(
     db: Session = Depends(get_db)
 ):
     """
-    함체 환경 데이터 업데이트
+    함체 도어 상태 업데이트
 
-    함체의 환경 모니터링 데이터 및 도어 상태를 업데이트합니다.
+    함체의 도어 상태를 업데이트합니다.
     외부 장비(센서)에서 주기적으로 호출하는 엔드포인트입니다.
 
     PRD: PRD_Enclosure_Device.md v1.1 - Section 5.3.2
+    Note: 환경 모니터링 데이터는 enclosure_metrics API 사용 (PRD_Enclosure_Metrics_Separation.md v1.0)
 
     - **enclosure_id**: 함체 ID (Path Parameter)
 
     **Request Body**:
-    - **detail_info**: 환경 모니터링 데이터 (temperature, humidity, current, voltage, vibration)
     - **door_status**: 도어 물리적 상태 (CLOSED/OPEN)
 
     **Response**: 업데이트된 함체 정보
@@ -402,10 +398,7 @@ async def update_enclosure_status(
             detail=f"Enclosure with id {enclosure_id} not found"
         )
 
-    # Update fields if provided
-    if status_data.detail_info is not None:
-        enclosure.detail_info = status_data.detail_info.model_dump(mode='json')
-
+    # Update door_status if provided
     if status_data.door_status is not None:
         enclosure.door_status = status_data.door_status
 

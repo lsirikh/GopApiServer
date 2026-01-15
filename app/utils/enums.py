@@ -248,3 +248,58 @@ class EnumDoorStatus(str, Enum):
     """
     CLOSED = "CLOSED"  # 도어 닫힘
     OPEN = "OPEN"      # 도어 열림
+
+
+class EnumSystemEventType(str, Enum):
+    """
+    System Event type enumeration (17종)
+    PRD: PRD_System_Event.md Section 3.1
+
+    시스템 레벨 이벤트 유형을 정의합니다.
+    디바이스/센서 이벤트(Event 테이블)와 별개의 시스템 운영 이벤트입니다.
+    """
+    # 리소스 관련 (1종)
+    RESOURCE_THRESHOLD = "RESOURCE_THRESHOLD"   # 리소스 임계치 초과
+
+    # 서버 상태 (3종)
+    SERVER_CONNECTED = "SERVER_CONNECTED"       # 서버 연결됨
+    SERVER_DISCONNECTED = "SERVER_DISCONNECTED" # 서버 연결 해제됨
+    SERVER_ERROR = "SERVER_ERROR"               # 서버 오류
+
+    # 서비스 상태 (3종)
+    SERVICE_STARTED = "SERVICE_STARTED"         # 서비스 시작됨
+    SERVICE_STOPPED = "SERVICE_STOPPED"         # 서비스 중지됨
+    SERVICE_ERROR = "SERVICE_ERROR"             # 서비스 오류
+
+    # 설정 변경 (1종)
+    CONFIG_CHANGED = "CONFIG_CHANGED"           # 설정 변경됨
+
+    # 사용자 활동 (2종)
+    USER_LOGIN = "USER_LOGIN"                   # 사용자 로그인
+    USER_LOGOUT = "USER_LOGOUT"                 # 사용자 로그아웃
+
+    # 디바이스 관리 (3종)
+    DEVICE_ADDED = "DEVICE_ADDED"               # 디바이스 추가됨
+    DEVICE_REMOVED = "DEVICE_REMOVED"           # 디바이스 제거됨
+    DEVICE_STATUS_CHANGED = "DEVICE_STATUS_CHANGED"  # 디바이스 상태 변경됨
+
+    # 백업 관련 (3종)
+    BACKUP_STARTED = "BACKUP_STARTED"           # 백업 시작됨
+    BACKUP_COMPLETED = "BACKUP_COMPLETED"       # 백업 완료됨
+    BACKUP_FAILED = "BACKUP_FAILED"             # 백업 실패함
+
+    # 시스템 업데이트 (1종)
+    SYSTEM_UPDATE = "SYSTEM_UPDATE"             # 시스템 업데이트
+
+
+class EnumSystemEventSeverity(str, Enum):
+    """
+    System Event severity enumeration (4종)
+    PRD: PRD_System_Event.md Section 3.2
+
+    시스템 이벤트 심각도를 정의합니다.
+    """
+    INFO = "INFO"           # 정보 (일반 알림)
+    WARNING = "WARNING"     # 경고 (주의 필요)
+    ERROR = "ERROR"         # 오류 (조치 필요)
+    CRITICAL = "CRITICAL"   # 심각 (즉시 조치 필요)

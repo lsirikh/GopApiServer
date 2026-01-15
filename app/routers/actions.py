@@ -64,6 +64,7 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNe
         name_device=device.name_device,
         type_device=device.type_device.value,
         status=device.status.value,
+        is_enable=device.is_enable,
         version=device.version,
         ip_address=getattr(device, 'ip_address', None),
         ip_port=getattr(device, 'ip_port', None),
@@ -159,12 +160,9 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
             type_event=event.type_event,
             action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
             reason=event.reason.value,
-            first_start=event.first_start,
-            first_end=event.first_end,
-            second_start=event.second_start,
-            second_end=event.second_end,
             device=_build_device_nested_response(event.device),
             device_description=event.device_description,
+            detail=event.detail,
             created_at=event.created_at,
             updated_at=event.updated_at
         )

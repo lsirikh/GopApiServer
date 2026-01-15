@@ -2,7 +2,7 @@
 Server models: ServerCategory, Server
 Based on GOP_서버모니터링_스키마.md
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -57,13 +57,11 @@ class Server(Base):
         ip_address: IP 주소 (IPv4/IPv6)
         port: 포트 번호
         hostname: 호스트명 (옵션)
-        cpu_usage: CPU 사용률 (%)
-        ram_usage: RAM 사용률 (%)
-        disk_usage: DISK 사용률 (%)
-        network_throughput: 네트워크 처리량 (예: "125MB/s")
+        threshold_config: 임계치 설정 (JSONB)
         created_at: 생성 시간
         updated_at: 수정 시간
         category: Relationship to ServerCategory
+        metrics: Relationship to ServerMetrics (1:N)
     """
     __tablename__ = "servers"
 
@@ -79,11 +77,8 @@ class Server(Base):
     user_name = Column(String(100), nullable=True)
     user_password = Column(String(200), nullable=True)
 
-    # 메트릭
-    cpu_usage = Column(Float, nullable=True)
-    ram_usage = Column(Float, nullable=True)
-    disk_usage = Column(Float, nullable=True)
-    network_throughput = Column(String(20), nullable=True)
+    # 임계치 설정 (JSONB)
+    threshold_config = Column(JSON, nullable=True)
 
     # 타임스탬프
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
@@ -92,9 +87,72 @@ class Server(Base):
     # Relationship to category
     category = relationship("ServerCategory", back_populates="servers")
 
+    # Relationship to metrics (1:N)
+    metrics = relationship("ServerMetrics", back_populates="server", cascade="all, delete-orphan")
+
+    # Relationship to system_events (1:N, SET NULL on delete)
+    system_events = relationship("SystemEvent", back_populates="server")
+
     def __repr__(self):
         return (
             f"<Server(id={self.id}, name='{self.name}', "
             f"status='{self.status.value}', ip_address='{self.ip_address}', "
             f"port={self.port}, category_id={self.category_id})>"
+        )
+
+
+class ServerMetrics(Base):
+    """
+    Server Metrics model (서버 리소스 모니터링 이력)
+
+    Attributes:
+        id: Primary key
+        server_id: Foreign key to Server (CASCADE)
+        cpu_usage: CPU 사용률 (%)
+        ram_usage: RAM 사용률 (%)
+        ram_total_gb: RAM 전체 크기 (GB)
+        ram_used_gb: RAM 사용 크기 (GB)
+        disk_usage: Disk 사용률 (%)
+        disk_total_gb: Disk 전체 크기 (GB)
+        disk_used_gb: Disk 사용 크기 (GB)
+        network_in_mbps: 네트워크 수신 속도 (Mbps)
+        network_out_mbps: 네트워크 송신 속도 (Mbps)
+        process_count: 프로세스 수
+        detail: 추가 상세 정보 (JSONB)
+        collected_at: 수집 시간
+        created_at: 생성 시간
+
+    PRD Reference: PRD_System_Event.md Section 2.4
+    """
+    __tablename__ = "server_metrics"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    server_id = Column(Integer, ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # 리소스 메트릭
+    cpu_usage = Column(Float, nullable=True)  # CPU 사용률 (%)
+    ram_usage = Column(Float, nullable=True)  # RAM 사용률 (%)
+    ram_total_gb = Column(Float, nullable=True)  # RAM 전체 크기 (GB)
+    ram_used_gb = Column(Float, nullable=True)  # RAM 사용 크기 (GB)
+    disk_usage = Column(Float, nullable=True)  # Disk 사용률 (%)
+    disk_total_gb = Column(Float, nullable=True)  # Disk 전체 크기 (GB)
+    disk_used_gb = Column(Float, nullable=True)  # Disk 사용 크기 (GB)
+    network_in_mbps = Column(Float, nullable=True)  # 네트워크 수신 속도 (Mbps)
+    network_out_mbps = Column(Float, nullable=True)  # 네트워크 송신 속도 (Mbps)
+    process_count = Column(Integer, nullable=True)  # 프로세스 수
+
+    # 추가 상세 정보 (JSONB)
+    detail = Column(JSON, nullable=True)
+
+    # 타임스탬프
+    collected_at = Column(DateTime, nullable=True)  # 수집 시간
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+
+    # Relationship to server
+    server = relationship("Server", back_populates="metrics")
+
+    def __repr__(self):
+        return (
+            f"<ServerMetrics(id={self.id}, server_id={self.server_id}, "
+            f"cpu_usage={self.cpu_usage}, ram_usage={self.ram_usage})>"
         )

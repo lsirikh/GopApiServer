@@ -333,7 +333,7 @@ async def update_event_mapping_full(
     )
 
 
-@router.delete("/{mapping_id}", response_model=ApiResponse[dict])
+@router.delete("/{mapping_id}", response_model=ApiResponse[None])
 async def delete_event_mapping(
     mapping_id: int,
     current_user = Depends(get_current_user_optional),
@@ -366,5 +366,5 @@ async def delete_event_mapping(
     return ApiResponse(
         success=True,
         message="Event mapping deleted successfully",
-        data={"id": mapping_id}
+        data=None
     )

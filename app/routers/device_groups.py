@@ -157,6 +157,7 @@ async def get_device_groups(
                                             "type_device": "Controller",
                                             "version": "v2.1.0",
                                             "status": "ACTIVATED",
+                                            "is_enable": True,
                                             "ip_address": "192.168.1.100",
                                             "ip_port": 8001,
                                             "geolocation": {
@@ -176,6 +177,7 @@ async def get_device_groups(
                                             "type_device": "Multi",
                                             "version": "v1.5.0",
                                             "status": "ACTIVATED",
+                                            "is_enable": True,
                                             "controller_id": 1,
                                             "geolocation": {
                                                 "location": "GOP 1구역 전방 초소",
@@ -194,6 +196,7 @@ async def get_device_groups(
                                             "type_device": "IpCamera",
                                             "version": "v1.0.0",
                                             "status": "ACTIVATED",
+                                            "is_enable": True,
                                             "ip_address": "192.168.1.200",
                                             "ip_port": 80,
                                             "user_name": "admin",
@@ -322,7 +325,8 @@ async def get_device_group(
                 "name_device": device.name_device,
                 "type_device": device.type_device.value if hasattr(device.type_device, 'value') else str(device.type_device),
                 "version": device.version,
-                "status": device.status.value if hasattr(device.status, 'value') else str(device.status)
+                "status": device.status.value if hasattr(device.status, 'value') else str(device.status),
+                "is_enable": device.is_enable
             }
 
             # 디바이스 타입별로 적절한 스키마 사용

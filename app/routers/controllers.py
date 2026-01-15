@@ -303,6 +303,7 @@ async def create_controller(
         type_device=device_type,
         version=controller_data.version,
         status=device_status,
+        is_enable=controller_data.is_enable,
         ip_address=controller_data.ip_address,
         ip_port=controller_data.ip_port,
         geolocation=controller_data.geolocation.model_dump() if controller_data.geolocation else None
@@ -474,6 +475,7 @@ async def replace_controller(
     controller.type_device = device_type
     controller.version = controller_data.version
     controller.status = device_status
+    controller.is_enable = controller_data.is_enable
     controller.ip_address = controller_data.ip_address
     controller.ip_port = controller_data.ip_port
     controller.geolocation = controller_data.geolocation.model_dump() if controller_data.geolocation else None
@@ -494,7 +496,7 @@ async def replace_controller(
     )
 
 
-@router.delete("/{controller_id}", response_model=ApiResponse[dict])
+@router.delete("/{controller_id}", response_model=ApiResponse[None])
 async def delete_controller(
     controller_id: int,
     current_user = Depends(get_current_user_optional),
@@ -532,5 +534,5 @@ async def delete_controller(
     return ApiResponse(
         success=True,
         message="Controller deleted successfully",
-        data={"id": controller_id}
+        data=None
     )

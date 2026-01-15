@@ -32,11 +32,11 @@ class EventMappingCreate(BaseModel):
     - device_group_id: DeviceGroup FK
     - category_event → category_event_mapping 변경
     """
-    name_event: str
-    device_group_id: Optional[int] = None
-    category_event_mapping: EnumMappingEventCategory
-    description: Optional[str] = None
-    status: bool = True
+    name_event: str = Field(..., description="이벤트 매핑 이름")
+    device_group_id: Optional[int] = Field(None, description="연결된 DeviceGroup ID (FK)")
+    category_event_mapping: EnumMappingEventCategory = Field(..., description="이벤트 매핑 카테고리")
+    description: Optional[str] = Field(None, description="이벤트 매핑 설명")
+    status: bool = Field(True, description="활성화 상태")
 
 
 class EventMappingResponse(BaseModel):
@@ -95,6 +95,7 @@ class CameraNestedResponseIntegration(BaseModel):
     type_device: str
     version: Optional[str] = None
     status: str
+    is_enable: bool = True
     ip_address: str
     ip_port: int
     mode: str

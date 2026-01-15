@@ -57,6 +57,7 @@ def _build_camera_nested(camera: Camera, db: Session) -> Optional[CameraNestedRe
         type_device=camera.type_device.value if hasattr(camera.type_device, 'value') else str(camera.type_device),
         version=camera.version,
         status=camera.status.value if hasattr(camera.status, 'value') else str(camera.status),
+        is_enable=camera.is_enable,
         ip_address=camera.ip_address,
         ip_port=camera.ip_port,
         mode=camera.mode.value if hasattr(camera.mode, 'value') else str(camera.mode),

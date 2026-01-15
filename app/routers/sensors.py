@@ -88,6 +88,7 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
         "type_device": sensor.type_device.value,
         "version": sensor.version,
         "status": sensor.status.value,
+        "is_enable": sensor.is_enable,
         "controller_id": sensor.controller_id,
         "geolocation": geolocation,
         "created_at": sensor.created_at,
@@ -113,6 +114,7 @@ def _sensor_to_response(sensor: Sensor, db: Session, include_controller: bool = 
             type_device=sensor.controller.type_device.value,
             version=sensor.controller.version,
             status=sensor.controller.status.value,
+            is_enable=sensor.controller.is_enable,
             ip_address=sensor.controller.ip_address,
             ip_port=sensor.controller.ip_port,
             geolocation=controller_geolocation,
@@ -293,6 +295,7 @@ async def create_sensor(
         type_device=device_type,
         version=sensor_data.version,
         status=device_status,
+        is_enable=sensor_data.is_enable,
         controller_id=sensor_data.controller_id,
         geolocation=sensor_data.geolocation.model_dump() if sensor_data.geolocation else None
     )
@@ -478,6 +481,7 @@ async def replace_sensor(
     sensor.type_device = device_type
     sensor.version = sensor_data.version
     sensor.status = device_status
+    sensor.is_enable = sensor_data.is_enable
     sensor.controller_id = sensor_data.controller_id
     sensor.geolocation = sensor_data.geolocation.model_dump() if sensor_data.geolocation else None
 
@@ -497,7 +501,7 @@ async def replace_sensor(
     )
 
 
-@router.delete("/{sensor_id}", response_model=ApiResponse[dict])
+@router.delete("/{sensor_id}", response_model=ApiResponse[None])
 async def delete_sensor(
     sensor_id: int,
     current_user = Depends(get_current_user_optional),
@@ -536,5 +540,5 @@ async def delete_sensor(
     return ApiResponse(
         success=True,
         message="Sensor deleted successfully",
-        data={"id": sensor_id}
+        data=None
     )

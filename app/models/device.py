@@ -273,11 +273,13 @@ class Enclosure(Device):
 
     고유 필드 (Enclosure):
         - door_status: EnumDoorStatus (CLOSED/OPEN) - 도어 물리적 상태 (센서 감지)
-        - detail_info: JSONB - 환경 모니터링 데이터 (temperature, humidity, current, voltage, vibration)
         - geolocation: JSONB - 위치 정보 (location, latitude, longitude, altitude)
         - threshold_config: JSONB - 알람 임계값 설정
         - heater_enabled: Boolean - 히터 활성화 상태
         - fan_enabled: Boolean - 팬 활성화 상태
+
+    Note: 실시간 측정 데이터(temperature, humidity 등)는 enclosure_metrics 테이블로 분리됨
+          (PRD_Enclosure_Metrics_Separation.md v1.0)
 
     운영 로직:
         - status=ACTIVATED + door_status=OPEN → 비정상 개방 알람 발생
@@ -296,12 +298,7 @@ class Enclosure(Device):
         default=EnumDoorStatus.CLOSED,
         comment="도어 물리적 상태 (CLOSED/OPEN) - 센서 감지"
     )
-    detail_info = Column(
-        JSON,
-        nullable=True,
-        default=None,
-        comment="환경 모니터링 데이터 (temperature, humidity, current, voltage, vibration)"
-    )
+    # detail_info 제거됨 → enclosure_metrics 테이블로 분리 (PRD_Enclosure_Metrics_Separation.md v1.0)
     geolocation = Column(
         JSON,
         nullable=True,
@@ -337,4 +334,64 @@ class Enclosure(Device):
             f"<Enclosure(id={self.id}, number_device={self.number_device}, "
             f"name_device='{self.name_device}', status='{self.status.value}', "
             f"door_status='{self.door_status.value}')>"
+        )
+
+    # Relationship to EnclosureMetric (1:N, CASCADE DELETE)
+    metrics = relationship(
+        "EnclosureMetric",
+        back_populates="enclosure",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+
+
+class EnclosureMetric(Base):
+    """
+    함체 환경 모니터링 메트릭 모델 (Time-series)
+    PRD: PRD_Enclosure_Metrics_Separation.md v1.0
+
+    실시간 측정값을 별도 테이블로 분리하여 자산 데이터와 분리 저장.
+    Enclosure 삭제 시 CASCADE DELETE.
+
+    Attributes:
+        id: Primary key
+        enclosure_id: FK to Enclosure (CASCADE DELETE)
+        collected_at: 데이터 수집 시각
+        temperature: 온도 (°C)
+        humidity: 습도 (%)
+        current: 전류 (A)
+        voltage: 전압 (V)
+        vibration: 진동 레벨 (0-100)
+        ups_battery_level: UPS 배터리 잔량 (%)
+        ups_charging: UPS 충전 중 여부
+        detail: 추가 상세 정보 (JSONB)
+        created_at: 레코드 생성 시각
+    """
+    __tablename__ = "enclosure_metrics"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    enclosure_id = Column(
+        Integer,
+        ForeignKey("enclosures.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    collected_at = Column(DateTime, nullable=False, index=True)
+    temperature = Column(String(10), nullable=True)  # Decimal(5,2) as string for SQLite compatibility
+    humidity = Column(String(10), nullable=True)
+    current = Column(String(10), nullable=True)
+    voltage = Column(String(10), nullable=True)
+    vibration = Column(Integer, nullable=True)
+    ups_battery_level = Column(Integer, nullable=True)
+    ups_charging = Column(Boolean, nullable=True)
+    detail = Column(JSON, nullable=True, default=None)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+
+    # Relationship to Enclosure
+    enclosure = relationship("Enclosure", back_populates="metrics")
+
+    def __repr__(self):
+        return (
+            f"<EnclosureMetric(id={self.id}, enclosure_id={self.enclosure_id}, "
+            f"collected_at='{self.collected_at}', temperature={self.temperature})>"
         )

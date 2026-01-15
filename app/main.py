@@ -17,11 +17,13 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.openapi.docs import get_swagger_ui_html
 from contextlib import asynccontextmanager
+from datetime import datetime
+from uuid import uuid4
 
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups, enclosure_metrics
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -91,6 +93,14 @@ tags_metadata = [
     {
         "name": "Servers",
         "description": "외부 서버 관리 API.",
+    },
+    {
+        "name": "Server Metrics",
+        "description": "서버 리소스 메트릭 API. PRD: PRD_System_Event.md Section 2.4",
+    },
+    {
+        "name": "System Events",
+        "description": "시스템 이벤트 관리 API. PRD: PRD_System_Event.md Section 3",
     },
     {
         "name": "Logs",
@@ -290,18 +300,68 @@ async def custom_swagger_ui_html():
     )
 
 
+# HTTP Error Code Mapping (PRD: PRD_API_Spec_Compliance.md - SPEC-001)
+HTTP_ERROR_CODES = {
+    400: "BAD_REQUEST",
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    405: "METHOD_NOT_ALLOWED",
+    409: "CONFLICT",
+    422: "VALIDATION_ERROR",
+    500: "INTERNAL_ERROR",
+    502: "BAD_GATEWAY",
+    503: "SERVICE_UNAVAILABLE",
+}
+
+
+def get_request_id(request: Request) -> str:
+    """
+    Get request ID from header or generate new one
+
+    PRD: PRD_API_Spec_Compliance.md - SPEC-003
+    """
+    return request.headers.get("X-Request-ID") or str(uuid4())
+
+
+def create_error_meta(request: Request) -> dict:
+    """
+    Create meta object for error response
+
+    PRD: PRD_API_Spec_Compliance.md - SPEC-003
+    """
+    return {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "request_id": get_request_id(request)
+    }
+
+
 # Exception handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """
-    Handle HTTPException and return ApiResponse format
+    Handle HTTPException and return spec-compliant format
+
+    PRD: PRD_API_Spec_Compliance.md - SPEC-001
+    Response format:
+    {
+      "success": false,
+      "error": { "code": "NOT_FOUND", "message": "...", "details": null },
+      "meta": { "timestamp": "...", "request_id": "..." }
+    }
     """
+    error_code = HTTP_ERROR_CODES.get(exc.status_code, "UNKNOWN_ERROR")
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "success": False,
-            "message": exc.detail,
-            "data": None
+            "error": {
+                "code": error_code,
+                "message": exc.detail,
+                "details": None
+            },
+            "meta": create_error_meta(request)
         }
     )
 
@@ -309,19 +369,41 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
-    Handle validation errors and return ApiResponse format
+    Handle validation errors with spec-compliant format
+
+    PRD: PRD_API_Spec_Compliance.md - SPEC-002
+    Response format:
+    {
+      "success": false,
+      "message": "Validation error",
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "details": [{"field": "...", "message": "..."}]
+      }
+    }
     """
-    errors = []
+    details = []
     for error in exc.errors():
-        field = ".".join(str(loc) for loc in error["loc"])
-        errors.append(f"{field}: {error['msg']}")
+        # Extract field name without 'body' prefix
+        loc = error.get("loc", [])
+        field_parts = [str(part) for part in loc if part != "body"]
+        field = ".".join(field_parts) if field_parts else "unknown"
+
+        details.append({
+            "field": field,
+            "message": error.get("msg", "Validation error")
+        })
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "success": False,
-            "message": "Validation error: " + "; ".join(errors),
-            "data": None
+            "message": "Validation error",
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "details": details
+            },
+            "meta": create_error_meta(request)
         }
     )
 
@@ -329,14 +411,20 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """
-    Handle all other exceptions and return ApiResponse format
+    Handle all other exceptions with spec-compliant format
+
+    PRD: PRD_API_Spec_Compliance.md - SPEC-001
     """
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
-            "message": f"Internal server error: {str(exc)}",
-            "data": None
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": f"Internal server error: {str(exc)}",
+                "details": None
+            },
+            "meta": create_error_meta(request)
         }
     )
 
@@ -362,6 +450,7 @@ app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors
 app.include_router(cameras.router, prefix="/api/devices/cameras", tags=["Cameras"])
 app.include_router(speakers.router, prefix="/api/devices/speakers", tags=["Speakers"])
 app.include_router(enclosures.router, prefix="/api/devices/enclosures", tags=["Enclosures"])
+app.include_router(enclosure_metrics.router, prefix="/api/devices/enclosures", tags=["Enclosure Metrics"])
 app.include_router(file_groups.router, prefix="/api/file-groups", tags=["FileGroups"])
 app.include_router(detections.router, prefix="/api/events/detections", tags=["Detections"])
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])
@@ -372,6 +461,8 @@ app.include_router(event_mapping_cameras.router, prefix="/api/integrations/event
 app.include_router(event_mapping_speakers.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Speakers"])
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
+app.include_router(server_metrics.router, prefix="/api/servers", tags=["Server Metrics"])
+app.include_router(system_events.router, prefix="/api/system-events", tags=["System Events"])
 app.include_router(device_groups.router, prefix="/api", tags=["DeviceGroups"])
 app.include_router(camera_presets.router, prefix="/api/devices/cameras", tags=["CameraPresets"])
 app.include_router(rois.router, prefix="/api/presets", tags=["ROIs"])

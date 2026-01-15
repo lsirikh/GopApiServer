@@ -76,6 +76,7 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             type_device=device.type_device.value,
             version=device.version,
             status=device.status.value,
+            is_enable=device.is_enable,
             controller_id=device.controller_id,
             device_groups=device_groups
         )
@@ -93,6 +94,7 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             type_device=device.type_device.value,
             version=device.version,
             status=device.status.value,
+            is_enable=device.is_enable,
             ip_address=device.ip_address,
             ip_port=device.ip_port,
             mode=device.mode.value if device.mode else "NONE",
@@ -110,6 +112,7 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             type_device=device.type_device.value,
             version=device.version,
             status=device.status.value,
+            is_enable=device.is_enable,
             ip_address=device.ip_address,
             ip_port=device.ip_port,
             device_groups=device_groups

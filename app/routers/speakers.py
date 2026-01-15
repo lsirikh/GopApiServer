@@ -50,6 +50,7 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
         type_device=speaker.type_device.value,
         version=speaker.version,
         status=speaker.status.value,
+        is_enable=speaker.is_enable,
         created_at=speaker.created_at,
         updated_at=speaker.updated_at,
         speaker_type=speaker.speaker_type.value,
@@ -202,6 +203,7 @@ async def create_speaker(
         type_device=speaker_data.type_device,
         version=speaker_data.version,
         status=speaker_data.status,
+        is_enable=speaker_data.is_enable,
         speaker_type=speaker_data.speaker_type,
         server_id=speaker_data.server_id,
         description=speaker_data.description,
@@ -339,6 +341,7 @@ async def replace_speaker(
     speaker.type_device = speaker_data.type_device
     speaker.version = speaker_data.version
     speaker.status = speaker_data.status
+    speaker.is_enable = speaker_data.is_enable
     speaker.speaker_type = speaker_data.speaker_type
     speaker.server_id = speaker_data.server_id
     speaker.description = speaker_data.description
@@ -356,7 +359,7 @@ async def replace_speaker(
     )
 
 
-@router.delete("/{speaker_id}", response_model=ApiResponse[dict])
+@router.delete("/{speaker_id}", response_model=ApiResponse[None])
 async def delete_speaker(
     speaker_id: int,
     current_user=Depends(get_current_user_optional),
@@ -388,5 +391,5 @@ async def delete_speaker(
     return ApiResponse(
         success=True,
         message="Speaker deleted successfully",
-        data={"id": speaker_id}
+        data=None
     )

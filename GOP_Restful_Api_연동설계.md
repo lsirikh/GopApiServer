@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
-**작성일**: 2025-12-31
-**최종 수정일**: 2026-01-12
-**버전**: v2.8  
+**작성일**: 2025-12-31  
+**최종 수정일**: 2026-01-15  
+**버전**: v2.9  
 **작성자**: 이기호 차장    
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성   
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -3732,6 +3732,241 @@ Accept: application/json
   }
 }
 ```
+
+#### 5.5.9 Enclosure 메트릭 저장 *(v2.9 신규)*
+
+> **PRD 참조**: PRD_Enclosure_Metrics_Separation.md v1.0
+
+함체의 환경 모니터링 메트릭 데이터를 시계열로 저장합니다. 실시간 측정값은 `enclosure_metrics` 테이블에 별도 저장됩니다.
+
+**Endpoint**: `POST /api/devices/enclosures/{enclosure_id}/metrics`
+
+**Path Parameters**:
+- `enclosure_id` (integer, required): Enclosure ID
+
+**Request Body**:
+```json
+{
+  "collected_at": "2026-01-15T10:30:00Z",
+  "temperature": 25.5,
+  "humidity": 45.0,
+  "current": 2.5,
+  "voltage": 220.0,
+  "vibration": 10,
+  "ups_battery_level": 85,
+  "ups_charging": true,
+  "detail": {
+    "door_open_count": 3,
+    "last_maintenance": "2026-01-10"
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| collected_at | datetime | Y | 데이터 수집 시각 (ISO 8601) |
+| temperature | number | N | 온도 (°C) |
+| humidity | number | N | 습도 (%) |
+| current | number | N | 전류 (A) |
+| voltage | number | N | 전압 (V) |
+| vibration | integer | N | 진동 레벨 (0-100) |
+| ups_battery_level | integer | N | UPS 배터리 잔량 (%) |
+| ups_charging | boolean | N | UPS 충전 중 여부 |
+| detail | object | N | 추가 상세 정보 (JSONB) |
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure metric saved successfully",
+  "data": {
+    "id": 1,
+    "enclosure_id": 1,
+    "collected_at": "2026-01-15T10:30:00",
+    "temperature": "25.5",
+    "humidity": "45.0",
+    "current": "2.5",
+    "voltage": "220.0",
+    "vibration": 10,
+    "ups_battery_level": 85,
+    "ups_charging": true,
+    "detail": {
+      "door_open_count": 3,
+      "last_maintenance": "2026-01-10"
+    },
+    "created_at": "2026-01-15T10:30:00.123456"
+  },
+  "threshold_exceeded": [
+    {
+      "field": "temperature",
+      "value": 25.5,
+      "threshold": 25.0,
+      "type": "HIGH"
+    }
+  ]
+}
+```
+
+**Response 특이사항**:
+- `threshold_exceeded`: Enclosure의 `threshold_config`에 설정된 임계값 초과 시 경고 정보 반환
+- `type`: `HIGH` (상한 초과) 또는 `LOW` (하한 미만)
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Enclosure with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+#### 5.5.10 Enclosure 메트릭 목록 조회 *(v2.9 신규)*
+
+함체의 환경 모니터링 메트릭 이력을 조회합니다.
+
+**Endpoint**: `GET /api/devices/enclosures/{enclosure_id}/metrics`
+
+**Path Parameters**:
+- `enclosure_id` (integer, required): Enclosure ID
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| limit | integer | N | 조회할 최대 개수 (기본값: 100, 최대: 1000) |
+| start_time | datetime | N | 시작 시간 필터 (ISO 8601) |
+| end_time | datetime | N | 종료 시간 필터 (ISO 8601) |
+
+**Request Example**:
+```http
+GET /api/devices/enclosures/1/metrics?start_time=2026-01-15T00:00:00Z&limit=50 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure metrics retrieved successfully",
+  "data": [
+    {
+      "id": 10,
+      "enclosure_id": 1,
+      "collected_at": "2026-01-15T10:30:00",
+      "temperature": "25.5",
+      "humidity": "45.0",
+      "current": "2.5",
+      "voltage": "220.0",
+      "vibration": 10,
+      "ups_battery_level": 85,
+      "ups_charging": true,
+      "detail": null,
+      "created_at": "2026-01-15T10:30:00.123456"
+    },
+    {
+      "id": 9,
+      "enclosure_id": 1,
+      "collected_at": "2026-01-15T10:00:00",
+      "temperature": "24.8",
+      "humidity": "46.2",
+      "current": "2.4",
+      "voltage": "219.5",
+      "vibration": 8,
+      "ups_battery_level": 84,
+      "ups_charging": true,
+      "detail": null,
+      "created_at": "2026-01-15T10:00:00.123456"
+    }
+  ]
+}
+```
+
+**Response 특이사항**:
+- 결과는 `collected_at` 기준 **내림차순** (최신순) 정렬
+- 시간 범위 필터 지원: `start_time` ~ `end_time`
+
+#### 5.5.11 Enclosure 최신 메트릭 조회 *(v2.9 신규)*
+
+함체의 가장 최근 환경 모니터링 메트릭을 조회합니다.
+
+**Endpoint**: `GET /api/devices/enclosures/{enclosure_id}/metrics/latest`
+
+**Path Parameters**:
+- `enclosure_id` (integer, required): Enclosure ID
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Latest enclosure metric retrieved successfully",
+  "data": {
+    "id": 10,
+    "enclosure_id": 1,
+    "collected_at": "2026-01-15T10:30:00",
+    "temperature": "25.5",
+    "humidity": "45.0",
+    "current": "2.5",
+    "voltage": "220.0",
+    "vibration": 10,
+    "ups_battery_level": 85,
+    "ups_charging": true,
+    "detail": null,
+    "created_at": "2026-01-15T10:30:00.123456"
+  }
+}
+```
+
+**Error Response (404 Not Found)** - 메트릭이 없는 경우:
+```json
+{
+  "success": false,
+  "message": "No metrics found for enclosure 1",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+#### 5.5.12 Enclosure 메트릭 삭제 *(v2.9 신규)*
+
+함체의 환경 모니터링 메트릭을 삭제합니다.
+
+**Endpoint**: `DELETE /api/devices/enclosures/{enclosure_id}/metrics`
+
+**Path Parameters**:
+- `enclosure_id` (integer, required): Enclosure ID
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| before_date | datetime | N | 이 날짜 이전 메트릭만 삭제 (ISO 8601) |
+
+**Request Example**:
+```http
+DELETE /api/devices/enclosures/1/metrics?before_date=2026-01-01T00:00:00Z HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Deleted 150 metrics",
+  "data": {
+    "deleted_count": 150
+  }
+}
+```
+
+**주의사항**:
+- `before_date` 미지정 시 해당 Enclosure의 **모든 메트릭** 삭제
+- 삭제된 데이터는 복구 불가
 
 ---
 
@@ -10158,6 +10393,12 @@ GET /api/servers/summary
 - `PATCH /api/devices/enclosures/{id}/status` - 함체 환경 데이터 업데이트
 - `POST /api/devices/enclosures/{id}/control` - 함체 제어 (히터/팬)
 
+**Enclosure Metrics** (v2.9 신규):
+- `POST /api/devices/enclosures/{enclosure_id}/metrics` - 메트릭 저장
+- `GET /api/devices/enclosures/{enclosure_id}/metrics` - 메트릭 목록 조회
+- `GET /api/devices/enclosures/{enclosure_id}/metrics/latest` - 최신 메트릭 조회
+- `DELETE /api/devices/enclosures/{enclosure_id}/metrics` - 메트릭 삭제
+
 #### Event Endpoints
 
 **Detection Events**:
@@ -10436,6 +10677,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v2.9 | 2026-01-15 | **Device is_enable 필드 추가 및 Enclosure Metrics API 추가**<br><br>**[1. Device 공통 필드 추가]** (PRD_Device_IsEnable_Field.md v1.0)<br>- **is_enable (BOOLEAN)**: 장비 활성화 여부 (기본값: TRUE)<br>- Controller, Sensor, Camera, Speaker, Enclosure 모든 Device 타입에 적용<br><br>**[2. API 스키마 변경 (is_enable)]**<br>- **Create 스키마**: `is_enable` 필드 추가 (optional, default=true)<br>- **Response 스키마**: `is_enable` 필드 포함<br>- **Update 스키마**: `is_enable` 필드 추가 (optional)<br>- **NestedResponse 스키마**: `is_enable` 필드 포함<br><br>**[3. DeviceGroup/Event 연관 스키마]**<br>- DeviceGroup devices 배열 내 Device 객체에 is_enable 포함<br>- Event device nested 객체에 is_enable 포함<br><br>**[4. Enclosure Metrics API 신규]** (PRD_Enclosure_Metrics_Separation.md v1.0)<br>- **5.5.9 POST /{enclosure_id}/metrics**: 환경 모니터링 메트릭 저장<br>- **5.5.10 GET /{enclosure_id}/metrics**: 메트릭 목록 조회 (시간 필터링 지원)<br>- **5.5.11 GET /{enclosure_id}/metrics/latest**: 최신 메트릭 단건 조회<br>- **5.5.12 DELETE /{enclosure_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자산/시계열 데이터 분리**: enclosures (자산) ↔ enclosure_metrics (측정값) |
 | v2.8 | 2026-01-12 | **Event Mapping Speakers API 추가**<br><br>**[1. EventMappingSpeaker API 신규 (7.4 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/speakers`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **아키텍처**: EventMapping을 Base 노드로 하는 확장 가능한 Speaker Action 구조<br>- **FK 관계**:<br>  • `event_mapping_id` (CASCADE): EventMapping 삭제 시 함께 삭제<br>  • `speaker_id` (SET NULL): Speaker 삭제 시 연결만 해제<br>  • `file_group_id` (SET NULL): FileGroup 삭제 시 연결만 해제<br>- **주요 필드**: repeat_count (방송 반복 횟수), is_enable, priority<br>- **Nested Response**: speaker, file_group 상세 정보 포함 |
 | v2.6 | 2026-01-09 | **Speaker Geolocation 추가 및 Event 필드 정규화**<br><br>**[1. Speaker Geolocation 추가]** (PRD_Speaker_Geolocation.md v1.0)<br>- **speakers.geolocation JSONB 추가**: Speaker 장비 위치 정보<br>- **API 변경**: POST/PATCH/PUT Request에 geolocation 필드 추가<br>- **Response 변경**: GET 응답에 geolocation 필드 포함<br>- **Swagger/Docs 업데이트**: SpeakerCreate, SpeakerUpdate, SpeakerResponse 스키마에 geolocation 필드 추가<br><br>**[2. Event 필드 정규화]** (PRD_Event_Field_Normalization.md v1.0)<br>- **Detection Event**: `result` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)<br>  - 모든 Request/Response에서 result가 별도 필드<br>- **Malfunction Event**: `reason` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (first_start, first_end, second_start, second_end)<br>  - 모든 Request/Response에서 reason이 별도 필드<br>- **Action Event**: `from_event` nested response에 분리된 필드 적용 |
 | v2.4 | 2026-01-08 | **Camera URLs, Speaker/Enclosure Device, Controller/Sensor Geolocation, EventMappingCamera API**<br><br>**[0. ⚠️ Breaking Change: Category Event Refactoring]** (PRD_CategoryEvent_Refactoring.md v1.1)<br>- **EventMapping 필드명 변경**: `category_event` (VARCHAR) → `category_event_mapping` (Enum)<br>- **EnumEventCategory 신규**: Event 모델 polymorphic discriminator용 (DETECTION, MALFUNCTION, CONNECTION)<br>- **EnumMappingEventCategory**: EventMapping 센서 조합 타입용 (FENCE_SENSOR_ONLY, MULTI_SENSOR_ONLY 등)<br>- **Query Parameter 변경**: `?category_event=xxx` → `?category_event_mapping=FENCE_SENSOR_ONLY`<br><br>**[1. Camera URL 스키마 변경]**<br>- **rtsp_uri, rtsp_port 제거** → `urls` JSONB 필드로 통합<br>- **유연한 dict 기반 구조**: homepage, onvif, streams, snapshot 등<br><br>**[2. EventMappingCamera API 신규 (7.3 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/cameras`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **레거시 CameraEventMappings API 제거**<br><br>**[3. Server 인증 정보 필드 추가]**<br>- **Server 모델 필드 추가**: `user_name`, `user_password`<br><br>**[4. Speaker Device API 신규]**<br>- **[신규] 5.8 Speaker API**: `/api/devices/speakers` - Device Polymorphic 상속 구조<br>- **[신규] 5.9 FileGroup API**: `/api/file-groups` - 방송음원 파일풀 관리<br>- **EnumDeviceCategory 확장**: `SPEAKER = "speaker"` 추가<br>- **EnumSpeakerType 신규**: NORMAL, ADMIN, MONITOR, DEV<br><br>**[5. Enclosure Device API 신규]** (PRD_Enclosure_Device.md v1.1)<br>- **[신규] 5.10 Enclosure API**: `/api/devices/enclosures` - 함체관리장비<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **특수 엔드포인트**: `PATCH /{id}/status` (환경 데이터), `POST /{id}/control` (히터/팬 제어)<br>- **EnumDeviceCategory 확장**: `ENCLOSURE = "enclosure"` 추가<br>- **EnumDoorStatus 신규**: CLOSED, OPEN - 도어 물리적 상태<br>- **Enclosure 테이블**: door_status, detail_info (JSONB), geolocation (JSONB), threshold_config (JSONB), heater_enabled, fan_enabled<br><br>**[6. Controller/Sensor Geolocation 추가]** (PRD_Controller_Sensor_Geolocation.md v1.0)<br>- **controllers.geolocation JSONB 추가**: Controller 장비 위치 정보<br>- **sensors.geolocation JSONB 추가**: Sensor 장비 위치 정보<br>- **geolocation JSON 구조**: `{location, latitude, longitude, altitude}` |
@@ -10455,5 +10697,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v2.8
-**최종 업데이트**: 2026-01-12
+**문서 버전**: v2.9
+**최종 업데이트**: 2026-01-15

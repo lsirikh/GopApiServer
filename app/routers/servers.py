@@ -10,6 +10,7 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.server import ServerCategory, Server
+from app.models.system_event import SystemEvent
 from app.utils.enums import EnumServerStatus
 from app.schemas.server import (
     ServerCreate,
@@ -20,6 +21,24 @@ from app.schemas.server import (
 from app.schemas.common import ApiResponse, PaginationMeta
 
 router = APIRouter(tags=["Servers"])
+
+
+def _server_to_response(server: Server) -> ServerResponse:
+    """Server 모델을 ServerResponse로 변환하는 헬퍼 함수"""
+    return ServerResponse(
+        id=server.id,
+        category_id=server.category_id,
+        name=server.name,
+        status=server.status.value,
+        ip_address=server.ip_address,
+        port=server.port,
+        hostname=server.hostname,
+        user_name=server.user_name,
+        user_password=server.user_password,
+        threshold_config=server.threshold_config,
+        created_at=server.created_at,
+        updated_at=server.updated_at
+    )
 
 
 @router.get("/summary", response_model=ApiResponse[list[ServerCategorySummary]])
@@ -57,24 +76,7 @@ async def get_server_summary(
         error_count = sum(1 for s in servers if s.status == EnumServerStatus.ERROR)
 
         # Create server responses
-        server_responses = [
-            ServerResponse(
-                id=s.id,
-                category_id=s.category_id,
-                name=s.name,
-                status=s.status.value,
-                ip_address=s.ip_address,
-                port=s.port,
-                hostname=s.hostname,
-                cpu_usage=s.cpu_usage,
-                ram_usage=s.ram_usage,
-                disk_usage=s.disk_usage,
-                network_throughput=s.network_throughput,
-                created_at=s.created_at,
-                updated_at=s.updated_at
-            )
-            for s in servers
-        ]
+        server_responses = [_server_to_response(s) for s in servers]
 
         summary = ServerCategorySummary(
             id=category.id,
@@ -136,24 +138,7 @@ async def get_servers(
     servers = query.offset(skip).limit(limit).all()
 
     # Convert to response format
-    server_responses = [
-        ServerResponse(
-            id=s.id,
-            category_id=s.category_id,
-            name=s.name,
-            status=s.status.value,
-            ip_address=s.ip_address,
-            port=s.port,
-            hostname=s.hostname,
-            cpu_usage=s.cpu_usage,
-            ram_usage=s.ram_usage,
-            disk_usage=s.disk_usage,
-            network_throughput=s.network_throughput,
-            created_at=s.created_at,
-            updated_at=s.updated_at
-        )
-        for s in servers
-    ]
+    server_responses = [_server_to_response(s) for s in servers]
 
     pagination = PaginationMeta(
         page=page,
@@ -196,26 +181,72 @@ async def get_server(
             detail=f"Server with id {server_id} not found"
         )
 
-    server_response = ServerResponse(
-        id=server.id,
-        category_id=server.category_id,
-        name=server.name,
-        status=server.status.value,
-        ip_address=server.ip_address,
-        port=server.port,
-        hostname=server.hostname,
-        cpu_usage=server.cpu_usage,
-        ram_usage=server.ram_usage,
-        disk_usage=server.disk_usage,
-        network_throughput=server.network_throughput,
-        created_at=server.created_at,
-        updated_at=server.updated_at
-    )
-
     return ApiResponse(
         success=True,
         message="Server retrieved successfully",
-        data=server_response
+        data=_server_to_response(server)
+    )
+
+
+@router.get("/{server_id}/system-events")
+async def get_server_system_events(
+    server_id: int,
+    page: int = Query(1, ge=1, description="페이지 번호"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
+    current_user=Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    서버별 시스템 이벤트 조회
+
+    특정 서버에서 발생한 시스템 이벤트 목록을 조회합니다.
+
+    - **server_id**: 서버 ID (Path Parameter)
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+
+    **Response**: 해당 서버의 시스템 이벤트 목록
+
+    **Error**:
+    - 404: 서버를 찾을 수 없음
+    """
+    # 서버 존재 확인
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Server with id {server_id} not found"
+        )
+
+    # 해당 서버의 시스템 이벤트 조회
+    query = db.query(SystemEvent).filter(SystemEvent.server_id == server_id)
+    query = query.order_by(SystemEvent.created_at.desc())
+
+    offset = (page - 1) * limit
+    events = query.offset(offset).limit(limit).all()
+
+    # 응답 변환
+    event_responses = []
+    for event in events:
+        event_responses.append({
+            "id": event.id,
+            "server_id": event.server_id,
+            "server_description": event.server_description,
+            "type_event": event.type_event.value if event.type_event else None,
+            "severity": event.severity.value if event.severity else None,
+            "title": event.title,
+            "message": event.message,
+            "detail": event.detail,
+            "is_acknowledged": event.is_acknowledged,
+            "acknowledged_by": event.acknowledged_by,
+            "acknowledged_at": event.acknowledged_at,
+            "created_at": event.created_at
+        })
+
+    return ApiResponse(
+        success=True,
+        message="Server system events retrieved successfully",
+        data=event_responses
     )
 
 
@@ -238,10 +269,7 @@ async def create_server(
     - **ip_address**: IP 주소 (필수)
     - **port**: 포트 번호 (필수)
     - **hostname**: 호스트명 (선택)
-    - **cpu_usage**: CPU 사용률 (선택)
-    - **ram_usage**: RAM 사용률 (선택)
-    - **disk_usage**: 디스크 사용률 (선택)
-    - **network_throughput**: 네트워크 처리량 (선택)
+    - **threshold_config**: 임계치 설정 JSON (선택)
 
     **Response**: 생성된 서버 정보
 
@@ -267,36 +295,19 @@ async def create_server(
         ip_address=server_data.ip_address,
         port=server_data.port,
         hostname=server_data.hostname,
-        cpu_usage=server_data.cpu_usage,
-        ram_usage=server_data.ram_usage,
-        disk_usage=server_data.disk_usage,
-        network_throughput=server_data.network_throughput
+        user_name=server_data.user_name,
+        user_password=server_data.user_password,
+        threshold_config=server_data.threshold_config
     )
 
     db.add(new_server)
     db.commit()
     db.refresh(new_server)
 
-    server_response = ServerResponse(
-        id=new_server.id,
-        category_id=new_server.category_id,
-        name=new_server.name,
-        status=new_server.status.value,
-        ip_address=new_server.ip_address,
-        port=new_server.port,
-        hostname=new_server.hostname,
-        cpu_usage=new_server.cpu_usage,
-        ram_usage=new_server.ram_usage,
-        disk_usage=new_server.disk_usage,
-        network_throughput=new_server.network_throughput,
-        created_at=new_server.created_at,
-        updated_at=new_server.updated_at
-    )
-
     return ApiResponse(
         success=True,
         message="Server created successfully",
-        data=server_response
+        data=_server_to_response(new_server)
     )
 
 
@@ -322,10 +333,7 @@ async def update_server(
     - **ip_address**: IP 주소
     - **port**: 포트 번호
     - **hostname**: 호스트명
-    - **cpu_usage**: CPU 사용률
-    - **ram_usage**: RAM 사용률
-    - **disk_usage**: 디스크 사용률
-    - **network_throughput**: 네트워크 처리량
+    - **threshold_config**: 임계치 설정 JSON
 
     **Response**: 수정된 서버 정보
 
@@ -360,26 +368,10 @@ async def update_server(
     db.commit()
     db.refresh(server)
 
-    server_response = ServerResponse(
-        id=server.id,
-        category_id=server.category_id,
-        name=server.name,
-        status=server.status.value,
-        ip_address=server.ip_address,
-        port=server.port,
-        hostname=server.hostname,
-        cpu_usage=server.cpu_usage,
-        ram_usage=server.ram_usage,
-        disk_usage=server.disk_usage,
-        network_throughput=server.network_throughput,
-        created_at=server.created_at,
-        updated_at=server.updated_at
-    )
-
     return ApiResponse(
         success=True,
         message="Server updated successfully",
-        data=server_response
+        data=_server_to_response(server)
     )
 
 
@@ -405,10 +397,7 @@ async def replace_server(
     - **ip_address**: IP 주소
     - **port**: 포트 번호
     - **hostname**: 호스트명
-    - **cpu_usage**: CPU 사용률
-    - **ram_usage**: RAM 사용률
-    - **disk_usage**: 디스크 사용률
-    - **network_throughput**: 네트워크 처리량
+    - **threshold_config**: 임계치 설정 JSON
 
     **Response**: 수정된 서버 정보
 
@@ -441,34 +430,17 @@ async def replace_server(
     server.ip_address = server_data.ip_address
     server.port = server_data.port
     server.hostname = server_data.hostname
-    server.cpu_usage = server_data.cpu_usage
-    server.ram_usage = server_data.ram_usage
-    server.disk_usage = server_data.disk_usage
-    server.network_throughput = server_data.network_throughput
+    server.user_name = server_data.user_name
+    server.user_password = server_data.user_password
+    server.threshold_config = server_data.threshold_config
 
     db.commit()
     db.refresh(server)
 
-    server_response = ServerResponse(
-        id=server.id,
-        category_id=server.category_id,
-        name=server.name,
-        status=server.status.value,
-        ip_address=server.ip_address,
-        port=server.port,
-        hostname=server.hostname,
-        cpu_usage=server.cpu_usage,
-        ram_usage=server.ram_usage,
-        disk_usage=server.disk_usage,
-        network_throughput=server.network_throughput,
-        created_at=server.created_at,
-        updated_at=server.updated_at
-    )
-
     return ApiResponse(
         success=True,
         message="Server replaced successfully",
-        data=server_response
+        data=_server_to_response(server)
     )
 
 

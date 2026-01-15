@@ -12,16 +12,16 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Enclosure
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus
-from app.schemas.enclosure import (
+from app.schemas.device import (
     EnclosureCreate,
     EnclosureUpdate,
     EnclosureResponse,
     EnclosureControl,
     EnclosureStatusUpdate,
-    EnclosureDetailInfo,
-    EnclosureThresholdConfig
+    EnclosureThresholdConfig,
+    Geolocation
 )
-from app.schemas.device import Geolocation
+# EnclosureDetailInfo 제거됨 (PRD_Enclosure_Metrics_Separation.md v1.0)
 from app.schemas.common import ApiResponse, PaginationMeta
 
 router = APIRouter(tags=["Enclosures"])
@@ -30,9 +30,7 @@ router = APIRouter(tags=["Enclosures"])
 def _enclosure_to_response(enclosure: Enclosure) -> EnclosureResponse:
     """Convert Enclosure model to EnclosureResponse schema"""
     # Convert JSONB to Pydantic schemas
-    detail_info = None
-    if enclosure.detail_info:
-        detail_info = EnclosureDetailInfo(**enclosure.detail_info)
+    # detail_info 제거됨 → enclosure_metrics API 사용 (PRD_Enclosure_Metrics_Separation.md v1.0)
 
     geolocation = None
     if enclosure.geolocation:
@@ -50,8 +48,8 @@ def _enclosure_to_response(enclosure: Enclosure) -> EnclosureResponse:
         type_device=enclosure.type_device.value if hasattr(enclosure.type_device, 'value') else str(enclosure.type_device),
         version=enclosure.version,
         status=enclosure.status,
+        is_enable=enclosure.is_enable,
         door_status=enclosure.door_status,
-        detail_info=detail_info,
         geolocation=geolocation,
         threshold_config=threshold_config,
         heater_enabled=enclosure.heater_enabled,
@@ -191,10 +189,11 @@ async def create_enclosure(
         type_device=enclosure_data.type_device,
         version=enclosure_data.version,
         status=enclosure_data.status,
+        is_enable=enclosure_data.is_enable,
         door_status=enclosure_data.door_status,
-        detail_info=enclosure_data.detail_info.model_dump() if enclosure_data.detail_info else None,
-        geolocation=enclosure_data.geolocation.model_dump() if enclosure_data.geolocation else None,
-        threshold_config=enclosure_data.threshold_config.model_dump() if enclosure_data.threshold_config else None,
+        detail_info=enclosure_data.detail_info.model_dump(mode='json') if enclosure_data.detail_info else None,
+        geolocation=enclosure_data.geolocation.model_dump(mode='json') if enclosure_data.geolocation else None,
+        threshold_config=enclosure_data.threshold_config.model_dump(mode='json') if enclosure_data.threshold_config else None,
         heater_enabled=enclosure_data.heater_enabled,
         fan_enabled=enclosure_data.fan_enabled
     )
@@ -255,7 +254,7 @@ async def update_enclosure(
     for field, value in update_data.items():
         # Handle nested Pydantic models
         if field in ['detail_info', 'geolocation', 'threshold_config'] and value is not None:
-            setattr(enclosure, field, value if isinstance(value, dict) else value.model_dump())
+            setattr(enclosure, field, value if isinstance(value, dict) else value.model_dump(mode='json'))
         else:
             setattr(enclosure, field, value)
 
@@ -309,10 +308,11 @@ async def replace_enclosure(
     enclosure.type_device = enclosure_data.type_device
     enclosure.version = enclosure_data.version
     enclosure.status = enclosure_data.status
+    enclosure.is_enable = enclosure_data.is_enable
     enclosure.door_status = enclosure_data.door_status
-    enclosure.detail_info = enclosure_data.detail_info.model_dump() if enclosure_data.detail_info else None
-    enclosure.geolocation = enclosure_data.geolocation.model_dump() if enclosure_data.geolocation else None
-    enclosure.threshold_config = enclosure_data.threshold_config.model_dump() if enclosure_data.threshold_config else None
+    enclosure.detail_info = enclosure_data.detail_info.model_dump(mode='json') if enclosure_data.detail_info else None
+    enclosure.geolocation = enclosure_data.geolocation.model_dump(mode='json') if enclosure_data.geolocation else None
+    enclosure.threshold_config = enclosure_data.threshold_config.model_dump(mode='json') if enclosure_data.threshold_config else None
     enclosure.heater_enabled = enclosure_data.heater_enabled
     enclosure.fan_enabled = enclosure_data.fan_enabled
 
@@ -328,7 +328,7 @@ async def replace_enclosure(
     )
 
 
-@router.delete("/{enclosure_id}", response_model=ApiResponse[dict])
+@router.delete("/{enclosure_id}", response_model=ApiResponse[None])
 async def delete_enclosure(
     enclosure_id: int,
     current_user=Depends(get_current_user_optional),
@@ -360,7 +360,7 @@ async def delete_enclosure(
     return ApiResponse(
         success=True,
         message="Enclosure deleted successfully",
-        data={"id": enclosure_id}
+        data=None
     )
 
 
@@ -404,7 +404,7 @@ async def update_enclosure_status(
 
     # Update fields if provided
     if status_data.detail_info is not None:
-        enclosure.detail_info = status_data.detail_info.model_dump()
+        enclosure.detail_info = status_data.detail_info.model_dump(mode='json')
 
     if status_data.door_status is not None:
         enclosure.door_status = status_data.door_status

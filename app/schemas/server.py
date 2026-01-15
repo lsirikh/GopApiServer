@@ -4,7 +4,7 @@ Based on PRD_Server_Monitoring.md
 """
 from pydantic import BaseModel, ConfigDict, field_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from app.utils.enums import EnumServerType, EnumServerStatus
 
@@ -63,10 +63,7 @@ class ServerCreate(BaseModel):
     hostname: Optional[str] = None
     user_name: Optional[str] = None
     user_password: Optional[str] = None
-    cpu_usage: Optional[float] = None
-    ram_usage: Optional[float] = None
-    disk_usage: Optional[float] = None
-    network_throughput: Optional[str] = None
+    threshold_config: Optional[Dict[str, Any]] = None
 
     @field_validator('name')
     @classmethod
@@ -86,10 +83,7 @@ class ServerUpdate(BaseModel):
     hostname: Optional[str] = None
     user_name: Optional[str] = None
     user_password: Optional[str] = None
-    cpu_usage: Optional[float] = None
-    ram_usage: Optional[float] = None
-    disk_usage: Optional[float] = None
-    network_throughput: Optional[str] = None
+    threshold_config: Optional[Dict[str, Any]] = None
 
 
 class ServerResponse(BaseModel):
@@ -103,10 +97,7 @@ class ServerResponse(BaseModel):
     hostname: Optional[str] = None
     user_name: Optional[str] = None
     user_password: Optional[str] = None
-    cpu_usage: Optional[float] = None
-    ram_usage: Optional[float] = None
-    disk_usage: Optional[float] = None
-    network_throughput: Optional[str] = None
+    threshold_config: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -132,10 +123,7 @@ class ServerNestedResponse(BaseModel):
     hostname: Optional[str] = None
     user_name: Optional[str] = None
     user_password: Optional[str] = None
-    cpu_usage: Optional[float] = None
-    ram_usage: Optional[float] = None
-    disk_usage: Optional[float] = None
-    network_throughput: Optional[str] = None
+    threshold_config: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -164,5 +152,65 @@ class ServerCategorySummary(BaseModel):
     warning: int = 0
     error: int = 0
     servers: List[ServerResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================
+# ServerMetrics Schemas
+# ============================================================
+
+class ServerMetricsCreate(BaseModel):
+    """
+    Schema for creating server metrics
+    PRD Reference: PRD_System_Event.md Section 2.4
+    """
+    cpu_usage: Optional[float] = None
+    ram_usage: Optional[float] = None
+    ram_total_gb: Optional[float] = None
+    ram_used_gb: Optional[float] = None
+    disk_usage: Optional[float] = None
+    disk_total_gb: Optional[float] = None
+    disk_used_gb: Optional[float] = None
+    network_in_mbps: Optional[float] = None
+    network_out_mbps: Optional[float] = None
+    process_count: Optional[int] = None
+    detail: Optional[Dict[str, Any]] = None
+    collected_at: Optional[datetime] = None
+
+
+class ServerMetricsResponse(BaseModel):
+    """
+    Schema for server metrics response
+    PRD Reference: PRD_System_Event.md Section 2.4
+    """
+    id: int
+    server_id: int
+    cpu_usage: Optional[float] = None
+    ram_usage: Optional[float] = None
+    ram_total_gb: Optional[float] = None
+    ram_used_gb: Optional[float] = None
+    disk_usage: Optional[float] = None
+    disk_total_gb: Optional[float] = None
+    disk_used_gb: Optional[float] = None
+    network_in_mbps: Optional[float] = None
+    network_out_mbps: Optional[float] = None
+    process_count: Optional[int] = None
+    detail: Optional[Dict[str, Any]] = None
+    collected_at: Optional[datetime] = None
+    created_at: datetime
+    threshold_exceeded: Optional[Dict[str, Any]] = None  # 임계치 초과 정보
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServerMetricsLatestResponse(BaseModel):
+    """
+    Schema for latest server metrics response
+    PRD Reference: PRD_System_Event.md Section 2.4
+    """
+    server_id: int
+    server_name: str
+    latest_metrics: Optional[ServerMetricsResponse] = None
 
     model_config = ConfigDict(from_attributes=True)

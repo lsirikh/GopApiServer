@@ -92,6 +92,7 @@ def _camera_to_response(camera: Camera, db: Session) -> CameraResponse:
         type_device=camera.type_device.value,
         version=camera.version,
         status=camera.status.value,
+        is_enable=camera.is_enable,
         ip_address=camera.ip_address,
         ip_port=camera.ip_port,
         user_name=camera.user_name,
@@ -340,6 +341,7 @@ async def create_camera(
         type_device=device_type,
         version=camera_data.version,
         status=device_status,
+        is_enable=camera_data.is_enable,
         ip_address=camera_data.ip_address,
         ip_port=camera_data.ip_port,
         user_name=camera_data.user_name,
@@ -544,6 +546,7 @@ async def replace_camera(
     camera.type_device = device_type
     camera.version = camera_data.version
     camera.status = device_status
+    camera.is_enable = camera_data.is_enable
     camera.ip_address = camera_data.ip_address
     camera.ip_port = camera_data.ip_port
     camera.user_name = camera_data.user_name
@@ -570,7 +573,7 @@ async def replace_camera(
     )
 
 
-@router.delete("/{camera_id}", response_model=ApiResponse[dict])
+@router.delete("/{camera_id}", response_model=ApiResponse[None])
 async def delete_camera(
     camera_id: int,
     current_user = Depends(get_current_user_optional),
@@ -609,5 +612,5 @@ async def delete_camera(
     return ApiResponse(
         success=True,
         message="Camera deleted successfully",
-        data={"id": camera_id}
+        data=None
     )

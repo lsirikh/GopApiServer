@@ -4,7 +4,7 @@ Database initialization utilities
 from sqlalchemy.orm import Session
 
 from app.database import engine, SessionLocal, Base
-from app.models.user import User
+from app.models.user import User, AccountUser
 from app.models.log import ApiLog
 from app.utils.auth import hash_password
 from app.utils.init_server_data import initialize_server_data
@@ -46,6 +46,37 @@ def create_admin_user(db: Session):
     print("[OK] Admin user created (username: admin, password: admin123)")
 
 
+def create_admin_account_user(db: Session):
+    """
+    Create initial AccountUser admin if not exists
+
+    Args:
+        db: Database session
+    """
+    # Check if admin AccountUser already exists
+    existing_admin = db.query(AccountUser).filter(AccountUser.login_id == "admin").first()
+
+    if existing_admin:
+        print("[OK] AccountUser admin already exists")
+        return
+
+    # Create admin AccountUser
+    admin_account = AccountUser(
+        login_id="admin",
+        password_hash=hash_password("admin123"),
+        name="시스템 관리자",
+        role="ADMIN",
+        is_active=True,
+        is_locked=False
+    )
+
+    db.add(admin_account)
+    db.commit()
+    db.refresh(admin_account)
+
+    print("[OK] AccountUser admin created (login_id: admin, password: admin123)")
+
+
 def initialize_database():
     """
     Initialize database: create tables and admin user
@@ -59,6 +90,7 @@ def initialize_database():
     db = SessionLocal()
     try:
         create_admin_user(db)
+        create_admin_account_user(db)
         initialize_server_data(db)
     finally:
         db.close()

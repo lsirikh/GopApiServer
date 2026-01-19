@@ -252,8 +252,9 @@ class EnumDoorStatus(str, Enum):
 
 class EnumSystemEventType(str, Enum):
     """
-    System Event type enumeration (17종)
+    System Event type enumeration (24종)
     PRD: PRD_System_Event.md Section 3.1
+    PRD: PRD_Account_Design.md Section 9.2 (Account 관련 이벤트 추가)
 
     시스템 레벨 이벤트 유형을 정의합니다.
     디바이스/센서 이벤트(Event 테이블)와 별개의 시스템 운영 이벤트입니다.
@@ -274,9 +275,16 @@ class EnumSystemEventType(str, Enum):
     # 설정 변경 (1종)
     CONFIG_CHANGED = "CONFIG_CHANGED"           # 설정 변경됨
 
-    # 사용자 활동 (2종)
+    # 사용자 활동 (9종) - PRD_Account_Design.md Section 9.2
     USER_LOGIN = "USER_LOGIN"                   # 사용자 로그인
     USER_LOGOUT = "USER_LOGOUT"                 # 사용자 로그아웃
+    USER_LOGIN_FAILED = "USER_LOGIN_FAILED"     # 로그인 실패
+    USER_LOCKED = "USER_LOCKED"                 # 계정 잠금
+    USER_UNLOCKED = "USER_UNLOCKED"             # 계정 잠금 해제
+    USER_CREATED = "USER_CREATED"               # 사용자 생성
+    USER_UPDATED = "USER_UPDATED"               # 사용자 수정
+    USER_DELETED = "USER_DELETED"               # 사용자 삭제
+    SESSION_FORCED_LOGOUT = "SESSION_FORCED_LOGOUT"  # 강제 로그아웃
 
     # 디바이스 관리 (3종)
     DEVICE_ADDED = "DEVICE_ADDED"               # 디바이스 추가됨
@@ -303,3 +311,71 @@ class EnumSystemEventSeverity(str, Enum):
     WARNING = "WARNING"     # 경고 (주의 필요)
     ERROR = "ERROR"         # 오류 (조치 필요)
     CRITICAL = "CRITICAL"   # 심각 (즉시 조치 필요)
+
+
+class EnumUserRole(str, Enum):
+    """
+    User role enumeration (5종)
+    PRD: PRD_Account_Design.md Section 3.2
+
+    사용자 등급 (권한 높은 순)
+    """
+    ADMIN = "ADMIN"               # 관리자 - 시스템 전체 관리
+    MAINTAINER = "MAINTAINER"     # 유지보수자 - 장비/시스템 관리
+    OPERATOR = "OPERATOR"         # 운영자 - 일반 운영
+    VIEWER = "VIEWER"             # 조회자 - 조회 전용
+    GUEST = "GUEST"               # 게스트 - 제한된 접근
+
+
+class EnumLogoutReason(str, Enum):
+    """
+    Logout reason enumeration (6종)
+    PRD: PRD_Account_Design.md Section 5.2
+
+    로그아웃 사유
+    """
+    MANUAL = "MANUAL"                     # 사용자 직접 로그아웃
+    EXPIRED = "EXPIRED"                   # 세션 만료
+    FORCED = "FORCED"                     # 관리자 강제 로그아웃
+    LOCKED = "LOCKED"                     # 계정 잠금으로 인한 로그아웃
+    PASSWORD_CHANGED = "PASSWORD_CHANGED" # 비밀번호 변경
+    DUPLICATE = "DUPLICATE"               # 중복 로그인으로 인한 기존 세션 종료
+
+
+class EnumLoginAction(str, Enum):
+    """
+    Login action enumeration (3종)
+    PRD: PRD_Account_Design.md Section 6.1
+
+    로그인 로그 행위 유형
+    """
+    LOGIN = "LOGIN"     # 로그인 시도
+    LOGOUT = "LOGOUT"   # 로그아웃
+    REFRESH = "REFRESH" # 토큰 갱신
+
+
+class EnumLoginResult(str, Enum):
+    """
+    Login result enumeration (2종)
+    PRD: PRD_Account_Design.md Section 6.1
+
+    로그인 결과
+    """
+    SUCCESS = "SUCCESS"   # 성공
+    FAILURE = "FAILURE"   # 실패
+
+
+class EnumLoginFailureReason(str, Enum):
+    """
+    Login failure reason enumeration (7종)
+    PRD: PRD_Account_Design.md Section 6.2
+
+    로그인 실패 사유
+    """
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"   # 아이디/비밀번호 불일치
+    ACCOUNT_LOCKED = "ACCOUNT_LOCKED"             # 계정 잠금
+    ACCOUNT_INACTIVE = "ACCOUNT_INACTIVE"         # 비활성화 계정
+    PASSWORD_EXPIRED = "PASSWORD_EXPIRED"         # 비밀번호 만료
+    IP_BLOCKED = "IP_BLOCKED"                     # IP 차단
+    TIME_RESTRICTED = "TIME_RESTRICTED"           # 접속 시간 제한
+    MAX_SESSIONS = "MAX_SESSIONS"                 # 최대 세션 수 초과

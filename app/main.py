@@ -23,7 +23,7 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups, enclosure_metrics
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups, enclosure_metrics, users, user_groups, user_sessions
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -32,7 +32,19 @@ from app.schemas.common import ApiResponse
 tags_metadata = [
     {
         "name": "Authentication",
-        "description": "사용자 인증 및 토큰 관리 API",
+        "description": "사용자 인증 및 토큰 관리 API. PRD: PRD_Account_Design.md Section 6",
+    },
+    {
+        "name": "Users",
+        "description": "사용자 계정 관리 API. 사용자 CRUD 및 권한 관리. PRD: PRD_Account_Design.md Section 7",
+    },
+    {
+        "name": "User Groups",
+        "description": "사용자 그룹 관리 API. 권한 및 접근 제어 그룹. PRD: PRD_Account_Design.md Section 8",
+    },
+    {
+        "name": "User Sessions",
+        "description": "사용자 세션 관리 API. 로그인 세션 조회 및 강제 로그아웃. PRD: PRD_Account_Design.md Section 9",
     },
     {
         "name": "DeviceGroups",
@@ -161,17 +173,30 @@ app = FastAPI(
 
 GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 제공합니다.
 
+### 🔐 인증 방법 (Authentication)
+
+1. **로그인**: `POST /api/auth/login` 호출
+```json
+{
+  "login_id": "admin",
+  "password": "admin123"
+}
+```
+
+2. **토큰 획득**: Response에서 `access_token` 복사
+
+3. **Swagger 인증**:
+   - 우측 상단 **[Authorize]** 버튼 클릭
+   - 토큰만 입력 (Bearer 접두사 불필요)
+   - **[Authorize]** 클릭
+
 ### 주요 기능
 
+- **User Management**: 사용자 계정, 그룹, 세션 관리 (PRD v1.1)
 - **Device Management**: Controller, Sensor, Camera 디바이스 CRUD
 - **Device Groups**: N:N 관계 기반 디바이스 그룹화 (PRD v1.5)
-- **Camera Extended Fields**: HardwareSpec, Geolocation 복합 타입 지원
 - **Event Management**: Detection, Malfunction, Connection, Action 이벤트
 - **Server Integration**: 외부 서버 연동 및 이벤트 매핑
-
-### 인증
-
-API는 선택적 JWT 토큰 인증을 지원합니다. `AUTH_MODE` 설정에 따라 인증이 활성화됩니다.
 
 ### 응답 형식
 
@@ -188,8 +213,8 @@ API는 선택적 JWT 토큰 인증을 지원합니다. `AUTH_MODE` 설정에 따
 
 ### 버전 정보
 
-- API Version: 1.5.0
-- PRD: PRD_Device_Structure_Refactoring.md
+- API Version: 2.9
+- PRD: PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md
 """,
     version="1.5.0",
     docs_url=None,  # Disable default docs to use custom
@@ -464,6 +489,9 @@ app.add_middleware(RequestIDMiddleware)   # Applied first
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(user_groups.router, prefix="/api/user-groups", tags=["User Groups"])
+app.include_router(user_sessions.router, prefix="/api/user-sessions", tags=["User Sessions"])
 app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
 app.include_router(controllers.router, prefix="/api/devices/controllers", tags=["Controllers"])
 app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors"])

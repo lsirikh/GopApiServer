@@ -1,6 +1,7 @@
 """
 Authentication utility functions
 """
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -58,7 +59,32 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
 
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+    return encoded_jwt
+
+
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Create JWT refresh token with longer expiration
+
+    Args:
+        data: Dictionary with token payload data (should include 'sub' for subject/username)
+        expires_delta: Optional custom expiration time delta
+
+    Returns:
+        Encoded JWT refresh token string
+    """
+    to_encode = data.copy()
+
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        # Refresh tokens expire after 7 days by default
+        expire = datetime.utcnow() + timedelta(days=7)
+
+    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     return encoded_jwt

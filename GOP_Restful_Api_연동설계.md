@@ -1,10 +1,10 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-15  
-**버전**: v2.9  
-**작성자**: 이기호 차장    
-**목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성   
+**최종 수정일**: 2026-01-19  
+**버전**: v3.0  
+**작성자**: 이기호 차장  
+**목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
 
 ---
@@ -44,11 +44,17 @@
    - 8.5 [기본 데이터 (Seed)](#85-기본-데이터-seed)
    - 8.6 [Server Metrics API](#86-server-metrics-api) *(v2.9 신규)*
    - 8.7 [System Events API](#87-system-events-api) *(v2.9 신규)*
-9. [에러 처리](#9-에러-처리)
-10. [부록](#10-부록)
-    - 10.1 [전체 Endpoint 목록](#101-전체-endpoint-목록)
-    - 10.2 [Event-Device 리팩토링 변경사항 (v2.3)](#102-event-device-리팩토링-변경사항-v23)
-    - 10.3 [EventMapping 리팩토링 변경사항 (v2.3)](#103-eventmapping-리팩토링-변경사항-v23)
+9. [Account API 설계](#9-account-api-설계) *(v3.0 신규)*
+   - 9.1 [개요](#91-개요)
+   - 9.2 [Auth API](#92-auth-api)
+   - 9.3 [User API](#93-user-api)
+   - 9.4 [UserGroup API](#94-usergroup-api)
+   - 9.5 [UserSession API](#95-usersession-api)
+10. [에러 처리](#10-에러-처리)
+11. [부록](#11-부록)
+    - 11.1 [전체 Endpoint 목록](#111-전체-endpoint-목록)
+    - 11.2 [Event-Device 리팩토링 변경사항 (v2.3)](#112-event-device-리팩토링-변경사항-v23)
+    - 11.3 [EventMapping 리팩토링 변경사항 (v2.3)](#113-eventmapping-리팩토링-변경사항-v23)
 
 ---
 
@@ -151,14 +157,14 @@ GET /api/events/detections?start_date=2025-01-01T00:00:00.000Z&end_date=2025-01-
 ```http
 Content-Type: application/json
 Accept: application/json
-Authorization: Bearer {token} (이 부분은 아직 합의된 내용이 없음)
+Authorization: Bearer {access_token}
 X-Client-UUID: {client-uuid} //선택적 참고용
 X-Request-ID: {request-uuid} //선택적 참고용
 ```
 
 **필수 헤더**:
 - `Content-Type`: POST, PUT, PATCH 요청 시 필수
-- `Authorization`: 인증 토큰 (Bearer 방식)
+- `Authorization`: JWT Bearer 토큰 (HTTPBearer 방식) - POST /api/auth/login으로 발급
 
 **선택 헤더**:
 - `X-Client-UUID`: 클라이언트 식별자
@@ -509,6 +515,79 @@ class EnumServerStatus(str, Enum):
     WARNING = "WARNING"     # 경고 상태 (리소스 사용률 높음)
     ERROR = "ERROR"         # 에러 상태 (서버 응답 없음/장애)
 ```
+
+### 4.5 Account Enum (v3.0 신규)
+
+> **v3.0 신규**: PRD_Account_Design.md 참조
+> 사용자 인증, 세션, 로그인 로그 관련 Enum
+
+#### EnumUserRole (사용자 등급 - 5종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumUserRole(str, Enum):
+    ADMIN = "ADMIN"           # 관리자 - 시스템 전체 관리
+    MAINTAINER = "MAINTAINER" # 유지보수자 - 장비/시스템 관리
+    OPERATOR = "OPERATOR"     # 운영자 - 일반 운영
+    VIEWER = "VIEWER"         # 조회자 - 조회 전용
+    GUEST = "GUEST"           # 게스트 - 제한된 접근
+```
+
+**사용처**:
+- `AccountUser.role`: 사용자 권한 등급
+
+#### EnumLogoutReason (로그아웃 사유 - 6종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumLogoutReason(str, Enum):
+    MANUAL = "MANUAL"               # 사용자 직접 로그아웃
+    SELF_LOGOUT = "SELF_LOGOUT"     # 다른 세션에서 자신의 세션 종료
+    EXPIRED = "EXPIRED"             # 세션 만료
+    FORCED = "FORCED"               # 관리자 강제 로그아웃
+    LOCKED = "LOCKED"               # 계정 잠금으로 인한 로그아웃
+    PASSWORD_CHANGED = "PASSWORD_CHANGED" # 비밀번호 변경
+```
+
+**사용처**:
+- `UserSession.logout_reason`: 세션 종료 사유
+
+#### EnumLoginAction (로그인 행위 - 3종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumLoginAction(str, Enum):
+    LOGIN = "LOGIN"     # 로그인 시도
+    LOGOUT = "LOGOUT"   # 로그아웃
+    REFRESH = "REFRESH" # 토큰 갱신
+```
+
+**사용처**:
+- `UserLoginLog.action`: 로그인 로그 행위 유형
+
+#### EnumLoginResult (로그인 결과 - 2종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumLoginResult(str, Enum):
+    SUCCESS = "SUCCESS"   # 성공
+    FAILURE = "FAILURE"   # 실패
+```
+
+**사용처**:
+- `UserLoginLog.result`: 로그인 결과
+
+#### EnumLoginFailureReason (로그인 실패 사유 - 7종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumLoginFailureReason(str, Enum):
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"   # 아이디/비밀번호 불일치
+    ACCOUNT_LOCKED = "ACCOUNT_LOCKED"             # 계정 잠금
+    ACCOUNT_INACTIVE = "ACCOUNT_INACTIVE"         # 비활성화 계정
+    PASSWORD_EXPIRED = "PASSWORD_EXPIRED"         # 비밀번호 만료
+    IP_BLOCKED = "IP_BLOCKED"                     # IP 차단
+    TIME_RESTRICTED = "TIME_RESTRICTED"           # 접속 시간 제한
+    MAX_SESSIONS = "MAX_SESSIONS"                 # 최대 세션 수 초과
+```
+
+**사용처**:
+- `UserLoginLog.failure_reason`: 로그인 실패 사유
 
 ---
 
@@ -10631,9 +10710,250 @@ GET /api/servers/summary
 
 ---
 
-## 9. 에러 처리
+## 9. Account API 설계
 
-### 9.1 에러 응답 형식
+> **v3.0 신규**: PRD_Account_Design.md 참조
+> 사용자 인증, 계정 관리, 그룹 관리, 세션 관리 API
+
+### 9.1 개요
+
+Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
+
+| 기능 | 설명 |
+|------|------|
+| **Auth** | 로그인, 로그아웃, 토큰 갱신, 현재 사용자 정보 |
+| **User** | 사용자 CRUD, 잠금/해제, 비밀번호 관리 |
+| **UserGroup** | 사용자 그룹 관리, 권한 설정 |
+| **UserSession** | 세션 모니터링, 강제 로그아웃 |
+
+### 9.2 Auth API
+
+#### 9.2.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/auth/login` | 로그인 |
+| POST | `/api/auth/logout` | 로그아웃 |
+| POST | `/api/auth/refresh` | 토큰 갱신 |
+| GET | `/api/auth/me` | 현재 사용자 정보 |
+
+#### 9.2.2 POST `/api/auth/login`
+
+**Request Body**:
+```json
+{
+  "login_id": "admin", //현재 기본 아이디
+  "password": "admin123" //현재 기본 비번
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+    "token_type": "Bearer",
+    "expires_in": 43200,
+    "user": {
+      "id": 1,
+      "login_id": "operator01",
+      "name": "홍길동",
+      "role": "OPERATOR"
+    }
+  }
+}
+```
+
+#### 9.2.3 POST `/api/auth/logout`
+
+**Request Header**:
+```
+Authorization: Bearer {access_token}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true
+}
+```
+
+### 9.3 User API
+
+#### 9.3.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/users` | 사용자 목록 조회 |
+| GET | `/api/users/{id}` | 사용자 상세 조회 |
+| POST | `/api/users` | 사용자 생성 |
+| PUT | `/api/users/{id}` | 사용자 수정 |
+| DELETE | `/api/users/{id}` | 사용자 삭제 |
+| POST | `/api/users/{id}/lock` | 계정 잠금 |
+| POST | `/api/users/{id}/unlock` | 계정 잠금 해제 |
+| POST | `/api/users/{id}/reset-password` | 비밀번호 초기화 |
+| GET | `/api/users/me` | 내 정보 조회 |
+| PUT | `/api/users/me` | 내 정보 수정 |
+| PUT | `/api/users/me/password` | 내 비밀번호 변경 |
+
+#### 9.3.2 GET `/api/users`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| page | int | 아니오 | 페이지 번호 (기본값: 1) |
+| limit | int | 아니오 | 페이지당 항목 수 (기본값: 100, 최대: 100) |
+| role | string | 아니오 | 역할 필터 (ADMIN, OPERATOR, VIEWER) |
+| group_id | int | 아니오 | 그룹 ID 필터 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "login_id": "operator01",
+      "name": "홍길동",
+      "department": "경계부대 1중대",
+      "role": "OPERATOR",
+      "group_id": 1,
+      "is_active": true,
+      "is_locked": false,
+      "created_at": "2026-01-01T09:00:00+09:00"
+    }
+  ]
+}
+```
+
+#### 9.3.3 POST `/api/users`
+
+**Request Body**:
+```json
+{
+  "login_id": "operator01",
+  "password": "SecureP@ss123!",
+  "name": "홍길동",
+  "department": "경계부대 1중대",
+  "position": "상병",
+  "role": "OPERATOR",
+  "group_id": 1
+}
+```
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "login_id": "operator01",
+    "name": "홍길동",
+    "role": "OPERATOR"
+  }
+}
+```
+
+### 9.4 UserGroup API
+
+#### 9.4.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/user-groups` | 그룹 목록 조회 |
+| GET | `/api/user-groups/{id}` | 그룹 상세 조회 |
+| POST | `/api/user-groups` | 그룹 생성 |
+| PUT | `/api/user-groups/{id}` | 그룹 수정 |
+| DELETE | `/api/user-groups/{id}` | 그룹 삭제 |
+| GET | `/api/user-groups/{id}/users` | 그룹 소속 사용자 목록 |
+
+#### 9.4.2 POST `/api/user-groups`
+
+**Request Body**:
+```json
+{
+  "name": "1중대 운영팀",
+  "description": "1중대 경계 시스템 운영 담당",
+  "permissions": {
+    "modules": {
+      "events": {"view": true, "edit": true, "delete": false},
+      "cameras": {"view": true, "edit": false, "control": true}
+    },
+    "device_groups": [1, 2, 3]
+  },
+  "is_active": true
+}
+```
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "1중대 운영팀",
+    "is_active": true
+  }
+}
+```
+
+### 9.5 UserSession API
+
+#### 9.5.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/user-sessions` | 활성 세션 목록 |
+| GET | `/api/user-sessions/{id}` | 세션 상세 조회 |
+| DELETE | `/api/user-sessions/{id}` | 강제 로그아웃 |
+| DELETE | `/api/user-sessions/user/{user_id}` | 특정 사용자 전체 세션 종료 |
+| GET | `/api/user-sessions/me` | 내 세션 목록 |
+| DELETE | `/api/user-sessions/me/{id}` | 내 다른 세션 종료 |
+
+#### 9.5.2 GET `/api/user-sessions`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| user_id | int | 아니오 | 사용자 ID 필터 |
+| is_active | boolean | 아니오 | 활성 상태 필터 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 101,
+      "user_id": 1,
+      "ip_address": "192.168.1.100",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+      "login_at": "2026-01-19T08:30:00+09:00",
+      "expires_at": "2026-01-19T20:30:00+09:00",
+      "is_active": true
+    }
+  ]
+}
+```
+
+#### 9.5.3 DELETE `/api/user-sessions/{id}`
+
+강제 로그아웃 처리. SystemEvent가 생성됩니다.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true
+}
+```
+
+---
+
+## 10. 에러 처리
+
+### 10.1 에러 응답 형식
 
 ```json
 {
@@ -10653,7 +10973,7 @@ GET /api/servers/summary
 }
 ```
 
-### 9.2 에러 코드 정의
+### 10.2 에러 코드 정의
 
 | HTTP 코드 | 에러 코드 | 설명 | 예제 시나리오 |
 |-----------|-----------|------|---------------|
@@ -10669,7 +10989,7 @@ GET /api/servers/summary
 | 503 | `SERVICE_UNAVAILABLE` | 서비스 불가 | 서버 점검, 과부하 |
 | 504 | `TIMEOUT` | 타임아웃 | 요청 처리 시간 초과 |
 
-### 9.3 에러 응답 예제
+### 10.3 에러 응답 예제
 
 #### 400 Validation Error (데이터 검증 실패)
 
@@ -10707,9 +11027,9 @@ GET /api/servers/summary
 
 ---
 
-## 10. 부록
+## 11. 부록
 
-### 10.1 전체 Endpoint 목록
+### 11.1 전체 Endpoint 목록
 
 #### Device Endpoints
 
@@ -10891,9 +11211,46 @@ GET /api/servers/summary
 - `POST /api/system-events/{id}/acknowledge` - 이벤트 확인
 - `GET /api/system-events/summary` - 요약 통계 조회
 
-### 10.2 Event-Device 리팩토링 변경사항 (v2.3)
+#### Account Endpoints (v3.0 신규)
 
-#### 10.2.1 API Request 변경
+**Auth**:
+- `POST /api/auth/login` - 로그인
+- `POST /api/auth/logout` - 로그아웃
+- `POST /api/auth/refresh` - 토큰 갱신
+- `GET /api/auth/me` - 현재 사용자 정보
+
+**Users**:
+- `GET /api/users` - 사용자 목록 조회
+- `POST /api/users` - 사용자 생성
+- `GET /api/users/{id}` - 사용자 상세 조회
+- `PUT /api/users/{id}` - 사용자 수정
+- `DELETE /api/users/{id}` - 사용자 삭제
+- `POST /api/users/{id}/lock` - 계정 잠금
+- `POST /api/users/{id}/unlock` - 계정 잠금 해제
+- `POST /api/users/{id}/reset-password` - 비밀번호 초기화
+- `GET /api/users/me` - 내 정보 조회
+- `PUT /api/users/me` - 내 정보 수정
+- `PUT /api/users/me/password` - 내 비밀번호 변경
+
+**UserGroups**:
+- `GET /api/user-groups` - 그룹 목록 조회
+- `POST /api/user-groups` - 그룹 생성
+- `GET /api/user-groups/{id}` - 그룹 상세 조회
+- `PUT /api/user-groups/{id}` - 그룹 수정
+- `DELETE /api/user-groups/{id}` - 그룹 삭제
+- `GET /api/user-groups/{id}/users` - 그룹 소속 사용자 목록
+
+**UserSessions**:
+- `GET /api/user-sessions` - 활성 세션 목록
+- `GET /api/user-sessions/{id}` - 세션 상세 조회
+- `DELETE /api/user-sessions/{id}` - 강제 로그아웃
+- `DELETE /api/user-sessions/user/{user_id}` - 특정 사용자 전체 세션 종료
+- `GET /api/user-sessions/me` - 내 세션 목록
+- `DELETE /api/user-sessions/me/{id}` - 내 다른 세션 종료
+
+### 11.2 Event-Device 리팩토링 변경사항 (v2.3)
+
+#### 11.2.1 API Request 변경
 
 | Event Type | Before (v2.1 이전) | After (v2.2) | After (v2.3) |
 |------------|-------------------|--------------|--------------|
@@ -10914,7 +11271,7 @@ GET /api/servers/summary
 }
 ```
 
-#### 10.2.2 API Response 변경
+#### 11.2.2 API Response 변경
 
 | 필드 | v2.2 | v2.3 | 설명 |
 |------|------|------|------|
@@ -10970,7 +11327,7 @@ GET /api/servers/summary
 }
 ```
 
-#### 10.2.3 DeviceNestedResponse 스키마
+#### 11.2.3 DeviceNestedResponse 스키마
 
 **폴리모픽 Device 응답** - Device 타입에 따라 다른 필드 포함:
 
@@ -11004,7 +11361,7 @@ GET /api/servers/summary
 }
 ```
 
-#### 10.2.4 Event 영속성 보장
+#### 11.2.4 Event 영속성 보장
 
 > **핵심 원칙**: Event 데이터는 어떤 경우에도 삭제되지 않아야 한다.
 
@@ -11017,7 +11374,7 @@ GET /api/servers/summary
 - **FK 설정**: `ondelete="SET NULL"` (CASCADE 사용 금지!)
 - **device_description**: Device 삭제 후에도 과거 Device 정보 참조 가능
 
-#### 10.2.5 마이그레이션 스크립트
+#### 11.2.5 마이그레이션 스크립트
 
 **위치**: `scripts/migrate_event_device_id.py`
 
@@ -11038,16 +11395,16 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-### 10.3 EventMapping 리팩토링 변경사항 (v2.3)
+### 11.3 EventMapping 리팩토링 변경사항 (v2.3)
 
-#### 10.3.1 EventMapping 테이블 변경
+#### 11.3.1 EventMapping 테이블 변경
 
 | 필드 | Before (v2.2 이전) | After (v2.3) | 설명 |
 |------|-------------------|--------------|------|
 | `group_event` | VARCHAR(100) | **제거됨** | 자유 문자열, DeviceGroup과 무관 |
 | `device_group_id` | - | INTEGER FK **신규** | DeviceGroup.id 참조 (SET NULL on delete) |
 
-#### 10.3.2 API 변경 요약
+#### 11.3.2 API 변경 요약
 
 | API | Before | After |
 |-----|--------|-------|
@@ -11057,7 +11414,7 @@ python scripts/migrate_event_device_id.py
 | PATCH | `group_event` 수정 가능 | `device_group_id` 수정 가능 |
 | PUT | `group_event` 필수 | `device_group_id` 필수 |
 
-#### 10.3.3 이벤트-카메라 연동 흐름
+#### 11.3.3 이벤트-카메라 연동 흐름
 
 ```
 이벤트 발생 시 카메라 프리셋 연동 흐름 (v2.4):
@@ -11078,7 +11435,7 @@ python scripts/migrate_event_device_id.py
 └─────────────────┘     └─────────────────────┘     └─────────────────┘
 ```
 
-#### 10.3.4 EventMapping FK 정책
+#### 11.3.4 EventMapping FK 정책
 
 | 관계 | 동작 | 정책 | 결과 |
 |------|------|------|------|
@@ -11092,6 +11449,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v3.0 | 2026-01-19 | **Account API 완성 및 Auth Migration (Phase 1)**<br><br>**[1. Account Enum 섹션 추가 (4.5)]**<br>- **EnumUserRole (5종)**: ADMIN, MAINTAINER, OPERATOR, VIEWER, GUEST<br>- **EnumLogoutReason (6종)**: USER_LOGOUT, SESSION_EXPIRED, ADMIN_FORCED, PASSWORD_CHANGED, DUPLICATE_LOGIN, SYSTEM_MAINTENANCE<br>- **EnumLoginAction (3종)**: LOGIN, LOGOUT, TOKEN_REFRESH<br>- **EnumLoginResult (2종)**: SUCCESS, FAILURE<br>- **EnumLoginFailureReason (7종)**: INVALID_CREDENTIALS, ACCOUNT_LOCKED, ACCOUNT_INACTIVE, PASSWORD_EXPIRED, IP_BLOCKED, TOO_MANY_ATTEMPTS, SYSTEM_ERROR<br><br>**[2. Auth API HTTPBearer Migration]**<br>- **인증 방식 변경**: OAuth2PasswordBearer → HTTPBearer<br>- **Swagger UI 개선**: Authorize 버튼으로 Bearer 토큰 직접 입력 가능<br>- **Request 헤더 문서 업데이트**: Authorization 설명 명확화 (`JWT Bearer 토큰 (HTTPBearer 방식) - POST /api/auth/login으로 발급`)<br><br>**[3. Swagger Example 스키마 추가]** (app/schemas/user.py)<br>- **AccountLoginRequest**: login_id: "admin", password: "admin123"<br>- **AccountUserCreate**: login_id, password, name, email, department, position, role, group_id 등 전체 필드<br>- **AccountUserUpdate**: name, email, department, position, role, group_id, is_active 등 전체 필드<br>- **AccountUserResponse**: id, login_id, name, role, is_active, is_locked, created_at 등 전체 필드<br>- **RefreshTokenRequest**: refresh_token example 추가<br>- **PasswordResetRequest, PasswordChangeRequest**: new_password, current_password example 추가<br>- **UserGroupCreate**: name, description, permissions example 추가<br><br>**[4. 스키마 문서 업데이트]** (GOP_스키마_전체.md)<br>- **user_sessions 테이블**: `last_activity` 필드 추가 (마지막 활동 시간) |
 | v2.9 | 2026-01-15 | **Device is_enable 필드 추가, Enclosure Metrics API, Server Metrics/System Events API 추가**<br><br>**[1. Device 공통 필드 추가]** (PRD_Device_IsEnable_Field.md v1.0)<br>- **is_enable (BOOLEAN)**: 장비 활성화 여부 (기본값: TRUE)<br>- Controller, Sensor, Camera, Speaker, Enclosure 모든 Device 타입에 적용<br><br>**[2. API 스키마 변경 (is_enable)]**<br>- **Create 스키마**: `is_enable` 필드 추가 (optional, default=true)<br>- **Response 스키마**: `is_enable` 필드 포함<br>- **Update 스키마**: `is_enable` 필드 추가 (optional)<br>- **NestedResponse 스키마**: `is_enable` 필드 포함<br><br>**[3. DeviceGroup/Event 연관 스키마]**<br>- DeviceGroup devices 배열 내 Device 객체에 is_enable 포함<br>- Event device nested 객체에 is_enable 포함<br><br>**[4. Enclosure Metrics API 신규]** (PRD_Enclosure_Metrics_Separation.md v1.0)<br>- **5.5.9 POST /{enclosure_id}/metrics**: 환경 모니터링 메트릭 저장<br>- **5.5.10 GET /{enclosure_id}/metrics**: 메트릭 목록 조회 (시간 필터링 지원)<br>- **5.5.11 GET /{enclosure_id}/metrics/latest**: 최신 메트릭 단건 조회<br>- **5.5.12 DELETE /{enclosure_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자산/시계열 데이터 분리**: enclosures (자산) ↔ enclosure_metrics (측정값)<br>- **⚠️ Enclosure API 변경**: `detail_info` 필드 제거 → enclosure_metrics API로 이관<br>- **5.5.7 엔드포인트 변경**: "환경 데이터 업데이트" → "도어 상태 업데이트" (door_status만 지원)<br><br>**[5. Server Metrics API 신규]** (PRD_System_Event.md v1.2 Section 2.4)<br>- **8.6.1 POST /servers/{server_id}/metrics**: 서버 리소스 메트릭 기록<br>- **8.6.2 GET /servers/{server_id}/metrics**: 메트릭 이력 조회 (시간 필터링 지원)<br>- **8.6.3 GET /servers/{server_id}/metrics/latest**: 최신 메트릭 조회 (threshold_config 포함)<br>- **8.6.4 DELETE /servers/{server_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자동 SystemEvent 생성**: 임계치 초과 시 threshold_warning/threshold_critical 이벤트 자동 생성<br>- **servers.threshold_config JSONB**: 서버별 임계치 설정 (cpu, ram, disk, network - warning/critical 레벨)<br><br>**[6. System Events API 신규]** (PRD_System_Event.md v1.2 Section 3)<br>- **8.7.1 GET /system-events**: 이벤트 목록 조회 (필터링, 페이지네이션)<br>- **8.7.2 GET /system-events/{id}**: 이벤트 상세 조회<br>- **8.7.3 POST /system-events**: 이벤트 생성<br>- **8.7.4 POST /system-events/{id}/acknowledge**: 이벤트 확인 처리<br>- **8.7.5 PATCH /system-events/{id}**: 이벤트 수정<br>- **8.7.6 DELETE /system-events/{id}**: 이벤트 삭제<br>- **8.7.7 GET /system-events/summary**: 요약 통계 (severity별, type별, 미확인 수 등)<br>- **EnumSystemEventType (14종)**: server_start, server_stop, threshold_warning, threshold_critical, connection_lost 등<br>- **EnumSystemEventSeverity (4종)**: INFO, WARNING, ERROR, CRITICAL<br>- **source 필드 (PRD 3.2)**: 이벤트 발생 소스 (server_metrics, manual 등)<br>- **updated_at 필드 (PRD 3.2)**: 수정 시간 자동 관리<br>- **server_description 스냅샷**: 서버 삭제 후에도 이벤트 기록 유지 |
 | v2.8 | 2026-01-12 | **Event Mapping Speakers API 추가**<br><br>**[1. EventMappingSpeaker API 신규 (7.4 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/speakers`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **아키텍처**: EventMapping을 Base 노드로 하는 확장 가능한 Speaker Action 구조<br>- **FK 관계**:<br>  • `event_mapping_id` (CASCADE): EventMapping 삭제 시 함께 삭제<br>  • `speaker_id` (SET NULL): Speaker 삭제 시 연결만 해제<br>  • `file_group_id` (SET NULL): FileGroup 삭제 시 연결만 해제<br>- **주요 필드**: repeat_count (방송 반복 횟수), is_enable, priority<br>- **Nested Response**: speaker, file_group 상세 정보 포함 |
 | v2.6 | 2026-01-09 | **Speaker Geolocation 추가 및 Event 필드 정규화**<br><br>**[1. Speaker Geolocation 추가]** (PRD_Speaker_Geolocation.md v1.0)<br>- **speakers.geolocation JSONB 추가**: Speaker 장비 위치 정보<br>- **API 변경**: POST/PATCH/PUT Request에 geolocation 필드 추가<br>- **Response 변경**: GET 응답에 geolocation 필드 포함<br>- **Swagger/Docs 업데이트**: SpeakerCreate, SpeakerUpdate, SpeakerResponse 스키마에 geolocation 필드 추가<br><br>**[2. Event 필드 정규화]** (PRD_Event_Field_Normalization.md v1.0)<br>- **Detection Event**: `result` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)<br>  - 모든 Request/Response에서 result가 별도 필드<br>- **Malfunction Event**: `reason` 별도 필드로 분리 (핵심 분류 필드, 필수)<br>  - `detail`: 상세 정보만 포함 (first_start, first_end, second_start, second_end)<br>  - 모든 Request/Response에서 reason이 별도 필드<br>- **Action Event**: `from_event` nested response에 분리된 필드 적용 |
@@ -11112,5 +11470,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v2.9
-**최종 업데이트**: 2026-01-15
+**문서 버전**: v3.0
+**최종 업데이트**: 2026-01-19

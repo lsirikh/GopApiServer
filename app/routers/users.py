@@ -12,6 +12,7 @@ from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, PasswordResetRequest, PasswordChangeRequest
 from app.routers.auth import get_current_account_user
 from app.utils.auth import hash_password, verify_password
+from app.services.audit_service import log_action, get_changes
 
 router = APIRouter(tags=["Users"])
 
@@ -147,6 +148,20 @@ async def change_my_password(
     current_user.password_hash = hash_password(password_data.new_password)
     db.commit()
 
+    # Audit log: PASSWORD_CHANGED
+    await log_action(
+        db=db,
+        action_type="PASSWORD_CHANGED",
+        resource_type="PASSWORD",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=current_user.id,
+        resource_name=f"{current_user.name} ({current_user.login_id})",
+        description=f"비밀번호 변경: {current_user.login_id}"
+    )
+
     return {"success": True}
 
 
@@ -245,6 +260,20 @@ async def create_user(
     db.commit()
     db.refresh(new_user)
 
+    # Audit log: USER_CREATED
+    await log_action(
+        db=db,
+        action_type="USER_CREATED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=new_user.id,
+        resource_name=f"{new_user.name} ({new_user.login_id})",
+        description=f"신규 사용자 생성: {new_user.login_id}"
+    )
+
     return {
         "success": True,
         "data": AccountUserResponse.model_validate(new_user)
@@ -287,6 +316,20 @@ async def update_user(
             detail="User not found"
         )
 
+    # Capture before state for audit log
+    before_state = {
+        "name": user.name,
+        "email": user.email,
+        "department": user.department,
+        "position": user.position,
+        "employee_number": user.employee_number,
+        "photo_url": user.photo_url,
+        "phone": user.phone,
+        "role": user.role,
+        "group_id": user.group_id,
+        "is_active": user.is_active
+    }
+
     # Update fields if provided
     if user_data.name is not None:
         user.name = user_data.name
@@ -311,6 +354,36 @@ async def update_user(
 
     db.commit()
     db.refresh(user)
+
+    # Capture after state for audit log
+    after_state = {
+        "name": user.name,
+        "email": user.email,
+        "department": user.department,
+        "position": user.position,
+        "employee_number": user.employee_number,
+        "photo_url": user.photo_url,
+        "phone": user.phone,
+        "role": user.role,
+        "group_id": user.group_id,
+        "is_active": user.is_active
+    }
+
+    # Audit log: USER_UPDATED
+    changes = get_changes(before_state, after_state)
+    await log_action(
+        db=db,
+        action_type="USER_UPDATED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=user.id,
+        resource_name=f"{user.name} ({user.login_id})",
+        changes=changes,
+        description=f"사용자 정보 수정: {user.login_id}"
+    )
 
     return {
         "success": True,
@@ -345,8 +418,27 @@ async def delete_user(
             detail="User not found"
         )
 
+    # Capture user info before deletion (snapshot)
+    deleted_user_id = user.id
+    deleted_user_name = f"{user.name} ({user.login_id})"
+    deleted_login_id = user.login_id
+
     db.delete(user)
     db.commit()
+
+    # Audit log: USER_DELETED (after delete, preserve snapshot)
+    await log_action(
+        db=db,
+        action_type="USER_DELETED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=deleted_user_id,
+        resource_name=deleted_user_name,
+        description=f"사용자 삭제: {deleted_login_id}"
+    )
 
     return {"success": True}
 
@@ -386,9 +478,9 @@ async def lock_user(
         UserSession.is_active == True
     ).update({"is_active": False})
 
-    # Create system event for user lock
+    # Create system event for user lock (SECURITY_ALERT: USER_* moved to UserLoginLog per PRD_SystemEvent_Sync.md)
     system_event = SystemEvent(
-        type_event=EnumSystemEventType.USER_LOCKED,
+        type_event=EnumSystemEventType.SECURITY_ALERT,
         severity=EnumSystemEventSeverity.WARNING,
         title=f"사용자 계정 잠금: {user.login_id}",
         message=f"사용자 '{user.name}' ({user.login_id})의 계정이 잠금되었습니다.",
@@ -397,6 +489,20 @@ async def lock_user(
     db.add(system_event)
 
     db.commit()
+
+    # Audit log: USER_LOCKED
+    await log_action(
+        db=db,
+        action_type="USER_LOCKED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=user.id,
+        resource_name=f"{user.name} ({user.login_id})",
+        description=f"사용자 계정 잠금: {user.login_id}"
+    )
 
     return {"success": True}
 
@@ -430,9 +536,9 @@ async def unlock_user(
 
     user.is_locked = False
 
-    # Create system event for user unlock
+    # Create system event for user unlock (SECURITY_ALERT: USER_* moved to UserLoginLog per PRD_SystemEvent_Sync.md)
     system_event = SystemEvent(
-        type_event=EnumSystemEventType.USER_UNLOCKED,
+        type_event=EnumSystemEventType.SECURITY_ALERT,
         severity=EnumSystemEventSeverity.INFO,
         title=f"사용자 계정 잠금 해제: {user.login_id}",
         message=f"사용자 '{user.name}' ({user.login_id})의 계정 잠금이 해제되었습니다.",
@@ -441,6 +547,20 @@ async def unlock_user(
     db.add(system_event)
 
     db.commit()
+
+    # Audit log: USER_UNLOCKED
+    await log_action(
+        db=db,
+        action_type="USER_UNLOCKED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=user.id,
+        resource_name=f"{user.name} ({user.login_id})",
+        description=f"사용자 계정 잠금 해제: {user.login_id}"
+    )
 
     return {"success": True}
 
@@ -478,5 +598,19 @@ async def reset_user_password(
 
     user.password_hash = hash_password(password_data.new_password)
     db.commit()
+
+    # Audit log: PASSWORD_RESET
+    await log_action(
+        db=db,
+        action_type="PASSWORD_RESET",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=user.id,
+        resource_name=f"{user.name} ({user.login_id})",
+        description=f"비밀번호 초기화: {user.login_id}"
+    )
 
     return {"success": True}

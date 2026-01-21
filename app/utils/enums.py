@@ -252,12 +252,16 @@ class EnumDoorStatus(str, Enum):
 
 class EnumSystemEventType(str, Enum):
     """
-    System Event type enumeration (24종)
+    System Event type enumeration (15종)
     PRD: PRD_System_Event.md Section 3.1
-    PRD: PRD_Account_Design.md Section 9.2 (Account 관련 이벤트 추가)
+    PRD: PRD_SystemEvent_Sync.md v1.2
 
     시스템 레벨 이벤트 유형을 정의합니다.
     디바이스/센서 이벤트(Event 테이블)와 별개의 시스템 운영 이벤트입니다.
+
+    Note: USER_* 9종은 UserLoginLog로, ConfigChangeLog 중복 4종은 제거됨
+    - USER_* → UserLoginLog (PRD_Account_Design.md Section 9.2)
+    - CONFIG_CHANGED, DEVICE_ADDED, DEVICE_REMOVED, DEVICE_STATUS_CHANGED → ConfigChangeLog
     """
     # 리소스 관련 (1종)
     RESOURCE_THRESHOLD = "RESOURCE_THRESHOLD"   # 리소스 임계치 초과
@@ -272,24 +276,15 @@ class EnumSystemEventType(str, Enum):
     SERVICE_STOPPED = "SERVICE_STOPPED"         # 서비스 중지됨
     SERVICE_ERROR = "SERVICE_ERROR"             # 서비스 오류
 
-    # 설정 변경 (1종)
-    CONFIG_CHANGED = "CONFIG_CHANGED"           # 설정 변경됨
+    # 연결 상태 (2종) - NEW
+    CONNECTION_LOST = "CONNECTION_LOST"         # 연결 끊김
+    CONNECTION_RESTORED = "CONNECTION_RESTORED" # 연결 복구됨
 
-    # 사용자 활동 (9종) - PRD_Account_Design.md Section 9.2
-    USER_LOGIN = "USER_LOGIN"                   # 사용자 로그인
-    USER_LOGOUT = "USER_LOGOUT"                 # 사용자 로그아웃
-    USER_LOGIN_FAILED = "USER_LOGIN_FAILED"     # 로그인 실패
-    USER_LOCKED = "USER_LOCKED"                 # 계정 잠금
-    USER_UNLOCKED = "USER_UNLOCKED"             # 계정 잠금 해제
-    USER_CREATED = "USER_CREATED"               # 사용자 생성
-    USER_UPDATED = "USER_UPDATED"               # 사용자 수정
-    USER_DELETED = "USER_DELETED"               # 사용자 삭제
-    SESSION_FORCED_LOGOUT = "SESSION_FORCED_LOGOUT"  # 강제 로그아웃
+    # 보안 (1종) - NEW
+    SECURITY_ALERT = "SECURITY_ALERT"           # 보안 경고
 
-    # 디바이스 관리 (3종)
-    DEVICE_ADDED = "DEVICE_ADDED"               # 디바이스 추가됨
-    DEVICE_REMOVED = "DEVICE_REMOVED"           # 디바이스 제거됨
-    DEVICE_STATUS_CHANGED = "DEVICE_STATUS_CHANGED"  # 디바이스 상태 변경됨
+    # 디바이스 연결 (1종) - NEW
+    DEVICE_CONNECTED = "DEVICE_CONNECTED"       # 디바이스 연결됨
 
     # 백업 관련 (3종)
     BACKUP_STARTED = "BACKUP_STARTED"           # 백업 시작됨
@@ -379,3 +374,126 @@ class EnumLoginFailureReason(str, Enum):
     IP_BLOCKED = "IP_BLOCKED"                     # IP 차단
     TIME_RESTRICTED = "TIME_RESTRICTED"           # 접속 시간 제한
     MAX_SESSIONS = "MAX_SESSIONS"                 # 최대 세션 수 초과
+
+
+# ============================================================
+# Audit Log Enums (PRD: PRD_Audit_Log.md)
+# ============================================================
+
+class EnumAuditActionType(str, Enum):
+    """
+    Audit action type enumeration (18종)
+    PRD: PRD_Audit_Log.md Section 2.2.1
+
+    감사 로그 행위 유형
+    """
+    # 사용자 관리 (7종)
+    USER_CREATED = "USER_CREATED"           # 사용자 생성
+    USER_UPDATED = "USER_UPDATED"           # 사용자 정보 수정
+    USER_DELETED = "USER_DELETED"           # 사용자 삭제
+    USER_LOCKED = "USER_LOCKED"             # 계정 잠금
+    USER_UNLOCKED = "USER_UNLOCKED"         # 계정 잠금 해제
+    USER_ACTIVATED = "USER_ACTIVATED"       # 계정 활성화
+    USER_DEACTIVATED = "USER_DEACTIVATED"   # 계정 비활성화
+
+    # 비밀번호 관리 (2종)
+    PASSWORD_CHANGED = "PASSWORD_CHANGED"   # 비밀번호 변경 (본인)
+    PASSWORD_RESET = "PASSWORD_RESET"       # 비밀번호 초기화 (관리자)
+
+    # 권한/역할 관리 (2종)
+    ROLE_CHANGED = "ROLE_CHANGED"           # 역할 변경
+    GROUP_ASSIGNED = "GROUP_ASSIGNED"       # 그룹 할당
+
+    # 그룹 관리 (4종)
+    GROUP_CREATED = "GROUP_CREATED"         # 그룹 생성
+    GROUP_UPDATED = "GROUP_UPDATED"         # 그룹 수정
+    GROUP_DELETED = "GROUP_DELETED"         # 그룹 삭제
+    PERMISSION_CHANGED = "PERMISSION_CHANGED"  # 권한 변경
+
+    # 세션 관리 (3종)
+    SESSION_CREATED = "SESSION_CREATED"     # 세션 생성 (로그인)
+    SESSION_TERMINATED = "SESSION_TERMINATED"  # 세션 종료 (로그아웃)
+    SESSION_FORCED_LOGOUT = "SESSION_FORCED_LOGOUT"  # 강제 로그아웃
+
+
+class EnumAuditResourceType(str, Enum):
+    """
+    Audit resource type enumeration (4종)
+    PRD: PRD_Audit_Log.md Section 2.2.2
+
+    감사 대상 리소스 유형
+    """
+    USER = "USER"                   # 사용자 (AccountUser)
+    USER_GROUP = "USER_GROUP"       # 사용자 그룹 (UserGroup)
+    USER_SESSION = "USER_SESSION"   # 사용자 세션 (UserSession)
+    PASSWORD = "PASSWORD"           # 비밀번호
+
+
+class EnumAuditStatus(str, Enum):
+    """
+    Audit status enumeration (2종)
+    PRD: PRD_Audit_Log.md Section 2.2.3
+
+    감사 결과 상태
+    """
+    SUCCESS = "SUCCESS"   # 성공
+    FAILURE = "FAILURE"   # 실패
+
+
+class EnumConfigResourceType(str, Enum):
+    """
+    Config change log resource type enumeration (19종)
+    PRD: PRD_ConfigChangeLog.md Section 2.1
+
+    설정 변경 대상 리소스 유형
+
+    카테고리별 분류:
+    - Device 계열: 10개
+    - Server 계열: 2개
+    - Event 계열: 4개
+    - Integration 계열: 3개
+    """
+    # Device 계열 (10개)
+    CONTROLLER = "CONTROLLER"           # 컨트롤러
+    SENSOR = "SENSOR"                   # 센서
+    CAMERA = "CAMERA"                   # 카메라
+    SPEAKER = "SPEAKER"                 # 스피커
+    ENCLOSURE = "ENCLOSURE"             # 함체
+    DEVICE_GROUP = "DEVICE_GROUP"       # 디바이스 그룹
+    CAMERA_PRESET = "CAMERA_PRESET"     # 카메라 프리셋
+    ROI = "ROI"                         # ROI
+    XY_POINT = "XY_POINT"               # XY 포인트
+    FILE_GROUP = "FILE_GROUP"           # 파일 그룹
+
+    # Server 계열 (2개)
+    SERVER_CATEGORY = "SERVER_CATEGORY" # 서버 카테고리
+    SERVER = "SERVER"                   # 서버
+
+    # Event 계열 (4개)
+    DETECTION_EVENT = "DETECTION_EVENT"       # 탐지 이벤트
+    MALFUNCTION_EVENT = "MALFUNCTION_EVENT"   # 고장 이벤트
+    CONNECTION_EVENT = "CONNECTION_EVENT"     # 연결 이벤트
+    ACTION_EVENT = "ACTION_EVENT"             # 액션 이벤트
+
+    # Integration 계열 (3개)
+    EVENT_MAPPING = "EVENT_MAPPING"                   # 이벤트 매핑
+    EVENT_MAPPING_CAMERA = "EVENT_MAPPING_CAMERA"     # 이벤트 매핑 카메라
+    EVENT_MAPPING_SPEAKER = "EVENT_MAPPING_SPEAKER"   # 이벤트 매핑 스피커
+
+
+class EnumConfigActionType(str, Enum):
+    """
+    Config change log action type enumeration (6종)
+    PRD: PRD_ConfigChangeLog.md Section 2.2
+
+    설정 변경 액션 유형
+    """
+    # CRUD 액션 (3개)
+    CREATED = "CREATED"             # 생성
+    UPDATED = "UPDATED"             # 수정
+    DELETED = "DELETED"             # 삭제
+
+    # 특수 액션 (3개)
+    STATUS_CHANGED = "STATUS_CHANGED"   # 상태 변경 (Enclosure status 등)
+    ASSIGNED = "ASSIGNED"               # 할당 (DeviceGroup에 디바이스 할당)
+    UNASSIGNED = "UNASSIGNED"           # 할당 해제 (DeviceGroup에서 디바이스 제거)

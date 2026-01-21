@@ -205,19 +205,21 @@ class AccountUserNestedResponse(BaseModel):
 # ============================================================
 
 class UserSessionResponse(BaseModel):
-    """Schema for user session response"""
+    """Schema for user session response (PRD_UserSession_Improvement.md v1.2)"""
     id: int
     user_id: int
+    # JOIN fields (US-3: AccountUser lookup for better response)
+    login_id: Optional[str] = None
+    role: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    device_type: Optional[str] = None
-    location: Optional[str] = None
-    login_at: datetime
     expires_at: datetime
-    last_activity: Optional[datetime] = None
     is_active: bool
     logout_reason: Optional[str] = None
     logged_out_at: Optional[datetime] = None
+    # Standard timestamps (renamed from login_at, last_activity)
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

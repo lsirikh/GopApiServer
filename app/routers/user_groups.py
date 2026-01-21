@@ -9,6 +9,7 @@ from app.dependencies import get_db
 from app.models.user import UserGroup, AccountUser
 from app.schemas.user import UserGroupResponse, UserGroupCreate, UserGroupUpdate, AccountUserResponse
 from app.routers.auth import get_current_account_user
+from app.services.audit_service import log_action, get_changes
 
 router = APIRouter(tags=["User Groups"])
 
@@ -118,6 +119,20 @@ async def create_user_group(
     db.commit()
     db.refresh(new_group)
 
+    # 감사 로그 기록: GROUP_CREATED
+    await log_action(
+        db=db,
+        action_type="GROUP_CREATED",
+        resource_type="USER_GROUP",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=new_group.id,
+        resource_name=new_group.name,
+        description=f"신규 사용자 그룹 생성: {new_group.name}"
+    )
+
     return {
         "success": True,
         "data": UserGroupResponse.model_validate(new_group)
@@ -158,6 +173,14 @@ async def update_user_group(
             detail="User group not found"
         )
 
+    # 변경 전 상태 저장
+    before_state = {
+        "name": group.name,
+        "description": group.description,
+        "permissions": group.permissions,
+        "is_active": group.is_active
+    }
+
     # Update fields if provided
     if group_data.name is not None:
         group.name = group_data.name
@@ -170,6 +193,32 @@ async def update_user_group(
 
     db.commit()
     db.refresh(group)
+
+    # 변경 후 상태 저장
+    after_state = {
+        "name": group.name,
+        "description": group.description,
+        "permissions": group.permissions,
+        "is_active": group.is_active
+    }
+
+    # 변경 내역 계산
+    changes = get_changes(before_state, after_state)
+
+    # 감사 로그 기록: GROUP_UPDATED
+    await log_action(
+        db=db,
+        action_type="GROUP_UPDATED",
+        resource_type="USER_GROUP",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=group.id,
+        resource_name=group.name,
+        changes=changes,
+        description=f"사용자 그룹 수정: {group.name}"
+    )
 
     return {
         "success": True,
@@ -204,11 +253,29 @@ async def delete_user_group(
             detail="User group not found"
         )
 
+    # 삭제 전 스냅샷 저장
+    group_name = group.name
+    group_description = group.description
+
     # Set group_id to NULL for all users in this group
     db.query(AccountUser).filter(AccountUser.group_id == group_id).update({"group_id": None})
 
     db.delete(group)
     db.commit()
+
+    # 감사 로그 기록: GROUP_DELETED
+    await log_action(
+        db=db,
+        action_type="GROUP_DELETED",
+        resource_type="USER_GROUP",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=group_id,
+        resource_name=group_name,
+        description=f"사용자 그룹 삭제: {group_name}"
+    )
 
     return {"success": True}
 

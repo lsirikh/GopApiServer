@@ -112,14 +112,14 @@ class UserSession(Base):
     # Connection info
     ip_address = Column(String(45), nullable=True)  # IPv6 length
     user_agent = Column(String(500), nullable=True)
-    device_type = Column(String(50), nullable=True)
-    location = Column(String(255), nullable=True)
 
     # Time fields
-    login_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    last_activity = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=True)
     logged_out_at = Column(DateTime, nullable=True)
+
+    # Standard timestamps (PRD_UserSession_Improvement.md v1.2)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)  # was: login_at
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=True)   # was: last_activity
 
     # Status fields
     is_active = Column(Boolean, default=True, nullable=False)

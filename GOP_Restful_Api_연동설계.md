@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-19  
-**버전**: v3.0  
+**최종 수정일**: 2026-01-21  
+**버전**: v3.2  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -50,6 +50,8 @@
    - 9.3 [User API](#93-user-api)
    - 9.4 [UserGroup API](#94-usergroup-api)
    - 9.5 [UserSession API](#95-usersession-api)
+   - 9.6 [Audit Logs API](#96-audit-logs-api) *(v3.1 신규)*
+   - 9.7 [Config Change Logs API](#97-config-change-logs-api) *(v3.2 신규)*
 10. [에러 처리](#10-에러-처리)
 11. [부록](#11-부록)
     - 11.1 [전체 Endpoint 목록](#111-전체-endpoint-목록)
@@ -588,6 +590,125 @@ class EnumLoginFailureReason(str, Enum):
 
 **사용처**:
 - `UserLoginLog.failure_reason`: 로그인 실패 사유
+
+### 4.6 Audit Enum (v3.1 신규)
+
+> **v3.1 신규**: PRD_Audit_Log.md 참조
+> 사용자 활동 감사 로그 관련 Enum
+
+#### EnumAuditActionType (감사 행위 유형 - 18종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumAuditActionType(str, Enum):
+    # 사용자 관리 (7종)
+    USER_CREATED = "USER_CREATED"           # 사용자 생성
+    USER_UPDATED = "USER_UPDATED"           # 사용자 정보 수정
+    USER_DELETED = "USER_DELETED"           # 사용자 삭제
+    USER_LOCKED = "USER_LOCKED"             # 계정 잠금
+    USER_UNLOCKED = "USER_UNLOCKED"         # 계정 잠금 해제
+    USER_ACTIVATED = "USER_ACTIVATED"       # 계정 활성화
+    USER_DEACTIVATED = "USER_DEACTIVATED"   # 계정 비활성화
+
+    # 비밀번호 관리 (2종)
+    PASSWORD_CHANGED = "PASSWORD_CHANGED"   # 비밀번호 변경 (본인)
+    PASSWORD_RESET = "PASSWORD_RESET"       # 비밀번호 초기화 (관리자)
+
+    # 권한/역할 관리 (2종)
+    ROLE_CHANGED = "ROLE_CHANGED"           # 역할 변경
+    GROUP_ASSIGNED = "GROUP_ASSIGNED"       # 그룹 할당
+
+    # 그룹 관리 (4종)
+    GROUP_CREATED = "GROUP_CREATED"         # 그룹 생성
+    GROUP_UPDATED = "GROUP_UPDATED"         # 그룹 수정
+    GROUP_DELETED = "GROUP_DELETED"         # 그룹 삭제
+    PERMISSION_CHANGED = "PERMISSION_CHANGED" # 권한 변경
+
+    # 세션 관리 (3종)
+    SESSION_CREATED = "SESSION_CREATED"     # 세션 생성 (로그인)
+    SESSION_TERMINATED = "SESSION_TERMINATED" # 세션 종료 (로그아웃)
+    SESSION_FORCED_LOGOUT = "SESSION_FORCED_LOGOUT" # 강제 로그아웃
+```
+
+**사용처**:
+- `AuditLog.action_type`: 감사 로그 행위 유형
+
+#### EnumAuditResourceType (감사 대상 리소스 유형 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumAuditResourceType(str, Enum):
+    USER = "USER"               # 사용자 (AccountUser)
+    USER_GROUP = "USER_GROUP"   # 사용자 그룹 (UserGroup)
+    USER_SESSION = "USER_SESSION" # 사용자 세션 (UserSession)
+    PASSWORD = "PASSWORD"       # 비밀번호
+```
+
+**사용처**:
+- `AuditLog.resource_type`: 감사 대상 리소스 유형
+
+#### EnumAuditStatus (감사 결과 상태 - 2종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumAuditStatus(str, Enum):
+    SUCCESS = "SUCCESS"   # 성공
+    FAILURE = "FAILURE"   # 실패
+```
+
+**사용처**:
+- `AuditLog.action_status`: 감사 결과 상태
+
+### 4.7 Config Change Log Enum (v3.2 신규)
+
+> **참조**: PRD_ConfigChangeLog.md v1.1
+
+#### EnumConfigResourceType (설정 리소스 유형 - 19종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumConfigResourceType(str, Enum):
+    # Device 계열 (10종)
+    DEVICE = "DEVICE"                     # 장비 (Base)
+    CONTROLLER = "CONTROLLER"             # 제어기
+    SENSOR = "SENSOR"                     # 센서
+    CAMERA = "CAMERA"                     # 카메라
+    SPEAKER = "SPEAKER"                   # 스피커
+    ENCLOSURE = "ENCLOSURE"               # 함체
+    DEVICE_GROUP = "DEVICE_GROUP"         # 장비 그룹
+    DEVICE_GROUP_MAPPING = "DEVICE_GROUP_MAPPING" # 장비 그룹 매핑
+    CAMERA_PRESET = "CAMERA_PRESET"       # 카메라 프리셋
+    ROI = "ROI"                           # 관심 영역
+
+    # Server 계열 (2종)
+    SERVER = "SERVER"                     # 서버
+    SERVER_CATEGORY = "SERVER_CATEGORY"   # 서버 카테고리
+
+    # Event 계열 (4종)
+    EVENT = "EVENT"                       # 이벤트 (Base)
+    DETECTION_EVENT = "DETECTION_EVENT"   # 탐지 이벤트
+    MALFUNCTION_EVENT = "MALFUNCTION_EVENT" # 오동작 이벤트
+    CONNECTION_EVENT = "CONNECTION_EVENT" # 연결 이벤트
+
+    # Integration 계열 (3종)
+    EVENT_MAPPING = "EVENT_MAPPING"       # 이벤트 매핑
+    EVENT_MAPPING_CAMERA = "EVENT_MAPPING_CAMERA" # 이벤트 매핑 카메라
+    EVENT_MAPPING_SPEAKER = "EVENT_MAPPING_SPEAKER" # 이벤트 매핑 스피커
+```
+
+**사용처**:
+- `ConfigChangeLog.resource_type`: 변경된 설정 리소스 유형
+
+#### EnumConfigActionType (설정 변경 액션 - 6종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumConfigActionType(str, Enum):
+    CREATED = "CREATED"           # 생성
+    UPDATED = "UPDATED"           # 수정
+    DELETED = "DELETED"           # 삭제
+    STATUS_CHANGED = "STATUS_CHANGED"   # 상태 변경
+    ASSIGNED = "ASSIGNED"         # 할당 (그룹에 장비 추가)
+    UNASSIGNED = "UNASSIGNED"     # 할당 해제 (그룹에서 장비 제거)
+```
+
+**사용처**:
+- `ConfigChangeLog.action`: 설정 변경 액션 유형
 
 ---
 
@@ -10453,23 +10574,27 @@ GET /api/servers/summary
 
 #### 8.7.1 이벤트 유형 및 심각도
 
-**EnumSystemEventType** (이벤트 유형):
-| 값 | 설명 |
-|----|------|
-| server_start | 서버 시작 |
-| server_stop | 서버 중지 |
-| server_restart | 서버 재시작 |
-| threshold_warning | 임계치 경고 |
-| threshold_critical | 임계치 위험 |
-| connection_lost | 연결 끊김 |
-| connection_restored | 연결 복구 |
-| config_change | 설정 변경 |
-| backup_complete | 백업 완료 |
-| backup_failed | 백업 실패 |
-| update_available | 업데이트 가능 |
-| security_alert | 보안 경고 |
-| system_error | 시스템 오류 |
-| custom | 사용자 정의 |
+**EnumSystemEventType** (이벤트 유형 - 15종, PRD_SystemEvent_Sync.md v1.2):
+
+> **v3.1 업데이트**: USER_* 9종 → UserLoginLog 이전, ConfigChangeLog 중복 4종 제거
+
+| 값 | 설명 | 분류 |
+|----|------|------|
+| RESOURCE_THRESHOLD | 리소스 임계치 초과 | 리소스 (1종) |
+| SERVER_CONNECTED | 서버 연결됨 | 서버 상태 (3종) |
+| SERVER_DISCONNECTED | 서버 연결 해제됨 | 서버 상태 |
+| SERVER_ERROR | 서버 오류 | 서버 상태 |
+| SERVICE_STARTED | 서비스 시작됨 | 서비스 상태 (3종) |
+| SERVICE_STOPPED | 서비스 중지됨 | 서비스 상태 |
+| SERVICE_ERROR | 서비스 오류 | 서비스 상태 |
+| CONNECTION_LOST | 연결 끊김 | 연결 상태 (2종) |
+| CONNECTION_RESTORED | 연결 복구됨 | 연결 상태 |
+| SECURITY_ALERT | 보안 경고 | 보안 (1종) |
+| DEVICE_CONNECTED | 디바이스 연결됨 | 디바이스 연결 (1종) |
+| BACKUP_STARTED | 백업 시작됨 | 백업 (3종) |
+| BACKUP_COMPLETED | 백업 완료됨 | 백업 |
+| BACKUP_FAILED | 백업 실패함 | 백업 |
+| SYSTEM_UPDATE | 시스템 업데이트 | 시스템 (1종) |
 
 **EnumSystemEventSeverity** (심각도):
 | 값 | 설명 |
@@ -10917,7 +11042,8 @@ Authorization: Bearer {access_token}
 **Query Parameters**:
 | 파라미터 | 타입 | 필수 | 설명 |
 |----------|------|------|------|
-| user_id | int | 아니오 | 사용자 ID 필터 |
+| page | int | 아니오 | 페이지 번호 (기본값: 1) |
+| limit | int | 아니오 | 페이지당 항목 수 (기본값: 100, 최대: 100) |
 | is_active | boolean | 아니오 | 활성 상태 필터 |
 
 **Response (200 OK)**:
@@ -10930,15 +11056,43 @@ Authorization: Bearer {access_token}
       "user_id": 1,
       "ip_address": "192.168.1.100",
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
-      "login_at": "2026-01-19T08:30:00+09:00",
       "expires_at": "2026-01-19T20:30:00+09:00",
-      "is_active": true
+      "is_active": true,
+      "logout_reason": null,
+      "logged_out_at": null,
+      "created_at": "2026-01-19T08:30:00+09:00",
+      "updated_at": "2026-01-19T10:15:00+09:00"
     }
   ]
 }
 ```
 
-#### 9.5.3 DELETE `/api/user-sessions/{id}`
+> **필드 설명**:
+> - `created_at`: 세션 생성(로그인) 시간
+> - `updated_at`: 마지막 활동 시간
+
+#### 9.5.3 GET `/api/user-sessions/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 101,
+    "user_id": 1,
+    "ip_address": "192.168.1.100",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+    "expires_at": "2026-01-19T20:30:00+09:00",
+    "is_active": true,
+    "logout_reason": null,
+    "logged_out_at": null,
+    "created_at": "2026-01-19T08:30:00+09:00",
+    "updated_at": "2026-01-19T10:15:00+09:00"
+  }
+}
+```
+
+#### 9.5.4 DELETE `/api/user-sessions/{id}`
 
 강제 로그아웃 처리. SystemEvent가 생성됩니다.
 
@@ -10948,6 +11102,297 @@ Authorization: Bearer {access_token}
   "success": true
 }
 ```
+
+### 9.6 Audit Logs API
+
+> **v3.1 신규**: PRD_Audit_Log.md 참조
+> 사용자 활동 감사 로그 조회 API. 읽기 전용으로 생성/수정/삭제 API는 제공하지 않습니다.
+
+#### 9.6.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 권한 |
+|--------|----------|------|------|
+| GET | `/api/audit-logs` | 감사 로그 목록 조회 | ADMIN, MAINTAINER |
+| GET | `/api/audit-logs/{id}` | 감사 로그 상세 조회 | ADMIN, MAINTAINER |
+
+> **참고**: 감사 로그는 보안 목적으로 **생성/수정/삭제 API를 제공하지 않음**. 시스템 내부에서만 자동 생성됩니다.
+
+#### 9.6.2 GET `/api/audit-logs`
+
+**Query Parameters**:
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| page | int | 아니오 | 페이지 번호 (기본값: 1) |
+| limit | int | 아니오 | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| action_type | string | 아니오 | 행위 유형 필터 (EnumAuditActionType) |
+| resource_type | string | 아니오 | 리소스 유형 필터 (EnumAuditResourceType) |
+| resource_id | int | 아니오 | 리소스 ID 필터 |
+| actor_login_id | string | 아니오 | 행위자 로그인 ID 필터 |
+| action_status | string | 아니오 | 결과 상태 필터 (SUCCESS, FAILURE) |
+| start_date | datetime | 아니오 | 시작 일시 |
+| end_date | datetime | 아니오 | 종료 일시 |
+
+**Request Example**:
+```http
+GET /api/audit-logs?action_type=USER_CREATED&limit=20 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 100,
+      "action_type": "USER_CREATED",
+      "action_status": "SUCCESS",
+      "resource_type": "USER",
+      "resource_id": 5,
+      "resource_name": "홍길동 (operator01)",
+      "actor_id": 1,
+      "actor_login_id": "admin",
+      "actor_name": "관리자",
+      "actor_role": "ADMIN",
+      "changes": {
+        "after": {
+          "login_id": "operator01",
+          "name": "홍길동",
+          "role": "OPERATOR"
+        }
+      },
+      "description": "사용자 생성: operator01",
+      "ip_address": "192.168.1.100",
+      "user_agent": null,
+      "error_message": null,
+      "created_at": "2026-01-19T10:30:00+09:00"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1250,
+    "total_pages": 63
+  }
+}
+```
+
+#### 9.6.3 GET `/api/audit-logs/{id}`
+
+**Path Parameters**:
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | int | 예 | 감사 로그 ID |
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "id": 100,
+    "action_type": "ROLE_CHANGED",
+    "action_status": "SUCCESS",
+    "resource_type": "USER",
+    "resource_id": 5,
+    "resource_name": "홍길동 (operator01)",
+    "actor_id": 1,
+    "actor_login_id": "admin",
+    "actor_name": "관리자",
+    "actor_role": "ADMIN",
+    "changes": {
+      "before": {"role": "VIEWER"},
+      "after": {"role": "OPERATOR"}
+    },
+    "description": "역할 변경: VIEWER → OPERATOR",
+    "ip_address": "192.168.1.100",
+    "user_agent": "Mozilla/5.0...",
+    "error_message": null,
+    "created_at": "2026-01-19T10:30:00+09:00"
+  }
+}
+```
+
+**Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Audit log not found"
+  }
+}
+```
+
+#### 9.6.4 자동 감사 로그 생성
+
+다음 API 호출 시 감사 로그가 자동 생성됩니다:
+
+| API Endpoint | Action Type | Resource Type | 변경 내역 기록 |
+|--------------|-------------|---------------|----------------|
+| POST `/api/users` | USER_CREATED | USER | after만 기록 |
+| PATCH `/api/users/{id}` | USER_UPDATED | USER | before/after 기록 |
+| PUT `/api/users/{id}` | USER_UPDATED | USER | before/after 기록 |
+| DELETE `/api/users/{id}` | USER_DELETED | USER | before만 기록 |
+| POST `/api/users/{id}/lock` | USER_LOCKED | USER | reason 기록 |
+| POST `/api/users/{id}/unlock` | USER_UNLOCKED | USER | - |
+| PUT `/api/users/me/password` | PASSWORD_CHANGED | PASSWORD | - (비밀번호 미기록) |
+| POST `/api/users/{id}/reset-password` | PASSWORD_RESET | PASSWORD | - (비밀번호 미기록) |
+| POST `/api/user-groups` | GROUP_CREATED | USER_GROUP | after만 기록 |
+| PUT `/api/user-groups/{id}` | GROUP_UPDATED | USER_GROUP | before/after 기록 |
+| DELETE `/api/user-groups/{id}` | GROUP_DELETED | USER_GROUP | before만 기록 |
+| DELETE `/api/user-sessions/{id}` | SESSION_FORCED_LOGOUT | USER_SESSION | reason 기록 |
+
+> **민감 정보 제외**: `password`, `password_hash`, `token` 등 민감 정보는 `changes`에 기록하지 않습니다.
+
+### 9.7 Config Change Logs API
+
+> **v3.2 신규**: PRD_ConfigChangeLog.md v1.1 참조
+> 설정 변경 이력 조회 API. 읽기 전용으로 생성/수정/삭제 API는 제공하지 않습니다.
+>
+> **JSONB 정규화 (v1.1)**: `before_state`/`after_state`는 변경된 필드만 저장합니다.
+> - CREATED: `after_state`에 `{id, name}` 식별 정보만
+> - UPDATED: 변경된 필드만 `before_state`/`after_state`에
+> - DELETED: `before_state`에 `{id, name}` 식별 정보만
+
+#### 9.7.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 권한 |
+|--------|----------|------|------|
+| GET | `/api/config-change-logs` | 설정 변경 로그 목록 조회 | ADMIN, MAINTAINER |
+| GET | `/api/config-change-logs/{id}` | 설정 변경 로그 상세 조회 | ADMIN, MAINTAINER |
+
+> **참고**: 설정 변경 로그는 **생성/수정/삭제 API를 제공하지 않음**. 시스템 내부에서만 자동 생성됩니다.
+
+#### 9.7.2 GET `/api/config-change-logs`
+
+**Query Parameters**:
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| page | int | 아니오 | 페이지 번호 (기본값: 1) |
+| limit | int | 아니오 | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| resource_type | string | 아니오 | 리소스 유형 필터 (EnumConfigResourceType) |
+| resource_id | int | 아니오 | 리소스 ID 필터 |
+| action | string | 아니오 | 액션 유형 필터 (EnumConfigActionType) |
+| actor_id | int | 아니오 | 수행자 ID 필터 |
+| start_date | datetime | 아니오 | 시작 일시 |
+| end_date | datetime | 아니오 | 종료 일시 |
+
+**Request Example**:
+```http
+GET /api/config-change-logs?resource_type=CAMERA&action=CREATED&limit=20 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 150,
+      "resource_type": "CAMERA",
+      "resource_id": 201,
+      "resource_name": "Camera-201 (정문 CCTV)",
+      "action": "CREATED",
+      "before_state": null,
+      "after_state": {
+        "id": 201,
+        "name": "정문 CCTV"
+      },
+      "actor_id": 1,
+      "actor_name": "관리자",
+      "actor_ip": "192.168.1.100",
+      "description": "Camera 생성: Camera-201 (정문 CCTV)",
+      "created_at": "2026-01-21T10:30:00+09:00"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 850,
+    "total_pages": 43
+  }
+}
+```
+
+#### 9.7.3 GET `/api/config-change-logs/{id}`
+
+**Path Parameters**:
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | int | 예 | 설정 변경 로그 ID |
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "id": 150,
+    "resource_type": "SENSOR",
+    "resource_id": 105,
+    "resource_name": "Sensor-105 (북측 펜스)",
+    "action": "UPDATED",
+    "before_state": {
+      "status": "DEACTIVATED",
+      "description": "북측 펜스 센서"
+    },
+    "after_state": {
+      "status": "ACTIVATED",
+      "description": "북측 펜스 센서 (점검완료)"
+    },
+    "actor_id": 2,
+    "actor_name": "유지보수담당자",
+    "actor_ip": "192.168.1.105",
+    "description": "Sensor 상태 변경: DEACTIVATED → ACTIVATED",
+    "created_at": "2026-01-21T11:45:00+09:00"
+  }
+}
+```
+
+**Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Config change log not found"
+  }
+}
+```
+
+#### 9.7.4 자동 설정 변경 로그 생성
+
+다음 리소스의 CRUD 작업 시 설정 변경 로그가 자동 생성됩니다:
+
+| Resource Type | 대상 API | 기록 내용 |
+|---------------|----------|-----------|
+| **Device 계열** | | |
+| CONTROLLER | `/api/controllers` | 제어기 생성/수정/삭제 |
+| SENSOR | `/api/sensors` | 센서 생성/수정/삭제 |
+| CAMERA | `/api/cameras` | 카메라 생성/수정/삭제 |
+| SPEAKER | `/api/speakers` | 스피커 생성/수정/삭제 |
+| ENCLOSURE | `/api/enclosures` | 함체 생성/수정/삭제 |
+| DEVICE_GROUP | `/api/device-groups` | 장비 그룹 생성/수정/삭제 |
+| DEVICE_GROUP_MAPPING | `/api/device-groups/{id}/devices` | 장비 그룹 할당/해제 |
+| CAMERA_PRESET | `/api/camera-presets` | 카메라 프리셋 생성/수정/삭제 |
+| ROI | `/api/rois` | ROI 생성/수정/삭제 |
+| **Server 계열** | | |
+| SERVER | `/api/servers` | 서버 생성/수정/삭제 |
+| SERVER_CATEGORY | `/api/server-categories` | 서버 카테고리 생성/수정/삭제 |
+| **Integration 계열** | | |
+| EVENT_MAPPING | `/api/event-mappings` | 이벤트 매핑 생성/수정/삭제 |
+| EVENT_MAPPING_CAMERA | `/api/event-mappings/{id}/cameras` | 매핑 카메라 생성/수정/삭제 |
+| EVENT_MAPPING_SPEAKER | `/api/event-mappings/{id}/speakers` | 매핑 스피커 생성/수정/삭제 |
+
+> **상태 변경 (STATUS_CHANGED)**: 리소스의 `status` 필드가 변경될 때 자동으로 `STATUS_CHANGED` 액션으로 기록됩니다.
 
 ---
 
@@ -11248,6 +11693,14 @@ Authorization: Bearer {access_token}
 - `GET /api/user-sessions/me` - 내 세션 목록
 - `DELETE /api/user-sessions/me/{id}` - 내 다른 세션 종료
 
+**Audit Logs (v3.1 신규)**:
+- `GET /api/audit-logs` - 감사 로그 목록 조회
+- `GET /api/audit-logs/{id}` - 감사 로그 상세 조회
+
+**Config Change Logs (v3.2 신규)**:
+- `GET /api/config-change-logs` - 설정 변경 로그 목록 조회
+- `GET /api/config-change-logs/{id}` - 설정 변경 로그 상세 조회
+
 ### 11.2 Event-Device 리팩토링 변경사항 (v2.3)
 
 #### 11.2.1 API Request 변경
@@ -11449,6 +11902,8 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v3.2 | 2026-01-21 | **Config Change Logs API 추가 (PRD_ConfigChangeLog.md v1.1)**<br><br>**[1. Config Change Log Enum 추가 (4.7)]**<br>- **EnumConfigResourceType (19종)**: Device 10종, Server 2종, Event 4종, Integration 3종<br>  - Device: DEVICE, CONTROLLER, SENSOR, CAMERA, SPEAKER, ENCLOSURE, DEVICE_GROUP, DEVICE_GROUP_MAPPING, CAMERA_PRESET, ROI<br>  - Server: SERVER, SERVER_CATEGORY<br>  - Event: EVENT, DETECTION_EVENT, MALFUNCTION_EVENT, CONNECTION_EVENT<br>  - Integration: EVENT_MAPPING, EVENT_MAPPING_CAMERA, EVENT_MAPPING_SPEAKER<br>- **EnumConfigActionType (6종)**: CREATED, UPDATED, DELETED, STATUS_CHANGED, ASSIGNED, UNASSIGNED<br><br>**[2. Config Change Logs API 신규 (9.7)]**<br>- **GET /api/config-change-logs**: 설정 변경 로그 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/config-change-logs/{id}**: 설정 변경 로그 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Device, Server, Event, Integration 계열 리소스 CRUD 시 자동 변경 로그 생성<br>- **스냅샷 보존**: 삭제된 리소스/수행자 정보 유지<br><br>**[3. JSONB 정규화 (v1.1 신규)]**<br>- **변경된 필드만 저장**: 전체 모델 스냅샷 대신 변경된 필드만 기록<br>- **CREATED**: after_state에 `{id, name}` 식별 정보만 저장<br>- **UPDATED**: 변경된 필드만 before/after에 저장<br>- **DELETED**: before_state에 `{id, name}` 식별 정보만 저장<br>- **유틸리티 함수**: `get_changed_fields()`, `get_identifier()` (config_log_service.py) |
+| v3.1 | 2026-01-20 | **EnumSystemEventType 15종 동기화, Audit Log API 추가, UserSession API 응답 표준화 (PRD_SystemEvent_Sync.md v1.2, PRD_Audit_Log.md v1.0)**<br><br>**[1. EnumSystemEventType 15종 동기화 (8.7.1)]** (PRD_SystemEvent_Sync.md v1.2)<br>- **USER_* 9종 제거** → UserLoginLog로 이전 (PRD_Account_Design.md Section 9.2)<br>- **ConfigChangeLog 중복 4종 제거**: CONFIG_CHANGED, DEVICE_ADDED, DEVICE_REMOVED, DEVICE_STATUS_CHANGED<br>- **최종 15종**: RESOURCE_THRESHOLD, SERVER_CONNECTED, SERVER_DISCONNECTED, SERVER_ERROR, SERVICE_STARTED, SERVICE_STOPPED, SERVICE_ERROR, CONNECTION_LOST, CONNECTION_RESTORED, SECURITY_ALERT, DEVICE_CONNECTED, BACKUP_STARTED, BACKUP_COMPLETED, BACKUP_FAILED, SYSTEM_UPDATE<br>- **Swagger 스키마 업데이트**: json_schema_extra 예제 추가 (app/schemas/system_event.py)<br><br>**[2. Audit Enum 추가 (4.6)]**<br>- **EnumAuditActionType (18종)**: USER_CREATED, USER_UPDATED, USER_DELETED, USER_LOCKED, USER_UNLOCKED, USER_ACTIVATED, USER_DEACTIVATED, PASSWORD_CHANGED, PASSWORD_RESET, ROLE_CHANGED, GROUP_ASSIGNED, GROUP_CREATED, GROUP_UPDATED, GROUP_DELETED, PERMISSION_CHANGED, SESSION_CREATED, SESSION_TERMINATED, SESSION_FORCED_LOGOUT<br>- **EnumAuditResourceType (4종)**: USER, USER_GROUP, USER_SESSION, PASSWORD<br>- **EnumAuditStatus (2종)**: SUCCESS, FAILURE<br><br>**[3. Audit Logs API 신규 (9.6)]**<br>- **GET /api/audit-logs**: 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/audit-logs/{id}**: 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Account CRUD 작업 시 자동 감사 로그 생성<br>- **변경 내역 추적**: before/after JSON 기록<br>- **스냅샷 보존**: 삭제된 리소스/행위자 정보 유지<br>- **민감 정보 제외**: password, password_hash, token 등 미기록<br><br>**[4. UserSession API 응답 표준화 (9.5)]**<br>- **필드명 변경**: `login_at` → `created_at`, `last_activity` → `updated_at` (다른 모델과 일관성 확보)<br>- **누락 필드 추가**: `logout_reason`, `logged_out_at`, `updated_at` 필드 문서에 반영<br>- **GET /api/user-sessions/{id}**: 상세 조회 API 문서 추가 (9.5.3)<br>- **Query Parameters 업데이트**: `page`, `limit` 파라미터 추가 |
 | v3.0 | 2026-01-19 | **Account API 완성 및 Auth Migration (Phase 1)**<br><br>**[1. Account Enum 섹션 추가 (4.5)]**<br>- **EnumUserRole (5종)**: ADMIN, MAINTAINER, OPERATOR, VIEWER, GUEST<br>- **EnumLogoutReason (6종)**: USER_LOGOUT, SESSION_EXPIRED, ADMIN_FORCED, PASSWORD_CHANGED, DUPLICATE_LOGIN, SYSTEM_MAINTENANCE<br>- **EnumLoginAction (3종)**: LOGIN, LOGOUT, TOKEN_REFRESH<br>- **EnumLoginResult (2종)**: SUCCESS, FAILURE<br>- **EnumLoginFailureReason (7종)**: INVALID_CREDENTIALS, ACCOUNT_LOCKED, ACCOUNT_INACTIVE, PASSWORD_EXPIRED, IP_BLOCKED, TOO_MANY_ATTEMPTS, SYSTEM_ERROR<br><br>**[2. Auth API HTTPBearer Migration]**<br>- **인증 방식 변경**: OAuth2PasswordBearer → HTTPBearer<br>- **Swagger UI 개선**: Authorize 버튼으로 Bearer 토큰 직접 입력 가능<br>- **Request 헤더 문서 업데이트**: Authorization 설명 명확화 (`JWT Bearer 토큰 (HTTPBearer 방식) - POST /api/auth/login으로 발급`)<br><br>**[3. Swagger Example 스키마 추가]** (app/schemas/user.py)<br>- **AccountLoginRequest**: login_id: "admin", password: "admin123"<br>- **AccountUserCreate**: login_id, password, name, email, department, position, role, group_id 등 전체 필드<br>- **AccountUserUpdate**: name, email, department, position, role, group_id, is_active 등 전체 필드<br>- **AccountUserResponse**: id, login_id, name, role, is_active, is_locked, created_at 등 전체 필드<br>- **RefreshTokenRequest**: refresh_token example 추가<br>- **PasswordResetRequest, PasswordChangeRequest**: new_password, current_password example 추가<br>- **UserGroupCreate**: name, description, permissions example 추가<br><br>**[4. 스키마 문서 업데이트]** (GOP_스키마_전체.md)<br>- **user_sessions 테이블**: `last_activity` 필드 추가 (마지막 활동 시간) |
 | v2.9 | 2026-01-15 | **Device is_enable 필드 추가, Enclosure Metrics API, Server Metrics/System Events API 추가**<br><br>**[1. Device 공통 필드 추가]** (PRD_Device_IsEnable_Field.md v1.0)<br>- **is_enable (BOOLEAN)**: 장비 활성화 여부 (기본값: TRUE)<br>- Controller, Sensor, Camera, Speaker, Enclosure 모든 Device 타입에 적용<br><br>**[2. API 스키마 변경 (is_enable)]**<br>- **Create 스키마**: `is_enable` 필드 추가 (optional, default=true)<br>- **Response 스키마**: `is_enable` 필드 포함<br>- **Update 스키마**: `is_enable` 필드 추가 (optional)<br>- **NestedResponse 스키마**: `is_enable` 필드 포함<br><br>**[3. DeviceGroup/Event 연관 스키마]**<br>- DeviceGroup devices 배열 내 Device 객체에 is_enable 포함<br>- Event device nested 객체에 is_enable 포함<br><br>**[4. Enclosure Metrics API 신규]** (PRD_Enclosure_Metrics_Separation.md v1.0)<br>- **5.5.9 POST /{enclosure_id}/metrics**: 환경 모니터링 메트릭 저장<br>- **5.5.10 GET /{enclosure_id}/metrics**: 메트릭 목록 조회 (시간 필터링 지원)<br>- **5.5.11 GET /{enclosure_id}/metrics/latest**: 최신 메트릭 단건 조회<br>- **5.5.12 DELETE /{enclosure_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자산/시계열 데이터 분리**: enclosures (자산) ↔ enclosure_metrics (측정값)<br>- **⚠️ Enclosure API 변경**: `detail_info` 필드 제거 → enclosure_metrics API로 이관<br>- **5.5.7 엔드포인트 변경**: "환경 데이터 업데이트" → "도어 상태 업데이트" (door_status만 지원)<br><br>**[5. Server Metrics API 신규]** (PRD_System_Event.md v1.2 Section 2.4)<br>- **8.6.1 POST /servers/{server_id}/metrics**: 서버 리소스 메트릭 기록<br>- **8.6.2 GET /servers/{server_id}/metrics**: 메트릭 이력 조회 (시간 필터링 지원)<br>- **8.6.3 GET /servers/{server_id}/metrics/latest**: 최신 메트릭 조회 (threshold_config 포함)<br>- **8.6.4 DELETE /servers/{server_id}/metrics**: 메트릭 삭제 (before_date 필터)<br>- **threshold_exceeded**: POST 응답에 임계치 초과 경고 정보 포함<br>- **자동 SystemEvent 생성**: 임계치 초과 시 threshold_warning/threshold_critical 이벤트 자동 생성<br>- **servers.threshold_config JSONB**: 서버별 임계치 설정 (cpu, ram, disk, network - warning/critical 레벨)<br><br>**[6. System Events API 신규]** (PRD_System_Event.md v1.2 Section 3)<br>- **8.7.1 GET /system-events**: 이벤트 목록 조회 (필터링, 페이지네이션)<br>- **8.7.2 GET /system-events/{id}**: 이벤트 상세 조회<br>- **8.7.3 POST /system-events**: 이벤트 생성<br>- **8.7.4 POST /system-events/{id}/acknowledge**: 이벤트 확인 처리<br>- **8.7.5 PATCH /system-events/{id}**: 이벤트 수정<br>- **8.7.6 DELETE /system-events/{id}**: 이벤트 삭제<br>- **8.7.7 GET /system-events/summary**: 요약 통계 (severity별, type별, 미확인 수 등)<br>- **EnumSystemEventType (14종)**: server_start, server_stop, threshold_warning, threshold_critical, connection_lost 등<br>- **EnumSystemEventSeverity (4종)**: INFO, WARNING, ERROR, CRITICAL<br>- **source 필드 (PRD 3.2)**: 이벤트 발생 소스 (server_metrics, manual 등)<br>- **updated_at 필드 (PRD 3.2)**: 수정 시간 자동 관리<br>- **server_description 스냅샷**: 서버 삭제 후에도 이벤트 기록 유지 |
 | v2.8 | 2026-01-12 | **Event Mapping Speakers API 추가**<br><br>**[1. EventMappingSpeaker API 신규 (7.4 섹션)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/speakers`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **아키텍처**: EventMapping을 Base 노드로 하는 확장 가능한 Speaker Action 구조<br>- **FK 관계**:<br>  • `event_mapping_id` (CASCADE): EventMapping 삭제 시 함께 삭제<br>  • `speaker_id` (SET NULL): Speaker 삭제 시 연결만 해제<br>  • `file_group_id` (SET NULL): FileGroup 삭제 시 연결만 해제<br>- **주요 필드**: repeat_count (방송 반복 횟수), is_enable, priority<br>- **Nested Response**: speaker, file_group 상세 정보 포함 |
@@ -11470,5 +11925,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v3.0
-**최종 업데이트**: 2026-01-19
+**문서 버전**: v3.2
+**최종 업데이트**: 2026-01-21

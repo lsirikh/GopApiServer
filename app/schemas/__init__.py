@@ -11,6 +11,10 @@ from app.schemas.device_group import (
     DeviceRemoveResponse,
     DeviceSummary,
 )
+from app.schemas.audit_log import (
+    AuditLogCreate,
+    AuditLogResponse,
+)
 
 __all__ = [
     # DeviceGroup schemas
@@ -22,4 +26,7 @@ __all__ = [
     "DeviceAssignResponse",
     "DeviceRemoveResponse",
     "DeviceSummary",
+    # AuditLog schemas
+    "AuditLogCreate",
+    "AuditLogResponse",
 ]

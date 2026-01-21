@@ -2,15 +2,38 @@
 UserSession API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import Optional
+from sqlalchemy.orm import Session, joinedload
+from typing import Optional, List
 
 from app.dependencies import get_db
 from app.models.user import UserSession, AccountUser, UserLoginLog
 from app.schemas.user import UserSessionResponse
 from app.routers.auth import get_current_account_user
+from app.services.audit_service import log_action
 
 router = APIRouter(tags=["User Sessions"])
+
+
+def _session_to_response(session: UserSession) -> dict:
+    """
+    Convert UserSession to response dict with login_id and role from related user.
+    US-3: PRD_UserSession_Improvement.md - JOIN 필드 추가
+    """
+    response = {
+        "id": session.id,
+        "user_id": session.user_id,
+        "login_id": session.user.login_id if session.user else None,
+        "role": session.user.role if session.user else None,
+        "ip_address": session.ip_address,
+        "user_agent": session.user_agent,
+        "expires_at": session.expires_at,
+        "is_active": session.is_active,
+        "logout_reason": session.logout_reason,
+        "logged_out_at": session.logged_out_at,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+    }
+    return response
 
 
 @router.get("")
@@ -33,18 +56,19 @@ async def get_user_sessions(
 
     **Response**: success, data (세션 목록)
     """
-    query = db.query(UserSession)
+    # Use joinedload for eager loading of user relationship (US-3: JOIN)
+    query = db.query(UserSession).options(joinedload(UserSession.user))
 
     # Apply filters
     if is_active is not None:
         query = query.filter(UserSession.is_active == is_active)
 
     offset = (page - 1) * limit
-    sessions = query.order_by(UserSession.login_at.desc()).offset(offset).limit(limit).all()
+    sessions = query.order_by(UserSession.created_at.desc()).offset(offset).limit(limit).all()
 
     return {
         "success": True,
-        "data": [UserSessionResponse.model_validate(session) for session in sessions]
+        "data": [_session_to_response(session) for session in sessions]
     }
 
 
@@ -122,13 +146,14 @@ async def get_my_sessions(
 
     **Response**: success, data (세션 목록)
     """
-    sessions = db.query(UserSession).filter(
+    # Use joinedload for eager loading of user relationship (US-3: JOIN)
+    sessions = db.query(UserSession).options(joinedload(UserSession.user)).filter(
         UserSession.user_id == current_user.id
-    ).order_by(UserSession.login_at.desc()).all()
+    ).order_by(UserSession.created_at.desc()).all()
 
     return {
         "success": True,
-        "data": [UserSessionResponse.model_validate(session) for session in sessions]
+        "data": [_session_to_response(session) for session in sessions]
     }
 
 
@@ -193,7 +218,10 @@ async def get_user_session_by_id(
     **Error**:
     - 404: 세션을 찾을 수 없음
     """
-    session = db.query(UserSession).filter(UserSession.id == session_id).first()
+    # Use joinedload for eager loading of user relationship (US-3: JOIN)
+    session = db.query(UserSession).options(joinedload(UserSession.user)).filter(
+        UserSession.id == session_id
+    ).first()
 
     if not session:
         raise HTTPException(
@@ -203,7 +231,7 @@ async def get_user_session_by_id(
 
     return {
         "success": True,
-        "data": UserSessionResponse.model_validate(session)
+        "data": _session_to_response(session)
     }
 
 
@@ -260,8 +288,9 @@ async def force_logout_session(
     from app.models.system_event import SystemEvent
     from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 
+    # SECURITY_ALERT: SESSION_FORCED_LOGOUT moved to UserLoginLog per PRD_SystemEvent_Sync.md
     system_event = SystemEvent(
-        type_event=EnumSystemEventType.SESSION_FORCED_LOGOUT,
+        type_event=EnumSystemEventType.SECURITY_ALERT,
         severity=EnumSystemEventSeverity.WARNING,
         title=f"Session forced logout: {session_user.login_id if session_user else 'unknown'}",
         message=f"Session {session_id} was forcefully terminated by {current_user.login_id}",
@@ -277,5 +306,19 @@ async def force_logout_session(
     db.add(system_event)
 
     db.commit()
+
+    # 감사 로그 기록: SESSION_FORCED_LOGOUT
+    await log_action(
+        db=db,
+        action_type="SESSION_FORCED_LOGOUT",
+        resource_type="USER_SESSION",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=session_id,
+        resource_name=f"Session {session_id} ({session_user.login_id if session_user else 'unknown'})",
+        description=f"세션 강제 로그아웃: {session_user.login_id if session_user else 'unknown'}"
+    )
 
     return {"success": True}

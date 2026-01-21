@@ -177,6 +177,7 @@ async def get_current_user_optional(
 @router.post("/login")
 async def login(
     login_data: AccountLoginRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -242,13 +243,19 @@ async def login(
     access_token = create_access_token(data={"sub": user.login_id})
     refresh_token = create_refresh_token(data={"sub": user.login_id})
 
+    # Extract client info from request (US-2: PRD_UserSession_Improvement.md)
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("User-Agent")
+
     # Create UserSession record
     session = UserSession(
         user_id=user.id,
         token=access_token,
         refresh_token=refresh_token,
         expires_at=datetime.now(settings.tz) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
-        is_active=True
+        is_active=True,
+        ip_address=client_ip,
+        user_agent=user_agent
     )
     db.add(session)
 
@@ -257,7 +264,9 @@ async def login(
         user_id=user.id,
         login_id=user.login_id,
         action="LOGIN",
-        result="SUCCESS"
+        result="SUCCESS",
+        ip_address=client_ip,
+        user_agent=user_agent
     )
     db.add(login_log)
     db.commit()

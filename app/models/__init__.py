@@ -9,6 +9,7 @@ from app.models.server import ServerCategory, Server, ServerMetrics
 from app.models.system_event import SystemEvent
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.models.file_group import FileGroup
+from app.models.audit_log import AuditLog
 
 __all__ = [
     # Device models
@@ -42,4 +43,6 @@ __all__ = [
     "XyPoint",
     # FileGroup models
     "FileGroup",
+    # Audit Log models
+    "AuditLog",
 ]

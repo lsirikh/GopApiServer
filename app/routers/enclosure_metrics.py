@@ -13,9 +13,12 @@ from datetime import datetime
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Enclosure, EnclosureMetric
-from app.schemas.device import EnclosureMetricCreate, EnclosureMetricResponse
+from app.schemas.device import EnclosureMetricCreate, EnclosureMetricResponse, EnclosureMetricLatestResponse
 
 router = APIRouter(tags=["Enclosure Metrics"])
+
+# Separate router for /api/enclosure-metrics endpoint
+list_router = APIRouter(tags=["Enclosure Metrics"])
 
 
 def _metric_to_response(metric: EnclosureMetric) -> dict:
@@ -314,4 +317,51 @@ def delete_enclosure_metrics(
         "success": True,
         "message": f"Deleted {deleted_count} metrics",
         "data": {"deleted_count": deleted_count}
+    }
+
+
+# ============================================================================
+# GET /api/enclosure-metrics - 전체 함체 메트릭 조회
+# PRD: PRD_Enclosure_Metrics_Separation.md v1.0 - Section 4.1
+# EM-4.4: 전체 조회 (필터링)
+# ============================================================================
+@list_router.get(
+    "",
+    summary="전체 함체 최신 메트릭 조회",
+    description="모든 함체의 최신 환경 모니터링 메트릭을 조회합니다."
+)
+def get_all_enclosure_metrics(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user_optional)
+):
+    """
+    GET /api/enclosure-metrics
+
+    모든 함체의 최신 환경 모니터링 메트릭을 조회합니다.
+
+    **반환**:
+    - 모든 함체의 최신 메트릭 데이터 목록
+    - 메트릭이 없는 함체는 latest_metrics가 null
+    """
+    # Get all enclosures
+    enclosures = db.query(Enclosure).order_by(Enclosure.id).all()
+
+    result = []
+    for enclosure in enclosures:
+        # Get latest metric for this enclosure
+        latest_metric = db.query(EnclosureMetric).filter(
+            EnclosureMetric.enclosure_id == enclosure.id
+        ).order_by(EnclosureMetric.created_at.desc()).first()
+
+        item = {
+            "enclosure_id": enclosure.id,
+            "enclosure_name": enclosure.name_device,
+            "latest_metrics": _metric_to_response(latest_metric) if latest_metric else None
+        }
+        result.append(item)
+
+    return {
+        "success": True,
+        "message": "All enclosure metrics retrieved successfully",
+        "data": result
     }

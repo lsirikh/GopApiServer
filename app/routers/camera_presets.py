@@ -19,6 +19,8 @@ from app.schemas.camera_preset import (
     CameraPresetWithROIsResponse
 )
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["CameraPresets"])
 
@@ -208,6 +210,17 @@ async def create_camera_preset(
     db.commit()
     db.refresh(preset)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.CAMERA_PRESET,
+        resource_id=preset.id,
+        resource_name=f"CameraPreset-{preset.id} ({preset.preset_name})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": preset.id, "name": preset.preset_name},
+        description="CameraPreset 생성"
+    )
+
     return ApiResponse(
         success=True,
         message="Camera preset created successfully",
@@ -268,6 +281,9 @@ async def update_camera_preset(
                 detail=f"Preset with index {preset_data.preset_index} already exists for this camera"
             )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(preset)
+
     # Update fields
     update_data = preset_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -275,6 +291,21 @@ async def update_camera_preset(
 
     db.commit()
     db.refresh(preset)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(preset)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.CAMERA_PRESET,
+            resource_id=preset.id,
+            resource_name=f"CameraPreset-{preset.id} ({preset.preset_name})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="CameraPreset 수정"
+        )
 
     return ApiResponse(
         success=True,
@@ -390,9 +421,25 @@ async def delete_camera_preset(
             detail=f"Preset with id {preset_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = preset.id
+    deleted_identifier = {"id": preset.id, "name": preset.preset_name}
+    deleted_name = f"CameraPreset-{preset.id} ({preset.preset_name})"
+
     # Delete preset (cascade will delete ROIs and XyPoints)
     db.delete(preset)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.CAMERA_PRESET,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="CameraPreset 삭제"
+    )
 
     return ApiResponse(
         success=True,

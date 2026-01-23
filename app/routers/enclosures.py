@@ -11,7 +11,7 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Enclosure
-from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import (
     EnclosureCreate,
     EnclosureUpdate,
@@ -23,6 +23,7 @@ from app.schemas.device import (
 )
 # EnclosureDetailInfo 제거됨 (PRD_Enclosure_Metrics_Separation.md v1.0)
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Enclosures"])
 
@@ -200,6 +201,17 @@ async def create_enclosure(
     db.commit()
     db.refresh(new_enclosure)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.ENCLOSURE,
+        resource_id=new_enclosure.id,
+        resource_name=f"Enclosure-{new_enclosure.id} ({new_enclosure.name_device})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(new_enclosure),
+        description="Enclosure 생성"
+    )
+
     enclosure_response = _enclosure_to_response(new_enclosure)
 
     return ApiResponse(
@@ -245,6 +257,9 @@ async def update_enclosure(
             detail=f"Enclosure with id {enclosure_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(enclosure)
+
     # Update fields if provided
     update_data = enclosure_data.model_dump(exclude_unset=True)
 
@@ -257,6 +272,21 @@ async def update_enclosure(
 
     db.commit()
     db.refresh(enclosure)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(enclosure)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.ENCLOSURE,
+            resource_id=enclosure.id,
+            resource_name=f"Enclosure-{enclosure.id} ({enclosure.name_device})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="Enclosure 수정"
+        )
 
     enclosure_response = _enclosure_to_response(enclosure)
 
@@ -350,8 +380,24 @@ async def delete_enclosure(
             detail=f"Enclosure with id {enclosure_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = enclosure.id
+    deleted_identifier = get_identifier(enclosure)
+    deleted_name = f"Enclosure-{enclosure.id} ({enclosure.name_device})"
+
     db.delete(enclosure)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.ENCLOSURE,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="Enclosure 삭제"
+    )
 
     return ApiResponse(
         success=True,
@@ -398,12 +444,28 @@ async def update_enclosure_status(
             detail=f"Enclosure with id {enclosure_id} not found"
         )
 
+    # ConfigChangeLog: 상태 변경 전 캡처 (PRD v1.2)
+    old_door_status = enclosure.door_status
+
     # Update door_status if provided
     if status_data.door_status is not None:
         enclosure.door_status = status_data.door_status
 
     db.commit()
     db.refresh(enclosure)
+
+    # ConfigChangeLog: STATUS_CHANGED 로그 기록 (PRD v1.2)
+    if old_door_status != enclosure.door_status:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.ENCLOSURE,
+            resource_id=enclosure.id,
+            resource_name=f"Enclosure-{enclosure.id} ({enclosure.name_device})",
+            action=EnumConfigActionType.STATUS_CHANGED,
+            before_state={"door_status": old_door_status.value if hasattr(old_door_status, 'value') else old_door_status},
+            after_state={"door_status": enclosure.door_status.value if hasattr(enclosure.door_status, 'value') else enclosure.door_status},
+            description=f"Enclosure 상태 변경: {old_door_status} → {enclosure.door_status}"
+        )
 
     enclosure_response = _enclosure_to_response(enclosure)
 

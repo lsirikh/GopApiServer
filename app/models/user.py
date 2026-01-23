@@ -89,6 +89,10 @@ class AccountUser(Base):
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     login_logs = relationship("UserLoginLog", back_populates="user")
 
+    # Report System relationships (PRD: PRD_Report_System.md)
+    report_templates = relationship("ReportTemplate", back_populates="owner")
+    report_generations = relationship("ReportGeneration", back_populates="generator")
+
     def __repr__(self):
         return f"<AccountUser(login_id='{self.login_id}', role='{self.role}')>"
 

@@ -204,10 +204,10 @@ class ControllerCreate(BaseModel):
     컨트롤러는 센서를 관리하는 상위 장치입니다.
     """
     number_device: int = Field(..., description="장치 번호")
-    group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
+    group_device: int = Field(0, description="장치 그룹 번호 (Deprecated 예정, 레거시, 기본값: 0)")
     name_device: str = Field(..., max_length=200, description="장치 이름")
     type_device: str = Field(..., description="장치 타입 (Controller)")
-    version: str = Field(..., max_length=50, description="펌웨어/소프트웨어 버전")
+    version: Optional[str] = Field(None, max_length=50, description="펌웨어/소프트웨어 버전")
     status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
     is_enable: bool = Field(True, description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
@@ -307,10 +307,10 @@ class SensorCreate(BaseModel):
     센서는 컨트롤러에 종속된 감지 장치입니다.
     """
     number_device: int = Field(..., description="장치 번호")
-    group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
+    group_device: int = Field(0, description="장치 그룹 번호 (Deprecated 예정, 레거시, 기본값: 0)")
     name_device: str = Field(..., max_length=200, description="장치 이름")
     type_device: str = Field(..., description="센서 타입 (Fence|Pir|Fod 등)")
-    version: str = Field(..., max_length=50, description="버전")
+    version: Optional[str] = Field(None, max_length=50, description="버전")
     status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
     is_enable: bool = Field(True, description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
@@ -412,10 +412,10 @@ class CameraCreate(BaseModel):
     - urls JSONB 필드로 통합 (CameraUrls 스키마)
     """
     number_device: int = Field(..., description="장치 번호")
-    group_device: int = Field(..., description="장치 그룹 번호 (레거시, group_ids 권장)")
+    group_device: int = Field(0, description="장치 그룹 번호 (Deprecated 예정, 레거시, 기본값: 0)")
     name_device: str = Field(..., max_length=200, description="장치 이름")
     type_device: str = Field(..., description="장치 타입 (IpCamera)")
-    version: str = Field(..., max_length=50, description="버전")
+    version: Optional[str] = Field(None, max_length=50, description="버전")
     status: str = Field(..., description="상태 (ACTIVATED|DEACTIVATED|MAINTENANCE)")
     is_enable: bool = Field(True, description="장비 활성화 여부")
     ip_address: str = Field(..., description="카메라 IP 주소")
@@ -644,10 +644,11 @@ class SpeakerResponse(BaseModel):
     """
     Schema for Speaker response
     PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation 필드 추가
+    SPEC-6.1: category_device 제거 (polymorphic discriminator - API 노출 불필요)
     """
     # Device Base fields
     id: int = Field(..., description="Speaker ID")
-    category_device: str = Field("speaker", description="디바이스 카테고리")
+    # category_device 제거: polymorphic discriminator로 내부 DB 구조용 (SPEC-6.1)
     number_device: int = Field(..., description="단말 번호 (NATS device_no)")
     group_device: int = Field(..., description="장치 그룹 번호")
     name_device: str = Field(..., description="표시명")
@@ -886,6 +887,19 @@ class EnclosureMetricResponse(BaseModel):
     ups_charging: Optional[bool] = Field(None, description="UPS 충전 중 여부")
     detail: Optional[dict] = Field(None, description="추가 상세 정보 (JSONB)")
     created_at: datetime = Field(..., description="생성 일시")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EnclosureMetricLatestResponse(BaseModel):
+    """
+    함체별 최신 메트릭 응답 스키마
+    PRD: PRD_Enclosure_Metrics_Separation.md v1.0 - Section 3.3
+    EM-1.4: 전체 조회용 응답 스키마
+    """
+    enclosure_id: int = Field(..., description="함체 ID")
+    enclosure_name: str = Field(..., description="함체 이름")
+    latest_metrics: Optional[EnclosureMetricResponse] = Field(None, description="최신 메트릭 정보")
 
     model_config = ConfigDict(from_attributes=True)
 

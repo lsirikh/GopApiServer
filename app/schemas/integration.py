@@ -259,16 +259,26 @@ class EventMappingSpeakerReplace(BaseModel):
 
 class SpeakerNestedResponseIntegration(BaseModel):
     """
-    스피커 Nested 응답 - EventMappingSpeaker용 (timestamp 제외)
+    스피커 Nested 응답 - Full Property (timestamp 제외)
 
     PRD: PRD_EventMappingSpeaker.md v1.0
+    PRD: PRD_Speaker_Geolocation.md v1.0
     """
+    # Device 공통 필드
     id: int
     number_device: int
+    group_device: int
     name_device: str
     type_device: str
+    version: Optional[str] = None
     status: str
+    is_enable: bool = True
+
+    # Speaker 고유 필드
     speaker_type: str
+    server_id: Optional[int] = None
+    description: Optional[str] = None
+    geolocation: Optional[Geolocation] = None
 
     model_config = ConfigDict(from_attributes=True)
 

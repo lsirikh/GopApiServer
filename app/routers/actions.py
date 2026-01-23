@@ -24,7 +24,8 @@ from app.schemas.event import (
 )
 from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
-from app.utils.enums import EnumTrueFalse
+from app.utils.enums import EnumTrueFalse, EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
 
 router = APIRouter(tags=[])
@@ -391,6 +392,17 @@ async def create_action_event(
     db.commit()
     db.refresh(new_event)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.ACTION_EVENT,
+        resource_id=new_event.id,
+        resource_name=f"ActionEvent-{new_event.id} ({new_event.type_event})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": new_event.id, "type_event": new_event.type_event},
+        description="ActionEvent 생성"
+    )
+
     # Update source event's action_reported to "True" (only for Detection and Malfunction events)
     update_source_action_reported(db, source_event)
 
@@ -450,6 +462,9 @@ async def update_action_event(
             detail=f"Action event with id {event_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(event)
+
     # Update fields if provided
     update_data = event_data.model_dump(exclude_unset=True)
 
@@ -467,6 +482,21 @@ async def update_action_event(
 
     db.commit()
     db.refresh(event)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(event)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.ACTION_EVENT,
+            resource_id=event.id,
+            resource_name=f"ActionEvent-{event.id} ({event.type_event})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="ActionEvent 수정"
+        )
 
     # Load nested source event via polymorphic relationship
     if event.source_event is None:
@@ -597,12 +627,28 @@ async def delete_action_event(
             detail=f"Action event with id {event_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = event.id
+    deleted_identifier = {"id": event.id, "type_event": event.type_event}
+    deleted_name = f"ActionEvent-{event.id} ({event.type_event})"
+
     # Reset source event's action_reported to "False" (1:1 relationship)
     # Uses polymorphic relationship to get source event
     reset_source_action_reported(db, event.source_event)
 
     db.delete(event)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.ACTION_EVENT,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="ActionEvent 삭제"
+    )
 
     return ApiResponse(
         success=True,

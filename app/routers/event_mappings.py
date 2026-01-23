@@ -14,7 +14,8 @@ from app.routers.auth import get_current_user_optional
 from app.models.integration import EventMapping
 from app.schemas.integration import EventMappingCreate, EventMappingResponse, EventMappingUpdate
 from app.schemas.common import ApiResponse, PaginationMeta
-from app.utils.enums import EnumMappingEventCategory
+from app.utils.enums import EnumMappingEventCategory, EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=[])
 
@@ -182,6 +183,17 @@ async def create_event_mapping(
     db.commit()
     db.refresh(new_mapping)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING,
+        resource_id=new_mapping.id,
+        resource_name=f"EventMapping-{new_mapping.id} ({new_mapping.name_event})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": new_mapping.id, "name_event": new_mapping.name_event},
+        description="EventMapping 생성"
+    )
+
     # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
         id=new_mapping.id,
@@ -239,6 +251,9 @@ async def update_event_mapping_partial(
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(existing_mapping)
+
     # Update only provided fields
     update_data = mapping.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -246,6 +261,21 @@ async def update_event_mapping_partial(
 
     db.commit()
     db.refresh(existing_mapping)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(existing_mapping)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.EVENT_MAPPING,
+            resource_id=existing_mapping.id,
+            resource_name=f"EventMapping-{existing_mapping.id} ({existing_mapping.name_event})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="EventMapping 수정"
+        )
 
     # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
@@ -360,8 +390,24 @@ async def delete_event_mapping(
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = mapping.id
+    deleted_identifier = {"id": mapping.id, "name_event": mapping.name_event}
+    deleted_name = f"EventMapping-{mapping.id} ({mapping.name_event})"
+
     db.delete(mapping)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="EventMapping 삭제"
+    )
 
     return ApiResponse(
         success=True,

@@ -22,22 +22,32 @@ from app.schemas.integration import (
     FileGroupNestedResponse
 )
 from app.routers.auth import get_current_user_optional
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Event Mapping Speakers"])
 
 
 def _build_speaker_nested(speaker: Speaker) -> Optional[SpeakerNestedResponseIntegration]:
-    """Build SpeakerNestedResponseIntegration from Speaker model"""
+    """Build SpeakerNestedResponseIntegration from Speaker model (Full Property, timestamp 제외)"""
     if not speaker:
         return None
 
     return SpeakerNestedResponseIntegration(
+        # Device 공통 필드
         id=speaker.id,
         number_device=speaker.number_device,
+        group_device=speaker.group_device,
         name_device=speaker.name_device,
         type_device=speaker.type_device.value if hasattr(speaker.type_device, 'value') else str(speaker.type_device),
+        version=speaker.version,
         status=speaker.status.value if hasattr(speaker.status, 'value') else str(speaker.status),
-        speaker_type=speaker.speaker_type.value if hasattr(speaker.speaker_type, 'value') else str(speaker.speaker_type)
+        is_enable=speaker.is_enable if speaker.is_enable is not None else True,
+        # Speaker 고유 필드
+        speaker_type=speaker.speaker_type.value if hasattr(speaker.speaker_type, 'value') else str(speaker.speaker_type),
+        server_id=speaker.server_id,
+        description=speaker.description,
+        geolocation=speaker.geolocation
     )
 
 
@@ -199,18 +209,21 @@ def create_event_mapping_speaker(
     db.commit()
     db.refresh(ems)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
+        resource_id=ems.id,
+        resource_name=f"EventMappingSpeaker-{ems.id} (speaker_id: {ems.speaker_id})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": ems.id, "speaker_id": ems.speaker_id},
+        description="EventMappingSpeaker 생성"
+    )
+
     return {
         "success": True,
         "message": "Event mapping speaker created successfully",
-        "data": {
-            "id": ems.id,
-            "event_mapping_id": ems.event_mapping_id,
-            "speaker_id": ems.speaker_id,
-            "file_group_id": ems.file_group_id,
-            "repeat_count": ems.repeat_count,
-            "is_enable": ems.is_enable,
-            "priority": ems.priority
-        }
+        "data": _build_response(ems).model_dump()
     }
 
 
@@ -248,6 +261,9 @@ def update_event_mapping_speaker(
             detail=f"Speaker config with id {config_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(ems)
+
     # Update only provided fields
     update_data = speaker_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -256,18 +272,25 @@ def update_event_mapping_speaker(
     db.commit()
     db.refresh(ems)
 
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(ems)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
+            resource_id=ems.id,
+            resource_name=f"EventMappingSpeaker-{ems.id} (speaker_id: {ems.speaker_id})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="EventMappingSpeaker 수정"
+        )
+
     return {
         "success": True,
         "message": "Event mapping speaker updated successfully",
-        "data": {
-            "id": ems.id,
-            "event_mapping_id": ems.event_mapping_id,
-            "speaker_id": ems.speaker_id,
-            "file_group_id": ems.file_group_id,
-            "repeat_count": ems.repeat_count,
-            "is_enable": ems.is_enable,
-            "priority": ems.priority
-        }
+        "data": _build_response(ems).model_dump()
     }
 
 
@@ -318,15 +341,7 @@ def replace_event_mapping_speaker(
     return {
         "success": True,
         "message": "Event mapping speaker replaced successfully",
-        "data": {
-            "id": ems.id,
-            "event_mapping_id": ems.event_mapping_id,
-            "speaker_id": ems.speaker_id,
-            "file_group_id": ems.file_group_id,
-            "repeat_count": ems.repeat_count,
-            "is_enable": ems.is_enable,
-            "priority": ems.priority
-        }
+        "data": _build_response(ems).model_dump()
     }
 
 
@@ -363,8 +378,24 @@ def delete_event_mapping_speaker(
             detail=f"Speaker config with id {config_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = ems.id
+    deleted_identifier = {"id": ems.id, "speaker_id": ems.speaker_id}
+    deleted_name = f"EventMappingSpeaker-{ems.id} (speaker_id: {ems.speaker_id})"
+
     db.delete(ems)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="EventMappingSpeaker 삭제"
+    )
 
     return {
         "success": True,

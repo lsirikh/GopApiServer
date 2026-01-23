@@ -14,7 +14,8 @@ from app.schemas.camera_preset import (
     ROICreate,
     ROIResponse,
     ROIDetailResponse,
-    ROIUpdate
+    ROIUpdate,
+    ROIListData
 )
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
@@ -23,7 +24,7 @@ from app.services.config_log_service import log_config_change, get_identifier, g
 router = APIRouter(tags=["ROIs"])
 
 
-@router.get("/{preset_id}/rois")
+@router.get("/{preset_id}/rois", response_model=ApiResponse[ROIListData])
 async def get_rois(
     preset_id: int,
     page: int = Query(1, ge=1, description="Page number"),
@@ -100,7 +101,7 @@ async def get_rois(
     )
 
 
-@router.get("/{preset_id}/rois/{roi_id}")
+@router.get("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[ROIDetailResponse])
 async def get_roi(
     preset_id: int,
     roi_id: int,
@@ -157,7 +158,7 @@ async def get_roi(
     )
 
 
-@router.post("/{preset_id}/rois", status_code=status.HTTP_201_CREATED)
+@router.post("/{preset_id}/rois", status_code=status.HTTP_201_CREATED, response_model=ApiResponse[ROIResponse])
 async def create_roi(
     preset_id: int,
     roi_data: ROICreate,
@@ -230,7 +231,7 @@ async def create_roi(
     )
 
 
-@router.patch("/{preset_id}/rois/{roi_id}")
+@router.patch("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[ROIResponse])
 async def update_roi(
     preset_id: int,
     roi_id: int,
@@ -303,7 +304,7 @@ async def update_roi(
     )
 
 
-@router.put("/{preset_id}/rois/{roi_id}")
+@router.put("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[ROIResponse])
 async def replace_roi(
     preset_id: int,
     roi_id: int,
@@ -359,7 +360,7 @@ async def replace_roi(
     )
 
 
-@router.delete("/{preset_id}/rois/{roi_id}")
+@router.delete("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[None])
 async def delete_roi(
     preset_id: int,
     roi_id: int,

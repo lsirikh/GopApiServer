@@ -15,6 +15,8 @@ from app.models.file_group import FileGroup
 from app.models.server import Server
 from app.schemas.file_group import FileGroupCreate, FileGroupUpdate, FileGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
 
 router = APIRouter(tags=["FileGroups"])
@@ -162,6 +164,17 @@ async def create_file_group(
             detail=f"FileGroup with server_id={file_group_data.server_id} and group_id={file_group_data.group_id} already exists"
         )
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.FILE_GROUP,
+        resource_id=file_group.id,
+        resource_name=f"FileGroup-{file_group.id} ({file_group.group_name})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": file_group.id, "name": file_group.group_name},
+        description="FileGroup 생성"
+    )
+
     return ApiResponse(
         success=True,
         message="FileGroup created",
@@ -198,6 +211,9 @@ async def patch_file_group(
             detail=f"FileGroup with id {file_group_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(file_group)
+
     # Update only provided fields
     update_data = file_group_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -205,6 +221,21 @@ async def patch_file_group(
 
     db.commit()
     db.refresh(file_group)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(file_group)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.FILE_GROUP,
+            resource_id=file_group.id,
+            resource_name=f"FileGroup-{file_group.id} ({file_group.group_name})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="FileGroup 수정"
+        )
 
     return ApiResponse(
         success=True,
@@ -295,8 +326,24 @@ async def delete_file_group(
             detail=f"FileGroup with id {file_group_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = file_group.id
+    deleted_identifier = {"id": file_group.id, "name": file_group.group_name}
+    deleted_name = f"FileGroup-{file_group.id} ({file_group.group_name})"
+
     db.delete(file_group)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.FILE_GROUP,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="FileGroup 삭제"
+    )
 
     return ApiResponse(
         success=True,

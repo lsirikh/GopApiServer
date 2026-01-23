@@ -1,6 +1,6 @@
 """
 ConfigChangeLog Pydantic Schemas
-Based on PRD_ConfigChangeLog.md v1.1
+Based on PRD_ConfigChangeLog.md v1.2
 
 JSONB 정규화 규칙 (v1.1):
 - CREATED: after_state = {id, name} (식별 정보만)
@@ -9,6 +9,8 @@ JSONB 정규화 규칙 (v1.1):
 - STATUS_CHANGED: {status} 필드만
 - ASSIGNED: after_state = {target_id, target_name}
 - UNASSIGNED: before_state = {target_id, target_name}
+
+Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
@@ -25,7 +27,7 @@ class ConfigChangeLogResponse(BaseModel):
     """
     설정 변경 로그 응답 스키마
 
-    PRD Reference: PRD_ConfigChangeLog.md v1.1 Section 4
+    PRD Reference: PRD_ConfigChangeLog.md v1.2 Section 4
 
     Note: before_state/after_state는 v1.1 정규화 규칙에 따라 변경된 필드만 저장
 
@@ -64,7 +66,7 @@ class ConfigChangeLogResponse(BaseModel):
     )
     resource_type: EnumConfigResourceType = Field(
         ...,
-        description="리소스 유형 (19종: Device 10, Server 2, Event 4, Integration 3)",
+        description="리소스 유형 (17종: Device 10, Event 4, Integration 3)",
         json_schema_extra={"example": "CAMERA"}
     )
     resource_id: int = Field(
@@ -125,7 +127,7 @@ class ConfigChangeLogListResponse(BaseModel):
     """
     설정 변경 로그 목록 응답 스키마
 
-    PRD Reference: PRD_ConfigChangeLog.md v1.1 Section 5
+    PRD Reference: PRD_ConfigChangeLog.md v1.2 Section 5
 
     Example Response:
         {

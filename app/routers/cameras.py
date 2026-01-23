@@ -10,12 +10,13 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
-from app.utils.enums import EnumDeviceCategory
+from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse, CameraUrls, CameraWithPresetsResponse
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.schemas.camera_preset import CameraPresetNestedResponse, ROIListNestedResponse
 from app.models.camera_preset import CameraPreset, ROI
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Cameras"])
 
@@ -363,6 +364,17 @@ async def create_camera(
         _update_device_group_mappings(db, new_camera.id, camera_data.group_ids, "camera")
         db.commit()
 
+    # ConfigChangeLog: CREATED 로깅 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.CAMERA,
+        resource_id=new_camera.id,
+        resource_name=f"Camera-{new_camera.id} ({new_camera.name_device})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(new_camera),
+        description="Camera 생성"
+    )
+
     return ApiResponse(
         success=True,
         message="Camera created successfully",
@@ -413,6 +425,9 @@ async def update_camera(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Camera with id {camera_id} not found"
         )
+
+    # ConfigChangeLog: 변경 전 상태 캡처
+    before_state = model_to_dict(camera)
 
     # Update fields if provided
     update_data = camera_data.model_dump(exclude_unset=True)
@@ -469,6 +484,21 @@ async def update_camera(
 
     db.commit()
     db.refresh(camera)
+
+    # ConfigChangeLog: UPDATED 로깅 (PRD v1.2 - 변경된 필드만 저장)
+    after_state = model_to_dict(camera)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.CAMERA,
+            resource_id=camera.id,
+            resource_name=f"Camera-{camera.id} ({camera.name_device})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="Camera 수정"
+        )
 
     return ApiResponse(
         success=True,
@@ -600,6 +630,10 @@ async def delete_camera(
             detail=f"Camera with id {camera_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 식별 정보 캡처
+    deleted_identifier = get_identifier(camera)
+    resource_name = f"Camera-{camera.id} ({camera.name_device})"
+
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
     db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == camera_id,
@@ -608,6 +642,17 @@ async def delete_camera(
 
     db.delete(camera)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로깅 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.CAMERA,
+        resource_id=camera_id,
+        resource_name=resource_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="Camera 삭제"
+    )
 
     return ApiResponse(
         success=True,

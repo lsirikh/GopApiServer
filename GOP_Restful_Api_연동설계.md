@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-21  
-**버전**: v3.2  
+**최종 수정일**: 2026-01-23  
+**버전**: v3.3  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -52,11 +52,17 @@
    - 9.5 [UserSession API](#95-usersession-api)
    - 9.6 [Audit Logs API](#96-audit-logs-api) *(v3.1 신규)*
    - 9.7 [Config Change Logs API](#97-config-change-logs-api) *(v3.2 신규)*
-10. [에러 처리](#10-에러-처리)
-11. [부록](#11-부록)
-    - 11.1 [전체 Endpoint 목록](#111-전체-endpoint-목록)
-    - 11.2 [Event-Device 리팩토링 변경사항 (v2.3)](#112-event-device-리팩토링-변경사항-v23)
-    - 11.3 [EventMapping 리팩토링 변경사항 (v2.3)](#113-eventmapping-리팩토링-변경사항-v23)
+10. [Report API 설계](#10-report-api-설계-v33-신규) *(v3.3 신규)*
+    - 10.1 [개요](#101-개요)
+    - 10.2 [Report Components API](#102-report-components-api)
+    - 10.3 [Report Templates API](#103-report-templates-api)
+    - 10.4 [Report Generations API](#104-report-generations-api)
+    - 10.5 [Report Preview Page](#105-report-preview-page)
+11. [에러 처리](#11-에러-처리)
+12. [부록](#12-부록)
+    - 12.1 [전체 Endpoint 목록](#121-전체-endpoint-목록)
+    - 12.2 [Event-Device 리팩토링 변경사항 (v2.3)](#122-event-device-리팩토링-변경사항-v23)
+    - 12.3 [EventMapping 리팩토링 변경사항 (v2.3)](#123-eventmapping-리팩토링-변경사항-v23)
 
 ---
 
@@ -658,39 +664,41 @@ class EnumAuditStatus(str, Enum):
 
 ### 4.7 Config Change Log Enum (v3.2 신규)
 
-> **참조**: PRD_ConfigChangeLog.md v1.1
+> **참조**: PRD_ConfigChangeLog.md v1.2
 
-#### EnumConfigResourceType (설정 리소스 유형 - 19종)
+#### EnumConfigResourceType (설정 리소스 유형 - 17종)
 ```python
 # Python 정의 - app/utils/enums.py
 class EnumConfigResourceType(str, Enum):
+    """
+    설정 변경 대상 리소스 유형 (17종)
+    Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
+    """
     # Device 계열 (10종)
-    DEVICE = "DEVICE"                     # 장비 (Base)
     CONTROLLER = "CONTROLLER"             # 제어기
     SENSOR = "SENSOR"                     # 센서
     CAMERA = "CAMERA"                     # 카메라
     SPEAKER = "SPEAKER"                   # 스피커
     ENCLOSURE = "ENCLOSURE"               # 함체
     DEVICE_GROUP = "DEVICE_GROUP"         # 장비 그룹
-    DEVICE_GROUP_MAPPING = "DEVICE_GROUP_MAPPING" # 장비 그룹 매핑
     CAMERA_PRESET = "CAMERA_PRESET"       # 카메라 프리셋
     ROI = "ROI"                           # 관심 영역
-
-    # Server 계열 (2종)
-    SERVER = "SERVER"                     # 서버
-    SERVER_CATEGORY = "SERVER_CATEGORY"   # 서버 카테고리
+    XY_POINT = "XY_POINT"                 # XY 포인트
+    FILE_GROUP = "FILE_GROUP"             # 파일 그룹
 
     # Event 계열 (4종)
-    EVENT = "EVENT"                       # 이벤트 (Base)
     DETECTION_EVENT = "DETECTION_EVENT"   # 탐지 이벤트
     MALFUNCTION_EVENT = "MALFUNCTION_EVENT" # 오동작 이벤트
     CONNECTION_EVENT = "CONNECTION_EVENT" # 연결 이벤트
+    ACTION_EVENT = "ACTION_EVENT"         # 액션 이벤트
 
     # Integration 계열 (3종)
     EVENT_MAPPING = "EVENT_MAPPING"       # 이벤트 매핑
     EVENT_MAPPING_CAMERA = "EVENT_MAPPING_CAMERA" # 이벤트 매핑 카메라
     EVENT_MAPPING_SPEAKER = "EVENT_MAPPING_SPEAKER" # 이벤트 매핑 스피커
 ```
+
+> **SystemEvent에서 관리**: SERVER, SERVER_CATEGORY
 
 **사용처**:
 - `ConfigChangeLog.resource_type`: 변경된 설정 리소스 유형
@@ -709,6 +717,99 @@ class EnumConfigActionType(str, Enum):
 
 **사용처**:
 - `ConfigChangeLog.action`: 설정 변경 액션 유형
+
+### 4.8 Report Enum (v3.3 신규)
+
+> **PRD 참조**: PRD_Report_System.md Section 3
+
+#### EnumReportType (보고서 유형 - 2종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumReportType(str, Enum):
+    """보고서 유형"""
+    STANDARD = "STANDARD"   # 정형 보고서
+    CUSTOM = "CUSTOM"       # 비정형 보고서 (사용자 정의 템플릿)
+```
+
+**사용처**:
+- `ReportTemplate.report_type`: 템플릿 보고서 유형
+- `ReportGeneration.report_type`: 생성된 보고서 유형
+
+#### EnumReportPeriod (보고서 기간 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumReportPeriod(str, Enum):
+    """보고서 기간"""
+    DAYS_7 = "7d"       # 7일
+    DAYS_30 = "30d"     # 30일 (1개월)
+    DAYS_90 = "90d"     # 90일 (3개월)
+    YEAR_1 = "1y"       # 1년
+```
+
+**사용처**:
+- `ReportTemplate.default_period`: 기본 조회 기간
+- `ReportGeneration.period_type`: 보고서 생성 기간
+
+#### EnumReportStatus (보고서 상태 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumReportStatus(str, Enum):
+    """보고서 생성 상태"""
+    PENDING = "PENDING"         # 대기 중
+    GENERATING = "GENERATING"   # 생성 중
+    COMPLETED = "COMPLETED"     # 완료
+    FAILED = "FAILED"           # 실패
+```
+
+**사용처**:
+- `ReportGeneration.status`: 보고서 생성 상태
+
+#### EnumChartType (차트 유형 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumChartType(str, Enum):
+    """차트 유형"""
+    LINE = "LINE"       # 라인 차트
+    BAR = "BAR"         # 막대 차트
+    DONUT = "DONUT"     # 도넛 차트
+    PIE = "PIE"         # 파이 차트
+```
+
+**사용처**:
+- Preview 페이지 Chart.js 렌더링
+
+#### EnumReportComponent (보고서 컴포넌트 - 15종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumReportComponent(str, Enum):
+    """보고서 컴포넌트"""
+    # SUMMARY (1종)
+    SUMMARY_CARD = "SUMMARY_CARD"               # 요약 카드
+
+    # DEVICE (3종)
+    DEVICE_STATUS_PIE = "DEVICE_STATUS_PIE"     # 장비 상태 파이 차트
+    DEVICE_TYPE_BAR = "DEVICE_TYPE_BAR"         # 장비 유형 막대 차트
+    DEVICE_GRID = "DEVICE_GRID"                 # 장비 그리드
+
+    # EVENT (6종)
+    EVENT_SUMMARY_PIE = "EVENT_SUMMARY_PIE"     # 이벤트 요약 파이 차트
+    EVENT_TREND_LINE = "EVENT_TREND_LINE"       # 이벤트 추이 라인 차트
+    EVENT_DAILY_BAR = "EVENT_DAILY_BAR"         # 일별 이벤트 막대 차트
+    EVENT_DETECTION_GRID = "EVENT_DETECTION_GRID"   # 탐지 이벤트 그리드
+    EVENT_MALFUNCTION_GRID = "EVENT_MALFUNCTION_GRID" # 장애 이벤트 그리드
+    EVENT_ACTION_GRID = "EVENT_ACTION_GRID"     # 조치 이벤트 그리드
+
+    # SYSTEM (5종)
+    SYSTEM_SEVERITY_BAR = "SYSTEM_SEVERITY_BAR" # 심각도 막대 차트
+    SYSTEM_TREND_LINE = "SYSTEM_TREND_LINE"     # 시스템 추이 라인 차트
+    SYSTEM_CONFIG_GRID = "SYSTEM_CONFIG_GRID"   # 설정 변경 그리드
+    SYSTEM_EVENT_GRID = "SYSTEM_EVENT_GRID"     # 시스템 이벤트 그리드
+    SYSTEM_AUDIT_GRID = "SYSTEM_AUDIT_GRID"     # 감사 로그 그리드
+```
+
+**사용처**:
+- `ReportTemplate.components[].id`: 템플릿 컴포넌트 ID
+- `GET /api/reports/components`: 컴포넌트 목록 조회
 
 ---
 
@@ -737,18 +838,18 @@ Device는 Joined Table Inheritance 패턴을 사용하여 다형성을 지원합
         ┌───────────────┬───────────┼───────────┬───────────────┐
         │               │           │           │               │
         ▼               ▼           ▼           ▼               ▼
-┌───────────────┐ ┌───────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────────┐
-│  controllers  │ │  sensors  │ │ cameras │ │  speakers   │ │   enclosures   │
-│  (v1.0~)      │ │  (v1.0~)  │ │ (v1.0~) │ │  (v2.4~)    │ │   (v2.4~)      │
-├───────────────┤ ├───────────┤ ├─────────┤ ├─────────────┤ ├────────────────┤
-│ id (FK→devices)│ id (FK)    │ │ id (FK) │ │ id (FK)     │ │ id (FK)        │
-│ ip_address    │ │controller_│ │ip_address│ │speaker_type│ │ door_status    │
-│ ip_port       │ │id (FK)    │ │ip_port  │ │server_id    │ │ geolocation    │
-└───────────────┘ └───────────┘ │mode     │ │description  │ │ geolocation    │
-                                │category │ └─────────────┘ │ threshold_conf │
-                                │urls(JSONB)                │ heater_enabled │
-                                └─────────┘                 │ fan_enabled    │
-                                                            └────────────────┘
+┌────────────────┐ ┌───────────┐ ┌─────────┐ ┌─────────────┐ ┌────────────────┐
+│  controllers   │ │  sensors  │ │ cameras │ │  speakers   │ │   enclosures   │
+│  (v1.0~)       │ │  (v1.0~)  │ │ (v1.0~) │ │  (v2.4~)    │ │   (v2.4~)      │
+├────────────────┤ ├───────────┤ ├─────────┤ ├─────────────┤ ├────────────────┤
+│ id (FK→devices)│ id (FK)     │ │ id (FK) │ │ id (FK)     │ │ id (FK)        │
+│ ip_address     │ │controller │ │ip_address│ │speaker_type│ │ door_status    │
+│ ip_port        │ │id (FK)    │ │ip_port  │ │server_id    │ │ geolocation    │
+└────────────────┘ └───────────┘ │mode     │ │description  │ │ threshold_conf │
+                                 │category │ └─────────────┘ │ heater_enabled │
+                                 │urls(JSONB)                │ fan_enabled    │
+                                 └─────────┘                 └────────────────┘
+                                                            
 ```
 
 **Discriminator 컬럼**: `category_device` (EnumDeviceCategory)
@@ -794,9 +895,11 @@ Accept: application/json
       "type_device": "Controller", //(EnumDeviceType)
       "version": "v2.1.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "ip_address": "192.168.1.100",
       "ip_port": 8001,
       "geolocation": null,
+      "sensors": null,
       "created_at": "2025-01-01T00:00:00.000Z",
       "updated_at": "2025-01-10T10:30:00.000Z",
       "device_groups": [
@@ -811,9 +914,11 @@ Accept: application/json
       "type_device": "Controller", //(EnumDeviceType)
       "version": "v2.1.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "ip_address": "192.168.1.101",
       "ip_port": 8001,
       "geolocation": null,
+      "sensors": null,
       "created_at": "2025-01-02T00:00:00.000Z",
       "updated_at": "2025-01-10T10:29:00.000Z",
       "device_groups": []
@@ -846,6 +951,7 @@ Accept: application/json
       "type_device": "Controller", //(EnumDeviceType)
       "version": "v2.1.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "ip_address": "192.168.1.100",
       "ip_port": 8001,
       "geolocation": null,
@@ -860,6 +966,7 @@ Accept: application/json
           "type_device": "Multi", //(EnumDeviceType)
           "version": "v1.5.0",
           "status": "ACTIVATED", //(EnumDeviceStatus)
+          "is_enable": true,
           "controller_id": 1,
           "geolocation": null,
           "device_groups": [
@@ -879,6 +986,7 @@ Accept: application/json
       "type_device": "Controller", //(EnumDeviceType)
       "version": "v2.1.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "ip_address": "192.168.1.101",
       "ip_port": 8001,
       "geolocation": null,
@@ -949,6 +1057,7 @@ Accept: application/json
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.1.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.100",
     "ip_port": 8001,
     "geolocation": null,
@@ -979,6 +1088,7 @@ Accept: application/json
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.1.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.100",
     "ip_port": 8001,
     "geolocation": null,
@@ -991,6 +1101,7 @@ Accept: application/json
         "type_device": "Multi", //(EnumDeviceType)
         "version": "v1.5.0",
         "status": "ACTIVATED", //(EnumDeviceStatus)
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": [
@@ -1005,6 +1116,7 @@ Accept: application/json
         "type_device": "Fence", //(EnumDeviceType)
         "version": "v1.5.0",
         "status": "ACTIVATED", //(EnumDeviceStatus)
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": []
@@ -1090,18 +1202,19 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 장치 번호 |
-| group_device | integer | N | 디바이스 그룹 (Deprecated 예정, 레거시) |
-| name_device | string | Y | 장치 이름 |
-| type_device | string | N | 장치 타입 (EnumDeviceType, 기본값: Controller) |
-| version | string | N | 펌웨어 버전 |
-| status | string | N | 상태 (EnumDeviceStatus, 기본값: DEACTIVATED) |
-| ip_address | string | Y | IP 주소 |
-| ip_port | integer | Y | 포트 번호 |
-| geolocation | object | N | 위치 정보 (v2.4 신규) |
-| group_ids | array[int] | N | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장치 번호 |
+| group_device | integer | N | 0 | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | - | 장치 이름 |
+| type_device | string | Y | - | 장치 타입 (EnumDeviceType) |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | Y | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| ip_address | string | Y | - | IP 주소 |
+| ip_port | integer | Y | - | 포트 번호 |
+| geolocation | object | N | null | 위치 정보 (v2.4 신규) |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (201 Created):
 ```json
@@ -1116,6 +1229,7 @@ Accept: application/json
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.1.0",
     "status": "DEACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.102",
     "ip_port": 8001,
     "geolocation": {  // (v2.4 신규) 위치 정보
@@ -1124,6 +1238,7 @@ Accept: application/json
       "longitude": 127.5678,
       "altitude": 245.5
     },
+    "sensors": null,
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:34:00.100Z",
     "device_groups": [
@@ -1193,6 +1308,23 @@ Accept: application/json
 }
 ```
 
+**필드 설명** (PATCH - 모든 필드 선택적):
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | N | - | 장치 번호 |
+| group_device | integer | N | - | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | N | - | 장치 이름 |
+| type_device | string | N | - | 장치 타입 (EnumDeviceType) |
+| version | string | N | - | 펌웨어 버전 |
+| status | string | N | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | - | 장비 활성화 여부 |
+| ip_address | string | N | - | IP 주소 |
+| ip_port | integer | N | - | 포트 번호 |
+| geolocation | object | N | - | 위치 정보 |
+| group_ids | array[int] | N | - | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
+
+> **참고**: PATCH는 부분 업데이트로, 제공된 필드만 수정됩니다. 기본값 컬럼의 `-`는 "현재 값 유지"를 의미합니다.
+
 **Response Example** (200 OK):
 ```json
 {
@@ -1206,9 +1338,11 @@ Accept: application/json
     "type_device": "Controller", //(EnumDeviceType)
     "version": "v2.2.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.102",
     "ip_port": 8001,
     "geolocation": null,
+    "sensors": null,
     "created_at": "2025-01-10T10:34:00.100Z",
     "updated_at": "2025-01-10T10:35:00.150Z",
     "device_groups": [
@@ -1255,8 +1389,11 @@ Accept: application/json
   "type_device": "Controller",
   "version": "v2.3.0",
   "status": "ACTIVATED",
+  "is_enable": true,
   "ip_address": "192.168.1.103",
-  "ip_port": 8002
+  "ip_port": 8002,
+  "geolocation": null,
+  "group_ids": [1]
 }
 ```
 
@@ -1277,10 +1414,27 @@ Accept: application/json
   "type_device": "Controller",
   "version": "v2.3.0",
   "status": "ACTIVATED",
+  "is_enable": true,
   "ip_address": "192.168.1.103",
-  "ip_port": 8002
+  "ip_port": 8002,
+  "geolocation": null,
+  "group_ids": [1]
 }
 ```
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장치 번호 |
+| group_device | integer | N | 0 | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | - | 장치 이름 |
+| type_device | string | Y | - | 장치 타입 (EnumDeviceType) |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | Y | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| ip_address | string | Y | - | IP 주소 |
+| ip_port | integer | Y | - | 포트 번호 |
+| geolocation | object | N | null | 위치 정보 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (200 OK):
 ```json
@@ -1295,6 +1449,7 @@ Accept: application/json
     "type_device": "Controller",
     "version": "v2.3.0",
     "status": "ACTIVATED",
+    "is_enable": true,
     "ip_address": "192.168.1.103",
     "ip_port": 8002,
     "geolocation": null,
@@ -1411,6 +1566,7 @@ Accept: application/json
       "type_device": "Multi", //(EnumDeviceType)
       "version": "v1.5.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
@@ -1428,6 +1584,7 @@ Accept: application/json
       "type_device": "Fence", //(EnumDeviceType)
       "version": "v1.5.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
@@ -1463,6 +1620,7 @@ Accept: application/json
       "type_device": "Multi", //(EnumDeviceType)
       "version": "v1.5.0",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "created_at": "2025-01-01T00:00:00.000Z",
@@ -1478,6 +1636,7 @@ Accept: application/json
         "type_device": "MainController",
         "version": "v2.0.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "ip_address": "192.168.1.101",
         "ip_port": 8080,
         "geolocation": null,
@@ -1548,6 +1707,7 @@ Accept: application/json
     "type_device": "Multi", //(EnumDeviceType)
     "version": "v1.5.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "controller_id": 1,
     "geolocation": null,
     "created_at": "2025-01-01T00:00:00.000Z",
@@ -1577,6 +1737,7 @@ Accept: application/json
     "type_device": "Multi", //(EnumDeviceType)
     "version": "v1.5.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "controller_id": 1,
     "geolocation": null,
     "created_at": "2025-01-01T00:00:00.000Z",
@@ -1592,6 +1753,7 @@ Accept: application/json
       "type_device": "MainController",
       "version": "v2.0.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "ip_address": "192.168.1.101",
       "ip_port": 8080,
       "geolocation": null,
@@ -1673,17 +1835,18 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 장치 번호 |
-| group_device | integer | N | 디바이스 그룹 (Deprecated 예정, 레거시) |
-| name_device | string | Y | 장치 이름 |
-| type_device | string | N | 센서 타입 (EnumDeviceType, 기본값: Multi) |
-| version | string | N | 펌웨어 버전 |
-| status | string | N | 상태 (EnumDeviceStatus, 기본값: DEACTIVATED) |
-| controller_id | integer | N | 연결된 제어기 ID |
-| geolocation | object | N | 위치 정보 (v2.4 신규) |
-| group_ids | array[int] | N | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장치 번호 |
+| group_device | integer | N | 0 | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | - | 장치 이름 |
+| type_device | string | Y | - | 센서 타입 (EnumDeviceType) |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | Y | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| controller_id | integer | Y | - | 연결된 제어기 ID |
+| geolocation | object | N | null | 위치 정보 (v2.4 신규) |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (201 Created):
 ```json
@@ -1698,6 +1861,7 @@ Accept: application/json
     "type_device": "Fence", //(EnumDeviceType)
     "version": "v2.1.0",
     "status": "DEACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "controller_id": 1,
     "geolocation": {  // (v2.4 신규) 위치 정보
       "location": "GOP 3초소 철책 A구간",
@@ -1710,7 +1874,8 @@ Accept: application/json
     "device_groups": [
       {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6},
       {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3}
-    ]
+    ],
+    "controller": null
   },
   "meta": {
     "timestamp": "2025-01-10T10:39:00.100Z",
@@ -1774,6 +1939,22 @@ Accept: application/json
 }
 ```
 
+**필드 설명** (PATCH - 모든 필드 선택적):
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | N | - | 장치 번호 |
+| group_device | integer | N | - | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | N | - | 장치 이름 |
+| type_device | string | N | - | 센서 타입 (EnumDeviceType) |
+| version | string | N | - | 펌웨어 버전 |
+| status | string | N | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | - | 장비 활성화 여부 |
+| controller_id | integer | N | - | 연결된 제어기 ID |
+| geolocation | object | N | - | 위치 정보 |
+| group_ids | array[int] | N | - | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
+
+> **참고**: PATCH는 부분 업데이트로, 제공된 필드만 수정됩니다. 기본값 컬럼의 `-`는 "현재 값 유지"를 의미합니다.
+
 **Response Example** (200 OK):
 ```json
 {
@@ -1787,13 +1968,15 @@ Accept: application/json
     "type_device": "Fence", //(EnumDeviceType)
     "version": "v2.2.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "controller_id": 1,
     "geolocation": null,
     "created_at": "2025-01-10T10:39:00.100Z",
     "updated_at": "2025-01-10T10:40:00.150Z",
     "device_groups": [
       {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 6}
-    ]
+    ],
+    "controller": null
   },
   "meta": {
     "timestamp": "2025-01-10T10:40:00.150Z",
@@ -1835,7 +2018,14 @@ Accept: application/json
   "type_device": "Fence",
   "version": "v2.3.0",
   "status": "ACTIVATED",
-  "controller_id": 1
+  "is_enable": true,
+  "controller_id": 1,
+  "geolocation": {
+    "location": "GOP 3초소 철책 A구간",
+    "latitude": 38.1235,
+    "longitude": 127.5680
+  },
+  "group_ids": [1, 2]
 }
 ```
 
@@ -1856,9 +2046,29 @@ Accept: application/json
   "type_device": "Fence", //(EnumDeviceType)
   "version": "v2.3.0",
   "status": "ACTIVATED", //(EnumDeviceStatus)
-  "controller_id": 1
+  "is_enable": true,
+  "controller_id": 1,
+  "geolocation": {
+    "location": "GOP 3초소 철책 A구간",
+    "latitude": 38.1235,
+    "longitude": 127.5680
+  },
+  "group_ids": [1, 2]
 }
 ```
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장치 번호 |
+| group_device | integer | N | 0 | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | - | 장치 이름 |
+| type_device | string | Y | - | 센서 타입 (EnumDeviceType) |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | Y | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| controller_id | integer | Y | - | 연결된 제어기 ID |
+| geolocation | object | N | null | 위치 정보 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (200 OK):
 ```json
@@ -1873,10 +2083,13 @@ Accept: application/json
     "type_device": "Fence", //(EnumDeviceType)
     "version": "v2.3.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "controller_id": 1,
     "geolocation": null,
     "created_at": "2025-01-10T10:39:00.100Z",
-    "updated_at": "2025-01-10T10:41:00.200Z"
+    "updated_at": "2025-01-10T10:41:00.200Z",
+    "device_groups": [],
+    "controller": null
   },
   "meta": {
     "timestamp": "2025-01-10T10:41:00.200Z",
@@ -1984,6 +2197,7 @@ Accept: application/json
       "type_device": "IpCamera", //(EnumDeviceType)
       "version": "v3.2.1",
       "status": "ACTIVATED", //(EnumDeviceStatus)
+      "is_enable": true,
       "ip_address": "192.168.1.109",
       "ip_port": 80,
       "user_name": "admin",
@@ -2079,6 +2293,7 @@ Accept: application/json
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.2.1",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.109",
     "ip_port": 80,
     "user_name": "admin",
@@ -2217,25 +2432,26 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 장치 번호 |
-| group_device | integer | N | 디바이스 그룹 (Deprecated 예정, 레거시) |
-| name_device | string | Y | 장치 이름 |
-| type_device | string | N | 장치 타입 (EnumDeviceType, 기본값: IpCamera) |
-| version | string | N | 펌웨어 버전 |
-| status | string | N | 상태 (EnumDeviceStatus, 기본값: DEACTIVATED) |
-| ip_address | string | Y | IP 주소 |
-| ip_port | integer | Y | 포트 번호 |
-| user_name | string | N | 카메라 접속 사용자명 |
-| user_password | string | N | 카메라 접속 비밀번호 |
-| mode | string | N | 카메라 모드 (EnumCameraMode) |
-| category | string | N | 카메라 타입 (EnumCameraType: NONE, FIXED, PTZ) |
-| is_record | boolean | N | 녹화 여부 (기본값: false) |
-| urls | object | N | 카메라 URL 정보 (JSONB) |
-| hardware_spec | object | N | 하드웨어 사양 정보 |
-| geolocation | object | N | 위치 정보 |
-| group_ids | array[int] | N | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장치 번호 |
+| group_device | integer | N | 0 | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | - | 장치 이름 |
+| type_device | string | Y | - | 장치 타입 (EnumDeviceType) |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | Y | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| ip_address | string | Y | - | IP 주소 |
+| ip_port | integer | Y | - | 포트 번호 |
+| user_name | string | N | null | 카메라 접속 사용자명 |
+| user_password | string | N | null | 카메라 접속 비밀번호 |
+| mode | string | Y | - | 카메라 모드 (EnumCameraMode) |
+| category | string | Y | - | 카메라 타입 (EnumCameraType) |
+| is_record | boolean | N | false | 녹화 여부 |
+| urls | object | N | null | 카메라 URL 정보 (JSONB) |
+| hardware_spec | object | N | null | 하드웨어 사양 정보 |
+| geolocation | object | N | null | 위치 정보 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 > **Note**: `group_ids`는 N:N 관계로 여러 그룹에 할당 (권장), `group_device`는 레거시 호환용
 
@@ -2252,6 +2468,7 @@ Accept: application/json
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.2.1",
     "status": "DEACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.110",
     "ip_port": 80,
     "user_name": "admin",
@@ -2367,6 +2584,27 @@ Accept: application/json
 
 > **Note**: PATCH는 부분 업데이트이므로 변경할 필드만 포함합니다. `hardware_spec`, `geolocation`도 부분 업데이트가 가능하며, 기존 값에 병합됩니다.
 
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | N | - | 장치 번호 (현재 값 유지) |
+| group_device | integer | N | - | 디바이스 그룹 (Deprecated 예정, 레거시) (현재 값 유지) |
+| name_device | string | N | - | 장치 이름 (현재 값 유지) |
+| type_device | string | N | - | 장치 타입 (EnumDeviceType) (현재 값 유지) |
+| version | string | N | - | 펌웨어 버전 (현재 값 유지) |
+| status | string | N | - | 상태 (EnumDeviceStatus) (현재 값 유지) |
+| is_enable | boolean | N | - | 장비 활성화 여부 (현재 값 유지) |
+| ip_address | string | N | - | IP 주소 (현재 값 유지) |
+| ip_port | integer | N | - | 포트 번호 (현재 값 유지) |
+| user_name | string | N | - | 카메라 접속 사용자명 (현재 값 유지) |
+| user_password | string | N | - | 카메라 접속 비밀번호 (현재 값 유지) |
+| mode | string | N | - | 카메라 모드 (EnumCameraMode) (현재 값 유지) |
+| category | string | N | - | 카메라 타입 (EnumCameraType) (현재 값 유지) |
+| is_record | boolean | N | - | 녹화 여부 (현재 값 유지) |
+| urls | object | N | - | 카메라 URL 정보 (JSONB) (현재 값 유지) |
+| hardware_spec | object | N | - | 하드웨어 사양 정보 (부분 병합) |
+| geolocation | object | N | - | 위치 정보 (부분 병합) |
+| group_ids | array[int] | N | - | 소속 디바이스 그룹 ID 배열 (현재 값 유지) |
+
 **Response Example** (200 OK):
 ```json
 {
@@ -2380,6 +2618,7 @@ Accept: application/json
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.2.1",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.110",
     "ip_port": 80,
     "user_name": "admin",
@@ -2456,6 +2695,7 @@ Accept: application/json
   "type_device": "IpCamera",
   "version": "v3.3.0",
   "status": "ACTIVATED",
+  "is_enable": true,
   "ip_address": "192.168.1.110",
   "ip_port": 80,
   "user_name": "admin",
@@ -2492,7 +2732,7 @@ Accept: application/json
 |----------|------|------|------|
 | id | integer | Y | Camera ID |
 
-**Request Body** (전체 업데이트 - 모든 필드 필수):
+**Request Body** (전체 업데이트):
 ```json
 {
   "number_device": 110,
@@ -2501,6 +2741,7 @@ Accept: application/json
   "type_device": "IpCamera", //(EnumDeviceType)
   "version": "v3.3.0",
   "status": "ACTIVATED", //(EnumDeviceStatus)
+  "is_enable": true,
   "ip_address": "192.168.1.110",
   "ip_port": 80,
   "user_name": "admin",
@@ -2537,7 +2778,26 @@ Accept: application/json
 }
 ```
 
-> **Note**: PUT은 전체 업데이트이므로 모든 필드를 포함해야 합니다. 누락된 필드는 기본값 또는 null로 설정됩니다.
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장치 번호 |
+| group_device | integer | N | 0 | 디바이스 그룹 (Deprecated 예정, 레거시) |
+| name_device | string | Y | - | 장치 이름 |
+| type_device | string | Y | - | 장치 타입 (EnumDeviceType) |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | Y | - | 상태 (EnumDeviceStatus) |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| ip_address | string | Y | - | IP 주소 |
+| ip_port | integer | Y | - | 포트 번호 |
+| user_name | string | N | null | 카메라 접속 사용자명 |
+| user_password | string | N | null | 카메라 접속 비밀번호 |
+| mode | string | Y | - | 카메라 모드 (EnumCameraMode) |
+| category | string | Y | - | 카메라 타입 (EnumCameraType: NONE, FIXED, PTZ) |
+| is_record | boolean | N | false | 녹화 여부 |
+| urls | object | N | null | 카메라 URL 정보 (JSONB) |
+| hardware_spec | object | N | null | 하드웨어 사양 정보 |
+| geolocation | object | N | null | 위치 정보 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response Example** (200 OK):
 ```json
@@ -2552,6 +2812,7 @@ Accept: application/json
     "type_device": "IpCamera", //(EnumDeviceType)
     "version": "v3.3.0",
     "status": "ACTIVATED", //(EnumDeviceStatus)
+    "is_enable": true,
     "ip_address": "192.168.1.110",
     "ip_port": 80,
     "user_name": "admin",
@@ -2699,6 +2960,7 @@ Accept: application/json
       "type_device": "IpSpeaker",
       "version": null,
       "status": "ACTIVATED",
+      "is_enable": true,
       "created_at": "2026-01-07T10:00:00.000000",
       "updated_at": "2026-01-07T10:00:00.000000",
       "speaker_type": "NORMAL",
@@ -2783,6 +3045,7 @@ Accept: application/json
     "type_device": "IpSpeaker",
     "version": null,
     "status": "ACTIVATED",
+    "is_enable": true,
     "created_at": "2026-01-07T10:00:00.000000",
     "updated_at": "2026-01-07T10:00:00.000000",
     "speaker_type": "NORMAL",
@@ -2880,17 +3143,19 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 단말 번호 (NATS device_no 통합) |
-| group_device | integer | N | 그룹 번호 (기본값: 0) |
-| name_device | string | Y | 장비명 |
-| type_device | string | N | EnumDeviceType (기본값: IpSpeaker) |
-| status | string | N | EnumDeviceStatus (기본값: ACTIVATED) |
-| speaker_type | string | N | EnumSpeakerType (기본값: NORMAL) |
-| server_id | integer | N | 방송서버 ID (FK) |
-| description | string | N | 설명 |
-| geolocation | object | N | 좌표/위치 정보 (JSON, v2.6 신규) |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 단말 번호 (NATS device_no 통합) |
+| group_device | integer | N | 0 | 그룹 번호 (레거시) |
+| name_device | string | Y | - | 장비명 |
+| type_device | string | N | IpSpeaker | EnumDeviceType |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | N | ACTIVATED | EnumDeviceStatus |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| speaker_type | string | N | NORMAL | EnumSpeakerType |
+| server_id | integer | N | null | 방송서버 ID (FK) |
+| description | string | N | null | 설명 |
+| geolocation | object | N | null | 좌표/위치 정보 (JSON) |
 
 **Response (201 Created)**:
 ```json
@@ -2905,6 +3170,7 @@ Accept: application/json
     "type_device": "IpSpeaker",
     "version": null,
     "status": "ACTIVATED",
+    "is_enable": true,
     "created_at": "2026-01-07T10:00:00.000000",
     "updated_at": "2026-01-07T10:00:00.000000",
     "speaker_type": "NORMAL",
@@ -3014,17 +3280,19 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | N | 단말 번호 |
-| group_device | integer | N | 그룹 번호 |
-| name_device | string | N | 장비명 |
-| version | string | N | 버전 |
-| status | string | N | EnumDeviceStatus |
-| speaker_type | string | N | EnumSpeakerType |
-| server_id | integer | N | 방송서버 ID (null 허용) |
-| description | string | N | 설명 |
-| geolocation | object | N | 좌표/위치 정보 |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | N | - | 단말 번호 (현재 값 유지) |
+| group_device | integer | N | - | 그룹 번호 (현재 값 유지) |
+| name_device | string | N | - | 장비명 (현재 값 유지) |
+| type_device | string | N | - | EnumDeviceType (현재 값 유지) |
+| version | string | N | - | 버전 (현재 값 유지) |
+| status | string | N | - | EnumDeviceStatus (현재 값 유지) |
+| is_enable | boolean | N | - | 장비 활성화 여부 (현재 값 유지) |
+| speaker_type | string | N | - | EnumSpeakerType (현재 값 유지) |
+| server_id | integer | N | - | 방송서버 ID (null 허용) (현재 값 유지) |
+| description | string | N | - | 설명 (현재 값 유지) |
+| geolocation | object | N | - | 좌표/위치 정보 (현재 값 유지) |
 
 **Response (200 OK)**:
 ```json
@@ -3039,6 +3307,7 @@ Accept: application/json
     "type_device": "IpSpeaker",
     "version": null,
     "status": "ACTIVATED",
+    "is_enable": true,
     "created_at": "2026-01-07T10:00:00.000000",
     "updated_at": "2026-01-07T11:30:00.000000",
     "speaker_type": "ADMIN",
@@ -3106,6 +3375,7 @@ Accept: application/json
   "name_device": "VCS_2401_Replaced",
   "type_device": "IpSpeaker",
   "status": "ACTIVATED",
+  "is_enable": true,
   "speaker_type": "MONITOR",
   "server_id": 2,
   "description": "모니터링 전용 스피커",
@@ -3123,7 +3393,7 @@ Accept: application/json
 |---------|------|------|------|
 | id | integer | Y | Speaker ID |
 
-**Request Body** (필수 필드 포함):
+**Request Body** (전체 업데이트):
 ```json
 {
   "number_device": 2401,
@@ -3131,6 +3401,7 @@ Accept: application/json
   "name_device": "VCS_2401_Replaced",
   "type_device": "IpSpeaker",
   "status": "ACTIVATED",
+  "is_enable": true,
   "speaker_type": "MONITOR",
   "server_id": 2,
   "description": "모니터링 전용 스피커",
@@ -3143,17 +3414,19 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 단말 번호 |
-| group_device | integer | N | 그룹 번호 (기본값: 0) |
-| name_device | string | Y | 장비명 |
-| type_device | string | N | EnumDeviceType (기본값: IpSpeaker) |
-| status | string | N | EnumDeviceStatus (기본값: ACTIVATED) |
-| speaker_type | string | N | EnumSpeakerType (기본값: NORMAL) |
-| server_id | integer | N | 방송서버 ID |
-| description | string | N | 설명 |
-| geolocation | object | N | 좌표/위치 정보 (미제공 시 null) |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 단말 번호 |
+| group_device | integer | N | 0 | 그룹 번호 (레거시) |
+| name_device | string | Y | - | 장비명 |
+| type_device | string | N | IpSpeaker | EnumDeviceType |
+| version | string | N | null | 펌웨어 버전 |
+| status | string | N | ACTIVATED | EnumDeviceStatus |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| speaker_type | string | N | NORMAL | EnumSpeakerType |
+| server_id | integer | N | null | 방송서버 ID |
+| description | string | N | null | 설명 |
+| geolocation | object | N | null | 좌표/위치 정보 |
 
 **Response (200 OK)**:
 ```json
@@ -3168,6 +3441,7 @@ Accept: application/json
     "type_device": "IpSpeaker",
     "version": null,
     "status": "ACTIVATED",
+    "is_enable": true,
     "created_at": "2026-01-07T10:00:00.000000",
     "updated_at": "2026-01-07T12:00:00.000000",
     "speaker_type": "MONITOR",
@@ -3439,19 +3713,20 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 장비 번호 |
-| name_device | string | Y | 장비 이름 |
-| group_device | integer | N | 장치 그룹 번호 (레거시) |
-| type_device | string | N | 장치 타입 (기본값: IoController) |
-| version | string | N | 장비 버전 |
-| status | string | N | 장비 운영 상태 (기본값: ACTIVATED) |
-| door_status | string | N | 도어 상태 (기본값: CLOSED) |
-| geolocation | object | N | 위치 정보 (JSONB) |
-| threshold_config | object | N | 알람 임계값 (JSONB) |
-| heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
-| fan_enabled | boolean | N | 팬 활성화 (기본값: false) |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장비 번호 |
+| name_device | string | Y | - | 장비 이름 |
+| group_device | integer | N | 0 | 장치 그룹 번호 (레거시) |
+| type_device | string | N | IoController | EnumDeviceType |
+| version | string | N | null | 장비 버전 |
+| status | string | N | ACTIVATED | EnumDeviceStatus |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| door_status | string | N | CLOSED | EnumDoorStatus |
+| geolocation | object | N | null | 위치 정보 (JSONB) |
+| threshold_config | object | N | null | 알람 임계값 (JSONB) |
+| heater_enabled | boolean | N | false | 히터 활성화 |
+| fan_enabled | boolean | N | false | 팬 활성화 |
 
 > **Note**: 환경 모니터링 데이터(온도, 습도 등)는 `POST /api/devices/enclosures/{id}/metrics` API를 통해 별도 저장합니다.
 
@@ -3535,6 +3810,21 @@ Accept: application/json
 }
 ```
 
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | N | - | 장비 번호 (현재 값 유지) |
+| name_device | string | N | - | 장비 이름 (현재 값 유지) |
+| group_device | integer | N | - | 장치 그룹 번호 (레거시) (현재 값 유지) |
+| type_device | string | N | - | EnumDeviceType (현재 값 유지) |
+| version | string | N | - | 장비 버전 (현재 값 유지) |
+| status | string | N | - | EnumDeviceStatus (현재 값 유지) |
+| is_enable | boolean | N | - | 장비 활성화 여부 (현재 값 유지) |
+| door_status | string | N | - | EnumDoorStatus (현재 값 유지) |
+| geolocation | object | N | - | 위치 정보 (JSONB) (현재 값 유지) |
+| threshold_config | object | N | - | 알람 임계값 (JSONB) (현재 값 유지) |
+| heater_enabled | boolean | N | - | 히터 활성화 (현재 값 유지) |
+| fan_enabled | boolean | N | - | 팬 활성화 (현재 값 유지) |
+
 **Response (200 OK)**:
 ```json
 {
@@ -3595,26 +3885,7 @@ Accept: application/json
   "type_device": "IoController",
   "version": "v1.1.0",
   "status": "ACTIVATED",
-  "door_status": "CLOSED"
-}
-```
-
-**Path Parameters**:
-| 파라미터 | 타입 | 필수 | 설명 |
-|---------|------|------|------|
-| id | integer | Y | 함체 ID |
-
-전체 필드를 교체합니다. 필수 필드는 반드시 포함해야 합니다.
-
-**Request Body**:
-```json
-{
-  "number_device": 101,
-  "name_device": "GOP 3초소 함체 (전체수정)",
-  "group_device": 1,
-  "type_device": "IoController",
-  "version": "v1.1.0",
-  "status": "ACTIVATED",
+  "is_enable": true,
   "door_status": "CLOSED",
   "geolocation": {
     "location": "GOP 3초소 (수정)",
@@ -3630,19 +3901,52 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| number_device | integer | Y | 장비 번호 |
-| name_device | string | Y | 장비 이름 |
-| group_device | integer | N | 장치 그룹 번호 (레거시) |
-| type_device | string | N | 장치 타입 (기본값: IoController) |
-| version | string | N | 장비 버전 |
-| status | string | N | 장비 운영 상태 (기본값: ACTIVATED) |
-| door_status | string | N | 도어 상태 (기본값: CLOSED) |
-| geolocation | object | N | 위치 정보 (JSONB) |
-| threshold_config | object | N | 알람 임계값 (JSONB) |
-| heater_enabled | boolean | N | 히터 활성화 (기본값: false) |
-| fan_enabled | boolean | N | 팬 활성화 (기본값: false) |
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | 함체 ID |
+
+전체 필드를 교체합니다. 필수 필드는 반드시 포함해야 합니다.
+
+**Request Body** (전체 업데이트):
+```json
+{
+  "number_device": 101,
+  "name_device": "GOP 3초소 함체 (전체수정)",
+  "group_device": 1,
+  "type_device": "IoController",
+  "version": "v1.1.0",
+  "status": "ACTIVATED",
+  "is_enable": true,
+  "door_status": "CLOSED",
+  "geolocation": {
+    "location": "GOP 3초소 (수정)",
+    "latitude": 38.1234,
+    "longitude": 127.5678
+  },
+  "threshold_config": {
+    "temp_high": 45.0,
+    "temp_low": -15.0
+  },
+  "heater_enabled": true,
+  "fan_enabled": false
+}
+```
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장비 번호 |
+| name_device | string | Y | - | 장비 이름 |
+| group_device | integer | N | 0 | 장치 그룹 번호 (레거시) |
+| type_device | string | N | IoController | EnumDeviceType |
+| version | string | N | null | 장비 버전 |
+| status | string | N | ACTIVATED | EnumDeviceStatus |
+| is_enable | boolean | N | true | 장비 활성화 여부 |
+| door_status | string | N | CLOSED | EnumDoorStatus |
+| geolocation | object | N | null | 위치 정보 (JSONB) |
+| threshold_config | object | N | null | 알람 임계값 (JSONB) |
+| heater_enabled | boolean | N | false | 히터 활성화 |
+| fan_enabled | boolean | N | false | 팬 활성화 |
 
 **Response (200 OK)**:
 ```json
@@ -4210,7 +4514,7 @@ Accept: application/json
     "id": 1,
     "name": "GOP 1구역",
     "description": "GOP 1구역 장비 그룹",
-    "device_count": 3,
+    "device_count": 5,
     "created_at": "2025-01-01T00:00:00.000Z",
     "updated_at": "2025-01-01T00:00:00.000Z",
     "devices": [
@@ -4222,6 +4526,7 @@ Accept: application/json
         "type_device": "Controller",
         "version": "v2.1.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "ip_address": "192.168.1.100",
         "ip_port": 8001,
         "geolocation": null
@@ -4234,6 +4539,7 @@ Accept: application/json
         "type_device": "Multi",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null
       },
@@ -4245,6 +4551,7 @@ Accept: application/json
         "type_device": "IpCamera",
         "version": "v1.0.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "ip_address": "192.168.1.200",
         "ip_port": 80,
         "user_name": "admin",
@@ -4267,6 +4574,45 @@ Accept: application/json
           "latitude": 38.1234,
           "longitude": 127.5678
         }
+      },
+      {
+        "id": 301,
+        "number_device": 2401,
+        "group_device": 1,
+        "name_device": "VCS_2401",
+        "type_device": "IpSpeaker",
+        "version": "v1.0.0",
+        "status": "ACTIVATED",
+        "is_enable": true,
+        "speaker_type": "NORMAL",
+        "server_id": 1,
+        "description": "1구역 스피커",
+        "geolocation": {
+          "location": "GOP 1구역 스피커",
+          "latitude": 38.1234,
+          "longitude": 127.5678
+        }
+      },
+      {
+        "id": 401,
+        "number_device": 3001,
+        "group_device": 1,
+        "name_device": "Enclosure-A-1",
+        "type_device": "Enclosure",
+        "version": "v1.0.0",
+        "status": "ACTIVATED",
+        "is_enable": true,
+        "door_status": "CLOSED",
+        "heater_enabled": false,
+        "fan_enabled": false,
+        "threshold_config": {
+          "temperature": {"warning": 40, "critical": 50}
+        },
+        "geolocation": {
+          "location": "GOP 1구역 함체",
+          "latitude": 38.1234,
+          "longitude": 127.5678
+        }
       }
     ]
   },
@@ -4278,9 +4624,12 @@ Accept: application/json
 ```
 
 > **Note**: `devices` 배열은 폴리모픽 응답으로, 디바이스 타입에 따라 다른 필드를 포함합니다:
-> - **Controller**: `ip_address`, `ip_port`, `geolocation`
-> - **Sensor**: `controller_id`, `geolocation`
-> - **Camera**: `ip_address`, `ip_port`, `user_name`, `user_password`, `urls`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
+> - **공통 필드**: `id`, `number_device`, `group_device`, `name_device`, `type_device`, `version`, `status`, `is_enable`
+> - **Controller 추가 필드**: `ip_address`, `ip_port`, `geolocation`
+> - **Sensor 추가 필드**: `controller_id`, `geolocation`
+> - **Camera 추가 필드**: `ip_address`, `ip_port`, `user_name`, `user_password`, `urls`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
+> - **Speaker 추가 필드**: `speaker_type`, `server_id`, `description`, `geolocation`
+> - **Enclosure 추가 필드**: `door_status`, `heater_enabled`, `fan_enabled`, `threshold_config`, `geolocation`
 
 **Error Response** (404 Not Found):
 ```json
@@ -7505,6 +7854,12 @@ Accept: application/json
 }
 ```
 
+**필드 설명**:
+| 필드명 | 타입 | 필수 | 설명 |
+|--------|------|------|------|
+| device_id | Integer | Y | 장치 ID (Device FK) |
+| type_event | String | Y | 이벤트 유형 (EnumEventType: Connection) |
+
 **Response Example** (201 Created):
 ```json
 {
@@ -7521,6 +7876,7 @@ Accept: application/json
       "type_device": "Underground",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7564,6 +7920,13 @@ Accept: application/json
 }
 ```
 
+**필드 설명**:
+| 필드명 | 타입 | 필수 | 설명 |
+|--------|------|------|------|
+| type_event | String | N | 이벤트 유형 (EnumEventType: Connection) |
+
+> **참고**: `device_id`는 PATCH로 수정 불가 (PUT 전체 교체만 가능)
+
 **Response Example** (200 OK):
 ```json
 {
@@ -7580,6 +7943,7 @@ Accept: application/json
       "type_device": "Underground",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7627,6 +7991,12 @@ Accept: application/json
 }
 ```
 
+**필드 설명**:
+| 필드명 | 타입 | 필수 | 설명 |
+|--------|------|------|------|
+| device_id | Integer | Y | 장치 ID (Device FK) |
+| type_event | String | Y | 이벤트 유형 (EnumEventType: Connection) |
+
 **Response Example** (200 OK):
 ```json
 {
@@ -7643,6 +8013,7 @@ Accept: application/json
       "type_device": "PIR",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -9135,10 +9506,16 @@ Accept: application/json
         "speaker": {
           "id": 301,
           "number_device": 1,
+          "group_device": 1,
           "name_device": "Main-Speaker-01",
           "type_device": "Speaker",
+          "version": "1.0.0",
           "status": "ACTIVATED",
-          "speaker_type": "NORMAL"
+          "is_enable": true,
+          "speaker_type": "NORMAL",
+          "server_id": 1,
+          "description": "메인 방송용 스피커",
+          "geolocation": null
         },
         "file_group": {
           "id": 1,
@@ -9209,10 +9586,16 @@ Accept: application/json
     "speaker": {
       "id": 301,
       "number_device": 1,
+      "group_device": 1,
       "name_device": "Main-Speaker-01",
       "type_device": "Speaker",
+      "version": "1.0.0",
       "status": "ACTIVATED",
-      "speaker_type": "NORMAL"
+      "is_enable": true,
+      "speaker_type": "NORMAL",
+      "server_id": 1,
+      "description": "메인 방송용 스피커",
+      "geolocation": null
     },
     "file_group": {
       "id": 1,
@@ -9264,6 +9647,11 @@ Content-Type: application/json
 ```
 
 **Response Example** (201 Created):
+
+> **Nested Response 규칙**:
+> - 주체(EventMappingSpeaker)의 `created_at`, `updated_at` 포함
+> - Nested 객체(speaker, file_group)는 **Full Property** (timestamp 제외)
+
 ```json
 {
   "success": true,
@@ -9271,11 +9659,32 @@ Content-Type: application/json
   "data": {
     "id": 1,
     "event_mapping_id": 10,
-    "speaker_id": 301,
-    "file_group_id": 1,
+    "speaker": {
+      "id": 301,
+      "number_device": 1,
+      "group_device": 1,
+      "name_device": "Main-Speaker-01",
+      "type_device": "Speaker",
+      "version": "1.0.0",
+      "status": "ACTIVATED",
+      "is_enable": true,
+      "speaker_type": "NORMAL",
+      "server_id": 1,
+      "description": "메인 방송용 스피커",
+      "geolocation": null
+    },
+    "file_group": {
+      "id": 1,
+      "server_id": 1,
+      "group_id": 100,
+      "group_name": "경고 방송 그룹",
+      "files": ["alert_01.wav", "alert_02.wav"]
+    },
     "repeat_count": 3,
     "is_enable": true,
-    "priority": 1
+    "priority": 1,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T10:00:00.000+09:00"
   }
 }
 ```
@@ -9340,11 +9749,32 @@ Content-Type: application/json
   "data": {
     "id": 1,
     "event_mapping_id": 10,
-    "speaker_id": 301,
-    "file_group_id": 1,
+    "speaker": {
+      "id": 301,
+      "number_device": 1,
+      "group_device": 1,
+      "name_device": "Main-Speaker-01",
+      "type_device": "Speaker",
+      "version": "1.0.0",
+      "status": "ACTIVATED",
+      "is_enable": true,
+      "speaker_type": "NORMAL",
+      "server_id": 1,
+      "description": "메인 방송용 스피커",
+      "geolocation": null
+    },
+    "file_group": {
+      "id": 1,
+      "server_id": 1,
+      "group_id": 100,
+      "group_name": "경고 방송 그룹",
+      "files": ["alert_01.wav", "alert_02.wav"]
+    },
     "repeat_count": 5,
     "is_enable": false,
-    "priority": 1
+    "priority": 1,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T10:30:00.000+09:00"
   }
 }
 ```
@@ -9391,11 +9821,32 @@ Content-Type: application/json
   "data": {
     "id": 1,
     "event_mapping_id": 10,
-    "speaker_id": 302,
-    "file_group_id": 2,
+    "speaker": {
+      "id": 302,
+      "number_device": 2,
+      "group_device": 1,
+      "name_device": "Sub-Speaker-02",
+      "type_device": "Speaker",
+      "version": "1.0.0",
+      "status": "ACTIVATED",
+      "is_enable": true,
+      "speaker_type": "NORMAL",
+      "server_id": 1,
+      "description": "서브 방송용 스피커",
+      "geolocation": null
+    },
+    "file_group": {
+      "id": 2,
+      "server_id": 1,
+      "group_id": 101,
+      "group_name": "긴급 방송 그룹",
+      "files": ["emergency_01.wav"]
+    },
     "repeat_count": 2,
     "is_enable": true,
-    "priority": 2
+    "priority": 2,
+    "created_at": "2026-01-07T10:00:00.000+09:00",
+    "updated_at": "2026-01-07T11:00:00.000+09:00"
   }
 }
 ```
@@ -9993,17 +10444,17 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| category_id | integer | Y | 카테고리 ID |
-| name | string | Y | 서버 이름 |
-| status | EnumServerStatus | N | 상태 (기본값: NORMAL) |
-| ip_address | string | N | IP 주소 |
-| port | integer | N | 포트 번호 |
-| hostname | string | N | 호스트명 |
-| user_name | string | N | 접속 사용자명 *(v2.4 신규)* |
-| user_password | string | N | 접속 비밀번호 *(v2.4 신규)* |
-| threshold_config | object | N | 임계치 설정 JSONB *(v2.9 신규)* |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| category_id | integer | Y | - | 카테고리 ID |
+| name | string | Y | - | 서버 이름 |
+| status | EnumServerStatus | N | NORMAL | 상태 |
+| ip_address | string | Y | - | IP 주소 |
+| port | integer | Y | - | 포트 번호 |
+| hostname | string | N | null | 호스트명 |
+| user_name | string | N | null | 접속 사용자명 *(v2.4 신규)* |
+| user_password | string | N | null | 접속 비밀번호 *(v2.4 신규)* |
+| threshold_config | object | N | null | 임계치 설정 JSONB *(v2.9 신규)* |
 
 > **Note (v2.9 변경)**: `cpu_usage`, `ram_usage`, `disk_usage`, `network_throughput` 필드가 제거되었습니다. 리소스 메트릭은 [8.6 Server Metrics API](#86-server-metrics-api)를 통해 기록합니다.
 
@@ -10202,17 +10653,17 @@ Accept: application/json
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| category_id | integer | Y | 카테고리 ID |
-| name | string | Y | 서버 이름 |
-| status | EnumServerStatus | N | 상태 (기본값: NORMAL) |
-| ip_address | string | N | IP 주소 |
-| port | integer | N | 포트 번호 |
-| hostname | string | N | 호스트명 |
-| user_name | string | N | 접속 사용자명 |
-| user_password | string | N | 접속 비밀번호 |
-| threshold_config | object | N | 임계치 설정 JSONB *(v2.9 신규)* |
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| category_id | integer | Y | - | 카테고리 ID |
+| name | string | Y | - | 서버 이름 |
+| status | EnumServerStatus | N | NORMAL | 상태 |
+| ip_address | string | Y | - | IP 주소 |
+| port | integer | Y | - | 포트 번호 |
+| hostname | string | N | null | 호스트명 |
+| user_name | string | N | null | 접속 사용자명 |
+| user_password | string | N | null | 접속 비밀번호 |
+| threshold_config | object | N | null | 임계치 설정 JSONB *(v2.9 신규)* |
 
 > **Note (v2.9 변경)**: `cpu_usage`, `ram_usage`, `disk_usage`, `network_throughput` 필드가 제거되었습니다.
 
@@ -10855,12 +11306,12 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 
 #### 9.2.1 Endpoint 목록
 
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| POST | `/api/auth/login` | 로그인 |
-| POST | `/api/auth/logout` | 로그아웃 |
-| POST | `/api/auth/refresh` | 토큰 갱신 |
-| GET | `/api/auth/me` | 현재 사용자 정보 |
+| Method | Endpoint | 설명 | 섹션 |
+|--------|----------|------|------|
+| POST | `/api/auth/login` | 로그인 | 9.2.2 |
+| POST | `/api/auth/logout` | 로그아웃 | 9.2.3 |
+| POST | `/api/auth/refresh` | 토큰 갱신 | 9.2.4 |
+| GET | `/api/auth/me` | 현재 사용자 정보 | 9.2.5 |
 
 #### 9.2.2 POST `/api/auth/login`
 
@@ -10879,13 +11330,19 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
   "data": {
     "access_token": "eyJhbGciOiJIUzI1NiIs...",
     "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
-    "token_type": "Bearer",
-    "expires_in": 43200,
+    "token_type": "bearer",
     "user": {
       "id": 1,
       "login_id": "operator01",
       "name": "홍길동",
-      "role": "OPERATOR"
+      "email": "operator01@gop.mil.kr",
+      "department": "경계부대 1중대",
+      "role": "OPERATOR",
+      "group_id": 1,
+      "permissions": {
+        "modules": {"events": {"view": true, "edit": true}},
+        "device_groups": [1, 2, 3]
+      }
     }
   }
 }
@@ -10902,6 +11359,73 @@ Authorization: Bearer {access_token}
 ```json
 {
   "success": true
+}
+```
+
+#### 9.2.4 POST `/api/auth/refresh`
+
+Refresh token을 사용하여 새로운 access token을 발급합니다.
+
+**Request Body**:
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| refresh_token | string | Y | 리프레시 토큰 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+    "token_type": "bearer"
+  }
+}
+```
+
+**Error Response (401 Unauthorized)**:
+```json
+{
+  "detail": "Invalid refresh token"
+}
+```
+
+#### 9.2.5 GET `/api/auth/me`
+
+현재 인증된 사용자의 정보를 조회합니다.
+
+**Request Header**:
+```
+Authorization: Bearer {access_token}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "id": 1,
+  "login_id": "operator01",
+  "name": "홍길동",
+  "email": "operator01@gop.mil.kr",
+  "department": "경계부대 1중대",
+  "position": "상병",
+  "employee_number": "21-12345678",
+  "phone": "010-1234-5678",
+  "role": "OPERATOR",
+  "group_id": 1,
+  "is_active": true,
+  "is_locked": false,
+  "lock_reason": null,
+  "locked_at": null,
+  "last_login_at": "2026-01-19T08:30:00+09:00",
+  "last_login_ip": "192.168.1.100",
+  "created_at": "2026-01-01T09:00:00+09:00",
+  "updated_at": "2026-01-19T08:30:00+09:00"
 }
 ```
 
@@ -10930,8 +11454,9 @@ Authorization: Bearer {access_token}
 |----------|------|------|------|
 | page | int | 아니오 | 페이지 번호 (기본값: 1) |
 | limit | int | 아니오 | 페이지당 항목 수 (기본값: 100, 최대: 100) |
-| role | string | 아니오 | 역할 필터 (ADMIN, OPERATOR, VIEWER) |
+| role | string | 아니오 | 역할 필터 (ADMIN, MAINTAINER, OPERATOR, VIEWER, GUEST) |
 | group_id | int | 아니오 | 그룹 ID 필터 |
+| department | string | 아니오 | 부서 필터 |
 
 **Response (200 OK)**:
 ```json
@@ -10942,12 +11467,22 @@ Authorization: Bearer {access_token}
       "id": 1,
       "login_id": "operator01",
       "name": "홍길동",
+      "email": "operator01@gop.mil.kr",
       "department": "경계부대 1중대",
+      "position": "상병",
+      "employee_number": "21-12345678",
+      "photo_url": null,
+      "phone": "010-1234-5678",
       "role": "OPERATOR",
       "group_id": 1,
       "is_active": true,
       "is_locked": false,
-      "created_at": "2026-01-01T09:00:00+09:00"
+      "lock_reason": null,
+      "locked_at": null,
+      "last_login_at": "2026-01-19T08:30:00+09:00",
+      "last_login_ip": "192.168.1.100",
+      "created_at": "2026-01-01T09:00:00+09:00",
+      "updated_at": "2026-01-19T08:30:00+09:00"
     }
   ]
 }
@@ -10961,8 +11496,12 @@ Authorization: Bearer {access_token}
   "login_id": "operator01",
   "password": "SecureP@ss123!",
   "name": "홍길동",
+  "email": "operator01@gop.mil.kr",
   "department": "경계부대 1중대",
   "position": "상병",
+  "employee_number": "21-12345678",
+  "photo_url": null,
+  "phone": "010-1234-5678",
   "role": "OPERATOR",
   "group_id": 1
 }
@@ -10976,7 +11515,22 @@ Authorization: Bearer {access_token}
     "id": 1,
     "login_id": "operator01",
     "name": "홍길동",
-    "role": "OPERATOR"
+    "email": "operator01@gop.mil.kr",
+    "department": "경계부대 1중대",
+    "position": "상병",
+    "employee_number": "21-12345678",
+    "photo_url": null,
+    "phone": "010-1234-5678",
+    "role": "OPERATOR",
+    "group_id": 1,
+    "is_active": true,
+    "is_locked": false,
+    "lock_reason": null,
+    "locked_at": null,
+    "last_login_at": null,
+    "last_login_ip": null,
+    "created_at": "2026-01-23T09:00:00+09:00",
+    "updated_at": "2026-01-23T09:00:00+09:00"
   }
 }
 ```
@@ -11267,20 +11821,19 @@ Accept: application/json
 
 > **참고**: 설정 변경 로그는 **생성/수정/삭제 API를 제공하지 않음**. 시스템 내부에서만 자동 생성됩니다.
 
-#### 9.7.2 GET `/api/config-change-logs`
+#### 9.7.2 설정 변경 로그 목록 조회
+
+**Endpoint**: `GET /api/config-change-logs`
 
 **Query Parameters**:
-
-| 파라미터 | 타입 | 필수 | 설명 |
-|----------|------|------|------|
-| page | int | 아니오 | 페이지 번호 (기본값: 1) |
-| limit | int | 아니오 | 페이지당 항목 수 (기본값: 20, 최대: 100) |
-| resource_type | string | 아니오 | 리소스 유형 필터 (EnumConfigResourceType) |
-| resource_id | int | 아니오 | 리소스 ID 필터 |
-| action | string | 아니오 | 액션 유형 필터 (EnumConfigActionType) |
-| actor_id | int | 아니오 | 수행자 ID 필터 |
-| start_date | datetime | 아니오 | 시작 일시 |
-| end_date | datetime | 아니오 | 종료 일시 |
+- `page` (int, optional): 페이지 번호 (기본값: 1)
+- `limit` (int, optional): 페이지당 항목 수 (기본값: 20, 최대: 100)
+- `resource_type` (string, optional): 리소스 유형 필터 (EnumConfigResourceType)
+- `resource_id` (int, optional): 리소스 ID 필터
+- `action` (string, optional): 액션 유형 필터 (EnumConfigActionType)
+- `actor_id` (int, optional): 수행자 ID 필터
+- `start_date` (datetime, optional): 시작 일시
+- `end_date` (datetime, optional): 종료 일시
 
 **Request Example**:
 ```http
@@ -11294,6 +11847,7 @@ Accept: application/json
 ```json
 {
   "success": true,
+  "message": "3 config change logs retrieved",
   "data": [
     {
       "id": 150,
@@ -11311,6 +11865,41 @@ Accept: application/json
       "actor_ip": "192.168.1.100",
       "description": "Camera 생성: Camera-201 (정문 CCTV)",
       "created_at": "2026-01-21T10:30:00+09:00"
+    },
+    {
+      "id": 149,
+      "resource_type": "CAMERA",
+      "resource_id": 201,
+      "resource_name": "Camera-201 (정문 CCTV)",
+      "action": "UPDATED",
+      "before_state": {
+        "name": "정문 카메라"
+      },
+      "after_state": {
+        "name": "정문 CCTV"
+      },
+      "actor_id": 1,
+      "actor_name": "관리자",
+      "actor_ip": "192.168.1.100",
+      "description": "Camera 수정: Camera-201",
+      "created_at": "2026-01-21T09:15:00+09:00"
+    },
+    {
+      "id": 148,
+      "resource_type": "CAMERA",
+      "resource_id": 200,
+      "resource_name": "Camera-200 (후문 CCTV)",
+      "action": "DELETED",
+      "before_state": {
+        "id": 200,
+        "name": "후문 CCTV"
+      },
+      "after_state": null,
+      "actor_id": 2,
+      "actor_name": "유지보수담당자",
+      "actor_ip": "192.168.1.105",
+      "description": "Camera 삭제: Camera-200 (후문 CCTV)",
+      "created_at": "2026-01-21T08:00:00+09:00"
     }
   ],
   "pagination": {
@@ -11318,22 +11907,34 @@ Accept: application/json
     "limit": 20,
     "total": 850,
     "total_pages": 43
+  },
+  "meta": {
+    "timestamp": "2026-01-21T10:30:00.150Z",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
 
-#### 9.7.3 GET `/api/config-change-logs/{id}`
+#### 9.7.3 설정 변경 로그 단일 조회
+
+**Endpoint**: `GET /api/config-change-logs/{id}`
 
 **Path Parameters**:
+- `id` (int, required): 설정 변경 로그 ID
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|----------|------|------|------|
-| id | int | 예 | 설정 변경 로그 ID |
+**Request Example**:
+```http
+GET /api/config-change-logs/150 HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
 
 **Response Example** (200 OK):
 ```json
 {
   "success": true,
+  "message": "Config change log retrieved successfully",
   "data": {
     "id": 150,
     "resource_type": "SENSOR",
@@ -11353,17 +11954,26 @@ Accept: application/json
     "actor_ip": "192.168.1.105",
     "description": "Sensor 상태 변경: DEACTIVATED → ACTIVATED",
     "created_at": "2026-01-21T11:45:00+09:00"
+  },
+  "meta": {
+    "timestamp": "2026-01-21T11:45:00.050Z",
+    "request_id": "550e8401-e29b-41d4-a716-446655440000"
   }
 }
 ```
 
-**Response (404 Not Found)**:
+**Error Response** (404 Not Found):
 ```json
 {
   "success": false,
   "error": {
     "code": "NOT_FOUND",
-    "message": "Config change log not found"
+    "message": "Config change log not found with Id=999",
+    "details": "No config change log exists with the specified ID"
+  },
+  "meta": {
+    "timestamp": "2026-01-21T11:45:00.050Z",
+    "request_id": "550e8401-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -11396,9 +12006,387 @@ Accept: application/json
 
 ---
 
-## 10. 에러 처리
+## 10. Report API 설계 (v3.3 신규)
 
-### 10.1 에러 응답 형식
+> **PRD 참조**: PRD_Report_System.md
+> 보고서 템플릿 관리, 보고서 생성 및 다운로드 API
+
+### 10.1 개요
+
+Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공합니다.
+
+| 기능 | 설명 |
+|------|------|
+| **Components** | 보고서 컴포넌트 목록 조회 (15종) |
+| **Templates** | 비정형 보고서 템플릿 CRUD |
+| **Generations** | 보고서 생성 요청 및 이력 관리 |
+| **Preview** | 보고서 미리보기 (Chart.js 기반 HTML) |
+
+### 10.2 Report Components API
+
+#### 10.2.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/reports/components` | 컴포넌트 목록 조회 |
+
+#### 10.2.2 GET `/api/reports/components`
+
+사용 가능한 보고서 컴포넌트 목록을 카테고리별로 조회합니다.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report components retrieved successfully",
+  "data": [
+    {
+      "category": "SUMMARY",
+      "components": [
+        {"id": "SUMMARY_CARD", "name": "요약 카드", "description": "전체 현황 요약"}
+      ]
+    },
+    {
+      "category": "DEVICE",
+      "components": [
+        {"id": "DEVICE_STATUS_PIE", "name": "장비 상태 파이", "description": "장비 상태별 분포"},
+        {"id": "DEVICE_TYPE_BAR", "name": "장비 유형 바", "description": "장비 유형별 현황"},
+        {"id": "DEVICE_GRID", "name": "장비 그리드", "description": "장비 목록 테이블"}
+      ]
+    },
+    {
+      "category": "EVENT",
+      "components": [
+        {"id": "EVENT_SUMMARY_PIE", "name": "이벤트 요약 파이", "description": "이벤트 유형별 분포"},
+        {"id": "EVENT_TREND_LINE", "name": "이벤트 추이 라인", "description": "이벤트 발생 추이"},
+        {"id": "EVENT_DAILY_BAR", "name": "일별 이벤트 바", "description": "일별 이벤트 현황"},
+        {"id": "EVENT_DETECTION_GRID", "name": "탐지 이벤트 그리드", "description": "탐지 이벤트 목록"},
+        {"id": "EVENT_MALFUNCTION_GRID", "name": "장애 이벤트 그리드", "description": "장애 이벤트 목록"},
+        {"id": "EVENT_ACTION_GRID", "name": "조치 이벤트 그리드", "description": "조치 이벤트 목록"}
+      ]
+    },
+    {
+      "category": "SYSTEM",
+      "components": [
+        {"id": "SYSTEM_SEVERITY_BAR", "name": "심각도 바", "description": "심각도별 분포"},
+        {"id": "SYSTEM_TREND_LINE", "name": "시스템 추이 라인", "description": "시스템 현황 추이"},
+        {"id": "SYSTEM_CONFIG_GRID", "name": "설정 그리드", "description": "시스템 설정 목록"},
+        {"id": "SYSTEM_EVENT_GRID", "name": "시스템 이벤트 그리드", "description": "시스템 이벤트 목록"},
+        {"id": "SYSTEM_AUDIT_GRID", "name": "감사 로그 그리드", "description": "감사 로그 목록"}
+      ]
+    }
+  ]
+}
+```
+
+### 10.3 Report Templates API
+
+> 비정형 보고서 템플릿 관리 (사용자 정의 컴포넌트 조합)
+
+#### 10.3.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/reports/templates` | 템플릿 목록 조회 |
+| POST | `/api/reports/templates` | 템플릿 생성 |
+| GET | `/api/reports/templates/{id}` | 템플릿 상세 조회 |
+| PATCH | `/api/reports/templates/{id}` | 템플릿 수정 |
+| DELETE | `/api/reports/templates/{id}` | 템플릿 삭제 |
+
+#### 10.3.2 GET `/api/reports/templates`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| page | int | 아니오 | 페이지 번호 (기본값: 1) |
+| limit | int | 아니오 | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report templates retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "name": "주간 이벤트 보고서",
+      "description": "주간 탐지/장애 이벤트 종합 보고서",
+      "report_type": "CUSTOM",
+      "owner_id": 1,
+      "is_public": true,
+      "components": [
+        {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "전체 현황"},
+        {"id": "EVENT_SUMMARY_PIE", "order": 2, "enabled": true, "title": null},
+        {"id": "EVENT_TREND_LINE", "order": 3, "enabled": true, "title": null}
+      ],
+      "default_period": "7d",
+      "created_at": "2026-01-20T10:00:00+09:00",
+      "updated_at": "2026-01-20T10:00:00+09:00"
+    }
+  ]
+}
+```
+
+#### 10.3.3 POST `/api/reports/templates`
+
+**Request Body**:
+```json
+{
+  "name": "주간 이벤트 보고서",
+  "description": "주간 탐지/장애 이벤트 종합 보고서",
+  "report_type": "CUSTOM",
+  "is_public": true,
+  "components": [
+    {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "전체 현황"},
+    {"id": "EVENT_SUMMARY_PIE", "order": 2, "enabled": true},
+    {"id": "EVENT_TREND_LINE", "order": 3, "enabled": true}
+  ],
+  "default_period": "7d"
+}
+```
+
+**필드 설명**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| name | string | 예 | 템플릿 이름 (1~100자) |
+| description | string | 아니오 | 템플릿 설명 (최대 500자) |
+| report_type | string | 아니오 | 보고서 유형 (기본값: CUSTOM) |
+| is_public | boolean | 아니오 | 공개 여부 (기본값: false) |
+| components | array | 예 | 컴포넌트 설정 목록 |
+| default_period | string | 아니오 | 기본 기간 (기본값: 7d) |
+
+**Component 필드 설명**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| id | string | 예 | EnumReportComponent 값 |
+| order | int | 예 | 출력 순서 |
+| enabled | boolean | 예 | 활성화 여부 |
+| title | string | 아니오 | 커스텀 제목 |
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Report template created successfully",
+  "data": {
+    "id": 1,
+    "name": "주간 이벤트 보고서",
+    "report_type": "CUSTOM",
+    "created_at": "2026-01-20T10:00:00+09:00"
+  }
+}
+```
+
+#### 10.3.4 PATCH `/api/reports/templates/{id}`
+
+**Request Body** (변경할 필드만 포함):
+```json
+{
+  "name": "월간 이벤트 보고서",
+  "default_period": "30d"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report template updated successfully",
+  "data": {
+    "id": 1,
+    "name": "월간 이벤트 보고서",
+    "default_period": "30d",
+    "updated_at": "2026-01-21T10:00:00+09:00"
+  }
+}
+```
+
+#### 10.3.5 DELETE `/api/reports/templates/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report template deleted successfully",
+  "data": {"id": 1}
+}
+```
+
+### 10.4 Report Generations API
+
+> 보고서 생성 요청 및 이력 관리
+
+#### 10.4.1 Endpoint 목록
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/reports/generate` | 보고서 생성 요청 |
+| GET | `/api/reports/generations` | 생성 이력 목록 조회 |
+| GET | `/api/reports/generations/{id}` | 생성 이력 상세 조회 |
+| GET | `/api/reports/generations/{id}/download` | PDF 다운로드 |
+| GET | `/api/reports/generations/{id}/preview` | 미리보기 데이터 |
+
+#### 10.4.2 POST `/api/reports/generate`
+
+보고서 생성을 요청합니다. 생성 작업은 BackgroundTasks로 비동기 실행됩니다.
+
+**Request Body**:
+```json
+{
+  "report_type": "STANDARD",
+  "title": "2026년 1월 3주차 주간 보고서",
+  "period_type": "7d",
+  "template_id": null,
+  "severity_filter": null
+}
+```
+
+**필드 설명**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| report_type | string | 예 | 보고서 유형 (STANDARD, CUSTOM) |
+| title | string | 예 | 보고서 제목 |
+| period_type | string | 예 | 기간 유형 (7d, 30d, 90d, 1y) |
+| template_id | int | 아니오 | CUSTOM 보고서 시 템플릿 ID |
+| severity_filter | array | 아니오 | 심각도 필터 |
+
+**Response (202 Accepted)**:
+```json
+{
+  "success": true,
+  "message": "Report generation requested successfully",
+  "data": {
+    "id": 1,
+    "report_type": "STANDARD",
+    "title": "2026년 1월 3주차 주간 보고서",
+    "period_type": "7d",
+    "start_date": "2026-01-16T00:00:00+09:00",
+    "end_date": "2026-01-23T00:00:00+09:00",
+    "status": "PENDING",
+    "created_at": "2026-01-23T10:00:00+09:00"
+  }
+}
+```
+
+> **Note**: HTTP 202 Accepted - 비동기 작업 요청 수락
+
+#### 10.4.3 GET `/api/reports/generations`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| page | int | 아니오 | 페이지 번호 (기본값: 1) |
+| limit | int | 아니오 | 페이지당 항목 수 (기본값: 20, 최대: 100) |
+| status | string | 아니오 | 상태 필터 (PENDING, GENERATING, COMPLETED, FAILED) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report generations retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "report_type": "STANDARD",
+      "template_id": null,
+      "title": "2026년 1월 3주차 주간 보고서",
+      "period_type": "7d",
+      "start_date": "2026-01-16T00:00:00+09:00",
+      "end_date": "2026-01-23T00:00:00+09:00",
+      "generator_id": 1,
+      "generator_name": "관리자",
+      "status": "COMPLETED",
+      "created_at": "2026-01-23T10:00:00+09:00",
+      "completed_at": "2026-01-23T10:01:30+09:00",
+      "pdf_download_url": "/api/reports/generations/1/download"
+    }
+  ]
+}
+```
+
+#### 10.4.4 GET `/api/reports/generations/{id}/download`
+
+PDF 파일 다운로드를 요청합니다.
+
+**Response (200 OK)** (COMPLETED 상태):
+```json
+{
+  "success": true,
+  "message": "Report download initiated",
+  "data": {
+    "id": 1,
+    "pdf_file_path": "/reports/2026/01/report_1_20260123.pdf"
+  }
+}
+```
+
+**Response (400 Bad Request)** (COMPLETED 아닌 상태):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Report is not COMPLETED yet"
+  }
+}
+```
+
+#### 10.4.5 GET `/api/reports/generations/{id}/preview`
+
+보고서 미리보기 데이터를 조회합니다.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report preview retrieved successfully",
+  "data": {
+    "id": 1,
+    "title": "2026년 1월 3주차 주간 보고서",
+    "report_type": "STANDARD",
+    "period_type": "7d",
+    "start_date": "2026-01-16T00:00:00+09:00",
+    "end_date": "2026-01-23T00:00:00+09:00",
+    "summary_data": {
+      "device_count": 150,
+      "event_count": 245,
+      "detection_count": 180,
+      "malfunction_count": 45,
+      "action_count": 20
+    },
+    "created_at": "2026-01-23T10:00:00+09:00",
+    "completed_at": "2026-01-23T10:01:30+09:00"
+  }
+}
+```
+
+### 10.5 Report Preview Page
+
+> 개발용 HTML 미리보기 페이지 (Swagger 미포함, Chart.js 기반)
+
+#### 10.5.1 Endpoint
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/reports/preview/{generation_id}` | HTML 미리보기 페이지 |
+
+#### 10.5.2 GET `/reports/preview/{generation_id}`
+
+Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
+
+**Response**: HTML 페이지 (`text/html`)
+
+**특징**:
+- Jinja2 템플릿 기반 (`app/templates/reports/preview.html`)
+- Chart.js CDN 연동 (Pie, Bar, Line 차트)
+- 섹션별 차트 및 그리드 테이블 표시
+- PDF 다운로드 버튼 포함 (COMPLETED 상태 시)
+
+---
+
+## 11. 에러 처리
+
+### 11.1 에러 응답 형식
 
 ```json
 {
@@ -11418,7 +12406,7 @@ Accept: application/json
 }
 ```
 
-### 10.2 에러 코드 정의
+### 11.2 에러 코드 정의
 
 | HTTP 코드 | 에러 코드 | 설명 | 예제 시나리오 |
 |-----------|-----------|------|---------------|
@@ -11434,7 +12422,7 @@ Accept: application/json
 | 503 | `SERVICE_UNAVAILABLE` | 서비스 불가 | 서버 점검, 과부하 |
 | 504 | `TIMEOUT` | 타임아웃 | 요청 처리 시간 초과 |
 
-### 10.3 에러 응답 예제
+### 11.3 에러 응답 예제
 
 #### 400 Validation Error (데이터 검증 실패)
 
@@ -11472,9 +12460,9 @@ Accept: application/json
 
 ---
 
-## 11. 부록
+## 12. 부록
 
-### 11.1 전체 Endpoint 목록
+### 12.1 전체 Endpoint 목록
 
 #### Device Endpoints
 
@@ -11701,9 +12689,31 @@ Accept: application/json
 - `GET /api/config-change-logs` - 설정 변경 로그 목록 조회
 - `GET /api/config-change-logs/{id}` - 설정 변경 로그 상세 조회
 
-### 11.2 Event-Device 리팩토링 변경사항 (v2.3)
+#### Report Endpoints (v3.3 신규)
 
-#### 11.2.1 API Request 변경
+**Report Components**:
+- `GET /api/reports/components` - 컴포넌트 목록 조회
+
+**Report Templates**:
+- `GET /api/reports/templates` - 템플릿 목록 조회
+- `POST /api/reports/templates` - 템플릿 생성
+- `GET /api/reports/templates/{id}` - 템플릿 상세 조회
+- `PATCH /api/reports/templates/{id}` - 템플릿 수정
+- `DELETE /api/reports/templates/{id}` - 템플릿 삭제
+
+**Report Generations**:
+- `POST /api/reports/generate` - 보고서 생성 요청
+- `GET /api/reports/generations` - 생성 이력 목록 조회
+- `GET /api/reports/generations/{id}` - 생성 이력 상세 조회
+- `GET /api/reports/generations/{id}/download` - PDF 다운로드
+- `GET /api/reports/generations/{id}/preview` - 미리보기 데이터
+
+**Report Preview (Non-API)**:
+- `GET /reports/preview/{generation_id}` - HTML 미리보기 페이지
+
+### 12.2 Event-Device 리팩토링 변경사항 (v2.3)
+
+#### 12.2.1 API Request 변경
 
 | Event Type | Before (v2.1 이전) | After (v2.2) | After (v2.3) |
 |------------|-------------------|--------------|--------------|
@@ -11724,7 +12734,7 @@ Accept: application/json
 }
 ```
 
-#### 11.2.2 API Response 변경
+#### 12.2.2 API Response 변경
 
 | 필드 | v2.2 | v2.3 | 설명 |
 |------|------|------|------|
@@ -11780,7 +12790,7 @@ Accept: application/json
 }
 ```
 
-#### 11.2.3 DeviceNestedResponse 스키마
+#### 12.2.3 DeviceNestedResponse 스키마
 
 **폴리모픽 Device 응답** - Device 타입에 따라 다른 필드 포함:
 
@@ -11814,7 +12824,7 @@ Accept: application/json
 }
 ```
 
-#### 11.2.4 Event 영속성 보장
+#### 12.2.4 Event 영속성 보장
 
 > **핵심 원칙**: Event 데이터는 어떤 경우에도 삭제되지 않아야 한다.
 
@@ -11827,7 +12837,7 @@ Accept: application/json
 - **FK 설정**: `ondelete="SET NULL"` (CASCADE 사용 금지!)
 - **device_description**: Device 삭제 후에도 과거 Device 정보 참조 가능
 
-#### 11.2.5 마이그레이션 스크립트
+#### 12.2.5 마이그레이션 스크립트
 
 **위치**: `scripts/migrate_event_device_id.py`
 
@@ -11848,16 +12858,16 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-### 11.3 EventMapping 리팩토링 변경사항 (v2.3)
+### 12.3 EventMapping 리팩토링 변경사항 (v2.3)
 
-#### 11.3.1 EventMapping 테이블 변경
+#### 12.3.1 EventMapping 테이블 변경
 
 | 필드 | Before (v2.2 이전) | After (v2.3) | 설명 |
 |------|-------------------|--------------|------|
 | `group_event` | VARCHAR(100) | **제거됨** | 자유 문자열, DeviceGroup과 무관 |
 | `device_group_id` | - | INTEGER FK **신규** | DeviceGroup.id 참조 (SET NULL on delete) |
 
-#### 11.3.2 API 변경 요약
+#### 12.3.2 API 변경 요약
 
 | API | Before | After |
 |-----|--------|-------|
@@ -11867,7 +12877,7 @@ python scripts/migrate_event_device_id.py
 | PATCH | `group_event` 수정 가능 | `device_group_id` 수정 가능 |
 | PUT | `group_event` 필수 | `device_group_id` 필수 |
 
-#### 11.3.3 이벤트-카메라 연동 흐름
+#### 12.3.3 이벤트-카메라 연동 흐름
 
 ```
 이벤트 발생 시 카메라 프리셋 연동 흐름 (v2.4):
@@ -11888,7 +12898,7 @@ python scripts/migrate_event_device_id.py
 └─────────────────┘     └─────────────────────┘     └─────────────────┘
 ```
 
-#### 11.3.4 EventMapping FK 정책
+#### 12.3.4 EventMapping FK 정책
 
 | 관계 | 동작 | 정책 | 결과 |
 |------|------|------|------|
@@ -11902,6 +12912,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v3.3 | 2026-01-23 | **Report API 추가, User API 문서 정합성 수정, DeviceGroup 폴리모픽 응답 확장**<br><br>**[1. Report API 신규 (PRD_Report_System.md)]**<br>- **Report Enum 추가 (4.8)**: EnumReportType (2종), EnumReportPeriod (4종), EnumReportStatus (4종), EnumChartType (4종), EnumReportComponent (15종)<br>- **Report API (10절)**: GET /api/reports/components, templates CRUD, POST /api/reports/generate, generations 조회/다운로드/미리보기<br>- **Report Preview Page (10.5)**: Chart.js 기반 HTML 미리보기<br>- **섹션 번호 변경**: 10 → 11 (에러 처리), 11 → 12 (부록)<br><br>**[2. User API 문서 정합성 수정]**<br>- **GET /api/users (9.3.2)**: department 파라미터 추가, 누락 필드 10개 추가 (email, position, employee_number 등)<br>- **POST /api/users (9.3.3)**: 누락 필드 4개 추가, Response 18개 필드로 확장<br>- **AccountUserCreate/Response 스키마와 완전 동기화**<br><br>**[3. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **SpeakerSummary 추가**: speaker_type, server_id, description, geolocation<br>- **EnclosureSummary 추가**: door_status, heater_enabled, fan_enabled, threshold_config, geolocation<br>- **DeviceSummary Union 확장**: Controller, Sensor, Camera, Speaker, Enclosure 5종 지원<br>- **devices 배열 예시 업데이트**: Speaker, Enclosure 예시 추가 |
 | v3.2 | 2026-01-21 | **Config Change Logs API 추가 (PRD_ConfigChangeLog.md v1.1)**<br><br>**[1. Config Change Log Enum 추가 (4.7)]**<br>- **EnumConfigResourceType (19종)**: Device 10종, Server 2종, Event 4종, Integration 3종<br>  - Device: DEVICE, CONTROLLER, SENSOR, CAMERA, SPEAKER, ENCLOSURE, DEVICE_GROUP, DEVICE_GROUP_MAPPING, CAMERA_PRESET, ROI<br>  - Server: SERVER, SERVER_CATEGORY<br>  - Event: EVENT, DETECTION_EVENT, MALFUNCTION_EVENT, CONNECTION_EVENT<br>  - Integration: EVENT_MAPPING, EVENT_MAPPING_CAMERA, EVENT_MAPPING_SPEAKER<br>- **EnumConfigActionType (6종)**: CREATED, UPDATED, DELETED, STATUS_CHANGED, ASSIGNED, UNASSIGNED<br><br>**[2. Config Change Logs API 신규 (9.7)]**<br>- **GET /api/config-change-logs**: 설정 변경 로그 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/config-change-logs/{id}**: 설정 변경 로그 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Device, Server, Event, Integration 계열 리소스 CRUD 시 자동 변경 로그 생성<br>- **스냅샷 보존**: 삭제된 리소스/수행자 정보 유지<br><br>**[3. JSONB 정규화 (v1.1 신규)]**<br>- **변경된 필드만 저장**: 전체 모델 스냅샷 대신 변경된 필드만 기록<br>- **CREATED**: after_state에 `{id, name}` 식별 정보만 저장<br>- **UPDATED**: 변경된 필드만 before/after에 저장<br>- **DELETED**: before_state에 `{id, name}` 식별 정보만 저장<br>- **유틸리티 함수**: `get_changed_fields()`, `get_identifier()` (config_log_service.py) |
 | v3.1 | 2026-01-20 | **EnumSystemEventType 15종 동기화, Audit Log API 추가, UserSession API 응답 표준화 (PRD_SystemEvent_Sync.md v1.2, PRD_Audit_Log.md v1.0)**<br><br>**[1. EnumSystemEventType 15종 동기화 (8.7.1)]** (PRD_SystemEvent_Sync.md v1.2)<br>- **USER_* 9종 제거** → UserLoginLog로 이전 (PRD_Account_Design.md Section 9.2)<br>- **ConfigChangeLog 중복 4종 제거**: CONFIG_CHANGED, DEVICE_ADDED, DEVICE_REMOVED, DEVICE_STATUS_CHANGED<br>- **최종 15종**: RESOURCE_THRESHOLD, SERVER_CONNECTED, SERVER_DISCONNECTED, SERVER_ERROR, SERVICE_STARTED, SERVICE_STOPPED, SERVICE_ERROR, CONNECTION_LOST, CONNECTION_RESTORED, SECURITY_ALERT, DEVICE_CONNECTED, BACKUP_STARTED, BACKUP_COMPLETED, BACKUP_FAILED, SYSTEM_UPDATE<br>- **Swagger 스키마 업데이트**: json_schema_extra 예제 추가 (app/schemas/system_event.py)<br><br>**[2. Audit Enum 추가 (4.6)]**<br>- **EnumAuditActionType (18종)**: USER_CREATED, USER_UPDATED, USER_DELETED, USER_LOCKED, USER_UNLOCKED, USER_ACTIVATED, USER_DEACTIVATED, PASSWORD_CHANGED, PASSWORD_RESET, ROLE_CHANGED, GROUP_ASSIGNED, GROUP_CREATED, GROUP_UPDATED, GROUP_DELETED, PERMISSION_CHANGED, SESSION_CREATED, SESSION_TERMINATED, SESSION_FORCED_LOGOUT<br>- **EnumAuditResourceType (4종)**: USER, USER_GROUP, USER_SESSION, PASSWORD<br>- **EnumAuditStatus (2종)**: SUCCESS, FAILURE<br><br>**[3. Audit Logs API 신규 (9.6)]**<br>- **GET /api/audit-logs**: 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/audit-logs/{id}**: 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Account CRUD 작업 시 자동 감사 로그 생성<br>- **변경 내역 추적**: before/after JSON 기록<br>- **스냅샷 보존**: 삭제된 리소스/행위자 정보 유지<br>- **민감 정보 제외**: password, password_hash, token 등 미기록<br><br>**[4. UserSession API 응답 표준화 (9.5)]**<br>- **필드명 변경**: `login_at` → `created_at`, `last_activity` → `updated_at` (다른 모델과 일관성 확보)<br>- **누락 필드 추가**: `logout_reason`, `logged_out_at`, `updated_at` 필드 문서에 반영<br>- **GET /api/user-sessions/{id}**: 상세 조회 API 문서 추가 (9.5.3)<br>- **Query Parameters 업데이트**: `page`, `limit` 파라미터 추가 |
 | v3.0 | 2026-01-19 | **Account API 완성 및 Auth Migration (Phase 1)**<br><br>**[1. Account Enum 섹션 추가 (4.5)]**<br>- **EnumUserRole (5종)**: ADMIN, MAINTAINER, OPERATOR, VIEWER, GUEST<br>- **EnumLogoutReason (6종)**: USER_LOGOUT, SESSION_EXPIRED, ADMIN_FORCED, PASSWORD_CHANGED, DUPLICATE_LOGIN, SYSTEM_MAINTENANCE<br>- **EnumLoginAction (3종)**: LOGIN, LOGOUT, TOKEN_REFRESH<br>- **EnumLoginResult (2종)**: SUCCESS, FAILURE<br>- **EnumLoginFailureReason (7종)**: INVALID_CREDENTIALS, ACCOUNT_LOCKED, ACCOUNT_INACTIVE, PASSWORD_EXPIRED, IP_BLOCKED, TOO_MANY_ATTEMPTS, SYSTEM_ERROR<br><br>**[2. Auth API HTTPBearer Migration]**<br>- **인증 방식 변경**: OAuth2PasswordBearer → HTTPBearer<br>- **Swagger UI 개선**: Authorize 버튼으로 Bearer 토큰 직접 입력 가능<br>- **Request 헤더 문서 업데이트**: Authorization 설명 명확화 (`JWT Bearer 토큰 (HTTPBearer 방식) - POST /api/auth/login으로 발급`)<br><br>**[3. Swagger Example 스키마 추가]** (app/schemas/user.py)<br>- **AccountLoginRequest**: login_id: "admin", password: "admin123"<br>- **AccountUserCreate**: login_id, password, name, email, department, position, role, group_id 등 전체 필드<br>- **AccountUserUpdate**: name, email, department, position, role, group_id, is_active 등 전체 필드<br>- **AccountUserResponse**: id, login_id, name, role, is_active, is_locked, created_at 등 전체 필드<br>- **RefreshTokenRequest**: refresh_token example 추가<br>- **PasswordResetRequest, PasswordChangeRequest**: new_password, current_password example 추가<br>- **UserGroupCreate**: name, description, permissions example 추가<br><br>**[4. 스키마 문서 업데이트]** (GOP_스키마_전체.md)<br>- **user_sessions 테이블**: `last_activity` 필드 추가 (마지막 활동 시간) |
@@ -11925,5 +12936,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v3.2
-**최종 업데이트**: 2026-01-21
+**문서 버전**: v3.3
+**최종 업데이트**: 2026-01-23

@@ -25,7 +25,8 @@ from app.schemas.device import (
     CameraNestedResponse
 )
 from app.schemas.common import ApiResponse, PaginationMeta
-from app.utils.enums import EnumDeviceType
+from app.utils.enums import EnumDeviceType, EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
 
 router = APIRouter(tags=[])
@@ -330,6 +331,17 @@ async def create_malfunction_event(
     db.commit()
     db.refresh(new_event)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.MALFUNCTION_EVENT,
+        resource_id=new_event.id,
+        resource_name=f"MalfunctionEvent-{new_event.id} ({new_event.type_event})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": new_event.id, "type_event": new_event.type_event},
+        description="MalfunctionEvent 생성"
+    )
+
     # PRD v2.1: Include device nested in response (group_event 제거됨)
     # PRD v1.3: device_id, sequence 필드 제거
     # PRD v1.4: category_event 필드 제거
@@ -394,6 +406,9 @@ async def update_malfunction_event(
             detail=f"Malfunction event with id {event_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(event)
+
     # Update fields if provided
     # PRD_Event_Field_Normalization.md v1.0: type_event, action_reported, reason, detail만 수정 가능
     update_data = event_data.model_dump(exclude_unset=True)
@@ -420,6 +435,21 @@ async def update_malfunction_event(
 
     db.commit()
     db.refresh(event)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(event)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.MALFUNCTION_EVENT,
+            resource_id=event.id,
+            resource_name=f"MalfunctionEvent-{event.id} ({event.type_event})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="MalfunctionEvent 수정"
+        )
 
     # PRD v2.1: Response with device nested
     # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
@@ -572,8 +602,24 @@ async def delete_malfunction_event(
             detail="조치보고가 등록된 장애 이벤트는 삭제할 수 없습니다. ActionEvent를 먼저 삭제해주세요. / Cannot delete Malfunction event with Action reported. Please delete the ActionEvent first."
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = event.id
+    deleted_identifier = {"id": event.id, "type_event": event.type_event}
+    deleted_name = f"MalfunctionEvent-{event.id} ({event.type_event})"
+
     db.delete(event)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.MALFUNCTION_EVENT,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="MalfunctionEvent 삭제"
+    )
 
     return ApiResponse(
         success=True,

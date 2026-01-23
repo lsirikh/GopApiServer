@@ -13,9 +13,10 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Speaker
 from app.models.server import Server
-from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse, ServerNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Speakers"])
 
@@ -214,6 +215,17 @@ async def create_speaker(
     db.commit()
     db.refresh(new_speaker)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.SPEAKER,
+        resource_id=new_speaker.id,
+        resource_name=f"Speaker-{new_speaker.id} ({new_speaker.name_device})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(new_speaker),
+        description="Speaker 생성"
+    )
+
     speaker_response = _speaker_to_response(new_speaker, db)
 
     return ApiResponse(
@@ -257,6 +269,9 @@ async def update_speaker(
             detail=f"Speaker with id {speaker_id} not found"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(speaker)
+
     # Update fields if provided
     update_data = speaker_data.model_dump(exclude_unset=True)
 
@@ -279,6 +294,21 @@ async def update_speaker(
 
     db.commit()
     db.refresh(speaker)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(speaker)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.SPEAKER,
+            resource_id=speaker.id,
+            resource_name=f"Speaker-{speaker.id} ({speaker.name_device})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="Speaker 수정"
+        )
 
     speaker_response = _speaker_to_response(speaker, db)
 
@@ -385,8 +415,24 @@ async def delete_speaker(
             detail=f"Speaker with id {speaker_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = speaker.id
+    deleted_identifier = get_identifier(speaker)
+    deleted_name = f"Speaker-{speaker.id} ({speaker.name_device})"
+
     db.delete(speaker)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.SPEAKER,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="Speaker 삭제"
+    )
 
     return ApiResponse(
         success=True,

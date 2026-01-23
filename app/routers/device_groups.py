@@ -11,8 +11,8 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
-from app.utils.enums import EnumDeviceCategory
-from app.models.device import Device, Controller, Sensor, Camera
+from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
+from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure
 from app.schemas.device_group import (
     DeviceGroupCreate,
     DeviceGroupUpdate,
@@ -24,8 +24,11 @@ from app.schemas.device_group import (
     ControllerSummary,
     SensorSummary,
     CameraSummary,
+    SpeakerSummary,
+    EnclosureSummary,
 )
 from app.schemas.common import ApiResponse, PaginationMeta, ValidationErrorResponse
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(prefix="/devices/groups", tags=["DeviceGroups"])
 
@@ -360,6 +363,23 @@ async def get_device_group(
                     hardware_spec=device.hardware_spec,
                     geolocation=device.geolocation
                 ))
+            elif isinstance(device, Speaker):
+                devices.append(SpeakerSummary(
+                    **base_data,
+                    speaker_type=device.speaker_type.value if hasattr(device.speaker_type, 'value') else str(device.speaker_type),
+                    server_id=device.server_id,
+                    description=device.description,
+                    geolocation=device.geolocation
+                ))
+            elif isinstance(device, Enclosure):
+                devices.append(EnclosureSummary(
+                    **base_data,
+                    door_status=device.door_status.value if hasattr(device.door_status, 'value') else str(device.door_status),
+                    heater_enabled=device.heater_enabled,
+                    fan_enabled=device.fan_enabled,
+                    threshold_config=device.threshold_config,
+                    geolocation=device.geolocation
+                ))
 
     response = DeviceGroupDetailResponse(
         id=group.id,
@@ -410,6 +430,17 @@ async def create_device_group(
     db.commit()
     db.refresh(group)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.DEVICE_GROUP,
+        resource_id=group.id,
+        resource_name=f"DeviceGroup-{group.id} ({group.name})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(group),
+        description="DeviceGroup 생성"
+    )
+
     response = DeviceGroupResponse(
         id=group.id,
         name=group.name,
@@ -451,6 +482,9 @@ async def patch_device_group(
             detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(group)
+
     # 부분 업데이트
     if group_data.name is not None:
         # 이름 중복 검사 (자기 자신 제외)
@@ -470,6 +504,21 @@ async def patch_device_group(
 
     db.commit()
     db.refresh(group)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(group)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.DEVICE_GROUP,
+            resource_id=group.id,
+            resource_name=f"DeviceGroup-{group.id} ({group.name})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="DeviceGroup 수정"
+        )
 
     response = DeviceGroupResponse(
         id=group.id,
@@ -568,8 +617,24 @@ async def delete_device_group(
             detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = group.id
+    deleted_identifier = get_identifier(group)
+    deleted_name = f"DeviceGroup-{group.id} ({group.name})"
+
     db.delete(group)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.DEVICE_GROUP,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="DeviceGroup 삭제"
+    )
 
     return ApiResponse(
         success=True,
@@ -628,6 +693,18 @@ async def assign_devices_to_group(
 
     db.commit()
 
+    # ConfigChangeLog: ASSIGNED 로그 기록 (PRD v1.2)
+    if assigned:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.DEVICE_GROUP,
+            resource_id=group_id,
+            resource_name=f"DeviceGroup-{group_id} ({group.name})",
+            action=EnumConfigActionType.ASSIGNED,
+            after_state={"device_ids": assigned},
+            description=f"DeviceGroup에 {len(assigned)}개 디바이스 할당"
+        )
+
     message = f"{len(assigned)}개 디바이스 할당 완료"
     if skipped:
         message += f", {len(skipped)}개 건너뜀"
@@ -684,6 +761,17 @@ async def remove_device_from_group(
 
     db.delete(mapping)
     db.commit()
+
+    # ConfigChangeLog: UNASSIGNED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.DEVICE_GROUP,
+        resource_id=group_id,
+        resource_name=f"DeviceGroup-{group_id} ({group.name})",
+        action=EnumConfigActionType.UNASSIGNED,
+        before_state={"device_id": device_id},
+        description=f"DeviceGroup에서 디바이스 {device_id} 제거"
+    )
 
     response = DeviceRemoveResponse(
         group_id=group_id,

@@ -14,6 +14,8 @@ from app.utils.enums import EnumDeviceCategory
 from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorNestedResponse, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 
 router = APIRouter(tags=["Controllers"])
 
@@ -318,6 +320,17 @@ async def create_controller(
         _update_device_group_mappings(db, new_controller.id, controller_data.group_ids, "controller")
         db.commit()
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2 Section 7)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.CONTROLLER,
+        resource_id=new_controller.id,
+        resource_name=f"Controller-{new_controller.id} ({new_controller.name_device})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(new_controller),
+        description="Controller 생성"
+    )
+
     controller_response = _controller_to_response(new_controller, db)
 
     return ApiResponse(
@@ -368,6 +381,9 @@ async def update_controller(
             detail=f"Controller with id {controller_id} not found"
         )
 
+    # ConfigChangeLog: UPDATED 로그를 위한 before 상태 캡처 (PRD v1.2 Section 7)
+    before_state = model_to_dict(controller)
+
     # Update fields if provided
     update_data = controller_data.model_dump(exclude_unset=True)
 
@@ -407,6 +423,21 @@ async def update_controller(
 
     db.commit()
     db.refresh(controller)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2 Section 7)
+    after_state = model_to_dict(controller)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:  # 변경된 필드가 있는 경우만 로그
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.CONTROLLER,
+            resource_id=controller.id,
+            resource_name=f"Controller-{controller.id} ({controller.name_device})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="Controller 수정"
+        )
 
     controller_response = _controller_to_response(controller, db, include_sensors)
 
@@ -522,6 +553,10 @@ async def delete_controller(
             detail=f"Controller with id {controller_id} not found"
         )
 
+    # ConfigChangeLog: DELETED 로그를 위한 식별 정보 캡처 (PRD v1.2 Section 7)
+    deleted_identifier = get_identifier(controller)
+    resource_name = f"Controller-{controller.id} ({controller.name_device})"
+
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
     db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == controller_id,
@@ -530,6 +565,18 @@ async def delete_controller(
 
     db.delete(controller)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2 Section 7)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.CONTROLLER,
+        resource_id=controller_id,
+        resource_name=resource_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        after_state=None,
+        description="Controller 삭제"
+    )
 
     return ApiResponse(
         success=True,

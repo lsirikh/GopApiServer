@@ -442,16 +442,17 @@ class EnumAuditStatus(str, Enum):
 
 class EnumConfigResourceType(str, Enum):
     """
-    Config change log resource type enumeration (19종)
-    PRD: PRD_ConfigChangeLog.md Section 2.1
+    Config change log resource type enumeration (17종)
+    PRD: PRD_ConfigChangeLog.md v1.2 Section 2.1
 
     설정 변경 대상 리소스 유형
 
     카테고리별 분류:
     - Device 계열: 10개
-    - Server 계열: 2개
     - Event 계열: 4개
     - Integration 계열: 3개
+
+    Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
     """
     # Device 계열 (10개)
     CONTROLLER = "CONTROLLER"           # 컨트롤러
@@ -464,10 +465,6 @@ class EnumConfigResourceType(str, Enum):
     ROI = "ROI"                         # ROI
     XY_POINT = "XY_POINT"               # XY 포인트
     FILE_GROUP = "FILE_GROUP"           # 파일 그룹
-
-    # Server 계열 (2개)
-    SERVER_CATEGORY = "SERVER_CATEGORY" # 서버 카테고리
-    SERVER = "SERVER"                   # 서버
 
     # Event 계열 (4개)
     DETECTION_EVENT = "DETECTION_EVENT"       # 탐지 이벤트
@@ -497,3 +494,88 @@ class EnumConfigActionType(str, Enum):
     STATUS_CHANGED = "STATUS_CHANGED"   # 상태 변경 (Enclosure status 등)
     ASSIGNED = "ASSIGNED"               # 할당 (DeviceGroup에 디바이스 할당)
     UNASSIGNED = "UNASSIGNED"           # 할당 해제 (DeviceGroup에서 디바이스 제거)
+
+
+# ============================================================
+# Report System Enums (PRD: PRD_Report_System.md Section 3)
+# ============================================================
+
+class EnumReportType(str, Enum):
+    """
+    Report type enumeration (2종)
+    PRD: PRD_Report_System.md Section 3.1
+
+    보고서 유형
+    """
+    STANDARD = "STANDARD"   # 정형 보고서
+    CUSTOM = "CUSTOM"       # 비정형 보고서
+
+
+class EnumReportPeriod(str, Enum):
+    """
+    Report period enumeration (4종)
+    PRD: PRD_Report_System.md Section 3.1
+
+    보고서 기간
+    """
+    DAYS_7 = "7d"           # 7일
+    DAYS_30 = "30d"         # 30일 (1개월)
+    DAYS_90 = "90d"         # 90일 (3개월)
+    YEAR_1 = "1y"           # 1년
+
+
+class EnumReportStatus(str, Enum):
+    """
+    Report status enumeration (4종)
+    PRD: PRD_Report_System.md Section 3.1
+
+    보고서 생성 상태
+    """
+    PENDING = "PENDING"         # 대기 중
+    GENERATING = "GENERATING"   # 생성 중
+    COMPLETED = "COMPLETED"     # 완료
+    FAILED = "FAILED"           # 실패
+
+
+class EnumChartType(str, Enum):
+    """
+    Chart type enumeration (4종)
+    PRD: PRD_Report_System.md Section 3.1
+
+    차트 유형
+    """
+    LINE = "LINE"       # 라인 차트
+    BAR = "BAR"         # 막대 차트
+    DONUT = "DONUT"     # 도넛 차트
+    PIE = "PIE"         # 파이 차트
+
+
+class EnumReportComponent(str, Enum):
+    """
+    Report component enumeration (15종)
+    PRD: PRD_Report_System.md Section 3.1
+
+    보고서 컴포넌트
+    """
+    # SUMMARY (1종)
+    SUMMARY_CARD = "SUMMARY_CARD"
+
+    # DEVICE (3종)
+    DEVICE_STATUS_PIE = "DEVICE_STATUS_PIE"
+    DEVICE_TYPE_BAR = "DEVICE_TYPE_BAR"
+    DEVICE_GRID = "DEVICE_GRID"
+
+    # EVENT (6종)
+    EVENT_SUMMARY_PIE = "EVENT_SUMMARY_PIE"
+    EVENT_TREND_LINE = "EVENT_TREND_LINE"
+    EVENT_DAILY_BAR = "EVENT_DAILY_BAR"
+    EVENT_DETECTION_GRID = "EVENT_DETECTION_GRID"
+    EVENT_MALFUNCTION_GRID = "EVENT_MALFUNCTION_GRID"
+    EVENT_ACTION_GRID = "EVENT_ACTION_GRID"
+
+    # SYSTEM (5종)
+    SYSTEM_SEVERITY_BAR = "SYSTEM_SEVERITY_BAR"
+    SYSTEM_TREND_LINE = "SYSTEM_TREND_LINE"
+    SYSTEM_CONFIG_GRID = "SYSTEM_CONFIG_GRID"
+    SYSTEM_EVENT_GRID = "SYSTEM_EVENT_GRID"
+    SYSTEM_AUDIT_GRID = "SYSTEM_AUDIT_GRID"

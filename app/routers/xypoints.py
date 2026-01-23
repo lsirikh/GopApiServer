@@ -14,6 +14,8 @@ from app.models.camera_preset import ROI, XyPoint
 from app.schemas.camera_preset import XyPointCreate, XyPointResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from pydantic import BaseModel, Field
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change
 
 
 class XyPointBulkUpdate(BaseModel):
@@ -124,6 +126,17 @@ async def create_point(
     db.commit()
     db.refresh(point)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.XY_POINT,
+        resource_id=point.id,
+        resource_name=f"XyPoint-{point.id} (order: {point.order})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": point.id, "order": point.order},
+        description="XyPoint 생성"
+    )
+
     return ApiResponse(
         success=True,
         message="XyPoint created successfully",
@@ -232,9 +245,25 @@ async def delete_point(
             detail=f"Point with id {point_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = point.id
+    deleted_identifier = {"id": point.id, "order": point.order}
+    deleted_name = f"XyPoint-{point.id} (order: {point.order})"
+
     # Delete point
     db.delete(point)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.XY_POINT,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="XyPoint 삭제"
+    )
 
     return ApiResponse(
         success=True,

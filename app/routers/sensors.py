@@ -10,10 +10,11 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Sensor, Controller, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
-from app.utils.enums import EnumDeviceCategory
+from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import SensorCreate, SensorResponse, SensorUpdate, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Sensors"])
 
@@ -309,6 +310,17 @@ async def create_sensor(
         _update_device_group_mappings(db, new_sensor.id, sensor_data.group_ids, "sensor")
         db.commit()
 
+    # ConfigChangeLog: CREATED 로깅 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.SENSOR,
+        resource_id=new_sensor.id,
+        resource_name=f"Sensor-{new_sensor.id} ({new_sensor.name_device})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(new_sensor),
+        description="Sensor 생성"
+    )
+
     sensor_response = _sensor_to_response(new_sensor, db)
 
     return ApiResponse(
@@ -358,6 +370,9 @@ async def update_sensor(
             detail=f"Sensor with id {sensor_id} not found"
         )
 
+    # ConfigChangeLog: 변경 전 상태 캡처
+    before_state = model_to_dict(sensor)
+
     # Validate controller exists if updating controller_id
     if sensor_data.controller_id is not None:
         controller = db.query(Controller).filter(Controller.id == sensor_data.controller_id).first()
@@ -406,6 +421,21 @@ async def update_sensor(
 
     db.commit()
     db.refresh(sensor)
+
+    # ConfigChangeLog: UPDATED 로깅 (PRD v1.2 - 변경된 필드만 저장)
+    after_state = model_to_dict(sensor)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.SENSOR,
+            resource_id=sensor.id,
+            resource_name=f"Sensor-{sensor.id} ({sensor.name_device})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="Sensor 수정"
+        )
 
     sensor_response = _sensor_to_response(sensor, db, include_controller)
 
@@ -528,6 +558,10 @@ async def delete_sensor(
             detail=f"Sensor with id {sensor_id} not found"
         )
 
+    # ConfigChangeLog: 삭제 전 식별 정보 캡처
+    deleted_identifier = get_identifier(sensor)
+    resource_name = f"Sensor-{sensor.id} ({sensor.name_device})"
+
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
     db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == sensor_id,
@@ -536,6 +570,17 @@ async def delete_sensor(
 
     db.delete(sensor)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로깅 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.SENSOR,
+        resource_id=sensor_id,
+        resource_name=resource_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="Sensor 삭제"
+    )
 
     return ApiResponse(
         success=True,

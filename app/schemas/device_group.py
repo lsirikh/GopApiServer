@@ -134,6 +134,11 @@ class ControllerSummary(DeviceSummaryBase):
         json_schema_extra={"example": "192.168.1.100"}
     )
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 8001})
+    geolocation: Optional[dict] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": {"location": "GOP 1구역 컨트롤러", "latitude": 38.1234, "longitude": 127.5678}}
+    )
 
 
 class SensorSummary(DeviceSummaryBase):
@@ -152,6 +157,11 @@ class SensorSummary(DeviceSummaryBase):
         ...,
         description="연결된 Controller ID",
         json_schema_extra={"example": 1}
+    )
+    geolocation: Optional[dict] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": {"location": "GOP 1구역 센서", "latitude": 38.1234, "longitude": 127.5678}}
     )
 
 
@@ -213,8 +223,83 @@ class CameraSummary(DeviceSummaryBase):
     )
 
 
+class SpeakerSummary(DeviceSummaryBase):
+    """Speaker 요약 정보 스키마
+
+    GOP_Restful_Api_연동설계.md 5.6.2절 기준
+    PRD: PRD_Speaker_Device.md, PRD_Speaker_Geolocation.md v1.0
+    """
+    # Override base fields with Speaker-specific examples
+    id: int = Field(..., description="디바이스 ID", json_schema_extra={"example": 301})
+    name_device: str = Field(..., description="디바이스 이름", json_schema_extra={"example": "VCS_2401"})
+    type_device: str = Field(..., description="디바이스 타입", json_schema_extra={"example": "IpSpeaker"})
+    version: Optional[str] = Field(None, description="디바이스 버전", json_schema_extra={"example": "v1.0.0"})
+
+    # Speaker-specific fields
+    speaker_type: str = Field(
+        ...,
+        description="스피커 타입 (EnumSpeakerType)",
+        json_schema_extra={"example": "NORMAL"}
+    )
+    server_id: Optional[int] = Field(
+        None,
+        description="방송서버 ID (FK)",
+        json_schema_extra={"example": 1}
+    )
+    description: Optional[str] = Field(
+        None,
+        description="설명",
+        json_schema_extra={"example": "1구역 스피커"}
+    )
+    geolocation: Optional[dict] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": {"location": "GOP 1구역 스피커", "latitude": 38.1234, "longitude": 127.5678}}
+    )
+
+
+class EnclosureSummary(DeviceSummaryBase):
+    """Enclosure 요약 정보 스키마
+
+    GOP_Restful_Api_연동설계.md 5.6.2절 기준
+    PRD: PRD_Enclosure_Device.md v1.1
+    """
+    # Override base fields with Enclosure-specific examples
+    id: int = Field(..., description="디바이스 ID", json_schema_extra={"example": 401})
+    name_device: str = Field(..., description="디바이스 이름", json_schema_extra={"example": "Enclosure-A-1"})
+    type_device: str = Field(..., description="디바이스 타입", json_schema_extra={"example": "Enclosure"})
+    version: Optional[str] = Field(None, description="디바이스 버전", json_schema_extra={"example": "v1.0.0"})
+
+    # Enclosure-specific fields
+    door_status: str = Field(
+        ...,
+        description="도어 물리적 상태 (EnumDoorStatus)",
+        json_schema_extra={"example": "CLOSED"}
+    )
+    heater_enabled: bool = Field(
+        ...,
+        description="히터 활성화 상태",
+        json_schema_extra={"example": False}
+    )
+    fan_enabled: bool = Field(
+        ...,
+        description="팬 활성화 상태",
+        json_schema_extra={"example": False}
+    )
+    threshold_config: Optional[dict] = Field(
+        None,
+        description="알람 임계값 설정",
+        json_schema_extra={"example": {"temperature": {"warning": 40, "critical": 50}}}
+    )
+    geolocation: Optional[dict] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": {"location": "GOP 1구역 함체", "latitude": 38.1234, "longitude": 127.5678}}
+    )
+
+
 # Union type for polymorphic device summary
-DeviceSummary = Union[ControllerSummary, SensorSummary, CameraSummary]
+DeviceSummary = Union[ControllerSummary, SensorSummary, CameraSummary, SpeakerSummary, EnclosureSummary]
 
 
 class DeviceGroupDetailResponse(DeviceGroupResponse):

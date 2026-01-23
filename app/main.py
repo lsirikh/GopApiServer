@@ -11,10 +11,12 @@ General Outpost(GOP) 통합 관제 시스템을 위한 RESTful API 서버입니�
 
 Version: 1.5.0
 """
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 from fastapi.openapi.docs import get_swagger_ui_html
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -23,7 +25,9 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
+from app.models.report import ReportGeneration
+from app.dependencies import get_db
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
 
@@ -146,6 +150,10 @@ tags_metadata = [
         "name": "Logs",
         "description": "시스템 로그 조회 및 뷰어 API.",
     },
+    {
+        "name": "Reports",
+        "description": "보고서 템플릿 및 생성 이력 관리 API. PRD: PRD_Report_System.md Section 6",
+    },
 ]
 
 
@@ -239,6 +247,9 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
     },
     generate_unique_id_function=lambda route: f"{route.name}"
 )
+
+# Jinja2 Templates for HTML rendering (PRD Section 10: Preview Page)
+templates = Jinja2Templates(directory="app/templates")
 
 
 # Custom Swagger UI with Log Viewer button
@@ -509,6 +520,7 @@ app.include_router(cameras.router, prefix="/api/devices/cameras", tags=["Cameras
 app.include_router(speakers.router, prefix="/api/devices/speakers", tags=["Speakers"])
 app.include_router(enclosures.router, prefix="/api/devices/enclosures", tags=["Enclosures"])
 app.include_router(enclosure_metrics.router, prefix="/api/devices/enclosures", tags=["Enclosure Metrics"])
+app.include_router(enclosure_metrics.list_router, prefix="/api/enclosure-metrics", tags=["Enclosure Metrics"])
 app.include_router(file_groups.router, prefix="/api/file-groups", tags=["FileGroups"])
 app.include_router(detections.router, prefix="/api/events/detections", tags=["Detections"])
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])
@@ -525,6 +537,7 @@ app.include_router(device_groups.router, prefix="/api", tags=["DeviceGroups"])
 app.include_router(camera_presets.router, prefix="/api/devices/cameras", tags=["CameraPresets"])
 app.include_router(rois.router, prefix="/api/presets", tags=["ROIs"])
 app.include_router(xypoints.router, prefix="/api/rois", tags=["XyPoints"])
+app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])
@@ -551,3 +564,36 @@ async def health_check():
         "status": "healthy",
         "auth_mode": settings.AUTH_MODE
     }
+
+
+# ==============================================================================
+# Report Preview Page (HTML)
+# ==============================================================================
+
+@app.get("/reports/preview/{generation_id}", include_in_schema=False)
+def report_preview_page(
+    request: Request,
+    generation_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Report Preview Page (HTML)
+
+    개발용 보고서 미리보기 페이지
+    PRD Reference: PRD_Report_System.md Section 10
+    """
+    from app.services.report_service import ReportService
+
+    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Report generation not found")
+
+    # Get preview data from ReportService
+    service = ReportService(db)
+    preview_data = service.get_preview_data()
+
+    return templates.TemplateResponse(request, "reports/preview.html", {
+        "report": generation,
+        "preview": preview_data
+    })

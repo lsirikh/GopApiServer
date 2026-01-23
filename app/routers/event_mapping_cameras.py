@@ -24,6 +24,8 @@ from app.schemas.integration import (
 )
 from app.schemas.device import DeviceGroupNestedResponse
 from app.routers.auth import get_current_user_optional
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Event Mapping Cameras"])
 
@@ -240,6 +242,17 @@ def create_event_mapping_camera(
     db.commit()
     db.refresh(emc)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+        resource_id=emc.id,
+        resource_name=f"EventMappingCamera-{emc.id} (camera_id: {emc.camera_id})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": emc.id, "camera_id": emc.camera_id},
+        description="EventMappingCamera 생성"
+    )
+
     return {
         "success": True,
         "message": "Event mapping camera created successfully",
@@ -281,6 +294,9 @@ def patch_event_mapping_camera(
             detail=f"Camera config with id {config_id} not found for mapping {mapping_id}"
         )
 
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(emc)
+
     # Update only provided fields
     update_data = data.model_dump(exclude_unset=True)
 
@@ -316,6 +332,21 @@ def patch_event_mapping_camera(
 
     db.commit()
     db.refresh(emc)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(emc)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+            resource_id=emc.id,
+            resource_name=f"EventMappingCamera-{emc.id} (camera_id: {emc.camera_id})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="EventMappingCamera 수정"
+        )
 
     return {
         "success": True,
@@ -435,8 +466,24 @@ def delete_event_mapping_camera(
             detail=f"Camera config with id {config_id} not found for mapping {mapping_id}"
         )
 
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = emc.id
+    deleted_identifier = {"id": emc.id, "camera_id": emc.camera_id}
+    deleted_name = f"EventMappingCamera-{emc.id} (camera_id: {emc.camera_id})"
+
     db.delete(emc)
     db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="EventMappingCamera 삭제"
+    )
 
     return {
         "success": True,

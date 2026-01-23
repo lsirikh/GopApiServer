@@ -71,6 +71,7 @@ def model_to_dict(model: Any) -> Dict[str, Any]:
     """
     SQLAlchemy 모델을 dict로 변환합니다.
     datetime은 ISO 문자열로, Enum은 문자열로 변환합니다.
+    상속된 모델의 경우 모든 컬럼(부모 포함)을 포함합니다.
 
     Args:
         model: SQLAlchemy 모델 인스턴스
@@ -78,19 +79,37 @@ def model_to_dict(model: Any) -> Dict[str, Any]:
     Returns:
         모델의 컬럼 값을 담은 dict
     """
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import NoInspectionAvailable
     result = {}
 
-    for column in model.__table__.columns:
-        value = getattr(model, column.name, None)
+    try:
+        # SQLAlchemy 모델: 상속된 모델도 포함하여 모든 컬럼 가져오기
+        mapper = inspect(model.__class__)
+        for column in mapper.columns:
+            value = getattr(model, column.key, None)
 
-        # datetime 처리
-        if isinstance(value, datetime):
-            result[column.name] = value.isoformat()
-        # Enum 처리
-        elif isinstance(value, Enum):
-            result[column.name] = value.value
-        else:
-            result[column.name] = value
+            # datetime 처리
+            if isinstance(value, datetime):
+                result[column.key] = value.isoformat()
+            # Enum 처리
+            elif isinstance(value, Enum):
+                result[column.key] = value.value
+            else:
+                result[column.key] = value
+    except NoInspectionAvailable:
+        # Mock 객체 또는 비-SQLAlchemy 모델: __table__ 사용
+        for column in model.__table__.columns:
+            value = getattr(model, column.name, None)
+
+            # datetime 처리
+            if isinstance(value, datetime):
+                result[column.name] = value.isoformat()
+            # Enum 처리
+            elif isinstance(value, Enum):
+                result[column.name] = value.value
+            else:
+                result[column.name] = value
 
     return result
 

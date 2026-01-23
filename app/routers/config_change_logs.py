@@ -1,6 +1,6 @@
 """
 Config Change Log API Router
-Based on PRD_ConfigChangeLog.md v1.1
+Based on PRD_ConfigChangeLog.md v1.2
 
 Endpoints:
 - GET /api/config-change-logs - 목록 조회 (필터링, 페이지네이션)
@@ -13,19 +13,19 @@ JSONB 정규화 규칙 (v1.1):
 - STATUS_CHANGED: {status} 필드만
 - ASSIGNED: after_state = {target_id, target_name}
 - UNASSIGNED: before_state = {target_id, target_name}
+
+Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
+import math
 
 from app.dependencies import get_db
 from app.models.config_change_log import ConfigChangeLog
-from app.schemas.config_change_log import (
-    ConfigChangeLogResponse,
-    ConfigChangeLogListResponse
-)
-from app.schemas.common import ApiResponse
+from app.schemas.config_change_log import ConfigChangeLogResponse
+from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 
 router = APIRouter()
@@ -35,30 +35,30 @@ router = APIRouter()
 # Helper Functions
 # ==============================================================================
 
-def _config_change_log_to_response(log: ConfigChangeLog) -> dict:
-    """ConfigChangeLog 모델을 응답 딕셔너리로 변환"""
-    return {
-        "id": log.id,
-        "resource_type": log.resource_type.value if log.resource_type else None,
-        "resource_id": log.resource_id,
-        "resource_name": log.resource_name,
-        "action": log.action.value if log.action else None,
-        "before_state": log.before_state,
-        "after_state": log.after_state,
-        "actor_id": log.actor_id,
-        "actor_name": log.actor_name,
-        "actor_ip": log.actor_ip,
-        "description": log.description,
-        "created_at": log.created_at
-    }
+def _config_change_log_to_response(log: ConfigChangeLog) -> ConfigChangeLogResponse:
+    """ConfigChangeLog 모델을 ConfigChangeLogResponse 스키마로 변환"""
+    return ConfigChangeLogResponse(
+        id=log.id,
+        resource_type=log.resource_type,
+        resource_id=log.resource_id,
+        resource_name=log.resource_name,
+        action=log.action,
+        before_state=log.before_state,
+        after_state=log.after_state,
+        actor_id=log.actor_id,
+        actor_name=log.actor_name,
+        actor_ip=log.actor_ip,
+        description=log.description,
+        created_at=log.created_at
+    )
 
 
 # ==============================================================================
 # GET Endpoints
 # ==============================================================================
 
-@router.get("")
-def get_config_change_logs(
+@router.get("", response_model=ApiResponse[list[ConfigChangeLogResponse]])
+async def get_config_change_logs(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
     resource_type: Optional[str] = Query(None, description="리소스 유형 필터"),
@@ -75,7 +75,7 @@ def get_config_change_logs(
     **파라미터**:
     - **page**: 페이지 번호 (default: 1)
     - **limit**: 페이지당 항목 수 (default: 20, max: 100)
-    - **resource_type**: 리소스 유형 필터 (CAMERA, SENSOR, SERVER 등)
+    - **resource_type**: 리소스 유형 필터 (CAMERA, SENSOR, DEVICE_GROUP 등)
     - **resource_id**: 리소스 ID 필터
     - **action**: 액션 유형 필터 (CREATED, UPDATED, DELETED 등)
     - **actor_id**: 액터(사용자) ID 필터
@@ -132,7 +132,7 @@ def get_config_change_logs(
     }
     ```
 
-    PRD Reference: PRD_ConfigChangeLog.md v1.1
+    PRD Reference: PRD_ConfigChangeLog.md v1.2
     """
     query = db.query(ConfigChangeLog)
 
@@ -165,26 +165,30 @@ def get_config_change_logs(
 
     # 전체 카운트
     total = query.count()
+    total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # 정렬 및 페이지네이션
     query = query.order_by(ConfigChangeLog.created_at.desc())
-    offset = (page - 1) * limit
-    logs = query.offset(offset).limit(limit).all()
+    skip = (page - 1) * limit
+    logs = query.offset(skip).limit(limit).all()
+
+    pagination = PaginationMeta(
+        page=page,
+        limit=limit,
+        total=total,
+        total_pages=total_pages
+    )
 
     return ApiResponse(
         success=True,
         message="Config change logs retrieved successfully",
-        data={
-            "logs": [_config_change_log_to_response(log) for log in logs],
-            "total": total,
-            "page": page,
-            "limit": limit
-        }
+        data=[_config_change_log_to_response(log) for log in logs],
+        pagination=pagination
     )
 
 
-@router.get("/{log_id}")
-def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
+@router.get("/{log_id}", response_model=ApiResponse[ConfigChangeLogResponse])
+async def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
     """
     설정 변경 로그 단건 조회
 
@@ -213,7 +217,7 @@ def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
     }
     ```
 
-    PRD Reference: PRD_ConfigChangeLog.md v1.1
+    PRD Reference: PRD_ConfigChangeLog.md v1.2
     """
     log = db.query(ConfigChangeLog).filter(ConfigChangeLog.id == log_id).first()
     if not log:

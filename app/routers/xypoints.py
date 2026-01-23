@@ -11,7 +11,7 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.camera_preset import ROI, XyPoint
-from app.schemas.camera_preset import XyPointCreate, XyPointResponse
+from app.schemas.camera_preset import XyPointCreate, XyPointResponse, XyPointListData, XyPointListItem, XyPointBulkReplaceData
 from app.schemas.common import ApiResponse, PaginationMeta
 from pydantic import BaseModel, Field
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
@@ -26,7 +26,7 @@ class XyPointBulkUpdate(BaseModel):
 router = APIRouter(tags=["XyPoints"])
 
 
-@router.get("/{roi_id}/points")
+@router.get("/{roi_id}/points", response_model=ApiResponse[XyPointListData])
 async def get_points(
     roi_id: int,
     page: int = Query(1, ge=1, description="Page number"),
@@ -86,7 +86,7 @@ async def get_points(
     )
 
 
-@router.post("/{roi_id}/points", status_code=status.HTTP_201_CREATED)
+@router.post("/{roi_id}/points", status_code=status.HTTP_201_CREATED, response_model=ApiResponse[XyPointListItem])
 async def create_point(
     roi_id: int,
     point_data: XyPointCreate,
@@ -152,7 +152,7 @@ async def create_point(
     )
 
 
-@router.put("/{roi_id}/points")
+@router.put("/{roi_id}/points", response_model=ApiResponse[XyPointBulkReplaceData])
 async def replace_points(
     roi_id: int,
     bulk_data: XyPointBulkUpdate,
@@ -216,7 +216,7 @@ async def replace_points(
     )
 
 
-@router.delete("/{roi_id}/points/{point_id}")
+@router.delete("/{roi_id}/points/{point_id}", response_model=ApiResponse[None])
 async def delete_point(
     roi_id: int,
     point_id: int,

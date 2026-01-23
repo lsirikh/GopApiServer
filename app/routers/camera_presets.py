@@ -16,7 +16,8 @@ from app.schemas.camera_preset import (
     CameraPresetResponse,
     CameraPresetDetailResponse,
     CameraPresetUpdate,
-    CameraPresetWithROIsResponse
+    CameraPresetWithROIsResponse,
+    CameraPresetListData
 )
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
@@ -25,7 +26,7 @@ from app.services.config_log_service import log_config_change, get_identifier, g
 router = APIRouter(tags=["CameraPresets"])
 
 
-@router.get("/{camera_id}/presets")
+@router.get("/{camera_id}/presets", response_model=ApiResponse[CameraPresetListData])
 async def get_camera_presets(
     camera_id: int,
     page: int = Query(1, ge=1, description="Page number"),
@@ -101,7 +102,7 @@ async def get_camera_presets(
     )
 
 
-@router.get("/{camera_id}/presets/{preset_id}")
+@router.get("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[CameraPresetDetailResponse])
 async def get_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -169,7 +170,7 @@ async def get_camera_preset(
     )
 
 
-@router.post("/{camera_id}/presets", status_code=status.HTTP_201_CREATED)
+@router.post("/{camera_id}/presets", status_code=status.HTTP_201_CREATED, response_model=ApiResponse[CameraPresetResponse])
 async def create_camera_preset(
     camera_id: int,
     preset_data: CameraPresetCreate,
@@ -238,7 +239,7 @@ async def create_camera_preset(
     )
 
 
-@router.patch("/{camera_id}/presets/{preset_id}")
+@router.patch("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[CameraPresetResponse])
 async def update_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -324,7 +325,7 @@ async def update_camera_preset(
     )
 
 
-@router.put("/{camera_id}/presets/{preset_id}")
+@router.put("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[CameraPresetResponse])
 async def replace_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -392,7 +393,7 @@ async def replace_camera_preset(
     )
 
 
-@router.delete("/{camera_id}/presets/{preset_id}")
+@router.delete("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[None])
 async def delete_camera_preset(
     camera_id: int,
     preset_id: int,

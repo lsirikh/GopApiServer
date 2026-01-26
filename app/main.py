@@ -79,6 +79,18 @@ tags_metadata = [
         "description": "스피커 디바이스 CRUD API. 방송 단말 장치로 Server 연동을 지원합니다. PRD_Speaker_Device.md 참조.",
     },
     {
+        "name": "Enclosures",
+        "description": "함체(Enclosure) 디바이스 CRUD API. IoController 디바이스로 환경 모니터링 및 문 상태 관리를 제공합니다.",
+    },
+    {
+        "name": "Enclosure Metrics",
+        "description": "함체 환경 모니터링 메트릭 API. 온도, 습도, 전류, 전압, 진동, UPS 상태 등을 기록하고 임계치 초과를 감지합니다. PRD: PRD_Enclosure_Metrics_Separation.md v1.0",
+    },
+    {
+        "name": "Lamps",
+        "description": "경광등(Lamp) 디바이스 CRUD API. 경광등/경보기 디바이스로 색상, 부저음, 점등모드를 제어합니다. PRD: PRD_Lamp_Device.md v1.1",
+    },
+    {
         "name": "FileGroups",
         "description": "방송음원 파일풀 관리 API. 서버별 음원 그룹 및 파일 목록을 관리합니다. PRD_Speaker_Device.md 참조.",
     },
@@ -111,6 +123,10 @@ tags_metadata = [
         "description": "이벤트 매핑 스피커 설정 API. EventMapping에 연동된 스피커 방송을 관리합니다. PRD: PRD_EventMappingSpeaker.md v1.0",
     },
     {
+        "name": "Event Mapping Lamps",
+        "description": "이벤트 매핑 경광등 설정 API. EventMapping에 연동된 경광등 동작을 관리합니다. PRD: PRD_Lamp_Device.md v1.1",
+    },
+    {
         "name": "Server Categories",
         "description": "서버 카테고리 관리 API.",
     },
@@ -125,22 +141,6 @@ tags_metadata = [
     {
         "name": "System Events",
         "description": "시스템 이벤트 관리 API. PRD: PRD_System_Event.md Section 3",
-    },
-    {
-        "name": "Enclosures",
-        "description": "함체(Enclosure) 디바이스 CRUD API. IoController 디바이스로 환경 모니터링 및 문 상태 관리를 제공합니다.",
-    },
-    {
-        "name": "Lamps",
-        "description": "램프(Lamp) 디바이스 CRUD API. 경광등/경보기 디바이스로 색상, 부저음, 점등모드를 제어합니다. PRD: PRD_Lamp_Device.md v1.1",
-    },
-    {
-        "name": "Event Mapping Lamps",
-        "description": "이벤트 매핑 램프 설정 API. EventMapping에 연동된 램프 동작을 관리합니다. PRD: PRD_Lamp_Device.md v1.1",
-    },
-    {
-        "name": "Enclosure Metrics",
-        "description": "함체 환경 모니터링 메트릭 API. 온도, 습도, 전류, 전압, 진동, UPS 상태 등을 기록하고 임계치 초과를 감지합니다. PRD: PRD_Enclosure_Metrics_Separation.md v1.0",
     },
     {
         "name": "CameraPresets",

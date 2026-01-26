@@ -12,7 +12,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
-from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure
+from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp
 from app.schemas.device_group import (
     DeviceGroupCreate,
     DeviceGroupUpdate,
@@ -26,6 +26,7 @@ from app.schemas.device_group import (
     CameraSummary,
     SpeakerSummary,
     EnclosureSummary,
+    LampSummary,
 )
 from app.schemas.common import ApiResponse, PaginationMeta, ValidationErrorResponse
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
@@ -378,6 +379,14 @@ async def get_device_group(
                     heater_enabled=device.heater_enabled,
                     fan_enabled=device.fan_enabled,
                     threshold_config=device.threshold_config,
+                    geolocation=device.geolocation
+                ))
+            elif isinstance(device, Lamp):
+                devices.append(LampSummary(
+                    **base_data,
+                    ip_address=device.ip_address,
+                    ip_port=device.ip_port,
+                    description=device.description,
                     geolocation=device.geolocation
                 ))
 

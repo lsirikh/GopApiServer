@@ -1,9 +1,10 @@
 """
-Integration schemas: EventMapping, EventMappingCamera
+Integration schemas: EventMapping, EventMappingCamera, EventMappingSpeaker, EventMappingLamp
 
 PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 PRD: PRD_CameraEventMapping_Refactoring.md v2.1
 PRD: PRD_CategoryEvent_Refactoring.md v1.1
+PRD: PRD_Lamp_Device.md v1.1 - EventMappingLamp
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
@@ -317,5 +318,124 @@ class EventMappingSpeakerResponse(BaseModel):
     priority: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# EventMappingLamp Schemas
+# PRD: PRD_Lamp_Device.md v1.1
+# ============================================
+
+class EventMappingNestedResponse(BaseModel):
+    """
+    EventMapping Nested 응답 - EventMappingLamp용 (timestamp 제외)
+
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.4
+    """
+    id: int
+    name_event: str = Field(..., description="이벤트 매핑 이름")
+    category_event_mapping: str = Field(..., description="이벤트 매핑 카테고리")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LampNestedResponseIntegration(BaseModel):
+    """
+    경광등 Nested 응답 - Full Property (timestamp 제외)
+
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.4
+
+    Nested Response 규칙 적용:
+    - created_at, updated_at 제외 (Nested 객체이므로)
+    - user_password 제외 (민감 정보)
+    """
+    id: int = Field(..., description="Lamp ID", json_schema_extra={"example": 501})
+    number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
+    name_device: str = Field(..., description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
+    type_device: str = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
+    version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
+    status: str = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    is_enable: bool = Field(True, description="장비 활성화 여부", json_schema_extra={"example": True})
+    ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
+    ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
+    user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
+    description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
+    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EventMappingLampCreate(BaseModel):
+    """
+    경광등 연동 생성 스키마
+
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.2
+    """
+    event_mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    lamp_id: int = Field(..., description="대상 경광등 ID", json_schema_extra={"example": 501})
+    color: str = Field("Red", description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Red"})
+    buzzer_time: int = Field(5, ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 5})
+    buzzer_sound: str = Field("PI-PI-PI", description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "PI-PI-PI"})
+    light_mode: str = Field("steady", description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
+    is_enable: bool = Field(True, description="활성화 여부", json_schema_extra={"example": True})
+    priority: int = Field(1, ge=1, description="우선순위 (낮을수록 높음)", json_schema_extra={"example": 1})
+
+
+class EventMappingLampUpdate(BaseModel):
+    """
+    경광등 연동 수정 스키마 (PATCH)
+
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.2
+
+    모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
+    """
+    lamp_id: Optional[int] = Field(None, description="대상 경광등 ID", json_schema_extra={"example": 502})
+    color: Optional[str] = Field(None, description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Orange"})
+    buzzer_time: Optional[int] = Field(None, ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 10})
+    buzzer_sound: Optional[str] = Field(None, description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Emergency"})
+    light_mode: Optional[str] = Field(None, description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "blinking"})
+    is_enable: Optional[bool] = Field(None, description="활성화 여부", json_schema_extra={"example": False})
+    priority: Optional[int] = Field(None, ge=1, description="우선순위", json_schema_extra={"example": 2})
+
+
+class EventMappingLampReplace(BaseModel):
+    """
+    경광등 연동 전체 수정 스키마 (PUT)
+
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.2
+    """
+    event_mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    lamp_id: int = Field(..., description="대상 경광등 ID", json_schema_extra={"example": 503})
+    color: str = Field(..., description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Green"})
+    buzzer_time: int = Field(..., ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 3})
+    buzzer_sound: str = Field(..., description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Ambulance"})
+    light_mode: str = Field(..., description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
+    is_enable: bool = Field(..., description="활성화 여부", json_schema_extra={"example": True})
+    priority: int = Field(..., ge=1, description="우선순위", json_schema_extra={"example": 1})
+
+
+class EventMappingLampResponse(BaseModel):
+    """
+    경광등 연동 응답 스키마 (주체용 - timestamp 포함, Nested)
+
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.3
+
+    Nested Response 포함:
+    - event_mapping: EventMappingNestedResponse (id, name_event, category_event_mapping)
+    - lamp: LampNestedResponseIntegration (Full Property, timestamp 제외)
+    """
+    id: int = Field(..., description="EventMappingLamp ID", json_schema_extra={"example": 1})
+    event_mapping: EventMappingNestedResponse = Field(..., description="연결된 EventMapping 정보")
+    lamp: Optional[LampNestedResponseIntegration] = Field(None, description="연결된 경광등 정보 (삭제 시 null)")
+    color: str = Field(..., description="경광등 색상", json_schema_extra={"example": "Red"})
+    buzzer_time: int = Field(..., description="부저 작동 시간 (초)", json_schema_extra={"example": 5})
+    buzzer_sound: str = Field(..., description="부저 소리 패턴", json_schema_extra={"example": "PI-PI-PI"})
+    light_mode: str = Field(..., description="점등 모드", json_schema_extra={"example": "steady"})
+    is_enable: bool = Field(..., description="활성화 여부", json_schema_extra={"example": True})
+    priority: int = Field(..., description="우선순위", json_schema_extra={"example": 1})
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)

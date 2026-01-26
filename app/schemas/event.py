@@ -72,7 +72,21 @@ class DetectionEventCreate(BaseModel):
     device_id: int = Field(..., example=1, description="장치 ID (Device FK)")
     result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
-    detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보 (썸네일, AI 객체 등)")
+    detail: Optional[Dict[str, Any]] = Field(
+        None,
+        description="탐지 상세 정보 (썸네일, AI 객체 등)",
+        json_schema_extra={
+            "example": {
+                "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+                "signal": 1500,
+                "objects": [
+                    {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
+                ],
+                "model": "yolov8n",
+                "inference_ms": 45
+            }
+        }
+    )
 
 
 class DetectionEventResponse(BaseModel):
@@ -104,7 +118,21 @@ class DetectionEventResponse(BaseModel):
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
-    detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보 (썸네일, AI 객체 등)")
+    detail: Optional[Dict[str, Any]] = Field(
+        None,
+        description="탐지 상세 정보 (썸네일, AI 객체 등)",
+        json_schema_extra={
+            "example": {
+                "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+                "signal": 1500,
+                "objects": [
+                    {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
+                ],
+                "model": "yolov8n",
+                "inference_ms": 45
+            }
+        }
+    )
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 
@@ -122,7 +150,21 @@ class DetectionEventUpdate(BaseModel):
     action_reported: Optional[str] = Field(None, example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
     result: Optional[str] = Field(None, example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
-    detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보 (썸네일, AI 객체 등)")
+    detail: Optional[Dict[str, Any]] = Field(
+        None,
+        description="탐지 상세 정보 (썸네일, AI 객체 등)",
+        json_schema_extra={
+            "example": {
+                "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+                "signal": 1500,
+                "objects": [
+                    {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
+                ],
+                "model": "yolov8n",
+                "inference_ms": 45
+            }
+        }
+    )
 
 
 class MalfunctionEventCreate(BaseModel):
@@ -147,7 +189,15 @@ class MalfunctionEventCreate(BaseModel):
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
         None,
-        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)"
+        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)",
+        json_schema_extra={
+            "example": {
+                "first_start": 5,
+                "first_end": 5,
+                "second_start": 0,
+                "second_end": 0
+            }
+        }
     )
 
 
@@ -186,7 +236,15 @@ class MalfunctionEventResponse(BaseModel):
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
         None,
-        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)"
+        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)",
+        json_schema_extra={
+            "example": {
+                "first_start": 5,
+                "first_end": 5,
+                "second_start": 0,
+                "second_end": 0
+            }
+        }
     )
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
@@ -211,7 +269,15 @@ class MalfunctionEventUpdate(BaseModel):
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
         None,
-        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)"
+        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)",
+        json_schema_extra={
+            "example": {
+                "first_start": 5,
+                "first_end": 5,
+                "second_start": 0,
+                "second_end": 0
+            }
+        }
     )
 
 

@@ -25,7 +25,7 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -129,6 +129,14 @@ tags_metadata = [
     {
         "name": "Enclosures",
         "description": "함체(Enclosure) 디바이스 CRUD API. IoController 디바이스로 환경 모니터링 및 문 상태 관리를 제공합니다.",
+    },
+    {
+        "name": "Lamps",
+        "description": "램프(Lamp) 디바이스 CRUD API. 경광등/경보기 디바이스로 색상, 부저음, 점등모드를 제어합니다. PRD: PRD_Lamp_Device.md v1.1",
+    },
+    {
+        "name": "Event Mapping Lamps",
+        "description": "이벤트 매핑 램프 설정 API. EventMapping에 연동된 램프 동작을 관리합니다. PRD: PRD_Lamp_Device.md v1.1",
     },
     {
         "name": "Enclosure Metrics",
@@ -519,6 +527,7 @@ app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors
 app.include_router(cameras.router, prefix="/api/devices/cameras", tags=["Cameras"])
 app.include_router(speakers.router, prefix="/api/devices/speakers", tags=["Speakers"])
 app.include_router(enclosures.router, prefix="/api/devices/enclosures", tags=["Enclosures"])
+app.include_router(lamps.router, prefix="/api/devices/lamps", tags=["Lamps"])
 app.include_router(enclosure_metrics.router, prefix="/api/devices/enclosures", tags=["Enclosure Metrics"])
 app.include_router(enclosure_metrics.list_router, prefix="/api/enclosure-metrics", tags=["Enclosure Metrics"])
 app.include_router(file_groups.router, prefix="/api/file-groups", tags=["FileGroups"])
@@ -529,6 +538,7 @@ app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"
 app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
 app.include_router(event_mapping_cameras.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Cameras"])
 app.include_router(event_mapping_speakers.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Speakers"])
+app.include_router(event_mapping_lamps.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Lamps"])
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
 app.include_router(server_metrics.router, prefix="/api/servers", tags=["Server Metrics"])

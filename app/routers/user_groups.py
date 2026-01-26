@@ -3,6 +3,7 @@ UserGroup API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 
 from app.dependencies import get_db
@@ -109,6 +110,14 @@ async def create_user_group(
 
     **Response**: success, data (생성된 그룹 정보)
     """
+    # Check if name already exists
+    existing = db.query(UserGroup).filter(UserGroup.name == group_data.name).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User group with name '{group_data.name}' already exists"
+        )
+
     new_group = UserGroup(
         name=group_data.name,
         description=group_data.description,
@@ -116,8 +125,16 @@ async def create_user_group(
         is_active=group_data.is_active if group_data.is_active is not None else True
     )
     db.add(new_group)
-    db.commit()
-    db.refresh(new_group)
+
+    try:
+        db.commit()
+        db.refresh(new_group)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User group with name '{group_data.name}' already exists"
+        )
 
     # 감사 로그 기록: GROUP_CREATED
     await log_action(
@@ -181,6 +198,18 @@ async def update_user_group(
         "is_active": group.is_active
     }
 
+    # Check if name already exists (when updating name)
+    if group_data.name is not None and group_data.name != group.name:
+        existing = db.query(UserGroup).filter(
+            UserGroup.name == group_data.name,
+            UserGroup.id != group_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"User group with name '{group_data.name}' already exists"
+            )
+
     # Update fields if provided
     if group_data.name is not None:
         group.name = group_data.name
@@ -191,8 +220,15 @@ async def update_user_group(
     if group_data.is_active is not None:
         group.is_active = group_data.is_active
 
-    db.commit()
-    db.refresh(group)
+    try:
+        db.commit()
+        db.refresh(group)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User group with name '{group_data.name}' already exists"
+        )
 
     # 변경 후 상태 저장
     after_state = {

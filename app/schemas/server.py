@@ -2,11 +2,23 @@
 Server schemas: ServerCategory, Server
 Based on PRD_Server_Monitoring.md
 """
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from app.utils.enums import EnumServerType, EnumServerStatus
+
+
+# ============================================================
+# Common Examples for Swagger Documentation
+# ============================================================
+
+THRESHOLD_CONFIG_EXAMPLE = {
+    "cpu": {"warning": 80, "critical": 95},
+    "ram": {"warning": 75, "critical": 90},
+    "disk": {"warning": 80, "critical": 95},
+    "network": {"warning": 70, "critical": 85}
+}
 
 
 # ============================================================
@@ -55,15 +67,34 @@ class ServerCategoryResponse(BaseModel):
 
 class ServerCreate(BaseModel):
     """Schema for creating a new Server"""
-    category_id: int
-    name: str
-    status: EnumServerStatus = EnumServerStatus.NORMAL
-    ip_address: str
-    port: int
-    hostname: Optional[str] = None
-    user_name: Optional[str] = None
-    user_password: Optional[str] = None
-    threshold_config: Optional[Dict[str, Any]] = None
+    category_id: int = Field(..., description="소속 카테고리 ID")
+    name: str = Field(..., description="서버 이름")
+    status: EnumServerStatus = Field(EnumServerStatus.NORMAL, description="서버 상태")
+    ip_address: str = Field(..., description="서버 IP 주소")
+    port: int = Field(..., description="서버 포트")
+    hostname: Optional[str] = Field(None, description="호스트명")
+    user_name: Optional[str] = Field(None, description="접속 사용자명")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    threshold_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "category_id": 1,
+                "name": "VMS-Server-01",
+                "status": "NORMAL",
+                "ip_address": "192.168.1.100",
+                "port": 8080,
+                "hostname": "vms-server-01",
+                "user_name": "admin",
+                "user_password": "password123",
+                "threshold_config": THRESHOLD_CONFIG_EXAMPLE
+            }
+        }
+    )
 
     @field_validator('name')
     @classmethod
@@ -75,33 +106,66 @@ class ServerCreate(BaseModel):
 
 class ServerUpdate(BaseModel):
     """Schema for updating a Server (all fields optional for PATCH)"""
-    category_id: Optional[int] = None
-    name: Optional[str] = None
-    status: Optional[EnumServerStatus] = None
-    ip_address: Optional[str] = None
-    port: Optional[int] = None
-    hostname: Optional[str] = None
-    user_name: Optional[str] = None
-    user_password: Optional[str] = None
-    threshold_config: Optional[Dict[str, Any]] = None
+    category_id: Optional[int] = Field(None, description="소속 카테고리 ID")
+    name: Optional[str] = Field(None, description="서버 이름")
+    status: Optional[EnumServerStatus] = Field(None, description="서버 상태")
+    ip_address: Optional[str] = Field(None, description="서버 IP 주소")
+    port: Optional[int] = Field(None, description="서버 포트")
+    hostname: Optional[str] = Field(None, description="호스트명")
+    user_name: Optional[str] = Field(None, description="접속 사용자명")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    threshold_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "WARNING",
+                "threshold_config": THRESHOLD_CONFIG_EXAMPLE
+            }
+        }
+    )
 
 
 class ServerResponse(BaseModel):
     """Schema for Server response"""
-    id: int
-    category_id: int
-    name: str
-    status: str  # EnumServerStatus value as string
-    ip_address: str
-    port: int
-    hostname: Optional[str] = None
-    user_name: Optional[str] = None
-    user_password: Optional[str] = None
-    threshold_config: Optional[Dict[str, Any]] = None
-    created_at: datetime
-    updated_at: datetime
+    id: int = Field(..., description="서버 ID")
+    category_id: int = Field(..., description="소속 카테고리 ID")
+    name: str = Field(..., description="서버 이름")
+    status: str = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
+    ip_address: str = Field(..., description="서버 IP 주소")
+    port: int = Field(..., description="서버 포트")
+    hostname: Optional[str] = Field(None, description="호스트명")
+    user_name: Optional[str] = Field(None, description="접속 사용자명")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    threshold_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
+    )
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "category_id": 1,
+                "name": "VMS-Server-01",
+                "status": "NORMAL",
+                "ip_address": "192.168.1.100",
+                "port": 8080,
+                "hostname": "vms-server-01",
+                "user_name": "admin",
+                "user_password": "password123",
+                "threshold_config": THRESHOLD_CONFIG_EXAMPLE,
+                "created_at": "2026-01-26T10:00:00.000000",
+                "updated_at": "2026-01-26T10:00:00.000000"
+            }
+        }
+    )
 
 
 # ============================================================
@@ -114,18 +178,37 @@ class ServerNestedResponse(BaseModel):
     PRD: PRD_Speaker_Device.md Section 5.3
     Excludes created_at, updated_at per nested response rule
     """
-    id: int
-    category_id: int
-    name: str
-    status: str  # EnumServerStatus value as string
-    ip_address: str
-    port: int
-    hostname: Optional[str] = None
-    user_name: Optional[str] = None
-    user_password: Optional[str] = None
-    threshold_config: Optional[Dict[str, Any]] = None
+    id: int = Field(..., description="서버 ID")
+    category_id: int = Field(..., description="소속 카테고리 ID")
+    name: str = Field(..., description="서버 이름")
+    status: str = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
+    ip_address: str = Field(..., description="서버 IP 주소")
+    port: int = Field(..., description="서버 포트")
+    hostname: Optional[str] = Field(None, description="호스트명")
+    user_name: Optional[str] = Field(None, description="접속 사용자명")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    threshold_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
+    )
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "category_id": 1,
+                "name": "Broadcast-Server-01",
+                "status": "NORMAL",
+                "ip_address": "192.168.1.50",
+                "port": 9000,
+                "hostname": "bcast-srv-01",
+                "user_name": "admin",
+                "user_password": "password123",
+                "threshold_config": THRESHOLD_CONFIG_EXAMPLE
+            }
+        }
+    )
 
 
 class ServerCategoryWithServers(BaseModel):
@@ -144,16 +227,45 @@ class ServerCategoryWithServers(BaseModel):
 
 class ServerCategorySummary(BaseModel):
     """Schema for dashboard summary - category with status counts"""
-    id: int
-    name: str
-    type_server: str
-    total: int = 0
-    normal: int = 0
-    warning: int = 0
-    error: int = 0
-    servers: List[ServerResponse] = []
+    id: int = Field(..., description="카테고리 ID")
+    name: str = Field(..., description="카테고리 이름")
+    type_server: str = Field(..., description="서버 타입")
+    total: int = Field(0, description="전체 서버 수")
+    normal: int = Field(0, description="정상 서버 수")
+    warning: int = Field(0, description="경고 서버 수")
+    error: int = Field(0, description="오류 서버 수")
+    servers: List[ServerResponse] = Field(default_factory=list, description="서버 목록")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "name": "VMS 서버",
+                "type_server": "VMS",
+                "total": 3,
+                "normal": 2,
+                "warning": 1,
+                "error": 0,
+                "servers": [
+                    {
+                        "id": 1,
+                        "category_id": 1,
+                        "name": "VMS-Server-01",
+                        "status": "NORMAL",
+                        "ip_address": "192.168.1.100",
+                        "port": 8080,
+                        "hostname": "vms-server-01",
+                        "user_name": "admin",
+                        "user_password": "password123",
+                        "threshold_config": THRESHOLD_CONFIG_EXAMPLE,
+                        "created_at": "2026-01-26T10:00:00.000000",
+                        "updated_at": "2026-01-26T10:00:00.000000"
+                    }
+                ]
+            }
+        }
+    )
 
 
 # ============================================================

@@ -14,7 +14,8 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Speaker
 from app.models.server import Server
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumConfigResourceType, EnumConfigActionType
-from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse, ServerNestedResponse
+from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse
+from app.schemas.server import ServerNestedResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
@@ -36,10 +37,7 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
             hostname=speaker.server.hostname,
             user_name=speaker.server.user_name,
             user_password=speaker.server.user_password,
-            cpu_usage=speaker.server.cpu_usage,
-            ram_usage=speaker.server.ram_usage,
-            disk_usage=speaker.server.disk_usage,
-            network_throughput=speaker.server.network_throughput
+            threshold_config=speaker.server.threshold_config
         )
 
     return SpeakerResponse(

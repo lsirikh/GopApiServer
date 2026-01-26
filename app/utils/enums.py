@@ -13,12 +13,14 @@ class EnumDeviceCategory(str, Enum):
     PRD: PRD_Device_Inheritance_Structure_Refactoring.md Section 8.1
     PRD: PRD_Speaker_Device.md - SPEAKER added (v2.5)
     PRD: PRD_Enclosure_Device.md v1.1 - ENCLOSURE added (v2.6)
+    PRD: PRD_Lamp_Device.md v1.1 - LAMP added (v3.4)
     """
     CONTROLLER = "controller"
     SENSOR = "sensor"
     CAMERA = "camera"
     SPEAKER = "speaker"  # v2.5: Speaker Device
     ENCLOSURE = "enclosure"  # v2.6: Enclosure Device (함체관리장비)
+    LAMP = "lamp"  # v3.4: Lamp Device (경광등)
 
 
 class EnumDeviceType(str, Enum):
@@ -41,6 +43,9 @@ class EnumDeviceType(str, Enum):
     Radar = "Radar"
     OpticalCable = "OpticalCable"
     Fence_Group = "Fence_Group"
+    # v3.4: PRD_Lamp_Device.md
+    Lamp = "Lamp"              # 경광등
+    Enclosure = "Enclosure"    # 함체
 
 
 class EnumDeviceStatus(str, Enum):
@@ -250,6 +255,49 @@ class EnumDoorStatus(str, Enum):
     OPEN = "OPEN"      # 도어 열림
 
 
+# ============================================================
+# Lamp Device Enums (PRD: PRD_Lamp_Device.md v1.1)
+# ============================================================
+
+class EnumLampColor(str, Enum):
+    """
+    Lamp color enumeration (5종)
+    PRD: PRD_Lamp_Device.md Section 2.3
+
+    경광등 색상
+    """
+    RED = "Red"         # 빨간색 (위험/침입)
+    ORANGE = "Orange"   # 주황색 (경고)
+    GREEN = "Green"     # 녹색 (정상/안전)
+    BLUE = "Blue"       # 파란색 (정보)
+    WHITE = "White"     # 흰색 (일반)
+
+
+class EnumBuzzerSound(str, Enum):
+    """
+    Buzzer sound pattern enumeration (5종)
+    PRD: PRD_Lamp_Device.md Section 2.4
+
+    부저 소리 패턴
+    """
+    FIRE_AWANG = "Fire A-WANG"    # 화재 경보음
+    EMERGENCY = "Emergency"        # 비상 경보음
+    AMBULANCE = "Ambulance"        # 구급차 사이렌
+    PI_PI_PI = "PI-PI-PI"          # 단속음 (기본값)
+    PI_CONTINUE = "PI_continue"    # 연속음
+
+
+class EnumLightMode(str, Enum):
+    """
+    Lamp light mode enumeration (2종)
+    PRD: PRD_Lamp_Device.md Section 2.5
+
+    점등 모드
+    """
+    STEADY = "steady"       # 계속 점등 (기본값)
+    BLINKING = "blinking"   # 점멸
+
+
 class EnumSystemEventType(str, Enum):
     """
     System Event type enumeration (15종)
@@ -442,24 +490,26 @@ class EnumAuditStatus(str, Enum):
 
 class EnumConfigResourceType(str, Enum):
     """
-    Config change log resource type enumeration (17종)
+    Config change log resource type enumeration (19종)
     PRD: PRD_ConfigChangeLog.md v1.2 Section 2.1
+    PRD: PRD_Lamp_Device.md v1.1 - LAMP, EVENT_MAPPING_LAMP added (v3.4)
 
     설정 변경 대상 리소스 유형
 
     카테고리별 분류:
-    - Device 계열: 10개
+    - Device 계열: 11개
     - Event 계열: 4개
-    - Integration 계열: 3개
+    - Integration 계열: 4개
 
     Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
     """
-    # Device 계열 (10개)
+    # Device 계열 (11개)
     CONTROLLER = "CONTROLLER"           # 컨트롤러
     SENSOR = "SENSOR"                   # 센서
     CAMERA = "CAMERA"                   # 카메라
     SPEAKER = "SPEAKER"                 # 스피커
     ENCLOSURE = "ENCLOSURE"             # 함체
+    LAMP = "LAMP"                       # 경광등 (v3.4)
     DEVICE_GROUP = "DEVICE_GROUP"       # 디바이스 그룹
     CAMERA_PRESET = "CAMERA_PRESET"     # 카메라 프리셋
     ROI = "ROI"                         # ROI
@@ -472,10 +522,11 @@ class EnumConfigResourceType(str, Enum):
     CONNECTION_EVENT = "CONNECTION_EVENT"     # 연결 이벤트
     ACTION_EVENT = "ACTION_EVENT"             # 액션 이벤트
 
-    # Integration 계열 (3개)
+    # Integration 계열 (4개)
     EVENT_MAPPING = "EVENT_MAPPING"                   # 이벤트 매핑
     EVENT_MAPPING_CAMERA = "EVENT_MAPPING_CAMERA"     # 이벤트 매핑 카메라
     EVENT_MAPPING_SPEAKER = "EVENT_MAPPING_SPEAKER"   # 이벤트 매핑 스피커
+    EVENT_MAPPING_LAMP = "EVENT_MAPPING_LAMP"         # 이벤트 매핑 경광등 (v3.4)
 
 
 class EnumConfigActionType(str, Enum):

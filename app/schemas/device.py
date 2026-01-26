@@ -1,10 +1,11 @@
 """
-Device schemas: Controller, Sensor, Camera, Speaker
+Device schemas: Controller, Sensor, Camera, Speaker, Enclosure, Lamp
 
 PRD: PRD_Device_Structure_Refactoring.md
 - Section 2: Device Group N:N 관계
 - Section 3: Camera 확장 필드 (HardwareSpec, Geolocation)
 PRD: PRD_Speaker_Device.md - Section 5.1
+PRD: PRD_Lamp_Device.md v1.1 - Lamp Device (경광등)
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
@@ -14,6 +15,18 @@ from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, E
 
 if TYPE_CHECKING:
     from app.schemas.device_group import DeviceGroupResponse
+
+
+# ============================================================================
+# Common Examples for Swagger Documentation
+# ============================================================================
+
+GEOLOCATION_EXAMPLE = {
+    "location": "GOP 1구역 전방 초소",
+    "latitude": 38.1234,
+    "longitude": 127.5678,
+    "altitude": 150.0
+}
 
 
 # ============================================================================
@@ -98,10 +111,26 @@ class Geolocation(BaseModel):
     좌표 정보 (Composite Type)
     PRD Section 3.2.3
     """
-    location: Optional[str] = Field(None, max_length=500, description="설치 위치 (예: GOP 1구역 전방 초소)")
-    latitude: Optional[float] = Field(None, ge=-90.0, le=90.0, description="위도")
-    longitude: Optional[float] = Field(None, ge=-180.0, le=180.0, description="경도")
-    altitude: Optional[float] = Field(None, description="고도 (미터)")
+    location: Optional[str] = Field(
+        None, max_length=500,
+        description="설치 위치 (예: GOP 1구역 전방 초소)",
+        examples=["GOP 1구역 전방 초소"]
+    )
+    latitude: Optional[float] = Field(
+        None, ge=-90.0, le=90.0,
+        description="위도",
+        examples=[38.1234]
+    )
+    longitude: Optional[float] = Field(
+        None, ge=-180.0, le=180.0,
+        description="경도",
+        examples=[127.5678]
+    )
+    altitude: Optional[float] = Field(
+        None,
+        description="고도 (미터)",
+        examples=[150.0]
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -572,29 +601,8 @@ class CameraUpdate(BaseModel):
 # Speaker Schemas (PRD: PRD_Speaker_Device.md - Section 5.1)
 # ============================================================================
 
-class ServerNestedResponse(BaseModel):
-    """
-    Server Nested Response for Speaker
-
-    Speaker 응답에서 server 정보를 nested로 반환할 때 사용합니다.
-    Timestamp 필드 제외 (Nested 객체 규칙)
-    PRD: PRD_Speaker_Device.md Section 5.3
-    """
-    id: int = Field(..., description="서버 ID")
-    category_id: int = Field(..., description="서버 카테고리 ID")
-    name: str = Field(..., description="서버 이름")
-    status: str = Field(..., description="서버 상태")
-    ip_address: str = Field(..., description="서버 IP 주소")
-    port: int = Field(..., description="서버 포트")
-    hostname: Optional[str] = Field(None, description="호스트명")
-    user_name: Optional[str] = Field(None, description="사용자명")
-    user_password: Optional[str] = Field(None, description="비밀번호")
-    cpu_usage: Optional[float] = Field(None, description="CPU 사용률")
-    ram_usage: Optional[float] = Field(None, description="RAM 사용률")
-    disk_usage: Optional[float] = Field(None, description="디스크 사용률")
-    network_throughput: Optional[str] = Field(None, description="네트워크 처리량")
-
-    model_config = ConfigDict(from_attributes=True)
+# ServerNestedResponse는 server.py에서 import (PRD_ServerNestedResponse_Fix.md)
+from app.schemas.server import ServerNestedResponse
 
 
 class SpeakerCreate(BaseModel):
@@ -603,20 +611,24 @@ class SpeakerCreate(BaseModel):
     PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation 필드 추가
     """
     # Device Base fields
-    number_device: int = Field(..., description="단말 번호 (NATS device_no 통합)")
-    group_device: int = Field(0, description="장치 그룹 번호 (레거시)")
-    name_device: str = Field(..., description="표시명 (예: 'VCS_2401')")
+    number_device: int = Field(..., description="단말 번호 (NATS device_no 통합)", examples=[2401])
+    group_device: int = Field(0, description="장치 그룹 번호 (레거시)", examples=[0])
+    name_device: str = Field(..., description="표시명 (예: 'VCS_2401')", examples=["VCS_2401"])
     type_device: EnumDeviceType = Field(EnumDeviceType.IpSpeaker, description="장치 타입")
-    version: Optional[str] = Field(None, description="버전")
+    version: Optional[str] = Field(None, description="버전", examples=["1.0.0"])
     status: EnumDeviceStatus = Field(EnumDeviceStatus.ACTIVATED, description="상태")
     is_enable: bool = Field(True, description="장비 활성화 여부")
 
     # Speaker-specific fields
     speaker_type: EnumSpeakerType = Field(EnumSpeakerType.NORMAL, description="스피커 타입")
-    server_id: Optional[int] = Field(None, description="방송서버 ID (FK)")
-    description: Optional[str] = Field(None, description="설명")
+    server_id: Optional[int] = Field(None, description="방송서버 ID (FK)", examples=[1])
+    description: Optional[str] = Field(None, description="설명", examples=["GOP 1구역 전방 스피커"])
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
-    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보 (JSON)",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
 
 
 class SpeakerUpdate(BaseModel):
@@ -637,7 +649,11 @@ class SpeakerUpdate(BaseModel):
     server_id: Optional[int] = Field(None, description="방송서버 ID")
     description: Optional[str] = Field(None, description="설명")
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
-    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보 (JSON)",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
 
 
 class SpeakerResponse(BaseModel):
@@ -647,26 +663,33 @@ class SpeakerResponse(BaseModel):
     SPEC-6.1: category_device 제거 (polymorphic discriminator - API 노출 불필요)
     """
     # Device Base fields
-    id: int = Field(..., description="Speaker ID")
+    id: int = Field(..., description="Speaker ID", examples=[1])
     # category_device 제거: polymorphic discriminator로 내부 DB 구조용 (SPEC-6.1)
-    number_device: int = Field(..., description="단말 번호 (NATS device_no)")
-    group_device: int = Field(..., description="장치 그룹 번호")
-    name_device: str = Field(..., description="표시명")
-    type_device: str = Field(..., description="장치 타입")
-    version: Optional[str] = Field(None, description="버전")
-    status: str = Field(..., description="상태")
-    is_enable: bool = Field(..., description="장비 활성화 여부")
+    number_device: int = Field(..., description="단말 번호 (NATS device_no)", examples=[2401])
+    group_device: int = Field(..., description="장치 그룹 번호", examples=[0])
+    name_device: str = Field(..., description="표시명", examples=["VCS_2401"])
+    type_device: str = Field(..., description="장치 타입", examples=["IpSpeaker"])
+    version: Optional[str] = Field(None, description="버전", examples=["1.0.0"])
+    status: str = Field(..., description="상태", examples=["ACTIVATED"])
+    is_enable: bool = Field(..., description="장비 활성화 여부", examples=[True])
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 
     # Speaker-specific fields
-    speaker_type: str = Field(..., description="스피커 타입")
-    description: Optional[str] = Field(None, description="설명")
+    speaker_type: str = Field(..., description="스피커 타입", examples=["NORMAL"])
+    description: Optional[str] = Field(None, description="설명", examples=["GOP 1구역 전방 스피커"])
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
-    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보 (JSON)",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
 
     # Nested Server 정보 (server_id 대신 server 객체로 제공)
-    server: Optional[ServerNestedResponse] = Field(None, description="연결된 서버 정보")
+    server: Optional[ServerNestedResponse] = Field(
+        None,
+        description="연결된 서버 정보 (방송서버)"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -676,16 +699,20 @@ class SpeakerNestedResponse(BaseModel):
     Speaker Nested Response (Event 등에서 사용) - excludes timestamps
     PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation 필드 추가
     """
-    id: int = Field(..., description="Speaker ID")
-    category_device: str = Field("speaker", description="디바이스 카테고리")
-    number_device: int = Field(..., description="단말 번호 (NATS device_no)")
-    name_device: str = Field(..., description="표시명")
-    type_device: str = Field(..., description="장치 타입")
-    status: str = Field(..., description="상태")
-    is_enable: bool = Field(..., description="장비 활성화 여부")
-    speaker_type: str = Field(..., description="스피커 타입")
+    id: int = Field(..., description="Speaker ID", examples=[1])
+    category_device: str = Field("speaker", description="디바이스 카테고리", examples=["speaker"])
+    number_device: int = Field(..., description="단말 번호 (NATS device_no)", examples=[2401])
+    name_device: str = Field(..., description="표시명", examples=["VCS_2401"])
+    type_device: str = Field(..., description="장치 타입", examples=["IpSpeaker"])
+    status: str = Field(..., description="상태", examples=["ACTIVATED"])
+    is_enable: bool = Field(..., description="장비 활성화 여부", examples=[True])
+    speaker_type: str = Field(..., description="스피커 타입", examples=["NORMAL"])
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
-    geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보 (JSON)",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -905,6 +932,139 @@ class EnclosureMetricLatestResponse(BaseModel):
 
 
 # ============================================================================
+# Lamp Schemas (PRD: PRD_Lamp_Device.md v1.1)
+# 경광등 스키마 정의
+# ============================================================================
+
+class LampCreate(BaseModel):
+    """
+    경광등 생성 스키마
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.1
+    """
+    # Device 기본 필드 (필수)
+    number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
+    group_device: int = Field(0, description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
+    name_device: str = Field(..., max_length=200, description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
+    type_device: str = Field("Lamp", description="장치 타입", json_schema_extra={"example": "Lamp"})
+    version: Optional[str] = Field(None, max_length=50, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
+    status: str = Field("ACTIVATED", description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    is_enable: bool = Field(True, description="장비 활성화 여부", json_schema_extra={"example": True})
+
+    # Lamp 전용 필드
+    ip_address: str = Field(..., description="IP 주소 (IPv4/IPv6)", json_schema_extra={"example": "192.168.1.109"})
+    ip_port: int = Field(80, ge=1, le=65535, description="포트 번호", json_schema_extra={"example": 80})
+    user_name: Optional[str] = Field(None, max_length=100, description="접속 사용자명", json_schema_extra={"example": "admin"})
+    user_password: Optional[str] = Field(None, max_length=255, description="접속 비밀번호", json_schema_extra={"example": "lamp1234"})
+    description: Optional[str] = Field(None, max_length=500, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보 (JSON)",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LampUpdate(BaseModel):
+    """
+    경광등 수정 스키마 (PATCH)
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.2
+
+    모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
+    """
+    # Device 기본 필드 (선택적)
+    number_device: Optional[int] = Field(None, description="장비 번호", json_schema_extra={"example": 5001})
+    group_device: Optional[int] = Field(None, description="장치 그룹 번호", json_schema_extra={"example": 0})
+    name_device: Optional[str] = Field(None, max_length=200, description="장비 이름", json_schema_extra={"example": "Lamp-A-1-Updated"})
+    type_device: Optional[str] = Field(None, description="장치 타입", json_schema_extra={"example": "Lamp"})
+    version: Optional[str] = Field(None, max_length=50, description="펌웨어 버전", json_schema_extra={"example": "v1.1.0"})
+    status: Optional[str] = Field(None, description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    is_enable: Optional[bool] = Field(None, description="장비 활성화 여부", json_schema_extra={"example": True})
+
+    # Lamp 전용 필드 (선택적)
+    ip_address: Optional[str] = Field(None, description="IP 주소", json_schema_extra={"example": "192.168.1.110"})
+    ip_port: Optional[int] = Field(None, ge=1, le=65535, description="포트 번호", json_schema_extra={"example": 8080})
+    user_name: Optional[str] = Field(None, max_length=100, description="접속 사용자명", json_schema_extra={"example": "admin"})
+    user_password: Optional[str] = Field(None, max_length=255, description="접속 비밀번호", json_schema_extra={"example": "newpassword"})
+    description: Optional[str] = Field(None, max_length=500, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등 - 업데이트됨"})
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LampResponse(BaseModel):
+    """
+    경광등 응답 스키마
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.3
+    """
+    # Device 기본 필드
+    id: int = Field(..., description="Lamp ID", json_schema_extra={"example": 501})
+    number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
+    name_device: str = Field(..., description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
+    type_device: str = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
+    version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
+    status: str = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    is_enable: bool = Field(..., description="장비 활성화 여부", json_schema_extra={"example": True})
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
+
+    # Lamp 전용 필드
+    ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
+    ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
+    user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
+    user_password: Optional[str] = Field(None, description="접속 비밀번호", json_schema_extra={"example": "********"})
+    description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
+
+    # N:N 관계 - DeviceGroup 목록
+    device_groups: List[DeviceGroupNestedResponse] = Field(
+        default=[],
+        description="소속 디바이스 그룹 목록 (N:N 관계)"
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LampNestedResponse(BaseModel):
+    """
+    경광등 Nested Response (EventMappingLamp 등에서 사용) - excludes timestamps
+    PRD: PRD_Lamp_Device.md v1.1 - Section 4.2.4
+
+    Nested Response 규칙 적용:
+    - created_at, updated_at 제외 (Nested 객체이므로)
+    - user_password 제외 (민감 정보)
+    """
+    id: int = Field(..., description="Lamp ID", json_schema_extra={"example": 501})
+    number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
+    group_device: int = Field(..., description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
+    name_device: str = Field(..., description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
+    type_device: str = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
+    version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
+    status: str = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    is_enable: bool = Field(..., description="장비 활성화 여부", json_schema_extra={"example": True})
+    ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
+    ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
+    user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
+    description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
+    geolocation: Optional[Geolocation] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": GEOLOCATION_EXAMPLE}
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
 # Phase 5: Forward Reference Resolution
 # DeviceGroupResponse를 import하고 model_rebuild() 호출하여 순환 참조 해결
 # ============================================================================
@@ -915,6 +1075,7 @@ def _rebuild_models():
     SensorResponse.model_rebuild()
     CameraResponse.model_rebuild()
     SpeakerResponse.model_rebuild()
+    LampResponse.model_rebuild()
 
 # 모듈 로드 시 자동으로 model_rebuild() 실행
 _rebuild_models()

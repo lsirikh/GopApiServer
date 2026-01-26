@@ -1,11 +1,12 @@
 """
-Device models: Device (Base), Controller, Sensor, Camera, Speaker, Enclosure
+Device models: Device (Base), Controller, Sensor, Camera, Speaker, Enclosure, Lamp
 PRD: PRD_Device_Structure_Refactoring.md - Section 3.1
 PRD: PRD_Enclosure_Device.md v1.1 - Enclosure Device
+PRD: PRD_Lamp_Device.md v1.1 - Lamp Device (경광등)
 
 Polymorphic Inheritance using Joined Table strategy.
 - Device: Base table with common fields + category_device discriminator
-- Controller, Sensor, Camera, Speaker, Enclosure: Child tables with specific fields
+- Controller, Sensor, Camera, Speaker, Enclosure, Lamp: Child tables with specific fields
 """
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
@@ -41,6 +42,7 @@ class Device(Base):
         - "camera" -> Camera
         - "speaker" -> Speaker
         - "enclosure" -> Enclosure
+        - "lamp" -> Lamp
     """
     __tablename__ = "devices"
 
@@ -392,4 +394,57 @@ class EnclosureMetric(Base):
         return (
             f"<EnclosureMetric(id={self.id}, enclosure_id={self.enclosure_id}, "
             f"temperature={self.temperature}, created_at='{self.created_at}')>"
+        )
+
+
+class Lamp(Device):
+    """
+    경광등 모델 (Lamp Device)
+    Inherits from Device using Joined Table Inheritance.
+
+    PRD: PRD_Lamp_Device.md v1.1
+
+    상속 필드 (Device):
+        - status: EnumDeviceStatus (ACTIVATED/DEACTIVATED/ERROR) - 장비 운영 상태
+        - number_device, name_device, type_device, is_enable, etc.
+
+    고유 필드 (Lamp):
+        - ip_address: IP 주소 (IPv4/IPv6)
+        - ip_port: 포트 번호 (기본값: 80)
+        - user_name: 접속 사용자명
+        - user_password: 접속 비밀번호
+        - description: 설명 (설치 위치 정보 등)
+        - geolocation: JSONB - 위치 정보 (location, latitude, longitude, altitude)
+    """
+    __tablename__ = "lamps"
+
+    # Foreign key to devices table (Joined Table Inheritance)
+    id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+
+    # Lamp-specific fields
+    ip_address = Column(String(45), nullable=False, comment="IP 주소 (IPv4/IPv6)")
+    ip_port = Column(Integer, nullable=False, default=80, comment="포트 번호")
+    user_name = Column(String(100), nullable=True, comment="접속 사용자명")
+    user_password = Column(String(255), nullable=True, comment="접속 비밀번호")
+    description = Column(String(500), nullable=True, comment="설명")
+    geolocation = Column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment="위치 정보 (location, latitude, longitude, altitude)"
+    )
+
+    # Polymorphic identity
+    __mapper_args__ = {
+        "polymorphic_identity": EnumDeviceCategory.LAMP
+    }
+
+    # Relationship to EventMappingLamp (PRD: PRD_Lamp_Device.md v1.1)
+    event_mapping_lamps = relationship("EventMappingLamp", back_populates="lamp")
+
+    def __repr__(self):
+        return (
+            f"<Lamp(id={self.id}, number_device={self.number_device}, "
+            f"name_device='{self.name_device}', status='{self.status.value}', "
+            f"ip_address='{self.ip_address}')>"
         )

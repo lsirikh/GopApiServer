@@ -298,8 +298,43 @@ class EnclosureSummary(DeviceSummaryBase):
     )
 
 
+class LampSummary(DeviceSummaryBase):
+    """Lamp 요약 정보 스키마
+
+    GOP_Restful_Api_연동설계.md 5.6.2절 기준
+    PRD: PRD_Lamp_Device.md v1.1
+    """
+    # Override base fields with Lamp-specific examples
+    id: int = Field(..., description="디바이스 ID", json_schema_extra={"example": 501})
+    name_device: str = Field(..., description="디바이스 이름", json_schema_extra={"example": "Lamp-A-1"})
+    type_device: str = Field(..., description="디바이스 타입", json_schema_extra={"example": "Lamp"})
+    version: Optional[str] = Field(None, description="디바이스 버전", json_schema_extra={"example": "v1.0.0"})
+
+    # Lamp-specific fields
+    ip_address: str = Field(
+        ...,
+        description="IP 주소",
+        json_schema_extra={"example": "192.168.1.109"}
+    )
+    ip_port: int = Field(
+        ...,
+        description="포트 번호",
+        json_schema_extra={"example": 80}
+    )
+    description: Optional[str] = Field(
+        None,
+        description="설명",
+        json_schema_extra={"example": "GOP 1구역 전방 경광등"}
+    )
+    geolocation: Optional[dict] = Field(
+        None,
+        description="좌표/위치 정보",
+        json_schema_extra={"example": {"location": "GOP 1구역 경광등", "latitude": 38.1234, "longitude": 127.5678}}
+    )
+
+
 # Union type for polymorphic device summary
-DeviceSummary = Union[ControllerSummary, SensorSummary, CameraSummary, SpeakerSummary, EnclosureSummary]
+DeviceSummary = Union[ControllerSummary, SensorSummary, CameraSummary, SpeakerSummary, EnclosureSummary, LampSummary]
 
 
 class DeviceGroupDetailResponse(DeviceGroupResponse):

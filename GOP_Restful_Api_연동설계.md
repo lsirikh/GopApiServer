@@ -26,6 +26,7 @@
    - 5.8 [ROI API](#58-roi-api) *(v2.1 신규)*
    - 5.9 [XyPoint API](#59-xypoint-api) *(v2.1 신규)*
    - 5.10 [FileGroup API](#510-filegroup-api) *(v2.4 신규)*
+   - 5.11 [Lamp API](#511-lamp-api) *(v3.4 신규)*
 6. [Event API 설계](#6-event-api-설계)
    - 6.1 [Detection Event API](#61-detection-event-api)
    - 6.2 [Malfunction Event API](#62-malfunction-event-api)
@@ -36,6 +37,7 @@
    - 7.2 [EventMapping API](#72-eventmapping-api)
    - 7.3 [Event Mapping Cameras API](#73-event-mapping-cameras-api) *(v2.4 신규)*
    - 7.4 [Event Mapping Speakers API](#74-event-mapping-speakers-api) *(v2.8 신규)*
+   - 7.5 [Event Mapping Lamps API](#75-event-mapping-lamps-api) *(v3.4 신규)*
 8. [Server Monitoring API 설계](#8-server-monitoring-api-설계)
    - 8.1 [개요](#81-개요)
    - 8.2 [Server Category API](#82-server-category-api)
@@ -4661,6 +4663,24 @@ Accept: application/json
           "latitude": 38.1234,
           "longitude": 127.5678
         }
+      },
+      {
+        "id": 501,
+        "number_device": 5001,
+        "group_device": 1,
+        "name_device": "Lamp-A-1",
+        "type_device": "Lamp",
+        "version": "v1.0.0",
+        "status": "ACTIVATED",
+        "is_enable": true,
+        "ip_address": "192.168.1.109",
+        "ip_port": 80,
+        "description": "GOP 1구역 전방 경광등",
+        "geolocation": {
+          "location": "GOP 1구역 경광등",
+          "latitude": 38.1234,
+          "longitude": 127.5678
+        }
       }
     ]
   },
@@ -4678,6 +4698,7 @@ Accept: application/json
 > - **Camera 추가 필드**: `ip_address`, `ip_port`, `user_name`, `user_password`, `urls`, `mode`, `camera_category`, `is_record`, `hardware_spec`, `geolocation`
 > - **Speaker 추가 필드**: `speaker_type`, `server_id`, `description`, `geolocation`
 > - **Enclosure 추가 필드**: `door_status`, `heater_enabled`, `fan_enabled`, `threshold_config`, `geolocation`
+> - **Lamp 추가 필드**: `ip_address`, `ip_port`, `description`, `geolocation` *(v3.4 신규)*
 
 **Error Response** (404 Not Found):
 ```json
@@ -6485,6 +6506,196 @@ Accept: application/json
 ```
 
 **FK 정책**: Server 삭제 시 FileGroup CASCADE 삭제
+
+---
+
+### 5.11 Lamp API
+
+> **v3.4 신규**: PRD_Lamp_Device.md v1.1 참조
+> 경광등(Lamp) 장비 CRUD API. Device Joined Table Inheritance 구조.
+
+**리소스 구조**:
+```
+/api/devices/lamps           - Lamp 목록/생성
+/api/devices/lamps/{id}      - Lamp 상세/수정/삭제
+```
+
+#### 5.11.1 Lamp 목록 조회
+
+**Endpoint**: `GET /api/devices/lamps`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|---------|------|------|--------|------|
+| page | integer | N | 1 | 페이지 번호 |
+| limit | integer | N | 20 | 페이지당 항목 수 (max: 100) |
+| status | string | N | - | EnumDeviceStatus 필터 (ACTIVATED/DEACTIVATED/ERROR) |
+| is_enable | boolean | N | - | 활성화 여부 필터 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Lamp 목록 조회 성공",
+  "data": [
+    {
+      "id": 501,
+      "number_device": 5001,
+      "group_device": 0,
+      "name_device": "Lamp-A-1",
+      "type_device": "Lamp",
+      "version": "v1.0.0",
+      "status": "ACTIVATED",
+      "is_enable": true,
+      "ip_address": "192.168.1.109",
+      "ip_port": 80,
+      "user_name": "admin",
+      "description": "GOP 1구역 전방 경광등",
+      "geolocation": {
+        "location": "GOP 1구역 전방 초소",
+        "latitude": 38.1234,
+        "longitude": 127.5678,
+        "altitude": 245.5
+      },
+      "device_groups": [
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+      ],
+      "created_at": "2026-01-26T10:00:00.000Z",
+      "updated_at": "2026-01-26T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+> **참고**: Response에 `user_password`는 보안상 제외됩니다.
+
+#### 5.11.2 Lamp 상세 조회
+
+**Endpoint**: `GET /api/devices/lamps/{id}`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| id | integer | Y | Lamp ID |
+
+**Response (200 OK)**: 목록 조회와 동일한 단일 객체 구조
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Lamp with id 999 not found",
+  "error": {"code": "NOT_FOUND", "details": null}
+}
+```
+
+#### 5.11.3 Lamp 생성
+
+**Endpoint**: `POST /api/devices/lamps`
+
+**Request Body**:
+```json
+{
+  "number_device": 5001,
+  "group_device": 0,
+  "name_device": "Lamp-A-1",
+  "type_device": "Lamp",
+  "version": "v1.0.0",
+  "status": "ACTIVATED",
+  "is_enable": true,
+  "ip_address": "192.168.1.109",
+  "ip_port": 80,
+  "user_name": "admin",
+  "user_password": "lamp1234",
+  "description": "GOP 1구역 전방 경광등",
+  "geolocation": {
+    "location": "GOP 1구역 전방 초소",
+    "latitude": 38.1234,
+    "longitude": 127.5678,
+    "altitude": 245.5
+  }
+}
+```
+
+**Request Body 필드**:
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| number_device | integer | Y | - | 장비 번호 |
+| group_device | integer | N | 0 | 그룹 번호 (레거시) |
+| name_device | string | Y | - | 장비명 (max: 200) |
+| type_device | string | N | "Lamp" | EnumDeviceType |
+| version | string | N | null | 펌웨어 버전 (max: 50) |
+| status | string | N | "ACTIVATED" | EnumDeviceStatus |
+| is_enable | boolean | N | true | 활성화 여부 |
+| ip_address | string | Y | - | IP 주소 (max: 45) |
+| ip_port | integer | N | 80 | 포트 번호 (1-65535) |
+| user_name | string | N | null | 접속 사용자명 (max: 100) |
+| user_password | string | N | null | 접속 비밀번호 (max: 255) |
+| description | string | N | null | 설명 (max: 500) |
+| geolocation | object | N | null | 좌표/위치 정보 (JSONB) |
+
+**Response (201 Created)**: 생성된 Lamp 객체
+
+#### 5.11.4 Lamp 수정 (PATCH)
+
+**Endpoint**: `PATCH /api/devices/lamps/{id}`
+
+**Request Body**: 수정할 필드만 포함 (모든 필드 선택적)
+
+```json
+{
+  "name_device": "Lamp-A-1-Updated",
+  "ip_port": 8080,
+  "description": "GOP 1구역 전방 경광등 - 업데이트"
+}
+```
+
+**Response (200 OK)**: 수정된 Lamp 객체
+
+#### 5.11.5 Lamp 수정 (PUT)
+
+**Endpoint**: `PUT /api/devices/lamps/{id}`
+
+**Request Body**: 전체 필드 포함 (LampCreate와 동일)
+
+**Response (200 OK)**: 수정된 Lamp 객체
+
+#### 5.11.6 Lamp 삭제
+
+**Endpoint**: `DELETE /api/devices/lamps/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Lamp deleted successfully"
+}
+```
+
+#### 5.11.7 FK 정책 및 CASCADE 동작
+
+| 관계 | 동작 | 정책 | 설명 |
+|------|------|------|------|
+| Device → Lamp | Device 삭제 | `CASCADE` | Lamp 하위 테이블 데이터 삭제 |
+| Lamp → EventMappingLamp | Lamp 삭제 | `SET NULL` | EventMappingLamp.lamp_id → NULL |
+
+> **참고**: Lamp 삭제 시 EventMappingLamp 자체는 유지되며, `lamp_id`만 NULL로 설정됩니다.
+
+#### 5.11.8 ConfigChangeLog 연동
+
+Lamp CRUD 작업 시 자동으로 ConfigChangeLog가 생성됩니다.
+
+| 작업 | resource_type | action |
+|------|---------------|--------|
+| POST | LAMP | CREATED |
+| PATCH/PUT | LAMP | UPDATED |
+| DELETE | LAMP | DELETED |
 
 ---
 
@@ -9936,6 +10147,211 @@ Accept: application/json
 
 ---
 
+### 7.5 Event Mapping Lamps API
+
+> **v3.4 신규**: PRD_Lamp_Device.md v1.1 참조
+> EventMapping에 연동된 경광등 설정 CRUD API.
+
+**리소스 구조**:
+```
+/api/integrations/event-mappings/{mapping_id}/lamps           - EventMappingLamp 목록/생성
+/api/integrations/event-mappings/{mapping_id}/lamps/{id}      - EventMappingLamp 상세/수정/삭제
+```
+
+#### 7.5.1 EventMappingLamp 목록 조회
+
+**Endpoint**: `GET /api/integrations/event-mappings/{mapping_id}/lamps`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| mapping_id | integer | Y | EventMapping ID |
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|---------|------|------|--------|------|
+| page | integer | N | 1 | 페이지 번호 |
+| limit | integer | N | 20 | 페이지당 항목 수 (max: 100) |
+| lamp_id | integer | N | - | Lamp ID 필터 |
+| is_enable | boolean | N | - | 활성화 여부 필터 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Event mapping lamps retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "event_mapping": {
+        "id": 10,
+        "name_event": "침입 감지 경광등 연동",
+        "category_event_mapping": "FENCE_SENSOR_ONLY"
+      },
+      "lamp": {
+        "id": 501,
+        "number_device": 5001,
+        "group_device": 0,
+        "name_device": "Lamp-A-1",
+        "type_device": "Lamp",
+        "version": "v1.0.0",
+        "status": "ACTIVATED",
+        "is_enable": true,
+        "ip_address": "192.168.1.109",
+        "ip_port": 80,
+        "user_name": "admin",
+        "description": "GOP 1구역 전방 경광등",
+        "geolocation": {
+          "location": "GOP 1구역 전방 초소",
+          "latitude": 38.1234,
+          "longitude": 127.5678
+        }
+      },
+      "color": "Red",
+      "buzzer_time": 5,
+      "buzzer_sound": "PI-PI-PI",
+      "light_mode": "steady",
+      "is_enable": true,
+      "priority": 1,
+      "created_at": "2026-01-26T10:00:00.000Z",
+      "updated_at": "2026-01-26T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+> **참고**: Nested Response에서 `lamp.user_password`는 보안상 제외됩니다.
+
+#### 7.5.2 EventMappingLamp 단일 조회
+
+**Endpoint**: `GET /api/integrations/event-mappings/{mapping_id}/lamps/{id}`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| mapping_id | integer | Y | EventMapping ID |
+| id | integer | Y | EventMappingLamp ID |
+
+**Response (200 OK)**: 목록 조회의 단일 객체 구조
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Event mapping lamp with id 999 not found",
+  "error": {"code": "NOT_FOUND", "details": null}
+}
+```
+
+#### 7.5.3 EventMappingLamp 생성
+
+**Endpoint**: `POST /api/integrations/event-mappings/{mapping_id}/lamps`
+
+**Request Body**:
+```json
+{
+  "event_mapping_id": 10,
+  "lamp_id": 501,
+  "color": "Red",
+  "buzzer_time": 5,
+  "buzzer_sound": "PI-PI-PI",
+  "light_mode": "steady",
+  "is_enable": true,
+  "priority": 1
+}
+```
+
+**Request Body 필드**:
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| event_mapping_id | integer | Y | - | EventMapping ID |
+| lamp_id | integer | Y | - | Lamp ID |
+| color | string | N | "Red" | 경광등 색상 (EnumLampColor) |
+| buzzer_time | integer | N | 5 | 부저 작동 시간 (초, ≥0) |
+| buzzer_sound | string | N | "PI-PI-PI" | 부저 소리 패턴 (EnumBuzzerSound) |
+| light_mode | string | N | "steady" | 점등 모드 (EnumLightMode) |
+| is_enable | boolean | N | true | 활성화 여부 |
+| priority | integer | N | 1 | 우선순위 (≥1, 낮을수록 높음) |
+
+**Enum 허용값**:
+- **color (EnumLampColor)**: Red, Orange, Green, Blue, White
+- **buzzer_sound (EnumBuzzerSound)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute
+- **light_mode (EnumLightMode)**: steady, blinking, rotating
+
+**Response (201 Created)**: 생성된 EventMappingLamp 객체 (Nested Response)
+
+**Error Response (409 Conflict)** - 중복 매핑:
+```json
+{
+  "success": false,
+  "message": "EventMappingLamp with event_mapping_id 10 and lamp_id 501 already exists",
+  "error": {"code": "CONFLICT", "details": null}
+}
+```
+
+#### 7.5.4 EventMappingLamp 수정 (PATCH)
+
+**Endpoint**: `PATCH /api/integrations/event-mappings/{mapping_id}/lamps/{id}`
+
+**Request Body**: 수정할 필드만 포함 (모든 필드 선택적)
+```json
+{
+  "color": "Orange",
+  "buzzer_time": 10,
+  "light_mode": "blinking"
+}
+```
+
+**Response (200 OK)**: 수정된 EventMappingLamp 객체
+
+#### 7.5.5 EventMappingLamp 수정 (PUT)
+
+**Endpoint**: `PUT /api/integrations/event-mappings/{mapping_id}/lamps/{id}`
+
+**Request Body**: 전체 필드 포함 (EventMappingLampCreate와 동일, 모든 필수 필드 포함)
+
+**Response (200 OK)**: 수정된 EventMappingLamp 객체
+
+#### 7.5.6 EventMappingLamp 삭제
+
+**Endpoint**: `DELETE /api/integrations/event-mappings/{mapping_id}/lamps/{id}`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Event mapping lamp deleted successfully"
+}
+```
+
+#### 7.5.7 FK 정책 및 CASCADE 동작
+
+| 관계 | 동작 | 정책 | 설명 |
+|------|------|------|------|
+| EventMapping → EventMappingLamp | EventMapping 삭제 | `CASCADE` | 연결된 EventMappingLamp 모두 삭제 |
+| Lamp → EventMappingLamp | Lamp 삭제 | `SET NULL` | EventMappingLamp.lamp_id → NULL |
+
+> **참고**: Lamp 삭제 시 EventMappingLamp 자체는 유지되며, `lamp_id`만 NULL로 설정됩니다.
+> EventMapping 삭제 시에만 EventMappingLamp가 함께 삭제됩니다.
+
+#### 7.5.8 ConfigChangeLog 연동
+
+EventMappingLamp CRUD 작업 시 자동으로 ConfigChangeLog가 생성됩니다.
+
+| 작업 | resource_type | action |
+|------|---------------|--------|
+| POST | EVENT_MAPPING_LAMP | CREATED |
+| PATCH/PUT | EVENT_MAPPING_LAMP | UPDATED |
+| DELETE | EVENT_MAPPING_LAMP | DELETED |
+
+---
+
 ## 8. Server Monitoring API 설계
 
 ### 8.1 개요
@@ -12960,7 +13376,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v3.4 | 2026-01-26 | **Lamp Device 및 EventMappingLamp API 추가 (PRD_Lamp_Device.md v1.1)**<br><br>**[1. Lamp Enum 추가 (4.1)]**<br>- **EnumDeviceType 확장**: `Lamp = 18` 추가<br>- **EnumLampColor (5종)**: Red, Orange, Green, Blue, White<br>- **EnumBuzzerSound (6종)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute<br>- **EnumLightMode (3종)**: steady, blinking, rotating<br><br>**[2. Lamp API (5.11 예정)]**<br>- **Endpoint**: `/api/devices/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, DELETE<br>- **Device Polymorphic 상속**: ip_address, ip_port, description, geolocation<br>- **Nested Response**: device_groups 포함<br><br>**[3. EventMappingLamp API (7.5 예정)]**<br>- **Endpoint**: `/api/event-mappings/{mapping_id}/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 관계**: event_mapping_id (CASCADE), lamp_id (SET NULL)<br>- **동작 설정**: color, buzzer_time, buzzer_sound, light_mode, is_enable, priority<br>- **Nested Response**: event_mapping, lamp 상세 정보 포함<br><br>**[4. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **LampSummary 추가**: ip_address, ip_port, description, geolocation<br>- **DeviceSummary Union 확장**: 6종 지원 (Controller, Sensor, Camera, Speaker, Enclosure, Lamp) |
+| v3.4 | 2026-01-26 | **Lamp Device 및 EventMappingLamp API 추가 (PRD_Lamp_Device.md v1.1)**<br><br>**[1. Lamp Enum 추가 (4.1)]**<br>- **EnumDeviceType 확장**: `Lamp = 18` 추가<br>- **EnumLampColor (5종)**: Red, Orange, Green, Blue, White<br>- **EnumBuzzerSound (6종)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute<br>- **EnumLightMode (3종)**: steady, blinking, rotating<br><br>**[2. Lamp API (5.11)]**<br>- **Endpoint**: `/api/devices/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **Device Polymorphic 상속**: ip_address, ip_port, description, geolocation<br>- **Nested Response**: device_groups 포함<br>- **ConfigChangeLog 연동**: LAMP 리소스 자동 로깅<br><br>**[3. EventMappingLamp API (7.5)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 관계**: event_mapping_id (CASCADE), lamp_id (SET NULL)<br>- **동작 설정**: color, buzzer_time, buzzer_sound, light_mode, is_enable, priority<br>- **Nested Response**: event_mapping, lamp 상세 정보 포함<br>- **ConfigChangeLog 연동**: EVENT_MAPPING_LAMP 리소스 자동 로깅<br><br>**[4. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **LampSummary 추가**: ip_address, ip_port, description, geolocation<br>- **DeviceSummary Union 확장**: 6종 지원 (Controller, Sensor, Camera, Speaker, Enclosure, Lamp) |
 | v3.3 | 2026-01-23 | **Report API 추가, User API 문서 정합성 수정, DeviceGroup 폴리모픽 응답 확장**<br><br>**[1. Report API 신규 (PRD_Report_System.md)]**<br>- **Report Enum 추가 (4.8)**: EnumReportType (2종), EnumReportPeriod (4종), EnumReportStatus (4종), EnumChartType (4종), EnumReportComponent (15종)<br>- **Report API (10절)**: GET /api/reports/components, templates CRUD, POST /api/reports/generate, generations 조회/다운로드/미리보기<br>- **Report Preview Page (10.5)**: Chart.js 기반 HTML 미리보기<br>- **섹션 번호 변경**: 10 → 11 (에러 처리), 11 → 12 (부록)<br><br>**[2. User API 문서 정합성 수정]**<br>- **GET /api/users (9.3.2)**: department 파라미터 추가, 누락 필드 10개 추가 (email, position, employee_number 등)<br>- **POST /api/users (9.3.3)**: 누락 필드 4개 추가, Response 18개 필드로 확장<br>- **AccountUserCreate/Response 스키마와 완전 동기화**<br><br>**[3. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **SpeakerSummary 추가**: speaker_type, server_id, description, geolocation<br>- **EnclosureSummary 추가**: door_status, heater_enabled, fan_enabled, threshold_config, geolocation<br>- **DeviceSummary Union 확장**: Controller, Sensor, Camera, Speaker, Enclosure 5종 지원<br>- **devices 배열 예시 업데이트**: Speaker, Enclosure 예시 추가 |
 | v3.2 | 2026-01-21 | **Config Change Logs API 추가 (PRD_ConfigChangeLog.md v1.1)**<br><br>**[1. Config Change Log Enum 추가 (4.7)]**<br>- **EnumConfigResourceType (19종)**: Device 10종, Server 2종, Event 4종, Integration 3종<br>  - Device: DEVICE, CONTROLLER, SENSOR, CAMERA, SPEAKER, ENCLOSURE, DEVICE_GROUP, DEVICE_GROUP_MAPPING, CAMERA_PRESET, ROI<br>  - Server: SERVER, SERVER_CATEGORY<br>  - Event: EVENT, DETECTION_EVENT, MALFUNCTION_EVENT, CONNECTION_EVENT<br>  - Integration: EVENT_MAPPING, EVENT_MAPPING_CAMERA, EVENT_MAPPING_SPEAKER<br>- **EnumConfigActionType (6종)**: CREATED, UPDATED, DELETED, STATUS_CHANGED, ASSIGNED, UNASSIGNED<br><br>**[2. Config Change Logs API 신규 (9.7)]**<br>- **GET /api/config-change-logs**: 설정 변경 로그 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/config-change-logs/{id}**: 설정 변경 로그 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Device, Server, Event, Integration 계열 리소스 CRUD 시 자동 변경 로그 생성<br>- **스냅샷 보존**: 삭제된 리소스/수행자 정보 유지<br><br>**[3. JSONB 정규화 (v1.1 신규)]**<br>- **변경된 필드만 저장**: 전체 모델 스냅샷 대신 변경된 필드만 기록<br>- **CREATED**: after_state에 `{id, name}` 식별 정보만 저장<br>- **UPDATED**: 변경된 필드만 before/after에 저장<br>- **DELETED**: before_state에 `{id, name}` 식별 정보만 저장<br>- **유틸리티 함수**: `get_changed_fields()`, `get_identifier()` (config_log_service.py) |
 | v3.1 | 2026-01-20 | **EnumSystemEventType 15종 동기화, Audit Log API 추가, UserSession API 응답 표준화 (PRD_SystemEvent_Sync.md v1.2, PRD_Audit_Log.md v1.0)**<br><br>**[1. EnumSystemEventType 15종 동기화 (8.7.1)]** (PRD_SystemEvent_Sync.md v1.2)<br>- **USER_* 9종 제거** → UserLoginLog로 이전 (PRD_Account_Design.md Section 9.2)<br>- **ConfigChangeLog 중복 4종 제거**: CONFIG_CHANGED, DEVICE_ADDED, DEVICE_REMOVED, DEVICE_STATUS_CHANGED<br>- **최종 15종**: RESOURCE_THRESHOLD, SERVER_CONNECTED, SERVER_DISCONNECTED, SERVER_ERROR, SERVICE_STARTED, SERVICE_STOPPED, SERVICE_ERROR, CONNECTION_LOST, CONNECTION_RESTORED, SECURITY_ALERT, DEVICE_CONNECTED, BACKUP_STARTED, BACKUP_COMPLETED, BACKUP_FAILED, SYSTEM_UPDATE<br>- **Swagger 스키마 업데이트**: json_schema_extra 예제 추가 (app/schemas/system_event.py)<br><br>**[2. Audit Enum 추가 (4.6)]**<br>- **EnumAuditActionType (18종)**: USER_CREATED, USER_UPDATED, USER_DELETED, USER_LOCKED, USER_UNLOCKED, USER_ACTIVATED, USER_DEACTIVATED, PASSWORD_CHANGED, PASSWORD_RESET, ROLE_CHANGED, GROUP_ASSIGNED, GROUP_CREATED, GROUP_UPDATED, GROUP_DELETED, PERMISSION_CHANGED, SESSION_CREATED, SESSION_TERMINATED, SESSION_FORCED_LOGOUT<br>- **EnumAuditResourceType (4종)**: USER, USER_GROUP, USER_SESSION, PASSWORD<br>- **EnumAuditStatus (2종)**: SUCCESS, FAILURE<br><br>**[3. Audit Logs API 신규 (9.6)]**<br>- **GET /api/audit-logs**: 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/audit-logs/{id}**: 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Account CRUD 작업 시 자동 감사 로그 생성<br>- **변경 내역 추적**: before/after JSON 기록<br>- **스냅샷 보존**: 삭제된 리소스/행위자 정보 유지<br>- **민감 정보 제외**: password, password_hash, token 등 미기록<br><br>**[4. UserSession API 응답 표준화 (9.5)]**<br>- **필드명 변경**: `login_at` → `created_at`, `last_activity` → `updated_at` (다른 모델과 일관성 확보)<br>- **누락 필드 추가**: `logout_reason`, `logged_out_at`, `updated_at` 필드 문서에 반영<br>- **GET /api/user-sessions/{id}**: 상세 조회 API 문서 추가 (9.5.3)<br>- **Query Parameters 업데이트**: `page`, `limit` 파라미터 추가 |
@@ -12985,5 +13401,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v3.3
-**최종 업데이트**: 2026-01-23
+**문서 버전**: v3.4
+**최종 업데이트**: 2026-01-26

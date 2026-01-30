@@ -188,18 +188,17 @@ async def create_roi(
     db.commit()
     db.refresh(roi)
 
-    # Create points if provided
-    if roi_data.points:
-        for point_data in roi_data.points:
-            point = XyPoint(
-                roi_id=roi.id,
-                x=point_data.x,
-                y=point_data.y,
-                order=point_data.order
-            )
-            db.add(point)
-        db.commit()
-        db.refresh(roi)
+    # Create points (always present, min 3 points guaranteed by schema)
+    for point_data in roi_data.points:
+        point = XyPoint(
+            roi_id=roi.id,
+            x=point_data.x,
+            y=point_data.y,
+            order=point_data.order
+        )
+        db.add(point)
+    db.commit()
+    db.refresh(roi)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
     log_config_change(
@@ -334,14 +333,44 @@ async def replace_roi(
             detail=f"ROI with id {roi_id} not found"
         )
 
-    # Replace all fields
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(roi)
+    before_state["point_count"] = roi.points.count()
+
+    # Replace all scalar fields
     roi.name = roi_data.name
     roi.resolution_width = roi_data.resolution_width
     roi.resolution_height = roi_data.resolution_height
     roi.is_enable = roi_data.is_enable if roi_data.is_enable is not None else True
 
+    # Replace all points (delete existing → create new)
+    db.query(XyPoint).filter(XyPoint.roi_id == roi_id).delete()
+    for point_data in roi_data.points:
+        point = XyPoint(
+            roi_id=roi_id,
+            x=point_data.x,
+            y=point_data.y,
+            order=point_data.order
+        )
+        db.add(point)
+
     db.commit()
     db.refresh(roi)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(roi)
+    after_state["point_count"] = roi.points.count()
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.ROI,
+        resource_id=roi.id,
+        resource_name=f"ROI-{roi.id} ({roi.name})",
+        action=EnumConfigActionType.UPDATED,
+        before_state=before_changes if before_changes else before_state,
+        after_state=after_changes if after_changes else after_state,
+        description="ROI 전체 수정 (PUT)"
+    )
 
     return ApiResponse(
         success=True,

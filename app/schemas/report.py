@@ -108,6 +108,112 @@ class ReportGenerateRequest(BaseModel):
         return v
 
 
+# ============================================================
+# Report Data Schemas (미리보기/차트/그리드)
+# PRD: PRD_Report_System.md Section 5
+# ============================================================
+
+class ChartData(BaseModel):
+    """차트 데이터"""
+    labels: List[str]
+    values: List[Any]
+    colors: Optional[List[str]] = None
+
+
+class ChartConfig(BaseModel):
+    """차트 설정"""
+    id: str
+    title: str
+    type: str
+    data: ChartData
+
+
+class GridConfig(BaseModel):
+    """그리드 설정"""
+    id: str
+    title: str
+    columns: List[str]
+    rows: List[List[Any]]
+    total_rows: int
+
+
+class ReportSection(BaseModel):
+    """보고서 섹션"""
+    name: str
+    title: str
+    charts: List[ChartConfig] = []
+    grids: List[GridConfig] = []
+
+
+class ReportPreviewResponse(BaseModel):
+    """보고서 미리보기 응답"""
+    id: int
+    title: str
+    period_type: str
+    start_date: datetime
+    end_date: datetime
+    sections: List[ReportSection]
+    generator_name: Optional[str] = None
+    generator_department: Optional[str] = None
+
+
+# ============================================================
+# Component Schemas
+# ============================================================
+
+class ComponentInfo(BaseModel):
+    """컴포넌트 정보"""
+    id: str
+    label: str
+    description: str
+    chart_type: Optional[str] = None
+    category: str
+
+
+class ComponentCategoryResponse(BaseModel):
+    """컴포넌트 카테고리"""
+    name: str
+    label: str
+    components: List[ComponentInfo]
+
+
+# ============================================================
+# List Response Schemas
+# ============================================================
+
+class ReportTemplateListResponse(BaseModel):
+    """템플릿 목록 응답 (경량)"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    report_type: str
+    owner_id: Optional[int] = None
+    is_public: bool
+    component_count: int
+    default_period: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReportGenerationListResponse(BaseModel):
+    """보고서 생성 목록 응답 (경량)"""
+    id: int
+    report_type: str
+    title: str
+    period_type: str
+    status: str
+    created_at: datetime
+    generator_name: Optional[str] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================
+# ReportGeneration Schemas
+# ============================================================
+
 class ReportGenerationResponse(BaseModel):
     """
     보고서 생성 결과 응답 스키마

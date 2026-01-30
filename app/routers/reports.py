@@ -13,9 +13,11 @@ Endpoints:
 - GET /api/reports/generations/{id} - 생성 상세 조회
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timedelta
+import os
 
 from app.dependencies import get_db
 from app.services.report_service import ReportService
@@ -40,37 +42,53 @@ router = APIRouter()
 COMPONENT_CATEGORIES = [
     {
         "category": "SUMMARY",
+        "label": "요약",
         "components": [
-            {"id": EnumReportComponent.SUMMARY_CARD.value, "name": "요약 카드", "description": "전체 현황 요약"},
+            {"id": EnumReportComponent.SUMMARY_CARD.value, "name": "요약 카드", "description": "전체 현황 요약", "chart_type": None},
         ]
     },
     {
         "category": "DEVICE",
+        "label": "장비",
         "components": [
-            {"id": EnumReportComponent.DEVICE_STATUS_PIE.value, "name": "장비 상태 파이", "description": "장비 상태별 분포"},
-            {"id": EnumReportComponent.DEVICE_TYPE_BAR.value, "name": "장비 유형 바", "description": "장비 유형별 현황"},
-            {"id": EnumReportComponent.DEVICE_GRID.value, "name": "장비 그리드", "description": "장비 목록 테이블"},
+            {"id": EnumReportComponent.DEVICE_STATUS_PIE.value, "name": "장비 상태 파이", "description": "장비 상태별 분포", "chart_type": "PIE"},
+            {"id": EnumReportComponent.DEVICE_TYPE_BAR.value, "name": "장비 유형 바", "description": "장비 유형별 현황", "chart_type": "BAR"},
+            {"id": EnumReportComponent.DEVICE_GRID.value, "name": "장비 그리드", "description": "장비 목록 테이블", "chart_type": None},
         ]
     },
     {
         "category": "EVENT",
+        "label": "이벤트",
         "components": [
-            {"id": EnumReportComponent.EVENT_SUMMARY_PIE.value, "name": "이벤트 요약 파이", "description": "이벤트 유형별 분포"},
-            {"id": EnumReportComponent.EVENT_TREND_LINE.value, "name": "이벤트 추이 라인", "description": "이벤트 발생 추이"},
-            {"id": EnumReportComponent.EVENT_DAILY_BAR.value, "name": "일별 이벤트 바", "description": "일별 이벤트 현황"},
-            {"id": EnumReportComponent.EVENT_DETECTION_GRID.value, "name": "탐지 이벤트 그리드", "description": "탐지 이벤트 목록"},
-            {"id": EnumReportComponent.EVENT_MALFUNCTION_GRID.value, "name": "장애 이벤트 그리드", "description": "장애 이벤트 목록"},
-            {"id": EnumReportComponent.EVENT_ACTION_GRID.value, "name": "조치 이벤트 그리드", "description": "조치 이벤트 목록"},
+            {"id": EnumReportComponent.EVENT_SUMMARY_PIE.value, "name": "이벤트 요약 파이", "description": "이벤트 유형별 분포", "chart_type": "PIE"},
+            {"id": EnumReportComponent.EVENT_TREND_LINE.value, "name": "이벤트 추이 라인", "description": "이벤트 발생 추이", "chart_type": "LINE"},
+            {"id": EnumReportComponent.EVENT_DAILY_BAR.value, "name": "일별 이벤트 바", "description": "일별 이벤트 현황", "chart_type": "BAR"},
+            {"id": EnumReportComponent.EVENT_DETECTION_GRID.value, "name": "탐지 이벤트 그리드", "description": "탐지 이벤트 목록", "chart_type": None},
+            {"id": EnumReportComponent.EVENT_MALFUNCTION_GRID.value, "name": "장애 이벤트 그리드", "description": "장애 이벤트 목록", "chart_type": None},
+            {"id": EnumReportComponent.EVENT_ACTION_GRID.value, "name": "조치 이벤트 그리드", "description": "조치 이벤트 목록", "chart_type": None},
         ]
     },
     {
         "category": "SYSTEM",
+        "label": "시스템",
         "components": [
-            {"id": EnumReportComponent.SYSTEM_SEVERITY_BAR.value, "name": "심각도 바", "description": "심각도별 분포"},
-            {"id": EnumReportComponent.SYSTEM_TREND_LINE.value, "name": "시스템 추이 라인", "description": "시스템 현황 추이"},
-            {"id": EnumReportComponent.SYSTEM_CONFIG_GRID.value, "name": "설정 그리드", "description": "시스템 설정 목록"},
-            {"id": EnumReportComponent.SYSTEM_EVENT_GRID.value, "name": "시스템 이벤트 그리드", "description": "시스템 이벤트 목록"},
-            {"id": EnumReportComponent.SYSTEM_AUDIT_GRID.value, "name": "감사 로그 그리드", "description": "감사 로그 목록"},
+            {"id": EnumReportComponent.SYSTEM_SEVERITY_BAR.value, "name": "심각도 바", "description": "심각도별 분포", "chart_type": "BAR"},
+            {"id": EnumReportComponent.SYSTEM_TREND_LINE.value, "name": "시스템 추이 라인", "description": "시스템 현황 추이", "chart_type": "LINE"},
+            {"id": EnumReportComponent.SYSTEM_CONFIG_GRID.value, "name": "설정 그리드", "description": "시스템 설정 목록", "chart_type": None},
+            {"id": EnumReportComponent.SYSTEM_EVENT_GRID.value, "name": "시스템 이벤트 그리드", "description": "시스템 이벤트 목록", "chart_type": None},
+            {"id": EnumReportComponent.SYSTEM_AUDIT_GRID.value, "name": "감사 로그 그리드", "description": "감사 로그 목록", "chart_type": None},
+        ]
+    },
+    {
+        "category": "USER",
+        "label": "사용자",
+        "components": [
+            {"id": EnumReportComponent.USER_ROLE_PIE.value, "name": "역할별 사용자 분포", "description": "역할별 사용자 현황", "chart_type": "PIE"},
+            {"id": EnumReportComponent.USER_LOGIN_TREND_LINE.value, "name": "일별 로그인 추이", "description": "일별 로그인 시도 추이", "chart_type": "LINE"},
+            {"id": EnumReportComponent.USER_LOGIN_RESULT_PIE.value, "name": "로그인 결과 분포", "description": "로그인 성공/실패 분포", "chart_type": "PIE"},
+            {"id": EnumReportComponent.USER_GRID.value, "name": "사용자 그리드", "description": "사용자 상세 목록", "chart_type": None},
+            {"id": EnumReportComponent.USER_LOGIN_GRID.value, "name": "로그인 이력 그리드", "description": "로그인 시도 이력", "chart_type": None},
+            {"id": EnumReportComponent.USER_SESSION_GRID.value, "name": "세션 그리드", "description": "사용자 세션 목록", "chart_type": None},
         ]
     },
 ]
@@ -81,7 +99,7 @@ COMPONENT_CATEGORIES = [
 # ==============================================================================
 
 def _template_to_response(template: ReportTemplate) -> dict:
-    """ReportTemplate 모델을 응답 딕셔너리로 변환"""
+    """ReportTemplate 모델을 응답 딕셔너리로 변환 (상세 조회용)"""
     return {
         "id": template.id,
         "name": template.name,
@@ -93,6 +111,21 @@ def _template_to_response(template: ReportTemplate) -> dict:
         "default_period": template.default_period,
         "created_at": template.created_at,
         "updated_at": template.updated_at,
+    }
+
+
+def _template_to_list_response(template: ReportTemplate) -> dict:
+    """ReportTemplate 모델을 목록 응답 딕셔너리로 변환 (경량)"""
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "report_type": template.report_type,
+        "owner_id": template.owner_id,
+        "is_public": template.is_public,
+        "component_count": len(template.components) if template.components else 0,
+        "default_period": template.default_period,
+        "created_at": template.created_at,
     }
 
 
@@ -147,7 +180,7 @@ def get_templates(
     return ApiResponse(
         success=True,
         message="Report templates retrieved successfully",
-        data=[_template_to_response(t) for t in templates]
+        data=[_template_to_list_response(t) for t in templates]
     )
 
 
@@ -475,14 +508,16 @@ def download_report(
     if generation.status != "COMPLETED":
         raise HTTPException(status_code=400, detail="Report is not COMPLETED yet")
 
-    # TODO: Actual file download implementation
-    return ApiResponse(
-        success=True,
-        message="Report download initiated",
-        data={
-            "id": generation_id,
-            "pdf_file_path": generation.pdf_file_path,
-        }
+    if not generation.pdf_file_path:
+        raise HTTPException(status_code=404, detail="PDF file not found")
+
+    if not os.path.exists(generation.pdf_file_path):
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+
+    return FileResponse(
+        path=generation.pdf_file_path,
+        filename=f"{generation.title}.pdf",
+        media_type="application/pdf"
     )
 
 
@@ -511,6 +546,13 @@ def preview_report(
     if generation.status != "COMPLETED":
         raise HTTPException(status_code=400, detail="Report is not COMPLETED yet")
 
+    # Get structured preview data with charts and grids
+    service = ReportService(db)
+    # Calculate days from period_type
+    period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+    days = period_days.get(generation.period_type, 7)
+    structured_data = service.get_structured_preview_data(days)
+
     return ApiResponse(
         success=True,
         message="Report preview retrieved successfully",
@@ -521,8 +563,6 @@ def preview_report(
             "period_type": generation.period_type,
             "start_date": generation.start_date,
             "end_date": generation.end_date,
-            "summary_data": generation.summary_data,
-            "created_at": generation.created_at,
-            "completed_at": generation.completed_at,
+            "sections": structured_data["sections"],
         }
     )

@@ -1,0 +1,57 @@
+[
+  {
+    "id": 5,
+    "name": "사용자 활동 보고서",
+    "description": "사용자 계정 현황 및 로그인/세션 활동을 분석하는 보고서",
+    "report_type": "CUSTOM",
+    "owner_id": null,
+    "is_public": false,
+    "component_count": 7,
+    "default_period": "90d",
+    "created_at": "2026-01-30T13:09:40.447669"
+  },
+  {
+    "id": 4,
+    "name": "시스템 운영 보고서",
+    "description": "시스템 이벤트, 설정 변경, 감사 로그를 포함하는 운영 보고서",
+    "report_type": "CUSTOM",
+    "owner_id": null,
+    "is_public": true,
+    "component_count": 6,
+    "default_period": "30d",
+    "created_at": "2026-01-30T13:09:40.417457"
+  },
+  {
+    "id": 3,
+    "name": "보안 이벤트 분석 보고서",
+    "description": "탐지/장애/조치 이벤트를 분석하는 보안 보고서 템플릿",
+    "report_type": "CUSTOM",
+    "owner_id": null,
+    "is_public": false,
+    "component_count": 7,
+    "default_period": "7d",
+    "created_at": "2026-01-30T13:09:40.389575"
+  },
+  {
+    "id": 2,
+    "name": "장비 현황 보고서",
+    "description": "장비 상태 및 유형 분석에 특화된 보고서 템플릿",
+    "report_type": "CUSTOM",
+    "owner_id": null,
+    "is_public": true,
+    "component_count": 4,
+    "default_period": "30d",
+    "created_at": "2026-01-30T13:09:40.364119"
+  },
+  {
+    "id": 1,
+    "name": "일일 종합 보고서",
+    "description": "장비/이벤트/시스템/사용자 전체 현황을 포함하는 종합 보고서 템플릿",
+    "report_type": "STANDARD",
+    "owner_id": null,
+    "is_public": true,
+    "component_count": 12,
+    "default_period": "7d",
+    "created_at": "2026-01-30T13:09:40.334801"
+  }
+]

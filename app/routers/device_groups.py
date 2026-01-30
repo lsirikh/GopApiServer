@@ -11,7 +11,7 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
-from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp
 from app.schemas.device_group import (
     DeviceGroupCreate,
@@ -678,10 +678,11 @@ async def assign_devices_to_group(
 
     assigned = []
     skipped = []
+    assigned_categories = {}  # {device_id: category_device.value}
 
     for device_id in request.device_ids:
-        # 디바이스 존재 확인
-        device = db.query(Controller).filter(Controller.id == device_id).first()
+        # 디바이스 존재 확인 (Device base class로 polymorphic query)
+        device = db.query(Device).filter(Device.id == device_id).first()
         if not device:
             skipped.append(device_id)
             continue
@@ -689,16 +690,17 @@ async def assign_devices_to_group(
         # 이미 할당된 경우 건너뜀
         existing_mapping = db.query(DeviceGroupMapping).filter(
             DeviceGroupMapping.device_id == device_id,
-            DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER,
+            DeviceGroupMapping.category_device == device.category_device,
             DeviceGroupMapping.group_id == group_id
         ).first()
 
         if existing_mapping:
             skipped.append(device_id)
         else:
-            mapping = DeviceGroupMapping(device_id=device_id, category_device=EnumDeviceCategory.CONTROLLER, group_id=group_id)
+            mapping = DeviceGroupMapping(device_id=device_id, category_device=device.category_device, group_id=group_id)
             db.add(mapping)
             assigned.append(device_id)
+            assigned_categories[device_id] = device.category_device.value
 
     db.commit()
 
@@ -710,7 +712,7 @@ async def assign_devices_to_group(
             resource_id=group_id,
             resource_name=f"DeviceGroup-{group_id} ({group.name})",
             action=EnumConfigActionType.ASSIGNED,
-            after_state={"device_ids": assigned},
+            after_state={"device_ids": assigned, "categories": assigned_categories},
             description=f"DeviceGroup에 {len(assigned)}개 디바이스 할당"
         )
 
@@ -756,9 +758,17 @@ async def remove_device_from_group(
             detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
         )
 
+    # Device 조회로 올바른 category_device 확인 (polymorphic query)
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"Device ID {device_id} not found"}
+        )
+
     mapping = db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER,
+        DeviceGroupMapping.category_device == device.category_device,
         DeviceGroupMapping.group_id == group_id
     ).first()
 
@@ -778,8 +788,8 @@ async def remove_device_from_group(
         resource_id=group_id,
         resource_name=f"DeviceGroup-{group_id} ({group.name})",
         action=EnumConfigActionType.UNASSIGNED,
-        before_state={"device_id": device_id},
-        description=f"DeviceGroup에서 디바이스 {device_id} 제거"
+        before_state={"device_id": device_id, "category_device": device.category_device.value},
+        description=f"DeviceGroup에서 디바이스 {device_id} ({device.category_device.value}) 제거"
     )
 
     response = DeviceRemoveResponse(

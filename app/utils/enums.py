@@ -603,8 +603,8 @@ class EnumChartType(str, Enum):
 
 class EnumReportComponent(str, Enum):
     """
-    Report component enumeration (15종)
-    PRD: PRD_Report_System.md Section 3.1
+    Report component enumeration (21종)
+    PRD: PRD_Report_System.md v1.4 Section 3.1
 
     보고서 컴포넌트
     """
@@ -630,3 +630,11 @@ class EnumReportComponent(str, Enum):
     SYSTEM_CONFIG_GRID = "SYSTEM_CONFIG_GRID"
     SYSTEM_EVENT_GRID = "SYSTEM_EVENT_GRID"
     SYSTEM_AUDIT_GRID = "SYSTEM_AUDIT_GRID"
+
+    # USER (6종) - PRD v1.4
+    USER_ROLE_PIE = "USER_ROLE_PIE"                     # 역할별 사용자 분포
+    USER_LOGIN_TREND_LINE = "USER_LOGIN_TREND_LINE"     # 일별 로그인 추이
+    USER_LOGIN_RESULT_PIE = "USER_LOGIN_RESULT_PIE"     # 로그인 성공/실패 분포
+    USER_GRID = "USER_GRID"                             # 사용자 목록
+    USER_LOGIN_GRID = "USER_LOGIN_GRID"                 # 로그인 이력
+    USER_SESSION_GRID = "USER_SESSION_GRID"             # 세션 목록

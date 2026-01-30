@@ -599,9 +599,9 @@ def report_preview_page(
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
 
-    # Get preview data from ReportService
+    # Get structured preview data from ReportService
     service = ReportService(db)
-    preview_data = service.get_preview_data()
+    preview_data = service.get_structured_preview_data()
 
     return templates.TemplateResponse(request, "reports/preview.html", {
         "report": generation,

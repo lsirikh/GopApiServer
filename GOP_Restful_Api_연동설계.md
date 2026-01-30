@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
-**작성일**: 2025-12-31
-**최종 수정일**: 2026-01-26
-**버전**: v3.4
+**작성일**: 2025-12-31  
+**최종 수정일**: 2026-01-26  
+**버전**: v3.4  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -399,12 +399,11 @@ class EnumLampColor(str, Enum):
 # Python 정의 - app/utils/enums.py
 class EnumBuzzerSound(str, Enum):
     """경광등 부저 소리 패턴"""
-    PI_PI_PI = "PI-PI-PI"       # 기본 비프음 (기본값)
-    BEEP = "Beep"               # 단일 비프
-    SIREN = "Siren"             # 사이렌
-    AMBULANCE = "Ambulance"     # 구급차 사이렌
-    EMERGENCY = "Emergency"     # 비상 경보음
-    MUTE = "Mute"               # 무음
+    FIRE_AWANG = "Fire A-WANG"    # 화재 경보음
+    EMERGENCY = "Emergency"        # 비상 경보음
+    AMBULANCE = "Ambulance"        # 구급차 사이렌
+    PI_PI_PI = "PI-PI-PI"          # 단속음 (기본값)
+    PI_CONTINUE = "PI_continue"    # 연속음
 ```
 
 **사용처**:
@@ -416,9 +415,8 @@ class EnumBuzzerSound(str, Enum):
 # Python 정의 - app/utils/enums.py
 class EnumLightMode(str, Enum):
     """경광등 점등 모드"""
-    STEADY = "steady"         # 정적 점등 (기본값)
+    STEADY = "steady"         # 계속 점등 (기본값)
     BLINKING = "blinking"     # 점멸
-    ROTATING = "rotating"     # 회전
 ```
 
 **사용처**:
@@ -828,7 +826,7 @@ class EnumChartType(str, Enum):
 **사용처**:
 - Preview 페이지 Chart.js 렌더링
 
-#### EnumReportComponent (보고서 컴포넌트 - 15종)
+#### EnumReportComponent (보고서 컴포넌트 - 21종)
 ```python
 # Python 정의 - app/utils/enums.py
 class EnumReportComponent(str, Enum):
@@ -855,6 +853,14 @@ class EnumReportComponent(str, Enum):
     SYSTEM_CONFIG_GRID = "SYSTEM_CONFIG_GRID"   # 설정 변경 그리드
     SYSTEM_EVENT_GRID = "SYSTEM_EVENT_GRID"     # 시스템 이벤트 그리드
     SYSTEM_AUDIT_GRID = "SYSTEM_AUDIT_GRID"     # 감사 로그 그리드
+
+    # USER (6종) - v1.4
+    USER_ROLE_PIE = "USER_ROLE_PIE"             # 역할별 사용자 분포
+    USER_LOGIN_TREND_LINE = "USER_LOGIN_TREND_LINE" # 일별 로그인 추이
+    USER_LOGIN_RESULT_PIE = "USER_LOGIN_RESULT_PIE" # 로그인 성공/실패 분포
+    USER_GRID = "USER_GRID"                     # 사용자 목록
+    USER_LOGIN_GRID = "USER_LOGIN_GRID"         # 로그인 이력
+    USER_SESSION_GRID = "USER_SESSION_GRID"     # 세션 목록
 ```
 
 **사용처**:
@@ -10281,8 +10287,8 @@ Accept: application/json
 
 **Enum 허용값**:
 - **color (EnumLampColor)**: Red, Orange, Green, Blue, White
-- **buzzer_sound (EnumBuzzerSound)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute
-- **light_mode (EnumLightMode)**: steady, blinking, rotating
+- **buzzer_sound (EnumBuzzerSound)**: Fire A-WANG, Emergency, Ambulance, PI-PI-PI, PI_continue
+- **light_mode (EnumLightMode)**: steady, blinking
 
 **Response (201 Created)**: 생성된 EventMappingLamp 객체 (Nested Response)
 
@@ -12077,6 +12083,7 @@ Authorization: Bearer {access_token}
       "expires_at": "2026-01-19T20:30:00+09:00",
       "is_active": true,
       "logout_reason": null,
+      "forced_by": null,
       "logged_out_at": null,
       "created_at": "2026-01-19T08:30:00+09:00",
       "updated_at": "2026-01-19T10:15:00+09:00"
@@ -12088,6 +12095,7 @@ Authorization: Bearer {access_token}
 > **필드 설명**:
 > - `created_at`: 세션 생성(로그인) 시간
 > - `updated_at`: 마지막 활동 시간
+> - `forced_by`: 강제 로그아웃 처리자 User ID (강제 로그아웃 시)
 
 #### 9.5.3 GET `/api/user-sessions/{id}`
 
@@ -12103,6 +12111,7 @@ Authorization: Bearer {access_token}
     "expires_at": "2026-01-19T20:30:00+09:00",
     "is_active": true,
     "logout_reason": null,
+    "forced_by": null,
     "logged_out_at": null,
     "created_at": "2026-01-19T08:30:00+09:00",
     "updated_at": "2026-01-19T10:15:00+09:00"
@@ -12537,6 +12546,17 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
         {"id": "SYSTEM_CONFIG_GRID", "name": "설정 그리드", "description": "시스템 설정 목록"},
         {"id": "SYSTEM_EVENT_GRID", "name": "시스템 이벤트 그리드", "description": "시스템 이벤트 목록"},
         {"id": "SYSTEM_AUDIT_GRID", "name": "감사 로그 그리드", "description": "감사 로그 목록"}
+      ]
+    },
+    {
+      "category": "USER",
+      "components": [
+        {"id": "USER_ROLE_PIE", "name": "역할별 사용자 분포", "description": "역할별 사용자 현황"},
+        {"id": "USER_LOGIN_TREND_LINE", "name": "일별 로그인 추이", "description": "일별 로그인 시도 추이"},
+        {"id": "USER_LOGIN_RESULT_PIE", "name": "로그인 결과 분포", "description": "로그인 성공/실패 분포"},
+        {"id": "USER_GRID", "name": "사용자 그리드", "description": "사용자 상세 목록"},
+        {"id": "USER_LOGIN_GRID", "name": "로그인 이력 그리드", "description": "로그인 시도 이력"},
+        {"id": "USER_SESSION_GRID", "name": "세션 그리드", "description": "사용자 세션 목록"}
       ]
     }
   ]

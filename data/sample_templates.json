@@ -1,0 +1,83 @@
+[
+  {
+    "name": "일일 종합 보고서",
+    "description": "장비/이벤트/시스템/사용자 전체 현황을 포함하는 종합 보고서 템플릿",
+    "report_type": "STANDARD",
+    "is_public": true,
+    "default_period": "7d",
+    "components": [
+      {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "전체 현황 요약"},
+      {"id": "DEVICE_STATUS_PIE", "order": 2, "enabled": true, "title": "장비 상태 분포"},
+      {"id": "DEVICE_TYPE_BAR", "order": 3, "enabled": true, "title": "장비 유형별 현황"},
+      {"id": "DEVICE_GRID", "order": 4, "enabled": true, "title": "장비 목록"},
+      {"id": "EVENT_SUMMARY_PIE", "order": 5, "enabled": true, "title": "이벤트 유형 분포"},
+      {"id": "EVENT_TREND_LINE", "order": 6, "enabled": true, "title": "이벤트 추이"},
+      {"id": "EVENT_DETECTION_GRID", "order": 7, "enabled": true, "title": "탐지 이벤트 목록"},
+      {"id": "SYSTEM_SEVERITY_BAR", "order": 8, "enabled": true, "title": "시스템 이벤트 심각도"},
+      {"id": "SYSTEM_TREND_LINE", "order": 9, "enabled": true, "title": "시스템 이벤트 추이"},
+      {"id": "SYSTEM_EVENT_GRID", "order": 10, "enabled": true, "title": "시스템 이벤트 목록"},
+      {"id": "USER_ROLE_PIE", "order": 11, "enabled": true, "title": "역할별 사용자 분포"},
+      {"id": "USER_GRID", "order": 12, "enabled": true, "title": "사용자 목록"}
+    ]
+  },
+  {
+    "name": "장비 현황 보고서",
+    "description": "장비 상태 및 유형 분석에 특화된 보고서 템플릿",
+    "report_type": "CUSTOM",
+    "is_public": true,
+    "default_period": "30d",
+    "components": [
+      {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "장비 현황 요약"},
+      {"id": "DEVICE_STATUS_PIE", "order": 2, "enabled": true, "title": "장비 상태 분포"},
+      {"id": "DEVICE_TYPE_BAR", "order": 3, "enabled": true, "title": "장비 유형별 현황"},
+      {"id": "DEVICE_GRID", "order": 4, "enabled": true, "title": "전체 장비 목록"}
+    ]
+  },
+  {
+    "name": "보안 이벤트 분석 보고서",
+    "description": "탐지/장애/조치 이벤트를 분석하는 보안 보고서 템플릿",
+    "report_type": "CUSTOM",
+    "is_public": false,
+    "default_period": "7d",
+    "components": [
+      {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "이벤트 현황 요약"},
+      {"id": "EVENT_SUMMARY_PIE", "order": 2, "enabled": true, "title": "이벤트 유형 분포"},
+      {"id": "EVENT_TREND_LINE", "order": 3, "enabled": true, "title": "일별 이벤트 추이"},
+      {"id": "EVENT_DAILY_BAR", "order": 4, "enabled": true, "title": "일별 이벤트 건수"},
+      {"id": "EVENT_DETECTION_GRID", "order": 5, "enabled": true, "title": "탐지 이벤트 상세"},
+      {"id": "EVENT_MALFUNCTION_GRID", "order": 6, "enabled": true, "title": "장애 이벤트 상세"},
+      {"id": "EVENT_ACTION_GRID", "order": 7, "enabled": true, "title": "조치 이벤트 상세"}
+    ]
+  },
+  {
+    "name": "시스템 운영 보고서",
+    "description": "시스템 이벤트, 설정 변경, 감사 로그를 포함하는 운영 보고서",
+    "report_type": "CUSTOM",
+    "is_public": true,
+    "default_period": "30d",
+    "components": [
+      {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "시스템 현황 요약"},
+      {"id": "SYSTEM_SEVERITY_BAR", "order": 2, "enabled": true, "title": "심각도별 시스템 이벤트"},
+      {"id": "SYSTEM_TREND_LINE", "order": 3, "enabled": true, "title": "시스템 이벤트 추이"},
+      {"id": "SYSTEM_EVENT_GRID", "order": 4, "enabled": true, "title": "시스템 이벤트 목록"},
+      {"id": "SYSTEM_CONFIG_GRID", "order": 5, "enabled": true, "title": "설정 변경 이력"},
+      {"id": "SYSTEM_AUDIT_GRID", "order": 6, "enabled": true, "title": "감사 로그"}
+    ]
+  },
+  {
+    "name": "사용자 활동 보고서",
+    "description": "사용자 계정 현황 및 로그인/세션 활동을 분석하는 보고서",
+    "report_type": "CUSTOM",
+    "is_public": false,
+    "default_period": "90d",
+    "components": [
+      {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "사용자 현황 요약"},
+      {"id": "USER_ROLE_PIE", "order": 2, "enabled": true, "title": "역할별 사용자 분포"},
+      {"id": "USER_LOGIN_TREND_LINE", "order": 3, "enabled": true, "title": "일별 로그인 추이"},
+      {"id": "USER_LOGIN_RESULT_PIE", "order": 4, "enabled": true, "title": "로그인 성공/실패 비율"},
+      {"id": "USER_GRID", "order": 5, "enabled": true, "title": "사용자 목록"},
+      {"id": "USER_LOGIN_GRID", "order": 6, "enabled": true, "title": "로그인 이력"},
+      {"id": "USER_SESSION_GRID", "order": 7, "enabled": true, "title": "세션 목록"}
+    ]
+  }
+]

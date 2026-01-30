@@ -63,7 +63,7 @@ class ROIBase(BaseModel):
 
 class ROICreate(ROIBase):
     """Schema for creating ROI"""
-    points: Optional[List[XyPointCreate]] = Field(default=None, description="Polygon vertices")
+    points: List[XyPointCreate] = Field(..., min_length=3, description="Polygon vertices (minimum 3 points for polygon)")
 
 
 class ROIUpdate(BaseModel):

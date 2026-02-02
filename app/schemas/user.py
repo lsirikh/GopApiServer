@@ -250,18 +250,19 @@ class UserLoginLogResponse(BaseModel):
 
 
 # ============================================================
-# Legacy User Schemas (Original - to be deprecated)
+# [LEGACY] Legacy User Schemas (users 테이블용 — Deprecated 예정)
+# → 신규 코드는 AccountUser 스키마 사용 (AccountUserCreate, AccountUserResponse 등)
 # ============================================================
 
 class UserCreate(BaseModel):
-    """Schema for creating a new user"""
+    """[LEGACY] Schema for creating a legacy User (users 테이블)"""
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6)
     role: Optional[str] = "user"
 
 
 class UserResponse(BaseModel):
-    """Schema for user response (excludes password)"""
+    """[LEGACY] Schema for legacy User response (users 테이블, excludes password)"""
     id: int
     username: str
     role: str
@@ -272,13 +273,13 @@ class UserResponse(BaseModel):
 
 
 class Token(BaseModel):
-    """Schema for JWT token response"""
+    """[LEGACY] Schema for JWT token response (Legacy OAuth2 로그인용)"""
     access_token: str
     token_type: str
 
 
 class TokenData(BaseModel):
-    """Schema for token payload data"""
+    """[LEGACY] Schema for token payload data (Legacy User의 username 기반)"""
     username: Optional[str] = None
 
 

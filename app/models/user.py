@@ -171,11 +171,14 @@ class UserLoginLog(Base):
         return f"<UserLoginLog(login_id='{self.login_id}', action='{self.action}', result='{self.result}')>"
 
 
-# Legacy User model (to be deprecated - will be replaced by AccountUser)
+# [LEGACY] Legacy User 모델 (users 테이블) — Deprecated 예정
+# → AccountUser (account_users 테이블)로 완전 대체 후 제거 예정
+# → 참조: auth.py (get_current_user, login_oauth2), init_db.py (create_admin_user), schemas/user.py (UserCreate, Token)
 class User(Base):
     """
-    Legacy User model for authentication.
-    TODO: Migrate to AccountUser and remove this class.
+    [LEGACY] Legacy User model for authentication (users 테이블).
+    신규 코드는 AccountUser (account_users 테이블) 사용할 것.
+    TODO: AccountUser로 완전 마이그레이션 후 이 클래스 제거.
     """
     __tablename__ = "users"
 

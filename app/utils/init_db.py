@@ -4,10 +4,13 @@ Database initialization utilities
 from sqlalchemy.orm import Session
 
 from app.database import engine, SessionLocal, Base
+# NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
 from app.models.user import User, AccountUser
 from app.models.log import ApiLog
 from app.utils.auth import hash_password
 from app.utils.init_server_data import initialize_server_data
+from app.utils.init_report_data import initialize_report_data
+from app.utils.init_sample_data import initialize_sample_data
 
 
 def create_tables():
@@ -20,7 +23,8 @@ def create_tables():
 
 def create_admin_user(db: Session):
     """
-    Create initial admin user if not exists
+    [LEGACY] Create initial admin user if not exists (Legacy User / users 테이블)
+    → 신규 admin은 create_admin_account_user()에서 생성 (AccountUser / account_users 테이블)
 
     Args:
         db: Database session
@@ -92,6 +96,8 @@ def initialize_database():
         create_admin_user(db)
         create_admin_account_user(db)
         initialize_server_data(db)
+        initialize_report_data(db)
+        initialize_sample_data(db)
     finally:
         db.close()
 

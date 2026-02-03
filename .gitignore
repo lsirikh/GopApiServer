@@ -53,16 +53,16 @@ tests/
 logs/
 *.log
 
-# Data (선택적 - 필요시 주석 해제)
-# data/
+# Data (DB files auto-generated on startup)
+data/*.db
 
 # Claude/AI 관련
 .claude/
 Claude.md
 claude.md
 
-# reports
-reports/
+# reports (generated PDFs at root level only)
+/reports/
 
 # Documentation & Planning
 docs/
@@ -73,9 +73,11 @@ prd.md
 *prd.md
 prd*.md
 
-# Tests cache
+# Tests cache & artifacts
 tests/__pycache__/
 .pytest_cache/
+test_*.db
+nul
 
 # Docker
 *.log

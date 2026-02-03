@@ -9,6 +9,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from app.dependencies import get_db
+# NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
 from app.models.user import User, AccountUser, UserSession, UserLoginLog
 from app.schemas.user import Token, UserResponse, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
 from app.utils.auth import verify_password, create_access_token, create_refresh_token, decode_token
@@ -32,7 +33,8 @@ async def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    JWT 토큰에서 현재 인증된 사용자를 가져오는 의존성 (Legacy User 모델)
+    [LEGACY] JWT 토큰에서 현재 인증된 사용자를 가져오는 의존성 (Legacy User 모델)
+    → 신규 코드는 get_current_account_user() 사용할 것.
 
     Args:
         credentials: HTTPBearer 인증 정보
@@ -128,7 +130,8 @@ async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
 ) -> User | None:
     """
-    AUTH_MODE 설정에 따른 선택적 인증 의존성
+    [LEGACY] AUTH_MODE 설정에 따른 선택적 인증 의존성 (Legacy User 모델)
+    → 내부적으로 get_current_user()를 호출하므로 Legacy User 조회를 수행함.
 
     Args:
         credentials: HTTPBearer 인증 정보 (AUTH_MODE=public인 경우 선택)
@@ -436,7 +439,7 @@ async def login_oauth2(
     **Error**:
     - 401: 잘못된 사용자 이름 또는 비밀번호
     """
-    # Legacy OAuth2 form-based login
+    # [LEGACY] OAuth2 폼 기반 로그인 — Legacy User (users 테이블) 조회
     user = db.query(User).filter(User.username == form_data.username).first()
 
     # Verify user exists and password is correct

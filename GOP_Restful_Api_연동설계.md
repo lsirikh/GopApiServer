@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-26  
-**버전**: v3.4  
+**최종 수정일**: 2026-02-02
+**버전**: v3.5
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -12273,7 +12273,7 @@ Accept: application/json
 | DELETE `/api/user-groups/{id}` | GROUP_DELETED | USER_GROUP | before만 기록 |
 | DELETE `/api/user-sessions/{id}` | SESSION_FORCED_LOGOUT | USER_SESSION | reason 기록 |
 
-> **민감 정보 제외**: `password`, `password_hash`, `token` 등 민감 정보는 `changes`에 기록하지 않습니다.
+> **민감 정보 제외**: `password`, `password_hash`, `hashed_password`, `token`, `refresh_token`, `user_password` 등 민감 정보는 `changes`에 기록하지 않습니다. (PRD_Audit_Log.md Section 5.2)
 
 ### 9.7 Config Change Logs API
 
@@ -12611,7 +12611,44 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 }
 ```
 
-#### 10.3.3 POST `/api/reports/templates`
+#### 10.3.3 GET `/api/reports/templates/{id}`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| id | int | 예 | 템플릿 ID |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "주간 이벤트 보고서",
+    "description": "주간 탐지/장애 이벤트 종합 보고서",
+    "report_type": "CUSTOM",
+    "owner_id": 1,
+    "is_public": true,
+    "components": [
+      {"id": "SUMMARY_CARD", "order": 1, "enabled": true, "title": "전체 현황"},
+      {"id": "EVENT_SUMMARY_PIE", "order": 2, "enabled": true, "title": null},
+      {"id": "EVENT_TREND_LINE", "order": 3, "enabled": true, "title": null}
+    ],
+    "default_period": "7d",
+    "created_at": "2026-01-20T10:00:00+09:00",
+    "updated_at": "2026-01-20T10:00:00+09:00"
+  }
+}
+```
+
+**Response (404 Not Found)**:
+```json
+{
+  "detail": "Report template not found"
+}
+```
+
+#### 10.3.4 POST `/api/reports/templates`
 
 **Request Body**:
 ```json
@@ -12661,7 +12698,7 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 }
 ```
 
-#### 10.3.4 PATCH `/api/reports/templates/{id}`
+#### 10.3.5 PATCH `/api/reports/templates/{id}`
 
 **Request Body** (변경할 필드만 포함):
 ```json
@@ -12685,7 +12722,7 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 }
 ```
 
-#### 10.3.5 DELETE `/api/reports/templates/{id}`
+#### 10.3.6 DELETE `/api/reports/templates/{id}`
 
 **Response (200 OK)**:
 ```json
@@ -13396,6 +13433,8 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v3.6 | 2026-02-03 | **Report Templates API 보완 및 User Audit 감사 연동 추가**<br><br>**[1. Report Templates API (10.3)]**<br>- GET `/api/reports/templates/{id}` 상세 조회 섹션 추가 (10.3.3)<br>- 기존 10.3.3~10.3.5 → 10.3.4~10.3.6 번호 재조정<br><br>**[2. User Audit 감사 연동 (코드 변경)]**<br>- PUT `/api/users/me` (내 정보 수정): USER_UPDATED 감사 로그 추가<br>- DELETE `/api/user-sessions/user/{id}` (전체 세션 강제 로그아웃): SESSION_FORCED_LOGOUT 감사 로그 추가<br>- DELETE `/api/user-sessions/me/{session_id}` (내 세션 종료): SESSION_TERMINATED 감사 로그 추가 |
+| v3.5 | 2026-02-02 | **Audit Log SENSITIVE_FIELDS 정합성 수정**<br><br>**[1. 민감필드 목록 동기화 (9.6.4)]**<br>- `password_hash`, `hashed_password`, `refresh_token`, `user_password` 추가<br>- PRD_Audit_Log.md Section 5.2와 완전 동기화<br>- audit_service.py SENSITIVE_FIELDS 코드와 문서 일치<br><br>**[2. 테스트 수정]**<br>- `test_session_forced_logout_audit_log`: UserSession `login_at` → `created_at` 동기화 (PRD_UserSession_Improvement.md v1.2) |
 | v3.4 | 2026-01-26 | **Lamp Device 및 EventMappingLamp API 추가 (PRD_Lamp_Device.md v1.1)**<br><br>**[1. Lamp Enum 추가 (4.1)]**<br>- **EnumDeviceType 확장**: `Lamp = 18` 추가<br>- **EnumLampColor (5종)**: Red, Orange, Green, Blue, White<br>- **EnumBuzzerSound (6종)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute<br>- **EnumLightMode (3종)**: steady, blinking, rotating<br><br>**[2. Lamp API (5.11)]**<br>- **Endpoint**: `/api/devices/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **Device Polymorphic 상속**: ip_address, ip_port, description, geolocation<br>- **Nested Response**: device_groups 포함<br>- **ConfigChangeLog 연동**: LAMP 리소스 자동 로깅<br><br>**[3. EventMappingLamp API (7.5)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 관계**: event_mapping_id (CASCADE), lamp_id (SET NULL)<br>- **동작 설정**: color, buzzer_time, buzzer_sound, light_mode, is_enable, priority<br>- **Nested Response**: event_mapping, lamp 상세 정보 포함<br>- **ConfigChangeLog 연동**: EVENT_MAPPING_LAMP 리소스 자동 로깅<br><br>**[4. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **LampSummary 추가**: ip_address, ip_port, description, geolocation<br>- **DeviceSummary Union 확장**: 6종 지원 (Controller, Sensor, Camera, Speaker, Enclosure, Lamp) |
 | v3.3 | 2026-01-23 | **Report API 추가, User API 문서 정합성 수정, DeviceGroup 폴리모픽 응답 확장**<br><br>**[1. Report API 신규 (PRD_Report_System.md)]**<br>- **Report Enum 추가 (4.8)**: EnumReportType (2종), EnumReportPeriod (4종), EnumReportStatus (4종), EnumChartType (4종), EnumReportComponent (15종)<br>- **Report API (10절)**: GET /api/reports/components, templates CRUD, POST /api/reports/generate, generations 조회/다운로드/미리보기<br>- **Report Preview Page (10.5)**: Chart.js 기반 HTML 미리보기<br>- **섹션 번호 변경**: 10 → 11 (에러 처리), 11 → 12 (부록)<br><br>**[2. User API 문서 정합성 수정]**<br>- **GET /api/users (9.3.2)**: department 파라미터 추가, 누락 필드 10개 추가 (email, position, employee_number 등)<br>- **POST /api/users (9.3.3)**: 누락 필드 4개 추가, Response 18개 필드로 확장<br>- **AccountUserCreate/Response 스키마와 완전 동기화**<br><br>**[3. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **SpeakerSummary 추가**: speaker_type, server_id, description, geolocation<br>- **EnclosureSummary 추가**: door_status, heater_enabled, fan_enabled, threshold_config, geolocation<br>- **DeviceSummary Union 확장**: Controller, Sensor, Camera, Speaker, Enclosure 5종 지원<br>- **devices 배열 예시 업데이트**: Speaker, Enclosure 예시 추가 |
 | v3.2 | 2026-01-21 | **Config Change Logs API 추가 (PRD_ConfigChangeLog.md v1.1)**<br><br>**[1. Config Change Log Enum 추가 (4.7)]**<br>- **EnumConfigResourceType (19종)**: Device 10종, Server 2종, Event 4종, Integration 3종<br>  - Device: DEVICE, CONTROLLER, SENSOR, CAMERA, SPEAKER, ENCLOSURE, DEVICE_GROUP, DEVICE_GROUP_MAPPING, CAMERA_PRESET, ROI<br>  - Server: SERVER, SERVER_CATEGORY<br>  - Event: EVENT, DETECTION_EVENT, MALFUNCTION_EVENT, CONNECTION_EVENT<br>  - Integration: EVENT_MAPPING, EVENT_MAPPING_CAMERA, EVENT_MAPPING_SPEAKER<br>- **EnumConfigActionType (6종)**: CREATED, UPDATED, DELETED, STATUS_CHANGED, ASSIGNED, UNASSIGNED<br><br>**[2. Config Change Logs API 신규 (9.7)]**<br>- **GET /api/config-change-logs**: 설정 변경 로그 목록 조회 (필터링, 페이지네이션)<br>- **GET /api/config-change-logs/{id}**: 설정 변경 로그 상세 조회<br>- **읽기 전용 API**: 생성/수정/삭제 API 미제공 (시스템 자동 생성)<br>- **자동 로깅**: Device, Server, Event, Integration 계열 리소스 CRUD 시 자동 변경 로그 생성<br>- **스냅샷 보존**: 삭제된 리소스/수행자 정보 유지<br><br>**[3. JSONB 정규화 (v1.1 신규)]**<br>- **변경된 필드만 저장**: 전체 모델 스냅샷 대신 변경된 필드만 기록<br>- **CREATED**: after_state에 `{id, name}` 식별 정보만 저장<br>- **UPDATED**: 변경된 필드만 before/after에 저장<br>- **DELETED**: before_state에 `{id, name}` 식별 정보만 저장<br>- **유틸리티 함수**: `get_changed_fields()`, `get_identifier()` (config_log_service.py) |
@@ -13421,5 +13460,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v3.4
-**최종 업데이트**: 2026-01-26
+**문서 버전**: v3.5
+**최종 업데이트**: 2026-02-02

@@ -10,7 +10,7 @@ from app.schemas.audit_log import AuditLogCreate
 
 
 # Sensitive fields to remove from changes
-SENSITIVE_FIELDS = {"password", "hashed_password", "token", "secret"}
+SENSITIVE_FIELDS = {"password", "hashed_password", "password_hash", "token", "refresh_token", "user_password", "secret"}
 
 
 def get_changes(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:

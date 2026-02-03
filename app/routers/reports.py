@@ -28,6 +28,7 @@ from app.schemas.report import (
     ReportTemplateUpdate,
     ReportTemplateResponse,
     ReportGenerateRequest,
+    ReportGenerationResponse,
 )
 from app.schemas.common import ApiResponse
 from app.utils.enums import EnumReportComponent

@@ -7,7 +7,7 @@ PRD: PRD_Report_System.md Section 5
 - ReportGenerateRequest: 보고서 생성 요청
 - ReportGenerationResponse: 보고서 생성 결과
 """
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, List, Any
 
@@ -94,11 +94,50 @@ class ReportGenerateRequest(BaseModel):
     보고서 생성 요청 스키마
     PRD: PRD_Report_System.md Section 5.5
     """
-    report_type: EnumReportType
-    title: str
-    period_type: EnumReportPeriod
-    template_id: Optional[int] = None
-    severity_filter: Optional[List[str]] = None
+    report_type: EnumReportType = Field(
+        ...,
+        description="보고서 유형",
+        json_schema_extra={"example": "STANDARD"}
+    )
+    title: str = Field(
+        ...,
+        description="보고서 제목",
+        json_schema_extra={"example": "주간 운영 보고서"}
+    )
+    period_type: EnumReportPeriod = Field(
+        ...,
+        description="조회 기간 유형",
+        json_schema_extra={"example": "7d"}
+    )
+    template_id: Optional[int] = Field(
+        default=None,
+        description="사용자 정의 템플릿 ID (CUSTOM 유형일 경우 필수)",
+        json_schema_extra={"example": 1}
+    )
+    severity_filter: Optional[List[str]] = Field(
+        default=None,
+        description="심각도 필터 목록 (예: CRITICAL, WARNING, INFO)",
+        json_schema_extra={"example": ["CRITICAL", "WARNING"]}
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "report_type": "STANDARD",
+                    "title": "주간 운영 보고서",
+                    "period_type": "7d"
+                },
+                {
+                    "report_type": "CUSTOM",
+                    "title": "월간 보안 보고서",
+                    "period_type": "30d",
+                    "template_id": 1,
+                    "severity_filter": ["CRITICAL", "WARNING"]
+                }
+            ]
+        }
+    )
 
     @field_validator('title')
     @classmethod

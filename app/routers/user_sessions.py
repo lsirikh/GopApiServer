@@ -128,6 +128,21 @@ async def force_logout_all_user_sessions(
 
     db.commit()
 
+    # 감사 로그 기록: SESSION_FORCED_LOGOUT (전체 세션)
+    if count > 0:
+        await log_action(
+            db=db,
+            action_type="SESSION_FORCED_LOGOUT",
+            resource_type="USER_SESSION",
+            actor_login_id=current_user.login_id,
+            actor_id=current_user.id,
+            actor_name=current_user.name,
+            actor_role=current_user.role,
+            resource_id=user_id,
+            resource_name=f"{target_user.name} ({target_user.login_id}) - {count}개 세션",
+            description=f"전체 세션 강제 로그아웃: {target_user.login_id} ({count}개)"
+        )
+
     return {
         "success": True,
         "data": {"count": count}
@@ -195,6 +210,20 @@ async def delete_my_session(
     session.logged_out_at = datetime.now(settings.tz)
 
     db.commit()
+
+    # 감사 로그 기록: SESSION_TERMINATED (자기 세션 종료)
+    await log_action(
+        db=db,
+        action_type="SESSION_TERMINATED",
+        resource_type="USER_SESSION",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=session_id,
+        resource_name=f"Session {session_id} ({current_user.login_id})",
+        description=f"내 세션 종료: {current_user.login_id}"
+    )
 
     return {"success": True}
 

@@ -97,6 +97,15 @@ async def update_my_info(
 
     **Response**: success, data (수정된 사용자 정보)
     """
+    # Capture before state for audit log
+    before_state = {
+        "name": current_user.name,
+        "email": current_user.email,
+        "department": current_user.department,
+        "position": current_user.position,
+        "phone": current_user.phone
+    }
+
     # Update fields if provided
     if user_data.name is not None:
         current_user.name = user_data.name
@@ -111,6 +120,32 @@ async def update_my_info(
 
     db.commit()
     db.refresh(current_user)
+
+    # Capture after state for audit log
+    after_state = {
+        "name": current_user.name,
+        "email": current_user.email,
+        "department": current_user.department,
+        "position": current_user.position,
+        "phone": current_user.phone
+    }
+
+    # Audit log: USER_UPDATED (self)
+    changes = get_changes(before_state, after_state)
+    if changes["before"] or changes["after"]:
+        await log_action(
+            db=db,
+            action_type="USER_UPDATED",
+            resource_type="USER",
+            actor_login_id=current_user.login_id,
+            actor_id=current_user.id,
+            actor_name=current_user.name,
+            actor_role=current_user.role,
+            resource_id=current_user.id,
+            resource_name=f"{current_user.name} ({current_user.login_id})",
+            changes=changes,
+            description=f"내 정보 수정: {current_user.login_id}"
+        )
 
     return {
         "success": True,

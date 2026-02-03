@@ -113,10 +113,18 @@ class ReportGenerateRequest(BaseModel):
 # PRD: PRD_Report_System.md Section 5
 # ============================================================
 
-class ChartData(BaseModel):
-    """차트 데이터"""
-    labels: List[str]
+class ChartDataset(BaseModel):
+    """LINE 차트용 다중 데이터셋 (PRD_Report_Preview_Debug GAP-4)"""
+    label: str
     values: List[Any]
+    color: Optional[str] = None
+
+
+class ChartData(BaseModel):
+    """차트 데이터 (PRD_Report_Preview_Debug: datasets 지원 추가)"""
+    labels: List[str]
+    values: Optional[List[Any]] = None           # PIE/BAR 단일 데이터셋
+    datasets: Optional[List[Any]] = None          # LINE 다중 데이터셋
     colors: Optional[List[str]] = None
 
 
@@ -138,11 +146,12 @@ class GridConfig(BaseModel):
 
 
 class ReportSection(BaseModel):
-    """보고서 섹션"""
+    """보고서 섹션 (PRD_Report_Preview_Debug: summary_data 추가)"""
     name: str
     title: str
     charts: List[ChartConfig] = []
     grids: List[GridConfig] = []
+    summary_data: Optional[dict] = None  # 요약 섹션용 카테고리별 카드 데이터
 
 
 class ReportPreviewResponse(BaseModel):

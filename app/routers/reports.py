@@ -13,7 +13,7 @@ Endpoints:
 - GET /api/reports/generations/{id} - 생성 상세 조회
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timedelta
@@ -354,6 +354,9 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
         "completed_at": generation.completed_at,
     }
 
+    # Preview URL (항상 포함)
+    response["preview_html_url"] = f"/reports/preview/{generation.id}"
+
     # COMPLETED 상태이고 pdf_file_path가 있으면 다운로드 URL 포함
     if generation.status == "COMPLETED" and generation.pdf_file_path:
         response["pdf_download_url"] = f"/api/reports/generations/{generation.id}/download"
@@ -566,3 +569,22 @@ def preview_report(
             "sections": structured_data["sections"],
         }
     )
+
+
+@router.get("/generations/{generation_id}/preview-page")
+def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
+    """
+    보고서 미리보기 (HTML 페이지로 이동)
+
+    Swagger에서 실행하면 브라우저의 보고서 미리보기 페이지로 리다이렉트됩니다.
+    차트, 그리드, 요약 카드를 시각적으로 확인할 수 있습니다.
+
+    **파라미터**:
+    - **generation_id**: 생성 이력 ID
+    """
+    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Report generation not found")
+
+    return RedirectResponse(url=f"/reports/preview/{generation_id}")

@@ -9,6 +9,7 @@ from app.models.user import User, AccountUser
 from app.models.log import ApiLog
 from app.utils.auth import hash_password
 from app.utils.init_server_data import initialize_server_data
+from app.utils.init_report_data import initialize_report_data
 
 
 def create_tables():
@@ -94,6 +95,7 @@ def initialize_database():
         create_admin_user(db)
         create_admin_account_user(db)
         initialize_server_data(db)
+        initialize_report_data(db)
     finally:
         db.close()
 

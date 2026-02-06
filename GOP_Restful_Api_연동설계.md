@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-02-02
-**버전**: v3.5
+**최종 수정일**: 2026-02-06  
+**버전**: v3.6  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -19,6 +19,8 @@
    - 5.1 [Controller API](#51-controller-api)
    - 5.2 [Sensor API](#52-sensor-api)
    - 5.3 [Camera API](#53-camera-api)
+     - 5.3.7 [카메라 설정 조회](#537-카메라-설정-조회) *(v3.6 신규)*
+     - 5.3.8 [카메라 설정 수정 (부분)](#538-카메라-설정-수정-부분) *(v3.6 신규)*
    - 5.4 [Speaker API](#54-speaker-api) *(v2.4 신규)*
    - 5.5 [Enclosure API](#55-enclosure-api) *(v2.4 신규)*
    - 5.6 [DeviceGroup API](#56-devicegroup-api)
@@ -46,6 +48,7 @@
    - 8.5 [기본 데이터 (Seed)](#85-기본-데이터-seed)
    - 8.6 [Server Metrics API](#86-server-metrics-api) *(v2.9 신규)*
    - 8.7 [System Events API](#87-system-events-api) *(v2.9 신규)*
+   - 8.8 [프록시 설정 API](#88-프록시-설정-api) *(v3.6 신규)*
 9. [Account API 설계](#9-account-api-설계) *(v3.0 신규)*
    - 9.1 [개요](#91-개요)
    - 9.2 [Auth API](#92-auth-api)
@@ -286,7 +289,8 @@ public enum EnumDeviceType : int
     Radar = 15,            // "Radar" - 레이더
     OpticalCable = 16,     // "OpticalCable" - 광케이블
     Fence_Group = 17,      // "Fence_Group" - 펜스 그룹
-    Lamp = 18              // "Lamp" - 경광등 (v3.4 신규)
+    Lamp = 18,             // "Lamp" - 경광등 (v3.4 신규)
+    Enclosure = 19         // "Enclosure" - 함체 (v3.5 신규)
 }
 ```
 
@@ -866,6 +870,108 @@ class EnumReportComponent(str, Enum):
 **사용처**:
 - `ReportTemplate.components[].id`: 템플릿 컴포넌트 ID
 - `GET /api/reports/components`: 컴포넌트 목록 조회
+
+### 4.9 Device Setting Enum (v3.6 신규)
+
+> 장비 설정 관련 Enum
+
+#### EnumOperationMode (운용 모드 - 2종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumOperationMode(str, Enum):
+    """프록시 운용 모드"""
+    NORMAL = "NORMAL"       # 일반 운용 모드
+    REGISTER = "REGISTER"   # 장비 등록 모드
+```
+
+**사용처**:
+- `ProxySetting.operation_mode`: 프록시 운용 모드
+
+#### EnumWindyMode (풍량 모드 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumWindyMode(str, Enum):
+    """풍량 모드"""
+    wind0 = "wind0"   # 풍량 모드 OFF
+    wind1 = "wind1"   # 1단계
+    wind2 = "wind2"   # 2단계
+    wind3 = "wind3"   # 3단계 강풍
+```
+
+**사용처**:
+- `ProxySetting.windy_mode`: 프록시 풍량 모드
+
+#### EnumWeatherMode (기상 모드 - 7종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumWeatherMode(str, Enum):
+    """기상 모드"""
+    NORMAL = "NORMAL"           # 평시
+    FOG = "FOG"                 # 안개
+    SEA_FOG = "SEA_FOG"         # 해무
+    YELLOW_DUST = "YELLOW_DUST" # 황사
+    RAIN = "RAIN"               # 강우
+    SNOW = "SNOW"               # 강설
+    HEAT_HAZE = "HEAT_HAZE"     # 아지랑이
+```
+
+**사용처**:
+- `CameraSetting.weather_mode`: 카메라 기상 모드
+
+#### EnumCameraVideoMode (카메라 영상 모드 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumCameraVideoMode(str, Enum):
+    """카메라 영상 모드"""
+    NORMAL = "NORMAL"               # 보통
+    STABILIZATION = "STABILIZATION" # 흔들림 보정
+    BLC = "BLC"                     # 역광 보정
+    NIGHT_ENHANCE = "NIGHT_ENHANCE" # 야간 영상 개선
+```
+
+**사용처**:
+- `CameraSetting.camera_mode`: 카메라 영상 모드
+
+#### EnumOnOff (켜짐/꺼짐 - 2종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumOnOff(str, Enum):
+    """켜짐/꺼짐"""
+    on = "on"     # 켜짐
+    off = "off"   # 꺼짐
+```
+
+**사용처**:
+- `CameraSetting.heater`: 히터 ON/OFF
+- `CameraSetting.fan`: 팬 ON/OFF
+- `CameraSetting.headlight`: 전조등 ON/OFF
+
+#### EnumDayNightMode (주야간 모드 - 3종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumDayNightMode(str, Enum):
+    """주야간 모드"""
+    AUTO = "AUTO"     # 자동 전환
+    DAY = "DAY"       # 주간 모드
+    NIGHT = "NIGHT"   # 야간 모드
+```
+
+**사용처**:
+- `CameraSetting.day_night_mode`: 카메라 주야간 모드
+
+#### EnumPalette (열화상 팔레트 - 4종)
+```python
+# Python 정의 - app/utils/enums.py
+class EnumPalette(str, Enum):
+    """열화상 팔레트"""
+    WHITE_HOT = "WHITE_HOT"   # 열원 흰색
+    BLACK_HOT = "BLACK_HOT"   # 열원 검정색
+    RAINBOW = "RAINBOW"       # 무지개
+    IRONBOW = "IRONBOW"       # 철 색상
+```
+
+**사용처**:
+- `CameraSetting.palette`: 열화상 카메라 팔레트 (열화상 카메라만 해당, nullable)
 
 ---
 
@@ -2958,6 +3064,158 @@ Accept: application/json
   "meta": {
     "timestamp": "2025-01-10T10:48:00.100Z",
     "request_id": "550e8417-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Camera with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
+#### 5.3.7 카메라 설정 조회
+
+**Endpoint**: `GET /api/devices/cameras/{camera_id}/settings`
+
+**Path Parameters**:
+- `camera_id` (int, required): Camera ID
+
+> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+
+**Request Example**:
+```http
+GET /api/devices/cameras/201/settings HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Camera settings retrieved successfully",
+  "data": {
+    "id": 1,
+    "camera_id": 201,
+    "weather_mode": "NORMAL",       //(EnumWeatherMode)
+    "camera_mode": "NORMAL",        //(EnumCameraVideoMode)
+    "heater": "off",                //(EnumOnOff)
+    "fan": "off",                   //(EnumOnOff)
+    "headlight": "off",             //(EnumOnOff)
+    "day_night_mode": "AUTO",       //(EnumDayNightMode)
+    "pan_tilt_speed": 50,
+    "zoom_speed": 50,
+    "palette": null,                //(EnumPalette, nullable)
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2026-02-06T12:00:00.050Z",
+    "request_id": "550e8403-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response** (404 Not Found):
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Camera with id 999 not found",
+    "details": "No camera exists with the specified ID"
+  },
+  "meta": {
+    "timestamp": "2026-02-06T12:00:00.050Z",
+    "request_id": "550e8403-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### 5.3.8 카메라 설정 수정 (부분)
+
+**Endpoint**: `PATCH /api/devices/cameras/{camera_id}/settings`
+
+**Request Example**:
+```http
+PATCH /api/devices/cameras/201/settings HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "weather_mode": "FOG",
+  "heater": "on",
+  "fan": "on",
+  "pan_tilt_speed": 80
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| camera_id | integer | Y | Camera ID |
+
+**Request Body** (부분 업데이트 - 변경할 필드만 포함):
+```json
+{
+  "weather_mode": "FOG",           //(EnumWeatherMode)
+  "heater": "on",                  //(EnumOnOff)
+  "fan": "on",                     //(EnumOnOff)
+  "pan_tilt_speed": 80
+}
+```
+
+> **Note**: PATCH는 부분 업데이트이므로 변경할 필드만 포함합니다. 설정이 존재하지 않으면 Upsert (자동 생성 + 요청 필드 적용).
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| weather_mode | string | N | "NORMAL" | 기상 모드 (EnumWeatherMode) (현재 값 유지) |
+| camera_mode | string | N | "NORMAL" | 카메라 영상 모드 (EnumCameraVideoMode) (현재 값 유지) |
+| heater | string | N | "off" | 히터 ON/OFF (EnumOnOff) (현재 값 유지) |
+| fan | string | N | "off" | 팬 ON/OFF (EnumOnOff) (현재 값 유지) |
+| headlight | string | N | "off" | 전조등 ON/OFF (EnumOnOff) (현재 값 유지) |
+| day_night_mode | string | N | "AUTO" | 주야간 모드 (EnumDayNightMode) (현재 값 유지) |
+| pan_tilt_speed | integer | N | 50 | 팬틸트 속도 (0~100) (현재 값 유지) |
+| zoom_speed | integer | N | 50 | 줌 속도 (0~100) (현재 값 유지) |
+| palette | string | N | null | 열화상 팔레트 (EnumPalette, nullable) (현재 값 유지) |
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Camera settings updated successfully",
+  "data": {
+    "id": 1,
+    "camera_id": 201,
+    "weather_mode": "FOG",
+    "camera_mode": "NORMAL",
+    "heater": "on",
+    "fan": "on",
+    "headlight": "off",
+    "day_night_mode": "AUTO",
+    "pan_tilt_speed": 80,
+    "zoom_speed": 50,
+    "palette": null,
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:30:00.150Z"
+  },
+  "meta": {
+    "timestamp": "2026-02-06T12:30:00.150Z",
+    "request_id": "550e8415-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -11756,10 +12014,128 @@ GET /api/servers/summary
 
 ---
 
+### 8.8 프록시 설정 API
+
+> **v3.6 신규**: PidsProxy 서버 운용 설정 (operation_mode, windy_mode) 관리
+
+#### 8.8.1 프록시 설정 조회
+
+```http
+GET /api/servers/{server_id}/proxy-settings
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | Server ID |
+
+> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+
+**Request Example**:
+```http
+GET /api/servers/1/proxy-settings HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Accept: application/json
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Proxy settings retrieved successfully",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "operation_mode": "NORMAL",       //(EnumOperationMode)
+    "windy_mode": "wind0",            //(EnumWindyMode)
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:00:00.000Z"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
+#### 8.8.2 프록시 설정 수정
+
+```http
+PATCH /api/servers/{server_id}/proxy-settings
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | Server ID |
+
+> **Note**: PATCH는 부분 업데이트이므로 변경할 필드만 포함합니다. 설정이 존재하지 않으면 Upsert (자동 생성 + 요청 필드 적용).
+
+**Request Example**:
+```http
+PATCH /api/servers/1/proxy-settings HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "operation_mode": "REGISTER",
+  "windy_mode": "wind2"
+}
+```
+
+**Request Body** (부분 업데이트 - 변경할 필드만 포함):
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| operation_mode | string | N | "NORMAL" | 운용 모드 (EnumOperationMode) (현재 값 유지) |
+| windy_mode | string | N | "wind0" | 풍량 모드 (EnumWindyMode) (현재 값 유지) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Proxy settings updated successfully",
+  "data": {
+    "id": 1,
+    "server_id": 1,
+    "operation_mode": "REGISTER",
+    "windy_mode": "wind2",
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:30:00.150Z"
+  }
+}
+```
+
+**Error Response (404 Not Found)**:
+```json
+{
+  "success": false,
+  "message": "Server with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+---
+
 ## 9. Account API 설계
 
-> **v3.0 신규**: PRD_Account_Design.md 참조
-> 사용자 인증, 계정 관리, 그룹 관리, 세션 관리 API
+> **v3.0 신규**: 사용자 인증, 계정 관리, 그룹 관리, 세션 관리 API
 
 ### 9.1 개요
 
@@ -13433,7 +13809,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v3.6 | 2026-02-03 | **Report Templates API 보완 및 User Audit 감사 연동 추가**<br><br>**[1. Report Templates API (10.3)]**<br>- GET `/api/reports/templates/{id}` 상세 조회 섹션 추가 (10.3.3)<br>- 기존 10.3.3~10.3.5 → 10.3.4~10.3.6 번호 재조정<br><br>**[2. User Audit 감사 연동 (코드 변경)]**<br>- PUT `/api/users/me` (내 정보 수정): USER_UPDATED 감사 로그 추가<br>- DELETE `/api/user-sessions/user/{id}` (전체 세션 강제 로그아웃): SESSION_FORCED_LOGOUT 감사 로그 추가<br>- DELETE `/api/user-sessions/me/{session_id}` (내 세션 종료): SESSION_TERMINATED 감사 로그 추가 |
+| v3.6 | 2026-02-06 | **Device Setting API 추가 (Camera Settings GET/PATCH, Proxy Settings GET/PATCH), Enum 7종 추가 (EnumOperationMode, EnumWindyMode, EnumWeatherMode, EnumCameraVideoMode, EnumOnOff, EnumDayNightMode, EnumPalette)**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumOperationMode (2종)**: NORMAL, REGISTER<br>- **EnumWindyMode (4종)**: wind0, wind1, wind2, wind3<br>- **EnumWeatherMode (7종)**: NORMAL, FOG, SEA_FOG, YELLOW_DUST, RAIN, SNOW, HEAT_HAZE<br>- **EnumCameraVideoMode (4종)**: NORMAL, STABILIZATION, BLC, NIGHT_ENHANCE<br>- **EnumOnOff (2종)**: on, off<br>- **EnumDayNightMode (3종)**: AUTO, DAY, NIGHT<br>- **EnumPalette (4종)**: WHITE_HOT, BLACK_HOT, RAINBOW, IRONBOW<br><br>**[2. Camera Settings API (5.3.7~5.3.8)]**<br>- **GET /api/devices/cameras/{camera_id}/settings**: 카메라 설정 조회 (Lazy 생성)<br>- **PATCH /api/devices/cameras/{camera_id}/settings**: 카메라 설정 수정 (Upsert)<br>- **설정 필드**: weather_mode, camera_mode, heater, fan, headlight, day_night_mode, pan_tilt_speed, zoom_speed, palette<br><br>**[3. Proxy Settings API (8.8)]**<br>- **GET /api/servers/{server_id}/proxy-settings**: 프록시 설정 조회 (Lazy 생성)<br>- **PATCH /api/servers/{server_id}/proxy-settings**: 프록시 설정 수정 (Upsert)<br>- **설정 필드**: operation_mode, windy_mode |
 | v3.5 | 2026-02-02 | **Audit Log SENSITIVE_FIELDS 정합성 수정**<br><br>**[1. 민감필드 목록 동기화 (9.6.4)]**<br>- `password_hash`, `hashed_password`, `refresh_token`, `user_password` 추가<br>- PRD_Audit_Log.md Section 5.2와 완전 동기화<br>- audit_service.py SENSITIVE_FIELDS 코드와 문서 일치<br><br>**[2. 테스트 수정]**<br>- `test_session_forced_logout_audit_log`: UserSession `login_at` → `created_at` 동기화 (PRD_UserSession_Improvement.md v1.2) |
 | v3.4 | 2026-01-26 | **Lamp Device 및 EventMappingLamp API 추가 (PRD_Lamp_Device.md v1.1)**<br><br>**[1. Lamp Enum 추가 (4.1)]**<br>- **EnumDeviceType 확장**: `Lamp = 18` 추가<br>- **EnumLampColor (5종)**: Red, Orange, Green, Blue, White<br>- **EnumBuzzerSound (6종)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute<br>- **EnumLightMode (3종)**: steady, blinking, rotating<br><br>**[2. Lamp API (5.11)]**<br>- **Endpoint**: `/api/devices/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **Device Polymorphic 상속**: ip_address, ip_port, description, geolocation<br>- **Nested Response**: device_groups 포함<br>- **ConfigChangeLog 연동**: LAMP 리소스 자동 로깅<br><br>**[3. EventMappingLamp API (7.5)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 관계**: event_mapping_id (CASCADE), lamp_id (SET NULL)<br>- **동작 설정**: color, buzzer_time, buzzer_sound, light_mode, is_enable, priority<br>- **Nested Response**: event_mapping, lamp 상세 정보 포함<br>- **ConfigChangeLog 연동**: EVENT_MAPPING_LAMP 리소스 자동 로깅<br><br>**[4. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **LampSummary 추가**: ip_address, ip_port, description, geolocation<br>- **DeviceSummary Union 확장**: 6종 지원 (Controller, Sensor, Camera, Speaker, Enclosure, Lamp) |
 | v3.3 | 2026-01-23 | **Report API 추가, User API 문서 정합성 수정, DeviceGroup 폴리모픽 응답 확장**<br><br>**[1. Report API 신규 (PRD_Report_System.md)]**<br>- **Report Enum 추가 (4.8)**: EnumReportType (2종), EnumReportPeriod (4종), EnumReportStatus (4종), EnumChartType (4종), EnumReportComponent (15종)<br>- **Report API (10절)**: GET /api/reports/components, templates CRUD, POST /api/reports/generate, generations 조회/다운로드/미리보기<br>- **Report Preview Page (10.5)**: Chart.js 기반 HTML 미리보기<br>- **섹션 번호 변경**: 10 → 11 (에러 처리), 11 → 12 (부록)<br><br>**[2. User API 문서 정합성 수정]**<br>- **GET /api/users (9.3.2)**: department 파라미터 추가, 누락 필드 10개 추가 (email, position, employee_number 등)<br>- **POST /api/users (9.3.3)**: 누락 필드 4개 추가, Response 18개 필드로 확장<br>- **AccountUserCreate/Response 스키마와 완전 동기화**<br><br>**[3. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **SpeakerSummary 추가**: speaker_type, server_id, description, geolocation<br>- **EnclosureSummary 추가**: door_status, heater_enabled, fan_enabled, threshold_config, geolocation<br>- **DeviceSummary Union 확장**: Controller, Sensor, Camera, Speaker, Enclosure 5종 지원<br>- **devices 배열 예시 업데이트**: Speaker, Enclosure 예시 추가 |
@@ -13460,5 +13836,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v3.5
-**최종 업데이트**: 2026-02-02
+**문서 버전**: v3.6
+**최종 업데이트**: 2026-02-06

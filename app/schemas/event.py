@@ -11,16 +11,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, Union, Literal, List, Dict, Any, TYPE_CHECKING
 
+from app.utils.enums import (
+    EnumEventType, EnumTrueFalse, EnumDetectionType, EnumFaultType,
+)
+
 if TYPE_CHECKING:
     from app.schemas.device import SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse
 
 
 # Enum value constants for documentation
-DEVICE_TYPE_VALUES = "NONE | Controller | Multi | Fence | Underground | Contact | PIR | IoController | Laser | Cable | IpCamera | SmartSensor | SmartSensor2 | SmartCompound | IpSpeaker | Radar | OpticalCable | Fence_Group"
-DETECTION_TYPE_VALUES = "NONE | CABLE_CUTTING | CABLE_CONNECTED | PIR_SENSOR | THERMAL_SENSOR | VIBRATION_SENSOR | CONTACT_SENSOR | DISTANCE_SENSOR"
+DEVICE_TYPE_VALUES = "NONE | Controller | Multi | Fence | Underground | Contact | PIR | IoController | Laser | Cable | IpCamera | SmartSensor | SmartSensor2 | SmartCompound | IpSpeaker | Radar | OpticalCable | Fence_Group | Lamp | Enclosure"
+DETECTION_TYPE_VALUES = "NONE | CABLE_CUTTING | CABLE_CONNECTED | PIR_SENSOR | THERMAL_SENSOR | VIBRATION_SENSOR | CONTACT_SENSOR | DISTANCE_SENSOR | AI_DETECT"
 FAULT_TYPE_VALUES = "FAULT_CONTROLLER | FAULT_FENCE | FAULT_MULTI | FAULT_CABLE_CUTTING | FAULT_ETC"
 TRUE_FALSE_VALUES = "True | False"
-EVENT_TYPE_VALUES = "None | Intrusion | ContactOn | ContactOff | Connection | Action | Fault | WindyMode | Lowlight | DetectionMode | TrackingMode"
+EVENT_TYPE_VALUES = "None | Intrusion | ContactOn | ContactOff | Connection | Action | Fault | WindyMode"
 
 
 # ===== Event Detail JSONB Schemas (PRD_Event_Detail_JsonB.md v1.0) =====
@@ -111,9 +115,9 @@ class DetectionEventResponse(BaseModel):
     - Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)
     """
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: str = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    action_reported: str = Field(..., example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
-    result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Intrusion", description="이벤트 유형")
+    action_reported: EnumTrueFalse = Field(..., example="False", description="조치 보고 여부")
+    result: EnumDetectionType = Field(..., example="PIR_SENSOR", description="탐지 결과")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
@@ -227,9 +231,9 @@ class MalfunctionEventResponse(BaseModel):
     - first_start/end, second_start/end: detail JSONB로 이동
     """
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: str = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    action_reported: str = Field(..., example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
-    reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Fault", description="이벤트 유형")
+    action_reported: EnumTrueFalse = Field(..., example="False", description="조치 보고 여부")
+    reason: EnumFaultType = Field(..., example="FAULT_CONTROLLER", description="고장 원인")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
@@ -315,7 +319,7 @@ class ConnectionEventResponse(BaseModel):
     - Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)
     """
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: str = Field(..., example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Connection", description="이벤트 유형")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
@@ -353,7 +357,7 @@ class ActionEventCreate(BaseModel):
 class ActionEventResponse(BaseModel):
     """Schema for ActionEvent response"""
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: str = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Action", description="이벤트 유형")
     content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
     user: str = Field(..., example="operator1", description="조치자")
     from_event: Union['DetectionEventResponse', 'MalfunctionEventResponse', 'ConnectionEventResponse'] = Field(..., description="원본 이벤트 객체")

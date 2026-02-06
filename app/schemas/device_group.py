@@ -6,6 +6,10 @@ PRD: PRD_Camera_Urls_JsonB.md v1.0 - Camera urls JSONB 통합
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Union, TYPE_CHECKING
 from datetime import datetime
+from app.utils.enums import (
+    EnumDeviceType, EnumDeviceStatus,
+    EnumCameraMode, EnumCameraType, EnumSpeakerType, EnumDoorStatus,
+)
 
 if TYPE_CHECKING:
     from app.schemas.device import CameraUrls
@@ -92,7 +96,7 @@ class DeviceSummaryBase(BaseModel):
         description="디바이스 이름",
         json_schema_extra={"example": "Controller-A"}
     )
-    type_device: str = Field(
+    type_device: EnumDeviceType = Field(
         ...,
         description="디바이스 타입",
         json_schema_extra={"example": "IoController"}
@@ -102,7 +106,7 @@ class DeviceSummaryBase(BaseModel):
         description="디바이스 버전",
         json_schema_extra={"example": "v2.1.0"}
     )
-    status: str = Field(
+    status: EnumDeviceStatus = Field(
         ...,
         description="디바이스 상태",
         json_schema_extra={"example": "ACTIVATED"}
@@ -204,8 +208,8 @@ class CameraSummary(DeviceSummaryBase):
         description="카메라 URL 정보 (JSONB)",
         json_schema_extra={"example": {"streams": {"rtsp": {"main": "rtsp://192.168.1.200:554/stream1"}}}}
     )
-    mode: str = Field(..., description="카메라 모드", json_schema_extra={"example": "RTSP"})
-    camera_category: str = Field(
+    mode: EnumCameraMode = Field(..., description="카메라 모드", json_schema_extra={"example": "ONVIF"})
+    camera_category: EnumCameraType = Field(
         ...,
         description="카메라 카테고리",
         json_schema_extra={"example": "PTZ"}
@@ -236,7 +240,7 @@ class SpeakerSummary(DeviceSummaryBase):
     version: Optional[str] = Field(None, description="디바이스 버전", json_schema_extra={"example": "v1.0.0"})
 
     # Speaker-specific fields
-    speaker_type: str = Field(
+    speaker_type: EnumSpeakerType = Field(
         ...,
         description="스피커 타입 (EnumSpeakerType)",
         json_schema_extra={"example": "NORMAL"}
@@ -271,7 +275,7 @@ class EnclosureSummary(DeviceSummaryBase):
     version: Optional[str] = Field(None, description="디바이스 버전", json_schema_extra={"example": "v1.0.0"})
 
     # Enclosure-specific fields
-    door_status: str = Field(
+    door_status: EnumDoorStatus = Field(
         ...,
         description="도어 물리적 상태 (EnumDoorStatus)",
         json_schema_extra={"example": "CLOSED"}

@@ -16,7 +16,11 @@ from app.schemas.device import (
     Geolocation,
     DeviceGroupNestedResponse
 )
-from app.utils.enums import EnumMappingEventCategory
+from app.utils.enums import (
+    EnumMappingEventCategory, EnumDeviceType, EnumDeviceStatus,
+    EnumCameraMode, EnumCameraType, EnumSpeakerType,
+    EnumLampColor, EnumBuzzerSound, EnumLightMode,
+)
 
 
 # ============================================
@@ -93,14 +97,14 @@ class CameraNestedResponseIntegration(BaseModel):
     number_device: int
     group_device: int
     name_device: str
-    type_device: str
+    type_device: EnumDeviceType
     version: Optional[str] = None
-    status: str
+    status: EnumDeviceStatus
     is_enable: bool = True
     ip_address: str
     ip_port: int
-    mode: str
-    category: str
+    mode: EnumCameraMode
+    category: EnumCameraType
     is_record: bool = False
     hardware_spec: Optional[HardwareSpec] = None
     geolocation: Optional[Geolocation] = None
@@ -270,13 +274,13 @@ class SpeakerNestedResponseIntegration(BaseModel):
     number_device: int
     group_device: int
     name_device: str
-    type_device: str
+    type_device: EnumDeviceType
     version: Optional[str] = None
-    status: str
+    status: EnumDeviceStatus
     is_enable: bool = True
 
     # Speaker 고유 필드
-    speaker_type: str
+    speaker_type: EnumSpeakerType
     server_id: Optional[int] = None
     description: Optional[str] = None
     geolocation: Optional[Geolocation] = None
@@ -335,7 +339,7 @@ class EventMappingNestedResponse(BaseModel):
     """
     id: int
     name_event: str = Field(..., description="이벤트 매핑 이름")
-    category_event_mapping: str = Field(..., description="이벤트 매핑 카테고리")
+    category_event_mapping: EnumMappingEventCategory = Field(..., description="이벤트 매핑 카테고리")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -354,9 +358,9 @@ class LampNestedResponseIntegration(BaseModel):
     number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
     name_device: str = Field(..., description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
-    type_device: str = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
+    type_device: EnumDeviceType = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
     version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
-    status: str = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    status: EnumDeviceStatus = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
     is_enable: bool = Field(True, description="장비 활성화 여부", json_schema_extra={"example": True})
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
@@ -429,10 +433,10 @@ class EventMappingLampResponse(BaseModel):
     id: int = Field(..., description="EventMappingLamp ID", json_schema_extra={"example": 1})
     event_mapping: EventMappingNestedResponse = Field(..., description="연결된 EventMapping 정보")
     lamp: Optional[LampNestedResponseIntegration] = Field(None, description="연결된 경광등 정보 (삭제 시 null)")
-    color: str = Field(..., description="경광등 색상", json_schema_extra={"example": "Red"})
+    color: EnumLampColor = Field(..., description="경광등 색상", json_schema_extra={"example": "Red"})
     buzzer_time: int = Field(..., description="부저 작동 시간 (초)", json_schema_extra={"example": 5})
-    buzzer_sound: str = Field(..., description="부저 소리 패턴", json_schema_extra={"example": "PI-PI-PI"})
-    light_mode: str = Field(..., description="점등 모드", json_schema_extra={"example": "steady"})
+    buzzer_sound: EnumBuzzerSound = Field(..., description="부저 소리 패턴", json_schema_extra={"example": "PI-PI-PI"})
+    light_mode: EnumLightMode = Field(..., description="점등 모드", json_schema_extra={"example": "steady"})
     is_enable: bool = Field(..., description="활성화 여부", json_schema_extra={"example": True})
     priority: int = Field(..., description="우선순위", json_schema_extra={"example": 1})
     created_at: datetime = Field(..., description="생성 일시")

@@ -551,6 +551,99 @@ class EnumConfigActionType(str, Enum):
 # Report System Enums (PRD: PRD_Report_System.md Section 3)
 # ============================================================
 
+# ============================================================
+# Device Setting Enums (PRD: PRD_Device_Setting.md Section 2)
+# ============================================================
+
+class EnumOperationMode(str, Enum):
+    """
+    Proxy operation mode enumeration (2종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    PidsProxy 서버 운용 모드
+    """
+    NORMAL = "NORMAL"       # 일반 운용 모드
+    REGISTER = "REGISTER"   # 장비 등록 모드
+
+
+class EnumWindyMode(str, Enum):
+    """
+    Windy mode enumeration (4종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    풍량 모드
+    """
+    WIND0 = "wind0"   # 풍량 모드 OFF
+    WIND1 = "wind1"   # 풍량 모드 1단계
+    WIND2 = "wind2"   # 풍량 모드 2단계
+    WIND3 = "wind3"   # 풍량 모드 3단계 (강풍)
+
+
+class EnumWeatherMode(str, Enum):
+    """
+    Weather mode enumeration (7종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    악천후 모드
+    """
+    NORMAL = "NORMAL"           # 평시
+    FOG = "FOG"                 # 안개
+    SEA_FOG = "SEA_FOG"         # 해무
+    YELLOW_DUST = "YELLOW_DUST" # 황사
+    RAIN = "RAIN"               # 강우
+    SNOW = "SNOW"               # 강설
+    HEAT_HAZE = "HEAT_HAZE"     # 아지랑이
+
+
+class EnumCameraVideoMode(str, Enum):
+    """
+    Camera video mode enumeration (4종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    카메라 영상 모드 (EnumCameraMode는 연결 프로토콜이므로 별도 정의)
+    """
+    NORMAL = "NORMAL"               # 보통
+    STABILIZATION = "STABILIZATION" # 흔들림 보정
+    BLC = "BLC"                     # 역광 보정
+    NIGHT_ENHANCE = "NIGHT_ENHANCE" # 야간 영상 개선
+
+
+class EnumOnOff(str, Enum):
+    """
+    On/Off enumeration (2종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    열선/팬/전조등 상태
+    """
+    ON = "on"     # 켜짐
+    OFF = "off"   # 꺼짐
+
+
+class EnumDayNightMode(str, Enum):
+    """
+    Day/Night mode enumeration (3종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    주/야간 모드 (IR 컷필터)
+    """
+    AUTO = "AUTO"   # 자동 전환
+    DAY = "DAY"     # 주간 모드 (컬러)
+    NIGHT = "NIGHT" # 야간 모드 (흑백, IR 컷필터 해제)
+
+
+class EnumPalette(str, Enum):
+    """
+    Thermal palette enumeration (4종)
+    PRD: PRD_Device_Setting.md Section 2
+
+    열화상 팔레트 (nullable)
+    """
+    WHITE_HOT = "WHITE_HOT"   # 열원이 흰색
+    BLACK_HOT = "BLACK_HOT"   # 열원이 검정색
+    RAINBOW = "RAINBOW"       # 무지개
+    IRONBOW = "IRONBOW"       # 철 색상
+
+
 class EnumReportType(str, Enum):
     """
     Report type enumeration (2종)

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, List, Any
 
-from app.utils.enums import EnumReportType, EnumReportPeriod
+from app.utils.enums import EnumReportType, EnumReportPeriod, EnumReportStatus
 
 
 # ============================================================
@@ -73,11 +73,11 @@ class ReportTemplateResponse(BaseModel):
     """
     id: int
     name: str
-    report_type: str
+    report_type: EnumReportType
     owner_id: Optional[int] = None
     is_public: bool
     components: List[Any]  # JSON stored as list of dicts
-    default_period: str
+    default_period: EnumReportPeriod
     description: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -197,7 +197,7 @@ class ReportPreviewResponse(BaseModel):
     """보고서 미리보기 응답"""
     id: int
     title: str
-    period_type: str
+    period_type: EnumReportPeriod
     start_date: datetime
     end_date: datetime
     sections: List[ReportSection]
@@ -234,11 +234,11 @@ class ReportTemplateListResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
-    report_type: str
+    report_type: EnumReportType
     owner_id: Optional[int] = None
     is_public: bool
     component_count: int
-    default_period: str
+    default_period: EnumReportPeriod
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -247,10 +247,10 @@ class ReportTemplateListResponse(BaseModel):
 class ReportGenerationListResponse(BaseModel):
     """보고서 생성 목록 응답 (경량)"""
     id: int
-    report_type: str
+    report_type: EnumReportType
     title: str
-    period_type: str
-    status: str
+    period_type: EnumReportPeriod
+    status: EnumReportStatus
     created_at: datetime
     generator_name: Optional[str] = None
     completed_at: Optional[datetime] = None
@@ -268,12 +268,12 @@ class ReportGenerationResponse(BaseModel):
     PRD: PRD_Report_System.md Section 5.6
     """
     id: int
-    report_type: str
+    report_type: EnumReportType
     title: str
-    period_type: str
+    period_type: EnumReportPeriod
     start_date: datetime
     end_date: datetime
-    status: str
+    status: EnumReportStatus
     created_at: datetime
 
     # Nullable fields

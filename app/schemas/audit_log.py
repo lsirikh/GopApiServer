@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+from app.utils.enums import (
+    EnumAuditActionType, EnumAuditStatus, EnumAuditResourceType, EnumUserRole,
+)
+
 
 # ============================================================
 # Request Schemas
@@ -95,11 +99,11 @@ class AuditLogResponse(BaseModel):
     id: int = Field(..., description="로그 ID", json_schema_extra={"example": 1})
 
     # 행위 정보
-    action_type: str = Field(..., description="행위 유형", json_schema_extra={"example": "USER_CREATED"})
-    action_status: str = Field(..., description="행위 결과", json_schema_extra={"example": "SUCCESS"})
+    action_type: EnumAuditActionType = Field(..., description="행위 유형", json_schema_extra={"example": "USER_CREATED"})
+    action_status: EnumAuditStatus = Field(..., description="행위 결과", json_schema_extra={"example": "SUCCESS"})
 
     # 대상 리소스 정보
-    resource_type: str = Field(..., description="대상 리소스 유형", json_schema_extra={"example": "USER"})
+    resource_type: EnumAuditResourceType = Field(..., description="대상 리소스 유형", json_schema_extra={"example": "USER"})
     resource_id: Optional[int] = Field(None, description="대상 리소스 ID", json_schema_extra={"example": 5})
     resource_name: Optional[str] = Field(None, description="대상 리소스 이름", json_schema_extra={"example": "홍길동 (operator01)"})
 
@@ -107,7 +111,7 @@ class AuditLogResponse(BaseModel):
     actor_id: Optional[int] = Field(None, description="행위자 ID", json_schema_extra={"example": 1})
     actor_login_id: str = Field(..., description="행위자 로그인 ID", json_schema_extra={"example": "admin"})
     actor_name: Optional[str] = Field(None, description="행위자 이름", json_schema_extra={"example": "관리자"})
-    actor_role: Optional[str] = Field(None, description="행위자 역할", json_schema_extra={"example": "ADMIN"})
+    actor_role: Optional[EnumUserRole] = Field(None, description="행위자 역할", json_schema_extra={"example": "ADMIN"})
 
     # 변경 상세
     changes: Optional[Dict[str, Any]] = Field(None, description="변경 내역")

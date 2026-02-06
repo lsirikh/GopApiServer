@@ -10,6 +10,7 @@ from app.models.system_event import SystemEvent
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.models.file_group import FileGroup
 from app.models.audit_log import AuditLog
+from app.models.device_setting import ProxySetting, CameraSetting
 
 __all__ = [
     # Device models
@@ -45,4 +46,7 @@ __all__ = [
     "FileGroup",
     # Audit Log models
     "AuditLog",
+    # Device Setting models
+    "ProxySetting",
+    "CameraSetting",
 ]

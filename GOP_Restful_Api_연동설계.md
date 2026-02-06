@@ -20,7 +20,7 @@
    - 5.2 [Sensor API](#52-sensor-api)
    - 5.3 [Camera API](#53-camera-api)
      - 5.3.7 [카메라 설정 조회](#537-카메라-설정-조회) *(v3.6 신규)*
-     - 5.3.8 [카메라 설정 수정](#538-카메라-설정-수정-부분) *(v3.6 신규)*
+     - 5.3.8 [카메라 설정 수정 (부분)](#538-카메라-설정-수정-부분) *(v3.6 신규)*
    - 5.4 [Speaker API](#54-speaker-api) *(v2.4 신규)*
    - 5.5 [Enclosure API](#55-enclosure-api) *(v2.4 신규)*
    - 5.6 [DeviceGroup API](#56-devicegroup-api)
@@ -3086,20 +3086,18 @@ Accept: application/json
 
 **Endpoint**: `GET /api/devices/cameras/{camera_id}/settings`
 
+**Path Parameters**:
+- `camera_id` (int, required): Camera ID
+
+> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+
 **Request Example**:
 ```http
-GET /api/devices/cameras/1/settings HTTP/1.1
+GET /api/devices/cameras/201/settings HTTP/1.1
 Host: control-service.company.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Accept: application/json
 ```
-
-**Path Parameters**:
-| 파라미터 | 타입 | 필수 | 설명 |
-|----------|------|------|------|
-| camera_id | integer | Y | Camera ID |
-
-> **Note**: 설정 없으면 기본값으로 자동 생성 (Lazy 생성)
 
 **Response Example** (200 OK):
 ```json
@@ -3108,30 +3106,38 @@ Accept: application/json
   "message": "Camera settings retrieved successfully",
   "data": {
     "id": 1,
-    "camera_id": 1,
-    "weather_mode": "NORMAL",
-    "camera_mode": "NORMAL",
-    "heater": "off",
-    "fan": "off",
-    "headlight": "off",
-    "day_night_mode": "AUTO",
+    "camera_id": 201,
+    "weather_mode": "NORMAL",       //(EnumWeatherMode)
+    "camera_mode": "NORMAL",        //(EnumCameraVideoMode)
+    "heater": "off",                //(EnumOnOff)
+    "fan": "off",                   //(EnumOnOff)
+    "headlight": "off",             //(EnumOnOff)
+    "day_night_mode": "AUTO",       //(EnumDayNightMode)
     "pan_tilt_speed": 50,
     "zoom_speed": 50,
-    "palette": null,
-    "created_at": "2026-02-06T12:00:00",
-    "updated_at": "2026-02-06T12:00:00"
+    "palette": null,                //(EnumPalette, nullable)
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:00:00.000Z"
+  },
+  "meta": {
+    "timestamp": "2026-02-06T12:00:00.050Z",
+    "request_id": "550e8403-e29b-41d4-a716-446655440000"
   }
 }
 ```
 
-**Error Response (404 Not Found)**:
+**Error Response** (404 Not Found):
 ```json
 {
   "success": false,
-  "message": "Camera with id 999 not found",
   "error": {
     "code": "NOT_FOUND",
-    "details": null
+    "message": "Camera with id 999 not found",
+    "details": "No camera exists with the specified ID"
+  },
+  "meta": {
+    "timestamp": "2026-02-06T12:00:00.050Z",
+    "request_id": "550e8403-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -3144,7 +3150,7 @@ Accept: application/json
 
 **Request Example**:
 ```http
-PATCH /api/devices/cameras/1/settings HTTP/1.1
+PATCH /api/devices/cameras/201/settings HTTP/1.1
 Host: control-service.company.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Content-Type: application/json
@@ -3166,26 +3172,26 @@ Accept: application/json
 **Request Body** (부분 업데이트 - 변경할 필드만 포함):
 ```json
 {
-  "weather_mode": "FOG",
-  "heater": "on",
-  "fan": "on",
+  "weather_mode": "FOG",           //(EnumWeatherMode)
+  "heater": "on",                  //(EnumOnOff)
+  "fan": "on",                     //(EnumOnOff)
   "pan_tilt_speed": 80
 }
 ```
 
-> **Note**: 모든 필드 optional (partial update). 설정 없으면 Upsert (자동 생성 + 요청 필드 적용)
+> **Note**: PATCH는 부분 업데이트이므로 변경할 필드만 포함합니다. 설정이 존재하지 않으면 Upsert (자동 생성 + 요청 필드 적용).
 
 | 필드 | 타입 | 필수 | 기본값 | 설명 |
 |------|------|------|--------|------|
-| weather_mode | string | N | "NORMAL" | 기상 모드 (EnumWeatherMode) |
-| camera_mode | string | N | "NORMAL" | 카메라 영상 모드 (EnumCameraVideoMode) |
-| heater | string | N | "off" | 히터 ON/OFF (EnumOnOff) |
-| fan | string | N | "off" | 팬 ON/OFF (EnumOnOff) |
-| headlight | string | N | "off" | 전조등 ON/OFF (EnumOnOff) |
-| day_night_mode | string | N | "AUTO" | 주야간 모드 (EnumDayNightMode) |
-| pan_tilt_speed | integer | N | 50 | 팬틸트 속도 (0~100) |
-| zoom_speed | integer | N | 50 | 줌 속도 (0~100) |
-| palette | string | N | null | 열화상 팔레트 (EnumPalette, nullable) |
+| weather_mode | string | N | "NORMAL" | 기상 모드 (EnumWeatherMode) (현재 값 유지) |
+| camera_mode | string | N | "NORMAL" | 카메라 영상 모드 (EnumCameraVideoMode) (현재 값 유지) |
+| heater | string | N | "off" | 히터 ON/OFF (EnumOnOff) (현재 값 유지) |
+| fan | string | N | "off" | 팬 ON/OFF (EnumOnOff) (현재 값 유지) |
+| headlight | string | N | "off" | 전조등 ON/OFF (EnumOnOff) (현재 값 유지) |
+| day_night_mode | string | N | "AUTO" | 주야간 모드 (EnumDayNightMode) (현재 값 유지) |
+| pan_tilt_speed | integer | N | 50 | 팬틸트 속도 (0~100) (현재 값 유지) |
+| zoom_speed | integer | N | 50 | 줌 속도 (0~100) (현재 값 유지) |
+| palette | string | N | null | 열화상 팔레트 (EnumPalette, nullable) (현재 값 유지) |
 
 **Response Example** (200 OK):
 ```json
@@ -3194,7 +3200,7 @@ Accept: application/json
   "message": "Camera settings updated successfully",
   "data": {
     "id": 1,
-    "camera_id": 1,
+    "camera_id": 201,
     "weather_mode": "FOG",
     "camera_mode": "NORMAL",
     "heater": "on",
@@ -3204,8 +3210,12 @@ Accept: application/json
     "pan_tilt_speed": 80,
     "zoom_speed": 50,
     "palette": null,
-    "created_at": "2026-02-06T12:00:00",
-    "updated_at": "2026-02-06T12:30:00"
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:30:00.150Z"
+  },
+  "meta": {
+    "timestamp": "2026-02-06T12:30:00.150Z",
+    "request_id": "550e8415-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -12006,9 +12016,20 @@ GET /api/servers/summary
 
 ### 8.8 프록시 설정 API
 
+> **v3.6 신규**: PidsProxy 서버 운용 설정 (operation_mode, windy_mode) 관리
+
 #### 8.8.1 프록시 설정 조회
 
-**Endpoint**: `GET /api/servers/{server_id}/proxy-settings`
+```http
+GET /api/servers/{server_id}/proxy-settings
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | Server ID |
+
+> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
 
 **Request Example**:
 ```http
@@ -12018,14 +12039,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Accept: application/json
 ```
 
-**Path Parameters**:
-| 파라미터 | 타입 | 필수 | 설명 |
-|----------|------|------|------|
-| server_id | integer | Y | Server ID |
-
-> **Note**: 설정 없으면 기본값으로 자동 생성
-
-**Response Example** (200 OK):
+**Response (200 OK)**:
 ```json
 {
   "success": true,
@@ -12033,10 +12047,10 @@ Accept: application/json
   "data": {
     "id": 1,
     "server_id": 1,
-    "operation_mode": "NORMAL",
-    "windy_mode": "wind0",
-    "created_at": "2026-02-06T12:00:00",
-    "updated_at": "2026-02-06T12:00:00"
+    "operation_mode": "NORMAL",       //(EnumOperationMode)
+    "windy_mode": "wind0",            //(EnumWindyMode)
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:00:00.000Z"
   }
 }
 ```
@@ -12057,7 +12071,16 @@ Accept: application/json
 
 #### 8.8.2 프록시 설정 수정
 
-**Endpoint**: `PATCH /api/servers/{server_id}/proxy-settings`
+```http
+PATCH /api/servers/{server_id}/proxy-settings
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | Server ID |
+
+> **Note**: PATCH는 부분 업데이트이므로 변경할 필드만 포함합니다. 설정이 존재하지 않으면 Upsert (자동 생성 + 요청 필드 적용).
 
 **Request Example**:
 ```http
@@ -12073,27 +12096,14 @@ Accept: application/json
 }
 ```
 
-**Path Parameters**:
-| 파라미터 | 타입 | 필수 | 설명 |
-|----------|------|------|------|
-| server_id | integer | Y | Server ID |
-
 **Request Body** (부분 업데이트 - 변경할 필드만 포함):
-```json
-{
-  "operation_mode": "REGISTER",
-  "windy_mode": "wind2"
-}
-```
-
-> **Note**: 모든 필드 optional. 설정 없으면 Upsert (자동 생성 + 요청 필드 적용)
 
 | 필드 | 타입 | 필수 | 기본값 | 설명 |
 |------|------|------|--------|------|
-| operation_mode | string | N | "NORMAL" | 운용 모드 (EnumOperationMode) |
-| windy_mode | string | N | "wind0" | 풍량 모드 (EnumWindyMode) |
+| operation_mode | string | N | "NORMAL" | 운용 모드 (EnumOperationMode) (현재 값 유지) |
+| windy_mode | string | N | "wind0" | 풍량 모드 (EnumWindyMode) (현재 값 유지) |
 
-**Response Example** (200 OK):
+**Response (200 OK)**:
 ```json
 {
   "success": true,
@@ -12103,8 +12113,8 @@ Accept: application/json
     "server_id": 1,
     "operation_mode": "REGISTER",
     "windy_mode": "wind2",
-    "created_at": "2026-02-06T12:00:00",
-    "updated_at": "2026-02-06T12:30:00"
+    "created_at": "2026-02-06T12:00:00.000Z",
+    "updated_at": "2026-02-06T12:30:00.150Z"
   }
 }
 ```

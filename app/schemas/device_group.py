@@ -204,7 +204,7 @@ class CameraSummary(DeviceSummaryBase):
         description="카메라 URL 정보 (JSONB)",
         json_schema_extra={"example": {"streams": {"rtsp": {"main": "rtsp://192.168.1.200:554/stream1"}}}}
     )
-    mode: str = Field(..., description="카메라 모드", json_schema_extra={"example": "RTSP"})
+    mode: str = Field(..., description="카메라 모드", json_schema_extra={"example": "ONVIF"})
     camera_category: str = Field(
         ...,
         description="카메라 카테고리",

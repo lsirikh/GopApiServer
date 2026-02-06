@@ -25,7 +25,7 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -73,6 +73,10 @@ tags_metadata = [
     {
         "name": "Cameras",
         "description": "카메라 디바이스 CRUD API. 영상 감시 장치로 HardwareSpec, Geolocation 확장 필드를 지원합니다. PRD Section 3.2 참조.",
+    },
+    {
+        "name": "Camera Settings",
+        "description": "카메라 기능 설정 API. PRD: PRD_Device_Setting.md Section 5.2",
     },
     {
         "name": "Speakers",
@@ -137,6 +141,10 @@ tags_metadata = [
     {
         "name": "Server Metrics",
         "description": "서버 리소스 메트릭 API. PRD: PRD_System_Event.md Section 2.4",
+    },
+    {
+        "name": "Proxy Settings",
+        "description": "PidsProxy 서버 운용 설정 API. PRD: PRD_Device_Setting.md Section 5.1",
     },
     {
         "name": "System Events",
@@ -525,6 +533,7 @@ app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
 app.include_router(controllers.router, prefix="/api/devices/controllers", tags=["Controllers"])
 app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors"])
 app.include_router(cameras.router, prefix="/api/devices/cameras", tags=["Cameras"])
+app.include_router(camera_settings.router, prefix="/api/devices/cameras", tags=["Camera Settings"])
 app.include_router(speakers.router, prefix="/api/devices/speakers", tags=["Speakers"])
 app.include_router(enclosures.router, prefix="/api/devices/enclosures", tags=["Enclosures"])
 app.include_router(lamps.router, prefix="/api/devices/lamps", tags=["Lamps"])
@@ -542,6 +551,7 @@ app.include_router(event_mapping_lamps.router, prefix="/api/integrations/event-m
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
 app.include_router(server_metrics.router, prefix="/api/servers", tags=["Server Metrics"])
+app.include_router(proxy_settings.router, prefix="/api/servers", tags=["Proxy Settings"])
 app.include_router(system_events.router, prefix="/api/system-events", tags=["System Events"])
 app.include_router(device_groups.router, prefix="/api", tags=["DeviceGroups"])
 app.include_router(camera_presets.router, prefix="/api/devices/cameras", tags=["CameraPresets"])

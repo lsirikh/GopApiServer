@@ -22,6 +22,7 @@ from app.models.system_event import SystemEvent
 from app.models.config_change_log import ConfigChangeLog
 from app.models.audit_log import AuditLog
 from app.models.server import Server, ServerCategory
+from app.models.device_setting import ProxySetting, CameraSetting
 from app.utils.enums import (
     EnumDeviceType, EnumDeviceStatus,
     EnumCameraMode, EnumCameraType, EnumSpeakerType, EnumDoorStatus,
@@ -31,6 +32,9 @@ from app.utils.enums import (
     EnumAuditActionType, EnumAuditResourceType, EnumAuditStatus,
     EnumConfigResourceType, EnumConfigActionType,
     EnumServerType, EnumServerStatus,
+    EnumOperationMode, EnumWindyMode,
+    EnumWeatherMode, EnumCameraVideoMode, EnumOnOff,
+    EnumDayNightMode, EnumPalette,
 )
 from app.utils.auth import hash_password
 from app.config import settings
@@ -701,6 +705,68 @@ def _create_login_logs(db: Session, user_ids: list[int]):
     print(f"  [OK] Login logs created: {count}")
 
 
+def _create_proxy_settings(db: Session, server_ids: list[int]):
+    """Create sample proxy settings for servers."""
+    existing = db.query(ProxySetting).count()
+    if existing > 0:
+        print(f"  [OK] Proxy settings already exist: {existing}")
+        return
+
+    windy_modes = [EnumWindyMode.WIND0, EnumWindyMode.WIND1, EnumWindyMode.WIND2, EnumWindyMode.WIND3]
+    count = 0
+    for i, sid in enumerate(server_ids[:4]):  # First 4 servers
+        setting = ProxySetting(
+            server_id=sid,
+            operation_mode=EnumOperationMode.NORMAL,
+            windy_mode=windy_modes[i % len(windy_modes)],
+        )
+        db.add(setting)
+        count += 1
+
+    db.commit()
+    print(f"  [OK] Proxy settings created: {count}")
+
+
+def _create_camera_settings(db: Session):
+    """Create sample camera settings for cameras."""
+    existing = db.query(CameraSetting).count()
+    if existing > 0:
+        print(f"  [OK] Camera settings already exist: {existing}")
+        return
+
+    camera_ids = [c.id for c in db.query(Camera.id).limit(6).all()]
+    if not camera_ids:
+        print("  [WARN] No cameras — skipping camera settings")
+        return
+
+    presets = [
+        {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO, "pan_tilt_speed": 50, "zoom_speed": 50},
+        {"weather_mode": EnumWeatherMode.FOG, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
+         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.DAY, "pan_tilt_speed": 70, "zoom_speed": 60},
+        {"weather_mode": EnumWeatherMode.RAIN, "heater": EnumOnOff.ON, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.NIGHT, "pan_tilt_speed": 30, "zoom_speed": 40,
+         "camera_mode": EnumCameraVideoMode.NIGHT_ENHANCE},
+        {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO, "palette": EnumPalette.WHITE_HOT},
+        {"weather_mode": EnumWeatherMode.SNOW, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
+         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.AUTO, "palette": EnumPalette.IRONBOW},
+        {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "camera_mode": EnumCameraVideoMode.STABILIZATION, "pan_tilt_speed": 80, "zoom_speed": 80},
+    ]
+
+    count = 0
+    for i, cid in enumerate(camera_ids):
+        preset = presets[i % len(presets)]
+        setting = CameraSetting(camera_id=cid, **preset)
+        db.add(setting)
+        count += 1
+
+    db.commit()
+    print(f"  [OK] Camera settings created: {count}")
+
+
 # ── Main Entry Point ─────────────────────────────────────
 
 def initialize_sample_data(db: Session):
@@ -743,5 +809,9 @@ def initialize_sample_data(db: Session):
 
     # 10. Login logs
     _create_login_logs(db, user_ids)
+
+    # 11. Device settings (proxy + camera)
+    _create_proxy_settings(db, server_ids)
+    _create_camera_settings(db)
 
     print("[OK] Sample data initialization complete")

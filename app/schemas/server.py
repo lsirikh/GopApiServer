@@ -52,7 +52,7 @@ class ServerCategoryResponse(BaseModel):
     """Schema for ServerCategory response"""
     id: int
     name: str
-    type_server: str  # EnumServerType value as string
+    type_server: EnumServerType
     description: Optional[str] = None
     sort_order: int
     created_at: datetime
@@ -134,7 +134,7 @@ class ServerResponse(BaseModel):
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
-    status: str = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
+    status: EnumServerStatus = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
     ip_address: str = Field(..., description="서버 IP 주소")
     port: int = Field(..., description="서버 포트")
     hostname: Optional[str] = Field(None, description="호스트명")
@@ -181,7 +181,7 @@ class ServerNestedResponse(BaseModel):
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
-    status: str = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
+    status: EnumServerStatus = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
     ip_address: str = Field(..., description="서버 IP 주소")
     port: int = Field(..., description="서버 포트")
     hostname: Optional[str] = Field(None, description="호스트명")
@@ -215,7 +215,7 @@ class ServerCategoryWithServers(BaseModel):
     """Schema for ServerCategory with nested servers list"""
     id: int
     name: str
-    type_server: str
+    type_server: EnumServerType
     description: Optional[str] = None
     sort_order: int
     created_at: datetime
@@ -229,7 +229,7 @@ class ServerCategorySummary(BaseModel):
     """Schema for dashboard summary - category with status counts"""
     id: int = Field(..., description="카테고리 ID")
     name: str = Field(..., description="카테고리 이름")
-    type_server: str = Field(..., description="서버 타입")
+    type_server: EnumServerType = Field(..., description="서버 타입")
     total: int = Field(0, description="전체 서버 수")
     normal: int = Field(0, description="정상 서버 수")
     warning: int = Field(0, description="경고 서버 수")

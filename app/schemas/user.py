@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+from app.utils.enums import (
+    EnumUserRole, EnumLogoutReason,
+    EnumLoginAction, EnumLoginResult, EnumLoginFailureReason,
+)
+
 
 # ============================================================
 # UserGroup Schemas (AC-2.3)
@@ -176,7 +181,7 @@ class AccountUserResponse(BaseModel):
     employee_number: Optional[str] = Field(None, description="군번/사번", json_schema_extra={"example": "21-12345678"})
     photo_url: Optional[str] = Field(None, description="프로필 사진 URL")
     phone: Optional[str] = Field(None, description="전화번호", json_schema_extra={"example": "010-1234-5678"})
-    role: str = Field(..., description="사용자 역할", json_schema_extra={"example": "OPERATOR"})
+    role: EnumUserRole = Field(..., description="사용자 역할", json_schema_extra={"example": "OPERATOR"})
     group_id: Optional[int] = Field(None, description="소속 그룹 ID", json_schema_extra={"example": 1})
     is_active: bool = Field(..., description="활성 상태", json_schema_extra={"example": True})
     is_locked: bool = Field(..., description="잠금 상태", json_schema_extra={"example": False})
@@ -195,7 +200,7 @@ class AccountUserNestedResponse(BaseModel):
     id: int
     login_id: str
     name: str
-    role: str
+    role: EnumUserRole
 
     model_config = {"from_attributes": True}
 
@@ -210,12 +215,12 @@ class UserSessionResponse(BaseModel):
     user_id: int
     # JOIN fields (US-3: AccountUser lookup for better response)
     login_id: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[EnumUserRole] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     expires_at: datetime
     is_active: bool
-    logout_reason: Optional[str] = None
+    logout_reason: Optional[EnumLogoutReason] = None
     logged_out_at: Optional[datetime] = None
     # Standard timestamps (renamed from login_at, last_activity)
     created_at: datetime
@@ -239,9 +244,9 @@ class UserLoginLogResponse(BaseModel):
     id: int
     user_id: Optional[int] = None
     login_id: str
-    action: str
-    result: str
-    failure_reason: Optional[str] = None
+    action: EnumLoginAction
+    result: EnumLoginResult
+    failure_reason: Optional[EnumLoginFailureReason] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     created_at: datetime
@@ -265,7 +270,7 @@ class UserResponse(BaseModel):
     """[LEGACY] Schema for legacy User response (users 테이블, excludes password)"""
     id: int
     username: str
-    role: str
+    role: EnumUserRole
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

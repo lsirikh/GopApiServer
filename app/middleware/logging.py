@@ -118,9 +118,13 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
         # Generate description
         description = self.get_description(request.method, path, response.status_code)
 
+        # Skip logging for non-API routes (docs, openapi, static, health)
+        if path in ("/docs", "/redoc", "/openapi.json", "/health", "/", "/favicon.ico") or path.startswith("/reports/preview"):
+            return response
+
         # Log to database
+        db: Session = SessionLocal()
         try:
-            db: Session = SessionLocal()
             log_entry = ApiLog(
                 resource=resource,
                 method=request.method,
@@ -134,9 +138,11 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
             )
             db.add(log_entry)
             db.commit()
-            db.close()
         except Exception as e:
+            db.rollback()
             # Don't let logging errors break the request
             print(f"Logging error: {e}")
+        finally:
+            db.close()
 
         return response

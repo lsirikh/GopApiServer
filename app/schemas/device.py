@@ -11,7 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 
-from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumDoorStatus
+from app.utils.enums import (
+    EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumDoorStatus,
+    EnumCameraMode, EnumCameraType, EnumDeviceCategory,
+)
 
 if TYPE_CHECKING:
     from app.schemas.device_group import DeviceGroupResponse
@@ -196,8 +199,8 @@ class DeviceNestedResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="장치 타입")
-    status: str = Field(..., description="장치 상태")
+    type_device: EnumDeviceType = Field(..., description="장치 타입")
+    status: EnumDeviceStatus = Field(..., description="장치 상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
 
     # 공통 필드 (선택적) - PRD v1.2: nullable
@@ -211,8 +214,8 @@ class DeviceNestedResponse(BaseModel):
     controller_id: Optional[int] = Field(None, description="소속 컨트롤러 ID")
 
     # Camera 전용 필드 (선택적)
-    mode: Optional[str] = Field(None, description="카메라 모드")
-    category: Optional[str] = Field(None, description="카메라 카테고리")
+    mode: Optional[EnumCameraMode] = Field(None, description="카메라 모드")
+    category: Optional[EnumCameraType] = Field(None, description="카메라 카테고리")
     is_record: Optional[bool] = Field(None, description="녹화 활성화 여부")
     # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
     urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
@@ -257,9 +260,9 @@ class ControllerResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="장치 타입")
+    type_device: EnumDeviceType = Field(..., description="장치 타입")
     version: str = Field(..., description="버전")
-    status: str = Field(..., description="상태")
+    status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="포트 번호")
@@ -294,9 +297,9 @@ class ControllerNestedResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="장치 타입")
+    type_device: EnumDeviceType = Field(..., description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
-    status: str = Field(..., description="상태")
+    status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="포트 번호")
@@ -359,9 +362,9 @@ class SensorResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="센서 타입")
+    type_device: EnumDeviceType = Field(..., description="센서 타입")
     version: str = Field(..., description="버전")
-    status: str = Field(..., description="상태")
+    status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
@@ -395,9 +398,9 @@ class SensorNestedResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="센서 타입")
+    type_device: EnumDeviceType = Field(..., description="센서 타입")
     version: Optional[str] = Field(None, description="버전")
-    status: str = Field(..., description="상태")
+    status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
@@ -479,16 +482,16 @@ class CameraResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="장치 타입")
+    type_device: EnumDeviceType = Field(..., description="장치 타입")
     version: str = Field(..., description="버전")
-    status: str = Field(..., description="상태")
+    status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
     user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
-    mode: str = Field(..., description="카메라 모드")
-    category: str = Field(..., description="카메라 카테고리")
+    mode: EnumCameraMode = Field(..., description="카메라 모드")
+    category: EnumCameraType = Field(..., description="카메라 카테고리")
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
     is_record: bool = Field(False, description="녹화 활성화 여부")
     hardware_spec: Optional[HardwareSpec] = Field(None, description="하드웨어 스펙 정보")
@@ -547,14 +550,14 @@ class CameraNestedResponse(BaseModel):
     number_device: int = Field(..., description="장치 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
-    type_device: str = Field(..., description="장치 타입")
+    type_device: EnumDeviceType = Field(..., description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
-    status: str = Field(..., description="상태")
+    status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
-    mode: str = Field(..., description="카메라 모드 (NONE|ONVIF|EMSTONE_API|INNODEP_API|ETC)")
-    category: str = Field(..., description="카메라 카테고리 (NONE|FIXED|PTZ)")
+    mode: EnumCameraMode = Field(..., description="카메라 모드 (NONE|ONVIF|EMSTONE_API|INNODEP_API|ETC)")
+    category: EnumCameraType = Field(..., description="카메라 카테고리 (NONE|FIXED|PTZ)")
     is_record: bool = Field(False, description="녹화 활성화 여부")
     # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
     urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
@@ -668,15 +671,15 @@ class SpeakerResponse(BaseModel):
     number_device: int = Field(..., description="단말 번호 (NATS device_no)", examples=[2401])
     group_device: int = Field(..., description="장치 그룹 번호", examples=[0])
     name_device: str = Field(..., description="표시명", examples=["VCS_2401"])
-    type_device: str = Field(..., description="장치 타입", examples=["IpSpeaker"])
+    type_device: EnumDeviceType = Field(..., description="장치 타입", examples=["IpSpeaker"])
     version: Optional[str] = Field(None, description="버전", examples=["1.0.0"])
-    status: str = Field(..., description="상태", examples=["ACTIVATED"])
+    status: EnumDeviceStatus = Field(..., description="상태", examples=["ACTIVATED"])
     is_enable: bool = Field(..., description="장비 활성화 여부", examples=[True])
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 
     # Speaker-specific fields
-    speaker_type: str = Field(..., description="스피커 타입", examples=["NORMAL"])
+    speaker_type: EnumSpeakerType = Field(..., description="스피커 타입", examples=["NORMAL"])
     description: Optional[str] = Field(None, description="설명", examples=["GOP 1구역 전방 스피커"])
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
     geolocation: Optional[Geolocation] = Field(
@@ -700,13 +703,13 @@ class SpeakerNestedResponse(BaseModel):
     PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation 필드 추가
     """
     id: int = Field(..., description="Speaker ID", examples=[1])
-    category_device: str = Field("speaker", description="디바이스 카테고리", examples=["speaker"])
+    category_device: EnumDeviceCategory = Field("speaker", description="디바이스 카테고리", examples=["speaker"])
     number_device: int = Field(..., description="단말 번호 (NATS device_no)", examples=[2401])
     name_device: str = Field(..., description="표시명", examples=["VCS_2401"])
-    type_device: str = Field(..., description="장치 타입", examples=["IpSpeaker"])
-    status: str = Field(..., description="상태", examples=["ACTIVATED"])
+    type_device: EnumDeviceType = Field(..., description="장치 타입", examples=["IpSpeaker"])
+    status: EnumDeviceStatus = Field(..., description="상태", examples=["ACTIVATED"])
     is_enable: bool = Field(..., description="장비 활성화 여부", examples=[True])
-    speaker_type: str = Field(..., description="스피커 타입", examples=["NORMAL"])
+    speaker_type: EnumSpeakerType = Field(..., description="스피커 타입", examples=["NORMAL"])
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
     geolocation: Optional[Geolocation] = Field(
         None,
@@ -821,7 +824,7 @@ class EnclosureResponse(BaseModel):
     number_device: int = Field(..., description="장비 번호")
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장비 이름")
-    type_device: str = Field(..., description="장치 타입")
+    type_device: EnumDeviceType = Field(..., description="장치 타입")
     version: Optional[str] = Field(None, description="버전")
     status: EnumDeviceStatus = Field(
         ...,
@@ -1006,9 +1009,9 @@ class LampResponse(BaseModel):
     number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
     name_device: str = Field(..., description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
-    type_device: str = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
+    type_device: EnumDeviceType = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
     version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
-    status: str = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    status: EnumDeviceStatus = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
     is_enable: bool = Field(..., description="장비 활성화 여부", json_schema_extra={"example": True})
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
@@ -1047,9 +1050,9 @@ class LampNestedResponse(BaseModel):
     number_device: int = Field(..., description="장비 번호", json_schema_extra={"example": 5001})
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)", json_schema_extra={"example": 0})
     name_device: str = Field(..., description="장비 이름", json_schema_extra={"example": "Lamp-A-1"})
-    type_device: str = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
+    type_device: EnumDeviceType = Field(..., description="장치 타입", json_schema_extra={"example": "Lamp"})
     version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
-    status: str = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
+    status: EnumDeviceStatus = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
     is_enable: bool = Field(..., description="장비 활성화 여부", json_schema_extra={"example": True})
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})

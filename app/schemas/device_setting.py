@@ -28,8 +28,8 @@ class ProxySettingResponse(BaseModel):
     """Schema for ProxySetting response"""
     id: int = Field(..., description="설정 ID")
     server_id: int = Field(..., description="서버 ID")
-    operation_mode: str = Field(..., description="운용 모드 (NORMAL/REGISTER)")
-    windy_mode: str = Field(..., description="풍량 모드 (wind0~wind3)")
+    operation_mode: EnumOperationMode = Field(..., description="운용 모드")
+    windy_mode: EnumWindyMode = Field(..., description="풍량 모드")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 
@@ -57,15 +57,15 @@ class CameraSettingResponse(BaseModel):
     """Schema for CameraSetting response"""
     id: int = Field(..., description="설정 ID")
     camera_id: int = Field(..., description="카메라 ID")
-    weather_mode: str = Field(..., description="악천후 모드")
-    camera_mode: str = Field(..., description="카메라 영상 모드")
-    heater: str = Field(..., description="열선 상태 (on/off)")
-    fan: str = Field(..., description="냉각팬 상태 (on/off)")
-    headlight: str = Field(..., description="전조등 상태 (on/off)")
-    day_night_mode: str = Field(..., description="주/야간 모드 (AUTO/DAY/NIGHT)")
+    weather_mode: EnumWeatherMode = Field(..., description="악천후 모드")
+    camera_mode: EnumCameraVideoMode = Field(..., description="카메라 영상 모드")
+    heater: EnumOnOff = Field(..., description="열선 상태")
+    fan: EnumOnOff = Field(..., description="냉각팬 상태")
+    headlight: EnumOnOff = Field(..., description="전조등 상태")
+    day_night_mode: EnumDayNightMode = Field(..., description="주/야간 모드")
     pan_tilt_speed: int = Field(..., description="팬/틸트 속도 (0-100)")
     zoom_speed: int = Field(..., description="줌 속도 (0-100)")
-    palette: Optional[str] = Field(None, description="열화상 팔레트 (열화상 카메라만)")
+    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (열화상 카메라만, nullable)")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 

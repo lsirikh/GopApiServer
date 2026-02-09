@@ -35,7 +35,7 @@ from app.utils.enums import (
     EnumOperationMode, EnumWindyMode,
     EnumWeatherMode, EnumCameraVideoMode, EnumOnOff,
     EnumDayNightMode, EnumPalette,
-    EnumFocusMode, EnumIrisMode,
+    EnumFocusMode, EnumIrisMode, EnumTrackingStatus,
 )
 from app.utils.auth import hash_password
 from app.config import settings
@@ -744,15 +744,15 @@ def _create_camera_settings(db: Session):
         {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
          "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
          "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
-         "pan_tilt_speed": 50, "zoom_speed": 50},
+         "tracking": EnumTrackingStatus.IDLE},
         {"weather_mode": EnumWeatherMode.FOG, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
          "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.DAY,
          "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
-         "pan_tilt_speed": 70, "zoom_speed": 60},
+         "tracking": EnumTrackingStatus.ACTIVE},
         {"weather_mode": EnumWeatherMode.RAIN, "heater": EnumOnOff.ON, "fan": EnumOnOff.OFF,
          "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.NIGHT,
          "focus_mode": EnumFocusMode.MANUAL, "iris_mode": EnumIrisMode.AUTO,
-         "pan_tilt_speed": 30, "zoom_speed": 40,
+         "tracking": EnumTrackingStatus.LOST,
          "camera_mode": EnumCameraVideoMode.NIGHT_ENHANCE},
         {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
          "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
@@ -765,7 +765,8 @@ def _create_camera_settings(db: Session):
         {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
          "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
          "focus_mode": EnumFocusMode.MANUAL, "iris_mode": EnumIrisMode.MANUAL,
-         "camera_mode": EnumCameraVideoMode.STABILIZATION, "pan_tilt_speed": 80, "zoom_speed": 80},
+         "tracking": EnumTrackingStatus.ACTIVE,
+         "camera_mode": EnumCameraVideoMode.STABILIZATION},
     ]
 
     count = 0

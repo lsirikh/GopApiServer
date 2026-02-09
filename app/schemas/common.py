@@ -28,8 +28,16 @@ class PaginationMeta(BaseModel):
     total_pages: int = Field(..., ge=0, description="Total number of pages", json_schema_extra={"example": 5})
 
 
+class ApiSingleResponse(BaseModel, Generic[T]):
+    """Standard API response format for single-item endpoints (no pagination)"""
+    success: bool = True
+    message: str
+    data: T
+    meta: ResponseMeta = Field(default_factory=ResponseMeta)
+
+
 class ApiResponse(BaseModel, Generic[T]):
-    """Standard API response format"""
+    """Standard API response format for list endpoints (with pagination)"""
     success: bool = True
     message: str
     data: T

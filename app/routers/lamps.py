@@ -13,7 +13,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Lamp
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import LampCreate, LampUpdate, LampResponse, DeviceGroupNestedResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Lamps"])
@@ -111,7 +111,7 @@ async def get_lamps(
     )
 
 
-@router.get("/{lamp_id}", response_model=ApiResponse[LampResponse])
+@router.get("/{lamp_id}", response_model=ApiSingleResponse[LampResponse])
 async def get_lamp(
     lamp_id: int,
     current_user=Depends(get_current_user_optional),
@@ -131,14 +131,14 @@ async def get_lamp(
             detail=f"Lamp with id {lamp_id} not found"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Lamp 조회 성공",
         data=_lamp_to_response(lamp, db)
     )
 
 
-@router.post("", response_model=ApiResponse[LampResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[LampResponse], status_code=status.HTTP_201_CREATED)
 async def create_lamp(
     lamp_data: LampCreate,
     current_user=Depends(get_current_user_optional),
@@ -196,14 +196,14 @@ async def create_lamp(
         description="Lamp 생성"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Lamp 생성 성공",
         data=_lamp_to_response(lamp, db)
     )
 
 
-@router.patch("/{lamp_id}", response_model=ApiResponse[LampResponse])
+@router.patch("/{lamp_id}", response_model=ApiSingleResponse[LampResponse])
 async def patch_lamp(
     lamp_id: int,
     lamp_data: LampUpdate,
@@ -264,14 +264,14 @@ async def patch_lamp(
             description="Lamp 수정"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Lamp 수정 성공",
         data=_lamp_to_response(lamp, db)
     )
 
 
-@router.put("/{lamp_id}", response_model=ApiResponse[LampResponse])
+@router.put("/{lamp_id}", response_model=ApiSingleResponse[LampResponse])
 async def put_lamp(
     lamp_id: int,
     lamp_data: LampCreate,
@@ -342,14 +342,14 @@ async def put_lamp(
             description="Lamp 전체 수정"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Lamp 전체 수정 성공",
         data=_lamp_to_response(lamp, db)
     )
 
 
-@router.delete("/{lamp_id}", response_model=ApiResponse[dict])
+@router.delete("/{lamp_id}", response_model=ApiSingleResponse[dict])
 async def delete_lamp(
     lamp_id: int,
     current_user=Depends(get_current_user_optional),
@@ -391,7 +391,7 @@ async def delete_lamp(
         description="Lamp 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Lamp 삭제 성공",
         data={"id": lamp_id, "deleted": True}

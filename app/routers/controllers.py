@@ -13,7 +13,7 @@ from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
 from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorNestedResponse, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 
@@ -224,7 +224,7 @@ async def get_controllers(
     )
 
 
-@router.get("/{controller_id}", response_model=ApiResponse[ControllerResponse])
+@router.get("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse])
 async def get_controller(
     controller_id: int,
     include_sensors: bool = Query(False, description="센서 정보 포함 여부 (기본값: false)"),
@@ -254,14 +254,14 @@ async def get_controller(
 
     controller_response = _controller_to_response(controller, db, include_sensors)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Controller retrieved successfully",
         data=controller_response
     )
 
 
-@router.post("", response_model=ApiResponse[ControllerResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ControllerResponse], status_code=status.HTTP_201_CREATED)
 async def create_controller(
     controller_data: ControllerCreate,
     current_user = Depends(get_current_user_optional),
@@ -333,14 +333,14 @@ async def create_controller(
 
     controller_response = _controller_to_response(new_controller, db)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Controller created successfully",
         data=controller_response
     )
 
 
-@router.patch("/{controller_id}", response_model=ApiResponse[ControllerResponse])
+@router.patch("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse])
 async def update_controller(
     controller_id: int,
     controller_data: ControllerUpdate,
@@ -441,14 +441,14 @@ async def update_controller(
 
     controller_response = _controller_to_response(controller, db, include_sensors)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Controller updated successfully",
         data=controller_response
     )
 
 
-@router.put("/{controller_id}", response_model=ApiResponse[ControllerResponse])
+@router.put("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse])
 async def replace_controller(
     controller_id: int,
     controller_data: ControllerCreate,
@@ -520,14 +520,14 @@ async def replace_controller(
 
     controller_response = _controller_to_response(controller, db, include_sensors)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Controller replaced successfully",
         data=controller_response
     )
 
 
-@router.delete("/{controller_id}", response_model=ApiResponse[None])
+@router.delete("/{controller_id}", response_model=ApiSingleResponse[None])
 async def delete_controller(
     controller_id: int,
     current_user = Depends(get_current_user_optional),
@@ -578,7 +578,7 @@ async def delete_controller(
         description="Controller 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Controller deleted successfully",
         data=None

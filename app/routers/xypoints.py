@@ -12,7 +12,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.camera_preset import ROI, XyPoint
 from app.schemas.camera_preset import XyPointCreate, XyPointResponse, XyPointListData, XyPointListItem, XyPointBulkReplaceData
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from pydantic import BaseModel, Field
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change
@@ -86,7 +86,7 @@ async def get_points(
     )
 
 
-@router.post("/{roi_id}/points", status_code=status.HTTP_201_CREATED, response_model=ApiResponse[XyPointListItem])
+@router.post("/{roi_id}/points", status_code=status.HTTP_201_CREATED, response_model=ApiSingleResponse[XyPointListItem])
 async def create_point(
     roi_id: int,
     point_data: XyPointCreate,
@@ -137,7 +137,7 @@ async def create_point(
         description="XyPoint 생성"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="XyPoint created successfully",
         data={
@@ -152,7 +152,7 @@ async def create_point(
     )
 
 
-@router.put("/{roi_id}/points", response_model=ApiResponse[XyPointBulkReplaceData])
+@router.put("/{roi_id}/points", response_model=ApiSingleResponse[XyPointBulkReplaceData])
 async def replace_points(
     roi_id: int,
     bulk_data: XyPointBulkUpdate,
@@ -205,7 +205,7 @@ async def replace_points(
         for point in new_points
     ]
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="XyPoints replaced successfully",
         data={
@@ -216,7 +216,7 @@ async def replace_points(
     )
 
 
-@router.delete("/{roi_id}/points/{point_id}", response_model=ApiResponse[None])
+@router.delete("/{roi_id}/points/{point_id}", response_model=ApiSingleResponse[None])
 async def delete_point(
     roi_id: int,
     point_id: int,
@@ -265,7 +265,7 @@ async def delete_point(
         description="XyPoint 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="XyPoint deleted successfully",
         data=None

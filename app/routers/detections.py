@@ -24,7 +24,7 @@ from app.schemas.device import (
     ControllerNestedResponse,
     CameraNestedResponse
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from typing import Union
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
@@ -230,7 +230,7 @@ async def get_detection_events(
     )
 
 
-@router.get("/{event_id}", response_model=ApiResponse[DetectionEventResponse])
+@router.get("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
 async def get_detection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -276,14 +276,14 @@ async def get_detection_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event retrieved successfully",
         data=event_response
     )
 
 
-@router.post("", response_model=ApiResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED)
 async def create_detection_event(
     event_data: DetectionEventCreate,
     current_user = Depends(get_current_user_optional),
@@ -373,14 +373,14 @@ async def create_detection_event(
         updated_at=new_event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event created successfully",
         data=event_response
     )
 
 
-@router.patch("/{event_id}", response_model=ApiResponse[DetectionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
 async def update_detection_event(
     event_id: int,
     event_data: DetectionEventUpdate,
@@ -477,14 +477,14 @@ async def update_detection_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event updated successfully",
         data=event_response
     )
 
 
-@router.put("/{event_id}", response_model=ApiResponse[DetectionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
 async def replace_detection_event(
     event_id: int,
     event_data: DetectionEventCreate,
@@ -567,14 +567,14 @@ async def replace_detection_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event replaced successfully",
         data=event_response
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
 async def delete_detection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -628,14 +628,14 @@ async def delete_detection_event(
         description="DetectionEvent 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event deleted successfully",
         data=None
     )
 
 
-@router.get("/{event_id}/action", response_model=ApiResponse[ActionEventResponse])
+@router.get("/{event_id}/action", response_model=ApiSingleResponse[ActionEventResponse])
 async def get_action_event_for_detection(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -699,7 +699,7 @@ async def get_action_event_for_detection(
         updated_at=action.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event retrieved successfully",
         data=action_response

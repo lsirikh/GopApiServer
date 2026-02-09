@@ -24,7 +24,7 @@ from app.schemas.device import (
     ControllerNestedResponse,
     CameraNestedResponse
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType, EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
@@ -205,7 +205,7 @@ async def get_connection_events(
     )
 
 
-@router.get("/{event_id}", response_model=ApiResponse[ConnectionEventResponse])
+@router.get("/{event_id}", response_model=ApiSingleResponse[ConnectionEventResponse])
 async def get_connection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -246,14 +246,14 @@ async def get_connection_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Connection event retrieved successfully",
         data=event_response
     )
 
 
-@router.post("", response_model=ApiResponse[ConnectionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ConnectionEventResponse], status_code=status.HTTP_201_CREATED)
 async def create_connection_event(
     event_data: ConnectionEventCreate,
     current_user = Depends(get_current_user_optional),
@@ -325,14 +325,14 @@ async def create_connection_event(
         updated_at=new_event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Connection event created successfully",
         data=event_response
     )
 
 
-@router.patch("/{event_id}", response_model=ApiResponse[ConnectionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[ConnectionEventResponse])
 async def update_connection_event(
     event_id: int,
     event_data: ConnectionEventUpdate,
@@ -408,14 +408,14 @@ async def update_connection_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Connection event updated successfully",
         data=event_response
     )
 
 
-@router.put("/{event_id}", response_model=ApiResponse[ConnectionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[ConnectionEventResponse])
 async def replace_connection_event(
     event_id: int,
     event_data: ConnectionEventCreate,
@@ -482,14 +482,14 @@ async def replace_connection_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Connection event replaced successfully",
         data=event_response
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
 async def delete_connection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -535,7 +535,7 @@ async def delete_connection_event(
         description="ConnectionEvent 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Connection event deleted successfully",
         data=None

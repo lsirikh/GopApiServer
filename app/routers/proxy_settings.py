@@ -12,14 +12,14 @@ from app.routers.auth import get_current_user_optional
 from app.models.server import Server
 from app.models.device_setting import ProxySetting
 from app.schemas.device_setting import ProxySettingCreate, ProxySettingUpdate, ProxySettingResponse
-from app.schemas.common import ApiResponse
+from app.schemas.common import ApiSingleResponse
 
 router = APIRouter(tags=["Proxy Settings"])
 
 
 @router.get(
     "/{server_id}/proxy-settings",
-    response_model=ApiResponse[ProxySettingResponse],
+    response_model=ApiSingleResponse[ProxySettingResponse],
 )
 async def get_proxy_settings(
     server_id: int,
@@ -41,7 +41,7 @@ async def get_proxy_settings(
         db.commit()
         db.refresh(setting)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Proxy settings retrieved successfully",
         data=ProxySettingResponse.model_validate(setting),
@@ -50,7 +50,7 @@ async def get_proxy_settings(
 
 @router.patch(
     "/{server_id}/proxy-settings",
-    response_model=ApiResponse[ProxySettingResponse],
+    response_model=ApiSingleResponse[ProxySettingResponse],
 )
 async def update_proxy_settings(
     server_id: int,
@@ -78,7 +78,7 @@ async def update_proxy_settings(
     db.commit()
     db.refresh(setting)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Proxy settings updated successfully",
         data=ProxySettingResponse.model_validate(setting),
@@ -87,7 +87,7 @@ async def update_proxy_settings(
 
 @router.put(
     "/{server_id}/proxy-settings",
-    response_model=ApiResponse[ProxySettingResponse],
+    response_model=ApiSingleResponse[ProxySettingResponse],
 )
 async def replace_proxy_settings(
     server_id: int,
@@ -114,7 +114,7 @@ async def replace_proxy_settings(
     db.commit()
     db.refresh(setting)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Proxy settings replaced successfully",
         data=ProxySettingResponse.model_validate(setting),

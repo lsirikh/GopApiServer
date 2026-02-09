@@ -24,7 +24,7 @@ from app.schemas.device import (
     ControllerNestedResponse,
     CameraNestedResponse
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType, EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
@@ -212,7 +212,7 @@ async def get_malfunction_events(
     )
 
 
-@router.get("/{event_id}", response_model=ApiResponse[MalfunctionEventResponse])
+@router.get("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse])
 async def get_malfunction_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -258,14 +258,14 @@ async def get_malfunction_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Malfunction event retrieved successfully",
         data=event_response
     )
 
 
-@router.post("", response_model=ApiResponse[MalfunctionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[MalfunctionEventResponse], status_code=status.HTTP_201_CREATED)
 async def create_malfunction_event(
     event_data: MalfunctionEventCreate,
     current_user = Depends(get_current_user_optional),
@@ -358,14 +358,14 @@ async def create_malfunction_event(
         updated_at=new_event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Malfunction event created successfully",
         data=event_response
     )
 
 
-@router.patch("/{event_id}", response_model=ApiResponse[MalfunctionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse])
 async def update_malfunction_event(
     event_id: int,
     event_data: MalfunctionEventUpdate,
@@ -465,14 +465,14 @@ async def update_malfunction_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Malfunction event updated successfully",
         data=event_response
     )
 
 
-@router.put("/{event_id}", response_model=ApiResponse[MalfunctionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse])
 async def replace_malfunction_event(
     event_id: int,
     event_data: MalfunctionEventCreate,
@@ -560,14 +560,14 @@ async def replace_malfunction_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Malfunction event replaced successfully",
         data=event_response
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
 async def delete_malfunction_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -621,14 +621,14 @@ async def delete_malfunction_event(
         description="MalfunctionEvent 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Malfunction event deleted successfully",
         data=None
     )
 
 
-@router.get("/{event_id}/action", response_model=ApiResponse[ActionEventResponse])
+@router.get("/{event_id}/action", response_model=ApiSingleResponse[ActionEventResponse])
 async def get_action_event_for_malfunction(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -694,7 +694,7 @@ async def get_action_event_for_malfunction(
         updated_at=action.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event retrieved successfully",
         data=action_response

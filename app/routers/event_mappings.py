@@ -13,7 +13,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.integration import EventMapping
 from app.schemas.integration import EventMappingCreate, EventMappingResponse, EventMappingUpdate
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumMappingEventCategory, EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
@@ -102,7 +102,7 @@ async def get_event_mappings(
     )
 
 
-@router.get("/{mapping_id}", response_model=ApiResponse[EventMappingResponse])
+@router.get("/{mapping_id}", response_model=ApiSingleResponse[EventMappingResponse])
 async def get_event_mapping(
     mapping_id: int,
     current_user = Depends(get_current_user_optional),
@@ -141,14 +141,14 @@ async def get_event_mapping(
         updated_at=mapping.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Event mapping retrieved successfully",
         data=mapping_response
     )
 
 
-@router.post("", response_model=ApiResponse[EventMappingResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[EventMappingResponse], status_code=status.HTTP_201_CREATED)
 async def create_event_mapping(
     mapping: EventMappingCreate,
     current_user = Depends(get_current_user_optional),
@@ -206,14 +206,14 @@ async def create_event_mapping(
         updated_at=new_mapping.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Event mapping created successfully",
         data=mapping_response
     )
 
 
-@router.patch("/{mapping_id}", response_model=ApiResponse[EventMappingResponse])
+@router.patch("/{mapping_id}", response_model=ApiSingleResponse[EventMappingResponse])
 async def update_event_mapping_partial(
     mapping_id: int,
     mapping: EventMappingUpdate,
@@ -289,14 +289,14 @@ async def update_event_mapping_partial(
         updated_at=existing_mapping.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Event mapping updated successfully",
         data=mapping_response
     )
 
 
-@router.put("/{mapping_id}", response_model=ApiResponse[EventMappingResponse])
+@router.put("/{mapping_id}", response_model=ApiSingleResponse[EventMappingResponse])
 async def update_event_mapping_full(
     mapping_id: int,
     mapping: EventMappingCreate,
@@ -356,14 +356,14 @@ async def update_event_mapping_full(
         updated_at=existing_mapping.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Event mapping updated successfully",
         data=mapping_response
     )
 
 
-@router.delete("/{mapping_id}", response_model=ApiResponse[None])
+@router.delete("/{mapping_id}", response_model=ApiSingleResponse[None])
 async def delete_event_mapping(
     mapping_id: int,
     current_user = Depends(get_current_user_optional),
@@ -409,7 +409,7 @@ async def delete_event_mapping(
         description="EventMapping 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Event mapping deleted successfully",
         data=None

@@ -13,7 +13,7 @@ from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import SensorCreate, SensorResponse, SensorUpdate, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Sensors"])
@@ -206,7 +206,7 @@ async def get_sensors(
     )
 
 
-@router.get("/{sensor_id}", response_model=ApiResponse[SensorResponse])
+@router.get("/{sensor_id}", response_model=ApiSingleResponse[SensorResponse])
 async def get_sensor(
     sensor_id: int,
     include_controller: bool = Query(False, description="컨트롤러 정보 포함 여부"),
@@ -237,14 +237,14 @@ async def get_sensor(
 
     sensor_response = _sensor_to_response(sensor, db, include_controller)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Sensor retrieved successfully",
         data=sensor_response
     )
 
 
-@router.post("", response_model=ApiResponse[SensorResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[SensorResponse], status_code=status.HTTP_201_CREATED)
 async def create_sensor(
     sensor_data: SensorCreate,
     current_user = Depends(get_current_user_optional),
@@ -323,14 +323,14 @@ async def create_sensor(
 
     sensor_response = _sensor_to_response(new_sensor, db)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Sensor created successfully",
         data=sensor_response
     )
 
 
-@router.patch("/{sensor_id}", response_model=ApiResponse[SensorResponse])
+@router.patch("/{sensor_id}", response_model=ApiSingleResponse[SensorResponse])
 async def update_sensor(
     sensor_id: int,
     sensor_data: SensorUpdate,
@@ -439,14 +439,14 @@ async def update_sensor(
 
     sensor_response = _sensor_to_response(sensor, db, include_controller)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Sensor updated successfully",
         data=sensor_response
     )
 
 
-@router.put("/{sensor_id}", response_model=ApiResponse[SensorResponse])
+@router.put("/{sensor_id}", response_model=ApiSingleResponse[SensorResponse])
 async def replace_sensor(
     sensor_id: int,
     sensor_data: SensorCreate,
@@ -524,14 +524,14 @@ async def replace_sensor(
 
     sensor_response = _sensor_to_response(sensor, db, include_controller)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Sensor replaced successfully",
         data=sensor_response
     )
 
 
-@router.delete("/{sensor_id}", response_model=ApiResponse[None])
+@router.delete("/{sensor_id}", response_model=ApiSingleResponse[None])
 async def delete_sensor(
     sensor_id: int,
     current_user = Depends(get_current_user_optional),
@@ -582,7 +582,7 @@ async def delete_sensor(
         description="Sensor 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Sensor deleted successfully",
         data=None

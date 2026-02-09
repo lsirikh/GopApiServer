@@ -17,7 +17,7 @@ from app.schemas.server import (
     ServerMetricsResponse,
     ServerMetricsLatestResponse
 )
-from app.schemas.common import ApiResponse
+from app.schemas.common import ApiResponse, ApiSingleResponse
 
 router = APIRouter(tags=["Server Metrics"])
 
@@ -151,7 +151,7 @@ def _create_threshold_events(
 
 @router.post(
     "/{server_id}/metrics",
-    response_model=ApiResponse[ServerMetricsResponse],
+    response_model=ApiSingleResponse[ServerMetricsResponse],
     status_code=status.HTTP_201_CREATED
 )
 async def create_server_metrics(
@@ -224,7 +224,7 @@ async def create_server_metrics(
     if threshold_exceeded:
         _create_threshold_events(db, server, threshold_exceeded)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server metrics created successfully",
         data=_metrics_to_response(new_metrics, threshold_exceeded)
@@ -287,7 +287,7 @@ async def get_server_metrics(
 
 @router.get(
     "/{server_id}/metrics/latest",
-    response_model=ApiResponse[ServerMetricsLatestResponse]
+    response_model=ApiSingleResponse[ServerMetricsLatestResponse]
 )
 async def get_server_metrics_latest(
     server_id: int,
@@ -325,7 +325,7 @@ async def get_server_metrics_latest(
         threshold_exceeded = _check_thresholds(latest_metrics, server.threshold_config)
         latest_response = _metrics_to_response(latest_metrics, threshold_exceeded)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Latest server metrics retrieved successfully",
         data=ServerMetricsLatestResponse(
@@ -338,7 +338,7 @@ async def get_server_metrics_latest(
 
 @router.delete(
     "/{server_id}/metrics",
-    response_model=ApiResponse[dict]
+    response_model=ApiSingleResponse[dict]
 )
 async def delete_old_server_metrics(
     server_id: int,
@@ -382,7 +382,7 @@ async def delete_old_server_metrics(
 
     db.commit()
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message=f"Deleted {deleted_count} old metrics",
         data={"server_id": server_id, "deleted_count": deleted_count}

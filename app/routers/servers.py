@@ -18,7 +18,7 @@ from app.schemas.server import (
     ServerResponse,
     ServerCategorySummary
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 
 router = APIRouter(tags=["Servers"])
 
@@ -41,7 +41,7 @@ def _server_to_response(server: Server) -> ServerResponse:
     )
 
 
-@router.get("/summary", response_model=ApiResponse[list[ServerCategorySummary]])
+@router.get("/summary", response_model=ApiSingleResponse[list[ServerCategorySummary]])
 async def get_server_summary(
     current_user=Depends(get_current_user_optional),
     db: Session = Depends(get_db)
@@ -90,7 +90,7 @@ async def get_server_summary(
         )
         summaries.append(summary)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server summary retrieved successfully",
         data=summaries
@@ -155,7 +155,7 @@ async def get_servers(
     )
 
 
-@router.get("/{server_id}", response_model=ApiResponse[ServerResponse])
+@router.get("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
 async def get_server(
     server_id: int,
     current_user=Depends(get_current_user_optional),
@@ -181,7 +181,7 @@ async def get_server(
             detail=f"Server with id {server_id} not found"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server retrieved successfully",
         data=_server_to_response(server)
@@ -243,14 +243,14 @@ async def get_server_system_events(
             "created_at": event.created_at
         })
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server system events retrieved successfully",
         data=event_responses
     )
 
 
-@router.post("", response_model=ApiResponse[ServerResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ServerResponse], status_code=status.HTTP_201_CREATED)
 async def create_server(
     server_data: ServerCreate,
     current_user=Depends(get_current_user_optional),
@@ -304,14 +304,14 @@ async def create_server(
     db.commit()
     db.refresh(new_server)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server created successfully",
         data=_server_to_response(new_server)
     )
 
 
-@router.patch("/{server_id}", response_model=ApiResponse[ServerResponse])
+@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
 async def update_server(
     server_id: int,
     server_data: ServerUpdate,
@@ -368,14 +368,14 @@ async def update_server(
     db.commit()
     db.refresh(server)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server updated successfully",
         data=_server_to_response(server)
     )
 
 
-@router.put("/{server_id}", response_model=ApiResponse[ServerResponse])
+@router.put("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
 async def replace_server(
     server_id: int,
     server_data: ServerCreate,
@@ -437,14 +437,14 @@ async def replace_server(
     db.commit()
     db.refresh(server)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server replaced successfully",
         data=_server_to_response(server)
     )
 
 
-@router.delete("/{server_id}", response_model=ApiResponse[dict])
+@router.delete("/{server_id}", response_model=ApiSingleResponse[dict])
 async def delete_server(
     server_id: int,
     current_user=Depends(get_current_user_optional),
@@ -473,7 +473,7 @@ async def delete_server(
     db.delete(server)
     db.commit()
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server deleted successfully",
         data={"id": server_id}

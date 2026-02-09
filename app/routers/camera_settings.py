@@ -12,14 +12,14 @@ from app.routers.auth import get_current_user_optional
 from app.models.device import Camera
 from app.models.device_setting import CameraSetting
 from app.schemas.device_setting import CameraSettingCreate, CameraSettingUpdate, CameraSettingResponse
-from app.schemas.common import ApiResponse
+from app.schemas.common import ApiSingleResponse
 
 router = APIRouter(tags=["Camera Settings"])
 
 
 @router.get(
     "/{camera_id}/settings",
-    response_model=ApiResponse[CameraSettingResponse],
+    response_model=ApiSingleResponse[CameraSettingResponse],
 )
 async def get_camera_settings(
     camera_id: int,
@@ -41,7 +41,7 @@ async def get_camera_settings(
         db.commit()
         db.refresh(setting)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera settings retrieved successfully",
         data=CameraSettingResponse.model_validate(setting),
@@ -50,7 +50,7 @@ async def get_camera_settings(
 
 @router.patch(
     "/{camera_id}/settings",
-    response_model=ApiResponse[CameraSettingResponse],
+    response_model=ApiSingleResponse[CameraSettingResponse],
 )
 async def update_camera_settings(
     camera_id: int,
@@ -78,7 +78,7 @@ async def update_camera_settings(
     db.commit()
     db.refresh(setting)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera settings updated successfully",
         data=CameraSettingResponse.model_validate(setting),
@@ -87,7 +87,7 @@ async def update_camera_settings(
 
 @router.put(
     "/{camera_id}/settings",
-    response_model=ApiResponse[CameraSettingResponse],
+    response_model=ApiSingleResponse[CameraSettingResponse],
 )
 async def replace_camera_settings(
     camera_id: int,
@@ -114,7 +114,7 @@ async def replace_camera_settings(
     db.commit()
     db.refresh(setting)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera settings replaced successfully",
         data=CameraSettingResponse.model_validate(setting),

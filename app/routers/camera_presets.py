@@ -19,7 +19,7 @@ from app.schemas.camera_preset import (
     CameraPresetWithROIsResponse,
     CameraPresetListData
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
@@ -102,7 +102,7 @@ async def get_camera_presets(
     )
 
 
-@router.get("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[CameraPresetDetailResponse])
+@router.get("/{camera_id}/presets/{preset_id}", response_model=ApiSingleResponse[CameraPresetDetailResponse])
 async def get_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -153,7 +153,7 @@ async def get_camera_preset(
             "points": points_data
         })
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera preset retrieved successfully",
         data={
@@ -170,7 +170,7 @@ async def get_camera_preset(
     )
 
 
-@router.post("/{camera_id}/presets", status_code=status.HTTP_201_CREATED, response_model=ApiResponse[CameraPresetResponse])
+@router.post("/{camera_id}/presets", status_code=status.HTTP_201_CREATED, response_model=ApiSingleResponse[CameraPresetResponse])
 async def create_camera_preset(
     camera_id: int,
     preset_data: CameraPresetCreate,
@@ -222,7 +222,7 @@ async def create_camera_preset(
         description="CameraPreset 생성"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera preset created successfully",
         data={
@@ -239,7 +239,7 @@ async def create_camera_preset(
     )
 
 
-@router.patch("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[CameraPresetResponse])
+@router.patch("/{camera_id}/presets/{preset_id}", response_model=ApiSingleResponse[CameraPresetResponse])
 async def update_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -308,7 +308,7 @@ async def update_camera_preset(
             description="CameraPreset 수정"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera preset updated successfully",
         data={
@@ -325,7 +325,7 @@ async def update_camera_preset(
     )
 
 
-@router.put("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[CameraPresetResponse])
+@router.put("/{camera_id}/presets/{preset_id}", response_model=ApiSingleResponse[CameraPresetResponse])
 async def replace_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -376,7 +376,7 @@ async def replace_camera_preset(
     db.commit()
     db.refresh(preset)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera preset replaced successfully",
         data={
@@ -393,7 +393,7 @@ async def replace_camera_preset(
     )
 
 
-@router.delete("/{camera_id}/presets/{preset_id}", response_model=ApiResponse[None])
+@router.delete("/{camera_id}/presets/{preset_id}", response_model=ApiSingleResponse[None])
 async def delete_camera_preset(
     camera_id: int,
     preset_id: int,
@@ -442,7 +442,7 @@ async def delete_camera_preset(
         description="CameraPreset 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera preset deleted successfully",
         data=None

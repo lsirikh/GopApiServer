@@ -189,43 +189,41 @@ X-Request-ID: {request-uuid} //선택적 참고용
 
 ### 3.2 Response 형식
 
-#### 성공 응답 (200, 201)
+#### 단건 성공 응답 (200, 201)
 
 ```json
 {
   "success": true,
-  "message": "Operation completed successfully",
-  "data": {
-    // 실제 데이터
-  },
+  "message": "...",
+  "data": { ... },
   "meta": {
     "timestamp": "2025-01-10T10:30:00.000Z",
-    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+    "request_id": "..."
   }
 }
 ```
 
-#### 목록 응답 (200)
+#### 목록 성공 응답 (200)
 
 ```json
 {
   "success": true,
-  "message": "25 items retrieved",
-  "data": [
-    // 배열 데이터
-  ],
+  "message": "...",
+  "data": [ ... ],
   "pagination": {
     "page": 1,
     "limit": 20,
-    "total": 25,
-    "total_pages": 2
+    "total": 100,
+    "total_pages": 5
   },
   "meta": {
     "timestamp": "2025-01-10T10:30:00.000Z",
-    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+    "request_id": "..."
   }
 }
 ```
+
+> 단건 응답(ApiSingleResponse)은 pagination 필드를 포함하지 않습니다.
 
 #### 에러 응답 (4xx, 5xx)
 
@@ -14014,7 +14012,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v3.7 | 2026-02-09 | **Device Setting PUT API 추가, CameraSetting focus_mode/iris_mode 필드 확장, Enum 2종 추가**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumFocusMode (2종)**: AUTO, MANUAL<br>- **EnumIrisMode (2종)**: AUTO, MANUAL<br>- **EnumTrackingStatus (3종)**: ACTIVE, LOST, IDLE<br><br>**[2. Camera Settings API 변경 (5.3.7~5.3.9)]**<br>- **5.3.7 GET 응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.8 PATCH 요청/응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.9 PUT /api/devices/cameras/{camera_id}/settings 신규**: 전체 교체 (Upsert)<br>- CameraSetting API에서 pan_tilt_speed, zoom_speed 삭제, tracking(EnumTrackingStatus) 추가<br><br>**[3. Proxy Settings API 변경 (8.8.2~8.8.3)]**<br>- **8.8.2 제목 변경**: "프록시 설정 수정" → "프록시 설정 수정 (부분)"<br>- **8.8.3 PUT /api/servers/{server_id}/proxy-settings 신규**: 전체 교체 (Upsert) |
+| v3.7 | 2026-02-09 | **Device Setting PUT API 추가, CameraSetting focus_mode/iris_mode 필드 확장, Enum 2종 추가**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumFocusMode (2종)**: AUTO, MANUAL<br>- **EnumIrisMode (2종)**: AUTO, MANUAL<br>- **EnumTrackingStatus (3종)**: ACTIVE, LOST, IDLE<br><br>**[2. Camera Settings API 변경 (5.3.7~5.3.9)]**<br>- **5.3.7 GET 응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.8 PATCH 요청/응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.9 PUT /api/devices/cameras/{camera_id}/settings 신규**: 전체 교체 (Upsert)<br>- CameraSetting API에서 pan_tilt_speed, zoom_speed 삭제, tracking(EnumTrackingStatus) 추가<br><br>**[3. Proxy Settings API 변경 (8.8.2~8.8.3)]**<br>- **8.8.2 제목 변경**: "프록시 설정 수정" → "프록시 설정 수정 (부분)"<br>- **8.8.3 PUT /api/servers/{server_id}/proxy-settings 신규**: 전체 교체 (Upsert)<br><br>**[4. 공통 응답 형식 분리 (3.2)]**<br>- 공통 응답 형식 분리 — 단건 응답(ApiSingleResponse)에서 pagination 제거 |
 | v3.6 | 2026-02-06 | **Device Setting API 추가 (Camera Settings GET/PATCH, Proxy Settings GET/PATCH), Enum 7종 추가 (EnumOperationMode, EnumWindyMode, EnumWeatherMode, EnumCameraVideoMode, EnumOnOff, EnumDayNightMode, EnumPalette)**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumOperationMode (2종)**: NORMAL, REGISTER<br>- **EnumWindyMode (4종)**: wind0, wind1, wind2, wind3<br>- **EnumWeatherMode (7종)**: NORMAL, FOG, SEA_FOG, YELLOW_DUST, RAIN, SNOW, HEAT_HAZE<br>- **EnumCameraVideoMode (4종)**: NORMAL, STABILIZATION, BLC, NIGHT_ENHANCE<br>- **EnumOnOff (2종)**: on, off<br>- **EnumDayNightMode (3종)**: AUTO, DAY, NIGHT<br>- **EnumPalette (4종)**: WHITE_HOT, BLACK_HOT, RAINBOW, IRONBOW<br><br>**[2. Camera Settings API (5.3.7~5.3.8)]**<br>- **GET /api/devices/cameras/{camera_id}/settings**: 카메라 설정 조회 (Lazy 생성)<br>- **PATCH /api/devices/cameras/{camera_id}/settings**: 카메라 설정 수정 (Upsert)<br>- **설정 필드**: weather_mode, camera_mode, heater, fan, headlight, day_night_mode, pan_tilt_speed, zoom_speed, palette<br><br>**[3. Proxy Settings API (8.8)]**<br>- **GET /api/servers/{server_id}/proxy-settings**: 프록시 설정 조회 (Lazy 생성)<br>- **PATCH /api/servers/{server_id}/proxy-settings**: 프록시 설정 수정 (Upsert)<br>- **설정 필드**: operation_mode, windy_mode |
 | v3.5 | 2026-02-02 | **Audit Log SENSITIVE_FIELDS 정합성 수정**<br><br>**[1. 민감필드 목록 동기화 (9.6.4)]**<br>- `password_hash`, `hashed_password`, `refresh_token`, `user_password` 추가<br>- PRD_Audit_Log.md Section 5.2와 완전 동기화<br>- audit_service.py SENSITIVE_FIELDS 코드와 문서 일치<br><br>**[2. 테스트 수정]**<br>- `test_session_forced_logout_audit_log`: UserSession `login_at` → `created_at` 동기화 (PRD_UserSession_Improvement.md v1.2) |
 | v3.4 | 2026-01-26 | **Lamp Device 및 EventMappingLamp API 추가 (PRD_Lamp_Device.md v1.1)**<br><br>**[1. Lamp Enum 추가 (4.1)]**<br>- **EnumDeviceType 확장**: `Lamp = 18` 추가<br>- **EnumLampColor (5종)**: Red, Orange, Green, Blue, White<br>- **EnumBuzzerSound (6종)**: PI-PI-PI, Beep, Siren, Ambulance, Emergency, Mute<br>- **EnumLightMode (3종)**: steady, blinking, rotating<br><br>**[2. Lamp API (5.11)]**<br>- **Endpoint**: `/api/devices/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **Device Polymorphic 상속**: ip_address, ip_port, description, geolocation<br>- **Nested Response**: device_groups 포함<br>- **ConfigChangeLog 연동**: LAMP 리소스 자동 로깅<br><br>**[3. EventMappingLamp API (7.5)]**<br>- **Endpoint**: `/api/integrations/event-mappings/{mapping_id}/lamps`<br>- **CRUD 지원**: GET (목록/단건), POST, PATCH, PUT, DELETE<br>- **FK 관계**: event_mapping_id (CASCADE), lamp_id (SET NULL)<br>- **동작 설정**: color, buzzer_time, buzzer_sound, light_mode, is_enable, priority<br>- **Nested Response**: event_mapping, lamp 상세 정보 포함<br>- **ConfigChangeLog 연동**: EVENT_MAPPING_LAMP 리소스 자동 로깅<br><br>**[4. DeviceGroup 폴리모픽 응답 확장 (5.6.2)]**<br>- **LampSummary 추가**: ip_address, ip_port, description, geolocation<br>- **DeviceSummary Union 확장**: 6종 지원 (Controller, Sensor, Camera, Speaker, Enclosure, Lamp) |

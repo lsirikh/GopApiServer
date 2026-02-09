@@ -15,6 +15,12 @@ from app.utils.enums import (
 )
 
 
+def _nullable_palette_schema(schema: dict) -> None:
+    """Replace anyOf with inline enum for Swagger UI dropdown compatibility."""
+    schema.pop("anyOf", None)
+    schema["enum"] = [e.value for e in EnumPalette] + [None]
+
+
 # ============================================================
 # ProxySetting Schemas
 # ============================================================
@@ -59,7 +65,7 @@ class CameraSettingCreate(BaseModel):
     iris_mode: EnumIrisMode = Field(..., description="조리개 모드")
     pan_tilt_speed: int = Field(..., ge=0, le=100, description="팬/틸트 속도 (0-100)")
     zoom_speed: int = Field(..., ge=0, le=100, description="줌 속도 (0-100)")
-    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (nullable)")
+    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (nullable)", json_schema_extra=_nullable_palette_schema)
 
 
 class CameraSettingUpdate(BaseModel):
@@ -74,7 +80,7 @@ class CameraSettingUpdate(BaseModel):
     iris_mode: Optional[EnumIrisMode] = Field(None, description="조리개 모드")
     pan_tilt_speed: Optional[int] = Field(None, ge=0, le=100, description="팬/틸트 속도 (0-100)")
     zoom_speed: Optional[int] = Field(None, ge=0, le=100, description="줌 속도 (0-100)")
-    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트")
+    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트", json_schema_extra=_nullable_palette_schema)
 
 
 class CameraSettingResponse(BaseModel):
@@ -91,7 +97,7 @@ class CameraSettingResponse(BaseModel):
     iris_mode: EnumIrisMode = Field(..., description="조리개 모드")
     pan_tilt_speed: int = Field(..., description="팬/틸트 속도 (0-100)")
     zoom_speed: int = Field(..., description="줌 속도 (0-100)")
-    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (열화상 카메라만, nullable)")
+    palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (열화상 카메라만, nullable)", json_schema_extra=_nullable_palette_schema)
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 

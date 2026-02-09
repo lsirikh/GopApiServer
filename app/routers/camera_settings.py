@@ -11,7 +11,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Camera
 from app.models.device_setting import CameraSetting
-from app.schemas.device_setting import CameraSettingUpdate, CameraSettingResponse
+from app.schemas.device_setting import CameraSettingCreate, CameraSettingUpdate, CameraSettingResponse
 from app.schemas.common import ApiResponse
 
 router = APIRouter(tags=["Camera Settings"])
@@ -81,5 +81,41 @@ async def update_camera_settings(
     return ApiResponse(
         success=True,
         message="Camera settings updated successfully",
+        data=CameraSettingResponse.model_validate(setting),
+    )
+
+
+@router.put(
+    "/{camera_id}/settings",
+    response_model=ApiResponse[CameraSettingResponse],
+)
+async def replace_camera_settings(
+    camera_id: int,
+    create_data: CameraSettingCreate,
+    current_user=Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """카메라 설정 전체 교체 (없으면 Upsert)"""
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera with id {camera_id} not found",
+        )
+
+    setting = db.query(CameraSetting).filter(CameraSetting.camera_id == camera_id).first()
+    if not setting:
+        setting = CameraSetting(camera_id=camera_id)
+        db.add(setting)
+
+    for key, value in create_data.model_dump().items():
+        setattr(setting, key, value)
+
+    db.commit()
+    db.refresh(setting)
+
+    return ApiResponse(
+        success=True,
+        message="Camera settings replaced successfully",
         data=CameraSettingResponse.model_validate(setting),
     )

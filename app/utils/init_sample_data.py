@@ -35,6 +35,7 @@ from app.utils.enums import (
     EnumOperationMode, EnumWindyMode,
     EnumWeatherMode, EnumCameraVideoMode, EnumOnOff,
     EnumDayNightMode, EnumPalette,
+    EnumFocusMode, EnumIrisMode,
 )
 from app.utils.auth import hash_password
 from app.config import settings
@@ -741,18 +742,29 @@ def _create_camera_settings(db: Session):
 
     presets = [
         {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
-         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO, "pan_tilt_speed": 50, "zoom_speed": 50},
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
+         "pan_tilt_speed": 50, "zoom_speed": 50},
         {"weather_mode": EnumWeatherMode.FOG, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
-         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.DAY, "pan_tilt_speed": 70, "zoom_speed": 60},
+         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.DAY,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
+         "pan_tilt_speed": 70, "zoom_speed": 60},
         {"weather_mode": EnumWeatherMode.RAIN, "heater": EnumOnOff.ON, "fan": EnumOnOff.OFF,
-         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.NIGHT, "pan_tilt_speed": 30, "zoom_speed": 40,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.NIGHT,
+         "focus_mode": EnumFocusMode.MANUAL, "iris_mode": EnumIrisMode.AUTO,
+         "pan_tilt_speed": 30, "zoom_speed": 40,
          "camera_mode": EnumCameraVideoMode.NIGHT_ENHANCE},
         {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
-         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO, "palette": EnumPalette.WHITE_HOT},
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
+         "palette": EnumPalette.WHITE_HOT},
         {"weather_mode": EnumWeatherMode.SNOW, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
-         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.AUTO, "palette": EnumPalette.IRONBOW},
+         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.MANUAL,
+         "palette": EnumPalette.IRONBOW},
         {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
          "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.MANUAL, "iris_mode": EnumIrisMode.MANUAL,
          "camera_mode": EnumCameraVideoMode.STABILIZATION, "pan_tilt_speed": 80, "zoom_speed": 80},
     ]
 

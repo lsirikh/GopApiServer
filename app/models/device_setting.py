@@ -16,6 +16,7 @@ from app.utils.enums import (
     EnumOperationMode, EnumWindyMode,
     EnumWeatherMode, EnumCameraVideoMode, EnumOnOff,
     EnumDayNightMode, EnumPalette,
+    EnumFocusMode, EnumIrisMode,
 )
 
 
@@ -43,6 +44,8 @@ class CameraSetting(Base):
     fan = Column(SAEnum(EnumOnOff), nullable=False, default=EnumOnOff.OFF)
     headlight = Column(SAEnum(EnumOnOff), nullable=False, default=EnumOnOff.OFF)
     day_night_mode = Column(SAEnum(EnumDayNightMode), nullable=False, default=EnumDayNightMode.AUTO)
+    focus_mode = Column(SAEnum(EnumFocusMode), nullable=False, default=EnumFocusMode.AUTO)
+    iris_mode = Column(SAEnum(EnumIrisMode), nullable=False, default=EnumIrisMode.AUTO)
     pan_tilt_speed = Column(Integer, nullable=False, default=50)
     zoom_speed = Column(Integer, nullable=False, default=50)
     palette = Column(SAEnum(EnumPalette), nullable=True, default=None)

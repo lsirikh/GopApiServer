@@ -644,6 +644,28 @@ class EnumPalette(str, Enum):
     IRONBOW = "IRONBOW"       # 철 색상
 
 
+class EnumFocusMode(str, Enum):
+    """
+    Camera focus mode enumeration (2종)
+    PRD: PRD_Device_Setting_PUT.md Section 2
+
+    카메라 초점 모드 (ONVIF Focus.AutoFocusMode)
+    """
+    AUTO = "AUTO"       # 자동 초점
+    MANUAL = "MANUAL"   # 수동 초점
+
+
+class EnumIrisMode(str, Enum):
+    """
+    Camera iris mode enumeration (2종)
+    PRD: PRD_Device_Setting_PUT.md Section 2
+
+    카메라 조리개 모드 (ONVIF Exposure.Mode)
+    """
+    AUTO = "AUTO"       # 자동 조리개
+    MANUAL = "MANUAL"   # 수동 조리개
+
+
 class EnumReportType(str, Enum):
     """
     Report type enumeration (2종)

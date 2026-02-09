@@ -666,6 +666,17 @@ class EnumIrisMode(str, Enum):
     MANUAL = "MANUAL"   # 수동 조리개
 
 
+class EnumTrackingStatus(str, Enum):
+    """
+    Camera tracking status enumeration (3종)
+
+    카메라 자동 추적 상태
+    """
+    ACTIVE = "ACTIVE"   # 타겟 추적 중
+    LOST = "LOST"       # 타겟 놓침
+    IDLE = "IDLE"       # 추적 비활성
+
+
 class EnumReportType(str, Enum):
     """
     Report type enumeration (2종)

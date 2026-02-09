@@ -16,7 +16,7 @@ from app.utils.enums import (
     EnumOperationMode, EnumWindyMode,
     EnumWeatherMode, EnumCameraVideoMode, EnumOnOff,
     EnumDayNightMode, EnumPalette,
-    EnumFocusMode, EnumIrisMode,
+    EnumFocusMode, EnumIrisMode, EnumTrackingStatus,
 )
 
 
@@ -46,8 +46,7 @@ class CameraSetting(Base):
     day_night_mode = Column(SAEnum(EnumDayNightMode), nullable=False, default=EnumDayNightMode.AUTO)
     focus_mode = Column(SAEnum(EnumFocusMode), nullable=False, default=EnumFocusMode.AUTO)
     iris_mode = Column(SAEnum(EnumIrisMode), nullable=False, default=EnumIrisMode.AUTO)
-    pan_tilt_speed = Column(Integer, nullable=False, default=50)
-    zoom_speed = Column(Integer, nullable=False, default=50)
+    tracking = Column(SAEnum(EnumTrackingStatus), nullable=False, default=EnumTrackingStatus.IDLE)
     palette = Column(SAEnum(EnumPalette), nullable=True, default=None)
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)

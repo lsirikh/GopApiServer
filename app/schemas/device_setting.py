@@ -11,7 +11,7 @@ from app.utils.enums import (
     EnumOperationMode, EnumWindyMode,
     EnumWeatherMode, EnumCameraVideoMode, EnumOnOff,
     EnumDayNightMode, EnumPalette,
-    EnumFocusMode, EnumIrisMode,
+    EnumFocusMode, EnumIrisMode, EnumTrackingStatus,
 )
 
 
@@ -63,8 +63,7 @@ class CameraSettingCreate(BaseModel):
     day_night_mode: EnumDayNightMode = Field(..., description="주/야간 모드")
     focus_mode: EnumFocusMode = Field(..., description="초점 모드")
     iris_mode: EnumIrisMode = Field(..., description="조리개 모드")
-    pan_tilt_speed: int = Field(..., ge=0, le=100, description="팬/틸트 속도 (0-100)")
-    zoom_speed: int = Field(..., ge=0, le=100, description="줌 속도 (0-100)")
+    tracking: EnumTrackingStatus = Field(..., description="추적 상태")
     palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (nullable)", json_schema_extra=_nullable_palette_schema)
 
 
@@ -78,8 +77,7 @@ class CameraSettingUpdate(BaseModel):
     day_night_mode: Optional[EnumDayNightMode] = Field(None, description="주/야간 모드")
     focus_mode: Optional[EnumFocusMode] = Field(None, description="초점 모드")
     iris_mode: Optional[EnumIrisMode] = Field(None, description="조리개 모드")
-    pan_tilt_speed: Optional[int] = Field(None, ge=0, le=100, description="팬/틸트 속도 (0-100)")
-    zoom_speed: Optional[int] = Field(None, ge=0, le=100, description="줌 속도 (0-100)")
+    tracking: Optional[EnumTrackingStatus] = Field(None, description="추적 상태")
     palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트", json_schema_extra=_nullable_palette_schema)
 
 
@@ -95,8 +93,7 @@ class CameraSettingResponse(BaseModel):
     day_night_mode: EnumDayNightMode = Field(..., description="주/야간 모드")
     focus_mode: EnumFocusMode = Field(..., description="초점 모드")
     iris_mode: EnumIrisMode = Field(..., description="조리개 모드")
-    pan_tilt_speed: int = Field(..., description="팬/틸트 속도 (0-100)")
-    zoom_speed: int = Field(..., description="줌 속도 (0-100)")
+    tracking: EnumTrackingStatus = Field(..., description="추적 상태")
     palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (열화상 카메라만, nullable)", json_schema_extra=_nullable_palette_schema)
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")

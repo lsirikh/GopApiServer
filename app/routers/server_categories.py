@@ -18,7 +18,7 @@ from app.schemas.server import (
     ServerCategoryWithServers,
     ServerResponse
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 
 router = APIRouter(tags=["Server Categories"])
 
@@ -91,7 +91,7 @@ async def get_server_categories(
     )
 
 
-@router.get("/{category_id}", response_model=ApiResponse[ServerCategoryWithServers])
+@router.get("/{category_id}", response_model=ApiSingleResponse[ServerCategoryWithServers])
 async def get_server_category(
     category_id: int,
     current_user=Depends(get_current_user_optional),
@@ -150,14 +150,14 @@ async def get_server_category(
         servers=server_responses
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server category retrieved successfully",
         data=category_response
     )
 
 
-@router.post("", response_model=ApiResponse[ServerCategoryResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ServerCategoryResponse], status_code=status.HTTP_201_CREATED)
 async def create_server_category(
     category_data: ServerCategoryCreate,
     current_user=Depends(get_current_user_optional),
@@ -213,14 +213,14 @@ async def create_server_category(
         updated_at=new_category.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server category created successfully",
         data=category_response
     )
 
 
-@router.patch("/{category_id}", response_model=ApiResponse[ServerCategoryResponse])
+@router.patch("/{category_id}", response_model=ApiSingleResponse[ServerCategoryResponse])
 async def update_server_category(
     category_id: int,
     category_data: ServerCategoryUpdate,
@@ -287,14 +287,14 @@ async def update_server_category(
         updated_at=category.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server category updated successfully",
         data=category_response
     )
 
 
-@router.put("/{category_id}", response_model=ApiResponse[ServerCategoryResponse])
+@router.put("/{category_id}", response_model=ApiSingleResponse[ServerCategoryResponse])
 async def replace_server_category(
     category_id: int,
     category_data: ServerCategoryCreate,
@@ -361,14 +361,14 @@ async def replace_server_category(
         updated_at=category.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server category replaced successfully",
         data=category_response
     )
 
 
-@router.delete("/{category_id}", response_model=ApiResponse[dict])
+@router.delete("/{category_id}", response_model=ApiSingleResponse[dict])
 async def delete_server_category(
     category_id: int,
     current_user=Depends(get_current_user_optional),
@@ -398,7 +398,7 @@ async def delete_server_category(
     db.delete(category)
     db.commit()
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Server category deleted successfully",
         data={"id": category_id}

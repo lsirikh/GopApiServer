@@ -28,7 +28,7 @@ from app.schemas.device_group import (
     EnclosureSummary,
     LampSummary,
 )
-from app.schemas.common import ApiResponse, PaginationMeta, ValidationErrorResponse
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(prefix="/devices/groups", tags=["DeviceGroups"])
@@ -307,7 +307,7 @@ async def get_device_group(
             created_at=group.created_at,
             updated_at=group.updated_at
         )
-        return ApiResponse(
+        return ApiSingleResponse(
             success=True,
             data=response,
             message="디바이스 그룹 조회 성공"
@@ -400,14 +400,14 @@ async def get_device_group(
         updated_at=group.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data=response,
         message="디바이스 그룹 조회 성공"
     )
 
 
-@router.post("", response_model=ApiResponse[DeviceGroupResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[DeviceGroupResponse], status_code=status.HTTP_201_CREATED)
 async def create_device_group(
     group_data: DeviceGroupCreate,
     current_user=Depends(get_current_user_optional),
@@ -459,14 +459,14 @@ async def create_device_group(
         updated_at=group.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data=response,
         message="디바이스 그룹 생성 성공"
     )
 
 
-@router.patch("/{group_id}", response_model=ApiResponse[DeviceGroupResponse])
+@router.patch("/{group_id}", response_model=ApiSingleResponse[DeviceGroupResponse])
 async def patch_device_group(
     group_id: int,
     group_data: DeviceGroupUpdate,
@@ -538,14 +538,14 @@ async def patch_device_group(
         updated_at=group.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data=response,
         message="디바이스 그룹 수정 성공"
     )
 
 
-@router.put("/{group_id}", response_model=ApiResponse[DeviceGroupResponse])
+@router.put("/{group_id}", response_model=ApiSingleResponse[DeviceGroupResponse])
 async def put_device_group(
     group_id: int,
     group_data: DeviceGroupCreate,
@@ -596,14 +596,14 @@ async def put_device_group(
         updated_at=group.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data=response,
         message="디바이스 그룹 수정 성공"
     )
 
 
-@router.delete("/{group_id}", response_model=ApiResponse[dict])
+@router.delete("/{group_id}", response_model=ApiSingleResponse[dict])
 async def delete_device_group(
     group_id: int,
     current_user=Depends(get_current_user_optional),
@@ -645,14 +645,14 @@ async def delete_device_group(
         description="DeviceGroup 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data={"id": group_id},
         message="디바이스 그룹 삭제 성공"
     )
 
 
-@router.post("/{group_id}/devices", response_model=ApiResponse[DeviceAssignResponse])
+@router.post("/{group_id}/devices", response_model=ApiSingleResponse[DeviceAssignResponse])
 async def assign_devices_to_group(
     group_id: int,
     request: DeviceAssignRequest,
@@ -727,14 +727,14 @@ async def assign_devices_to_group(
         message=message
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data=response,
         message=message
     )
 
 
-@router.delete("/{group_id}/devices/{device_id}", response_model=ApiResponse[DeviceRemoveResponse])
+@router.delete("/{group_id}/devices/{device_id}", response_model=ApiSingleResponse[DeviceRemoveResponse])
 async def remove_device_from_group(
     group_id: int,
     device_id: int,
@@ -798,7 +798,7 @@ async def remove_device_from_group(
         message="디바이스 그룹에서 제거 성공"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         data=response,
         message="디바이스 그룹에서 제거 성공"

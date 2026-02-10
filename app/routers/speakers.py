@@ -16,7 +16,7 @@ from app.models.server import Server
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse
 from app.schemas.server import ServerNestedResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Speakers"])
@@ -121,7 +121,7 @@ async def get_speakers(
     )
 
 
-@router.get("/{speaker_id}", response_model=ApiResponse[SpeakerResponse])
+@router.get("/{speaker_id}", response_model=ApiSingleResponse[SpeakerResponse])
 async def get_speaker(
     speaker_id: int,
     current_user=Depends(get_current_user_optional),
@@ -149,14 +149,14 @@ async def get_speaker(
 
     speaker_response = _speaker_to_response(speaker, db)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Speaker retrieved successfully",
         data=speaker_response
     )
 
 
-@router.post("", response_model=ApiResponse[SpeakerResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[SpeakerResponse], status_code=status.HTTP_201_CREATED)
 async def create_speaker(
     speaker_data: SpeakerCreate,
     current_user=Depends(get_current_user_optional),
@@ -226,14 +226,14 @@ async def create_speaker(
 
     speaker_response = _speaker_to_response(new_speaker, db)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Speaker created successfully",
         data=speaker_response
     )
 
 
-@router.patch("/{speaker_id}", response_model=ApiResponse[SpeakerResponse])
+@router.patch("/{speaker_id}", response_model=ApiSingleResponse[SpeakerResponse])
 async def update_speaker(
     speaker_id: int,
     speaker_data: SpeakerUpdate,
@@ -310,14 +310,14 @@ async def update_speaker(
 
     speaker_response = _speaker_to_response(speaker, db)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Speaker updated successfully",
         data=speaker_response
     )
 
 
-@router.put("/{speaker_id}", response_model=ApiResponse[SpeakerResponse])
+@router.put("/{speaker_id}", response_model=ApiSingleResponse[SpeakerResponse])
 async def replace_speaker(
     speaker_id: int,
     speaker_data: SpeakerCreate,
@@ -380,14 +380,14 @@ async def replace_speaker(
 
     speaker_response = _speaker_to_response(speaker, db)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Speaker replaced successfully",
         data=speaker_response
     )
 
 
-@router.delete("/{speaker_id}", response_model=ApiResponse[None])
+@router.delete("/{speaker_id}", response_model=ApiSingleResponse[None])
 async def delete_speaker(
     speaker_id: int,
     current_user=Depends(get_current_user_optional),
@@ -432,7 +432,7 @@ async def delete_speaker(
         description="Speaker 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Speaker deleted successfully",
         data=None

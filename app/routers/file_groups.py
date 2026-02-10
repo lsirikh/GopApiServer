@@ -14,7 +14,7 @@ from app.routers.auth import get_current_user_optional
 from app.models.file_group import FileGroup
 from app.models.server import Server
 from app.schemas.file_group import FileGroupCreate, FileGroupUpdate, FileGroupResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
@@ -86,7 +86,7 @@ async def get_file_groups(
 # ============================================
 # GET /api/file-groups/{id} - Get single file group
 # ============================================
-@router.get("/{file_group_id}", response_model=ApiResponse[FileGroupResponse])
+@router.get("/{file_group_id}", response_model=ApiSingleResponse[FileGroupResponse])
 async def get_file_group(
     file_group_id: int,
     current_user=Depends(get_current_user_optional),
@@ -109,7 +109,7 @@ async def get_file_group(
             detail=f"FileGroup with id {file_group_id} not found"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="FileGroup retrieved",
         data=FileGroupResponse.model_validate(file_group)
@@ -119,7 +119,7 @@ async def get_file_group(
 # ============================================
 # POST /api/file-groups - Create file group
 # ============================================
-@router.post("", response_model=ApiResponse[FileGroupResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[FileGroupResponse], status_code=status.HTTP_201_CREATED)
 async def create_file_group(
     file_group_data: FileGroupCreate,
     current_user=Depends(get_current_user_optional),
@@ -175,7 +175,7 @@ async def create_file_group(
         description="FileGroup 생성"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="FileGroup created",
         data=FileGroupResponse.model_validate(file_group)
@@ -185,7 +185,7 @@ async def create_file_group(
 # ============================================
 # PATCH /api/file-groups/{id} - Partial update
 # ============================================
-@router.patch("/{file_group_id}", response_model=ApiResponse[FileGroupResponse])
+@router.patch("/{file_group_id}", response_model=ApiSingleResponse[FileGroupResponse])
 async def patch_file_group(
     file_group_id: int,
     file_group_data: FileGroupUpdate,
@@ -237,7 +237,7 @@ async def patch_file_group(
             description="FileGroup 수정"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="FileGroup updated",
         data=FileGroupResponse.model_validate(file_group)
@@ -247,7 +247,7 @@ async def patch_file_group(
 # ============================================
 # PUT /api/file-groups/{id} - Full replace
 # ============================================
-@router.put("/{file_group_id}", response_model=ApiResponse[FileGroupResponse])
+@router.put("/{file_group_id}", response_model=ApiSingleResponse[FileGroupResponse])
 async def put_file_group(
     file_group_id: int,
     file_group_data: FileGroupCreate,
@@ -293,7 +293,7 @@ async def put_file_group(
     db.commit()
     db.refresh(file_group)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="FileGroup replaced",
         data=FileGroupResponse.model_validate(file_group)
@@ -303,7 +303,7 @@ async def put_file_group(
 # ============================================
 # DELETE /api/file-groups/{id} - Delete file group
 # ============================================
-@router.delete("/{file_group_id}", response_model=ApiResponse)
+@router.delete("/{file_group_id}", response_model=ApiSingleResponse)
 async def delete_file_group(
     file_group_id: int,
     current_user=Depends(get_current_user_optional),
@@ -345,7 +345,7 @@ async def delete_file_group(
         description="FileGroup 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="FileGroup deleted",
         data={"id": file_group_id}

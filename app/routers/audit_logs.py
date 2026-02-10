@@ -14,7 +14,7 @@ from app.models.audit_log import AuditLog
 from app.schemas.audit_log import (
     AuditLogResponse,
 )
-from app.schemas.common import ApiResponse, PaginationMeta, ValidationErrorResponse
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
 
 router = APIRouter(tags=["Audit Logs"])
 
@@ -142,7 +142,7 @@ async def get_audit_logs(
 
 @router.get(
     "/{audit_log_id}",
-    response_model=ApiResponse[AuditLogResponse],
+    response_model=ApiSingleResponse[AuditLogResponse],
     responses={
         200: {
             "description": "감사 로그 상세 조회 성공",
@@ -214,7 +214,7 @@ async def get_audit_log_detail(
             detail=f"Audit log with id {audit_log_id} not found"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="감사 로그 상세 조회 성공",
         data=AuditLogResponse.model_validate(audit_log)

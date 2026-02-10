@@ -25,7 +25,7 @@ import math
 from app.dependencies import get_db
 from app.models.config_change_log import ConfigChangeLog
 from app.schemas.config_change_log import ConfigChangeLogResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 
 router = APIRouter()
@@ -187,7 +187,7 @@ async def get_config_change_logs(
     )
 
 
-@router.get("/{log_id}", response_model=ApiResponse[ConfigChangeLogResponse])
+@router.get("/{log_id}", response_model=ApiSingleResponse[ConfigChangeLogResponse])
 async def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
     """
     설정 변경 로그 단건 조회
@@ -223,7 +223,7 @@ async def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
     if not log:
         raise HTTPException(status_code=404, detail=f"ConfigChangeLog with id {log_id} not found")
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Config change log retrieved successfully",
         data=_config_change_log_to_response(log)

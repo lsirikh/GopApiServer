@@ -17,7 +17,7 @@ from app.schemas.camera_preset import (
     ROIUpdate,
     ROIListData
 )
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
@@ -101,7 +101,7 @@ async def get_rois(
     )
 
 
-@router.get("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[ROIDetailResponse])
+@router.get("/{preset_id}/rois/{roi_id}", response_model=ApiSingleResponse[ROIDetailResponse])
 async def get_roi(
     preset_id: int,
     roi_id: int,
@@ -141,7 +141,7 @@ async def get_roi(
         for point in roi.points.all()
     ]
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="ROI retrieved successfully",
         data={
@@ -158,7 +158,7 @@ async def get_roi(
     )
 
 
-@router.post("/{preset_id}/rois", status_code=status.HTTP_201_CREATED, response_model=ApiResponse[ROIResponse])
+@router.post("/{preset_id}/rois", status_code=status.HTTP_201_CREATED, response_model=ApiSingleResponse[ROIResponse])
 async def create_roi(
     preset_id: int,
     roi_data: ROICreate,
@@ -213,7 +213,7 @@ async def create_roi(
 
     point_count = roi.points.count()
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="ROI created successfully",
         data={
@@ -230,7 +230,7 @@ async def create_roi(
     )
 
 
-@router.patch("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[ROIResponse])
+@router.patch("/{preset_id}/rois/{roi_id}", response_model=ApiSingleResponse[ROIResponse])
 async def update_roi(
     preset_id: int,
     roi_id: int,
@@ -286,7 +286,7 @@ async def update_roi(
             description="ROI 수정"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="ROI updated successfully",
         data={
@@ -303,7 +303,7 @@ async def update_roi(
     )
 
 
-@router.put("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[ROIResponse])
+@router.put("/{preset_id}/rois/{roi_id}", response_model=ApiSingleResponse[ROIResponse])
 async def replace_roi(
     preset_id: int,
     roi_id: int,
@@ -372,7 +372,7 @@ async def replace_roi(
         description="ROI 전체 수정 (PUT)"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="ROI replaced successfully",
         data={
@@ -389,7 +389,7 @@ async def replace_roi(
     )
 
 
-@router.delete("/{preset_id}/rois/{roi_id}", response_model=ApiResponse[None])
+@router.delete("/{preset_id}/rois/{roi_id}", response_model=ApiSingleResponse[None])
 async def delete_roi(
     preset_id: int,
     roi_id: int,
@@ -438,7 +438,7 @@ async def delete_roi(
         description="ROI 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="ROI deleted successfully",
         data=None

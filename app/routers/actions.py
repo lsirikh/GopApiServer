@@ -23,7 +23,7 @@ from app.schemas.event import (
     DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse
 )
 from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumTrueFalse, EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
@@ -289,7 +289,7 @@ async def get_action_events(
     )
 
 
-@router.get("/{event_id}", response_model=ApiResponse[ActionEventResponse])
+@router.get("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
 async def get_action_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -338,14 +338,14 @@ async def get_action_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event retrieved successfully",
         data=event_response
     )
 
 
-@router.post("", response_model=ApiResponse[ActionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ActionEventResponse], status_code=status.HTTP_201_CREATED)
 async def create_action_event(
     event_data: ActionEventCreate,
     current_user = Depends(get_current_user_optional),
@@ -419,14 +419,14 @@ async def create_action_event(
         updated_at=new_event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event created successfully",
         data=event_response
     )
 
 
-@router.patch("/{event_id}", response_model=ApiResponse[ActionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
 async def update_action_event(
     event_id: int,
     event_data: ActionEventUpdate,
@@ -517,14 +517,14 @@ async def update_action_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event updated successfully",
         data=event_response
     )
 
 
-@router.put("/{event_id}", response_model=ApiResponse[ActionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
 async def replace_action_event(
     event_id: int,
     event_data: ActionEventCreate,
@@ -590,14 +590,14 @@ async def replace_action_event(
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event replaced successfully",
         data=event_response
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
 async def delete_action_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -650,7 +650,7 @@ async def delete_action_event(
         description="ActionEvent 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Action event deleted successfully",
         data=None

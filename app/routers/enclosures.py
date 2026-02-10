@@ -22,7 +22,7 @@ from app.schemas.device import (
     Geolocation
 )
 # EnclosureDetailInfo 제거됨 (PRD_Enclosure_Metrics_Separation.md v1.0)
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Enclosures"])
@@ -122,7 +122,7 @@ async def get_enclosures(
     )
 
 
-@router.get("/{enclosure_id}", response_model=ApiResponse[EnclosureResponse])
+@router.get("/{enclosure_id}", response_model=ApiSingleResponse[EnclosureResponse])
 async def get_enclosure(
     enclosure_id: int,
     current_user=Depends(get_current_user_optional),
@@ -150,14 +150,14 @@ async def get_enclosure(
 
     enclosure_response = _enclosure_to_response(enclosure)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure retrieved successfully",
         data=enclosure_response
     )
 
 
-@router.post("", response_model=ApiResponse[EnclosureResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[EnclosureResponse], status_code=status.HTTP_201_CREATED)
 async def create_enclosure(
     enclosure_data: EnclosureCreate,
     current_user=Depends(get_current_user_optional),
@@ -214,14 +214,14 @@ async def create_enclosure(
 
     enclosure_response = _enclosure_to_response(new_enclosure)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure created successfully",
         data=enclosure_response
     )
 
 
-@router.patch("/{enclosure_id}", response_model=ApiResponse[EnclosureResponse])
+@router.patch("/{enclosure_id}", response_model=ApiSingleResponse[EnclosureResponse])
 async def update_enclosure(
     enclosure_id: int,
     enclosure_data: EnclosureUpdate,
@@ -290,14 +290,14 @@ async def update_enclosure(
 
     enclosure_response = _enclosure_to_response(enclosure)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure updated successfully",
         data=enclosure_response
     )
 
 
-@router.put("/{enclosure_id}", response_model=ApiResponse[EnclosureResponse])
+@router.put("/{enclosure_id}", response_model=ApiSingleResponse[EnclosureResponse])
 async def replace_enclosure(
     enclosure_id: int,
     enclosure_data: EnclosureCreate,
@@ -347,14 +347,14 @@ async def replace_enclosure(
 
     enclosure_response = _enclosure_to_response(enclosure)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure replaced successfully",
         data=enclosure_response
     )
 
 
-@router.delete("/{enclosure_id}", response_model=ApiResponse[None])
+@router.delete("/{enclosure_id}", response_model=ApiSingleResponse[None])
 async def delete_enclosure(
     enclosure_id: int,
     current_user=Depends(get_current_user_optional),
@@ -399,7 +399,7 @@ async def delete_enclosure(
         description="Enclosure 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure deleted successfully",
         data=None
@@ -410,7 +410,7 @@ async def delete_enclosure(
 # Phase 5: 특수 엔드포인트
 # ============================================================================
 
-@router.patch("/{enclosure_id}/status", response_model=ApiResponse[EnclosureResponse])
+@router.patch("/{enclosure_id}/status", response_model=ApiSingleResponse[EnclosureResponse])
 async def update_enclosure_status(
     enclosure_id: int,
     status_data: EnclosureStatusUpdate,
@@ -469,14 +469,14 @@ async def update_enclosure_status(
 
     enclosure_response = _enclosure_to_response(enclosure)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure status updated successfully",
         data=enclosure_response
     )
 
 
-@router.post("/{enclosure_id}/control", response_model=ApiResponse[EnclosureResponse])
+@router.post("/{enclosure_id}/control", response_model=ApiSingleResponse[EnclosureResponse])
 async def control_enclosure(
     enclosure_id: int,
     control_data: EnclosureControl,
@@ -521,7 +521,7 @@ async def control_enclosure(
 
     enclosure_response = _enclosure_to_response(enclosure)
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Enclosure control updated successfully",
         data=enclosure_response

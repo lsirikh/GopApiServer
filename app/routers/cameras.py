@@ -13,7 +13,7 @@ from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse, CameraUrls, CameraWithPresetsResponse
 from app.schemas.device_group import DeviceGroupResponse
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.schemas.camera_preset import CameraPresetNestedResponse, ROIListNestedResponse
 from app.models.camera_preset import CameraPreset, ROI
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
@@ -230,7 +230,7 @@ async def get_camera(
         camera_response = _camera_to_response(camera, db)
         presets = _get_camera_presets_nested(db, camera_id, include_rois)
 
-        return ApiResponse(
+        return ApiSingleResponse(
             success=True,
             message="Camera retrieved successfully",
             data=CameraWithPresetsResponse(
@@ -239,7 +239,7 @@ async def get_camera(
             )
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera retrieved successfully",
         data=_camera_to_response(camera, db)
@@ -285,7 +285,7 @@ def _get_camera_presets_nested(db: Session, camera_id: int, include_rois: bool =
     return result
 
 
-@router.post("", response_model=ApiResponse[CameraResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[CameraResponse], status_code=status.HTTP_201_CREATED)
 async def create_camera(
     camera_data: CameraCreate,
     current_user = Depends(get_current_user_optional),
@@ -375,14 +375,14 @@ async def create_camera(
         description="Camera 생성"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera created successfully",
         data=_camera_to_response(new_camera, db)
     )
 
 
-@router.patch("/{camera_id}", response_model=ApiResponse[CameraResponse])
+@router.patch("/{camera_id}", response_model=ApiSingleResponse[CameraResponse])
 async def update_camera(
     camera_id: int,
     camera_data: CameraUpdate,
@@ -500,14 +500,14 @@ async def update_camera(
             description="Camera 수정"
         )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera updated successfully",
         data=_camera_to_response(camera, db)
     )
 
 
-@router.put("/{camera_id}", response_model=ApiResponse[CameraResponse])
+@router.put("/{camera_id}", response_model=ApiSingleResponse[CameraResponse])
 async def replace_camera(
     camera_id: int,
     camera_data: CameraCreate,
@@ -596,14 +596,14 @@ async def replace_camera(
         _update_device_group_mappings(db, camera.id, camera_data.group_ids, "camera")
         db.commit()
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera replaced successfully",
         data=_camera_to_response(camera, db)
     )
 
 
-@router.delete("/{camera_id}", response_model=ApiResponse[None])
+@router.delete("/{camera_id}", response_model=ApiSingleResponse[None])
 async def delete_camera(
     camera_id: int,
     current_user = Depends(get_current_user_optional),
@@ -654,7 +654,7 @@ async def delete_camera(
         description="Camera 삭제"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera deleted successfully",
         data=None

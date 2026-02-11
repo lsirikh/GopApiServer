@@ -25,7 +25,7 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -544,10 +544,14 @@ app.include_router(detections.router, prefix="/api/events/detections", tags=["De
 app.include_router(malfunctions.router, prefix="/api/events/malfunctions", tags=["Malfunctions"])
 app.include_router(connections.router, prefix="/api/events/connections", tags=["Connections"])
 app.include_router(actions.router, prefix="/api/events/actions", tags=["Actions"])
+app.include_router(detection_logs.router, prefix="/api/detection-logs", tags=["Detection Logs"])
 app.include_router(event_mappings.router, prefix="/api/integrations/event-mappings", tags=["Integration"])
 app.include_router(event_mapping_cameras.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Cameras"])
 app.include_router(event_mapping_speakers.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Speakers"])
 app.include_router(event_mapping_lamps.router, prefix="/api/integrations/event-mappings", tags=["Event Mapping Lamps"])
+app.include_router(event_mapping_cameras.flat_router, prefix="/api/integrations/mapping-cameras", tags=["Mapping Cameras"])
+app.include_router(event_mapping_speakers.flat_router, prefix="/api/integrations/mapping-speakers", tags=["Mapping Speakers"])
+app.include_router(event_mapping_lamps.flat_router, prefix="/api/integrations/mapping-lamps", tags=["Mapping Lamps"])
 app.include_router(server_categories.router, prefix="/api/servers/categories", tags=["Server Categories"])
 app.include_router(servers.router, prefix="/api/servers", tags=["Servers"])
 app.include_router(server_metrics.router, prefix="/api/servers", tags=["Server Metrics"])

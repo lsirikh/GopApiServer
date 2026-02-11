@@ -401,3 +401,47 @@ def delete_event_mapping_speaker(
         "success": True,
         "message": "Event mapping speaker deleted successfully"
     }
+
+
+# ============================================================
+# 독립 List API (PRD_MappingSubResource_ListAPI.md v1.0)
+# ============================================================
+
+flat_router = APIRouter(tags=["Mapping Speakers"])
+
+
+@flat_router.get(
+    "",
+    response_model=dict,
+    summary="List all mapping speakers",
+    description="Get all EventMappingSpeaker records across all event mappings"
+)
+def list_all_mapping_speakers(
+    event_mapping_id: Optional[int] = None,
+    speaker_id: Optional[int] = None,
+    is_enable: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user_optional)
+):
+    """GET /api/integrations/mapping-speakers"""
+    query = db.query(EventMappingSpeaker)
+
+    if event_mapping_id is not None:
+        query = query.filter(EventMappingSpeaker.event_mapping_id == event_mapping_id)
+    if speaker_id is not None:
+        query = query.filter(EventMappingSpeaker.speaker_id == speaker_id)
+    if is_enable is not None:
+        query = query.filter(EventMappingSpeaker.is_enable == is_enable)
+
+    speakers = query.all()
+
+    items = [_build_response(ems) for ems in speakers]
+
+    return {
+        "success": True,
+        "message": "Mapping speakers retrieved successfully",
+        "data": {
+            "items": [item.model_dump() for item in items],
+            "total": len(items)
+        }
+    }

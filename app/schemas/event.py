@@ -382,6 +382,33 @@ class ActionEventUpdate(BaseModel):
     created_at: Optional[datetime] = Field(None, description="생성 일시")
 
 
+class ActionNested(BaseModel):
+    """ActionEvent 경량 Nested 스키마 (DetectionLog 전용, 순환참조 방지를 위해 from_event 미포함)"""
+    id: int = Field(..., description="ActionEvent ID")
+    content: str = Field(..., description="조치 내용")
+    user: str = Field(..., description="조치자")
+    created_at: datetime = Field(..., description="조치 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DetectionLogResponse(BaseModel):
+    """Detection Log 응답 스키마 (DetectionEvent + ActionEvent LEFT JOIN)"""
+    id: int = Field(..., description="탐지 이벤트 ID")
+    type_event: EnumEventType = Field(..., description="이벤트 유형")
+    action_reported: EnumTrueFalse = Field(..., description="조치보고 여부")
+    result: EnumDetectionType = Field(..., description="탐지 결과")
+    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보")
+    device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
+    detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보")
+    action: Optional[ActionNested] = Field(None, description="조치보고 정보 (없으면 null)")
+    created_at: datetime = Field(..., description="생성 일시")
+    updated_at: datetime = Field(..., description="수정 일시")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Forward reference resolution for Nested Response schemas
 # This must be done after all classes are defined
 from app.schemas.device import DeviceNestedResponse, SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse
@@ -389,3 +416,4 @@ from app.schemas.device import DeviceNestedResponse, SensorNestedResponse, Contr
 DetectionEventResponse.model_rebuild()
 MalfunctionEventResponse.model_rebuild()
 ConnectionEventResponse.model_rebuild()
+DetectionLogResponse.model_rebuild()

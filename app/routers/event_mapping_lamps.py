@@ -394,3 +394,47 @@ def delete_event_mapping_lamp(
         "success": True,
         "message": "Event mapping lamp deleted successfully"
     }
+
+
+# ============================================================
+# 독립 List API (PRD_MappingSubResource_ListAPI.md v1.0)
+# ============================================================
+
+flat_router = APIRouter(tags=["Mapping Lamps"])
+
+
+@flat_router.get(
+    "",
+    response_model=dict,
+    summary="List all mapping lamps",
+    description="Get all EventMappingLamp records across all event mappings"
+)
+def list_all_mapping_lamps(
+    event_mapping_id: Optional[int] = None,
+    lamp_id: Optional[int] = None,
+    is_enable: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user_optional)
+):
+    """GET /api/integrations/mapping-lamps"""
+    query = db.query(EventMappingLamp)
+
+    if event_mapping_id is not None:
+        query = query.filter(EventMappingLamp.event_mapping_id == event_mapping_id)
+    if lamp_id is not None:
+        query = query.filter(EventMappingLamp.lamp_id == lamp_id)
+    if is_enable is not None:
+        query = query.filter(EventMappingLamp.is_enable == is_enable)
+
+    lamps = query.all()
+
+    items = [_build_response(eml) for eml in lamps]
+
+    return {
+        "success": True,
+        "message": "Mapping lamps retrieved successfully",
+        "data": {
+            "items": [item.model_dump() for item in items],
+            "total": len(items)
+        }
+    }

@@ -490,3 +490,47 @@ def delete_event_mapping_camera(
         "message": "Event mapping camera deleted successfully",
         "data": None
     }
+
+
+# ============================================================
+# 독립 List API (PRD_MappingSubResource_ListAPI.md v1.0)
+# ============================================================
+
+flat_router = APIRouter(tags=["Mapping Cameras"])
+
+
+@flat_router.get(
+    "",
+    response_model=dict,
+    summary="List all mapping cameras",
+    description="Get all EventMappingCamera records across all event mappings"
+)
+def list_all_mapping_cameras(
+    event_mapping_id: Optional[int] = None,
+    camera_id: Optional[int] = None,
+    is_enable: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user_optional)
+):
+    """GET /api/integrations/mapping-cameras"""
+    query = db.query(EventMappingCamera)
+
+    if event_mapping_id is not None:
+        query = query.filter(EventMappingCamera.event_mapping_id == event_mapping_id)
+    if camera_id is not None:
+        query = query.filter(EventMappingCamera.camera_id == camera_id)
+    if is_enable is not None:
+        query = query.filter(EventMappingCamera.is_enable == is_enable)
+
+    cameras = query.all()
+
+    items = [_build_response(emc, db) for emc in cameras]
+
+    return {
+        "success": True,
+        "message": "Mapping cameras retrieved successfully",
+        "data": {
+            "items": [item.model_dump() for item in items],
+            "total": len(items)
+        }
+    }

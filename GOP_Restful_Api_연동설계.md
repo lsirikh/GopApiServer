@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-02-09  
-**버전**: v3.7  
+**최종 수정일**: 2026-02-11
+**버전**: v3.8
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -35,6 +35,7 @@
    - 6.2 [Malfunction Event API](#62-malfunction-event-api)
    - 6.3 [Connection Event API](#63-connection-event-api)
    - 6.4 [Action Event API](#64-action-event-api)
+   - 6.5 [Detection Log API](#65-detection-log-api) *(v3.8 신규)*
 7. [Integration API 설계](#7-integration-api-설계)
    - 7.1 [개요](#71-개요)
    - 7.2 [EventMapping API](#72-eventmapping-api)
@@ -9287,6 +9288,97 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 
 ---
 
+### 6.5 Detection Log API *(v3.8 신규)*
+
+탐지 이벤트와 조치보고를 JOIN하여 로그 화면 전용으로 제공하는 읽기 전용 API입니다.
+DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 포함됩니다.
+
+#### 6.5.1 Detection Log 목록 조회
+
+- **Endpoint**: `GET /api/detection-logs`
+- **설명**: 탐지 로그 목록 조회 (DetectionEvent + ActionEvent LEFT JOIN)
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|:----:|--------|------|
+| `page` | int | X | 1 | 페이지 번호 |
+| `limit` | int | X | 20 | 페이지당 항목 수 (최대 100) |
+| `device_id` | int | X | - | 장치 ID 필터 |
+| `action_reported` | string | X | - | 조치보고 여부 ("True"/"False") |
+| `result` | string | X | - | 탐지 결과 유형 (EnumDetectionType) |
+| `start_date` | datetime | X | - | 시작 날짜 (ISO 8601) |
+| `end_date` | datetime | X | - | 종료 날짜 (ISO 8601) |
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "message": "2 detection logs retrieved",
+  "data": [
+    {
+      "id": 1001,
+      "type_event": "Intrusion",
+      "action_reported": "True",
+      "result": "AI_DETECT",
+      "device": {
+        "id": 101,
+        "number_device": 1,
+        "name_device": "Sensor-A-1",
+        "type_device": "Multi",
+        "status": "NORMAL",
+        "is_enable": true,
+        "controller_id": 1,
+        "device_groups": []
+      },
+      "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
+      "detail": {
+        "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+        "signal": 1500,
+        "objects": [{"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}]
+      },
+      "action": {
+        "id": 4001,
+        "content": "침입 탐지 확인 및 순찰 출동 요청",
+        "user": "operator_kim",
+        "created_at": "2026-01-06T10:16:00.100Z",
+        "updated_at": "2026-01-06T10:16:00.100Z"
+      },
+      "created_at": "2026-01-06T10:15:23.100Z",
+      "updated_at": "2026-01-06T10:15:23.100Z"
+    },
+    {
+      "id": 1002,
+      "type_event": "Intrusion",
+      "action_reported": "False",
+      "result": "THERMAL_SENSOR",
+      "device": { "..." },
+      "device_description": "[Fence] Sensor-B-1 (number: 2, id: 102)",
+      "detail": null,
+      "action": null,
+      "created_at": "2026-01-06T10:20:00.100Z",
+      "updated_at": "2026-01-06T10:20:00.100Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 2, "total_pages": 1 },
+  "meta": { "timestamp": "2026-01-06T10:40:00.250Z", "request_id": "..." }
+}
+```
+
+#### 6.5.2 Detection Log 단건 조회
+
+- **Endpoint**: `GET /api/detection-logs/{event_id}`
+- **설명**: 특정 탐지 로그 상세 조회 (ActionEvent JOIN 포함)
+
+**Response (200 OK)**: `ApiSingleResponse[DetectionLogResponse]`
+- DetectionEventResponse 전체 필드 + `action` 필드 (ActionNested 또는 null)
+
+**Error Response:**
+- 404: 탐지 로그를 찾을 수 없음
+
+---
+
 ## 7. Integration API 설계
 
 ### 7.1 개요
@@ -13684,6 +13776,10 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `PATCH /api/events/actions/{id}` - 수정
 - `DELETE /api/events/actions/{id}` - 삭제
 
+**Detection Logs**:
+- `GET /api/detection-logs` - 탐지 로그 목록 조회
+- `GET /api/detection-logs/{event_id}` - 탐지 로그 단건 조회
+
 #### Integration Endpoints
 
 **Event Mappings**:
@@ -14012,6 +14108,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v3.8 | 2026-02-11 | **Detection Log API 추가**<br><br>**[1. Detection Log API 신규 (6.5)]**<br>- **GET /api/detection-logs**: 탐지 로그 목록 조회 (DetectionEvent + ActionEvent LEFT JOIN)<br>- **GET /api/detection-logs/{event_id}**: 탐지 로그 단건 조회<br>- **DetectionLogResponse 스키마**: DetectionEventResponse + action(ActionNested) 필드<br>- **ActionNested 스키마**: id, content, user, created_at, updated_at (경량, from_event 미포함)<br>- 읽기 전용 API (CRUD 미제공)<br>- 기존 Detection/Action API 변경 없음 |
 | v3.7 | 2026-02-09 | **Device Setting PUT API 추가, CameraSetting focus_mode/iris_mode 필드 확장, Enum 2종 추가**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumFocusMode (2종)**: AUTO, MANUAL<br>- **EnumIrisMode (2종)**: AUTO, MANUAL<br>- **EnumTrackingStatus (3종)**: ACTIVE, LOST, IDLE<br><br>**[2. Camera Settings API 변경 (5.3.7~5.3.9)]**<br>- **5.3.7 GET 응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.8 PATCH 요청/응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.9 PUT /api/devices/cameras/{camera_id}/settings 신규**: 전체 교체 (Upsert)<br>- CameraSetting API에서 pan_tilt_speed, zoom_speed 삭제, tracking(EnumTrackingStatus) 추가<br><br>**[3. Proxy Settings API 변경 (8.8.2~8.8.3)]**<br>- **8.8.2 제목 변경**: "프록시 설정 수정" → "프록시 설정 수정 (부분)"<br>- **8.8.3 PUT /api/servers/{server_id}/proxy-settings 신규**: 전체 교체 (Upsert)<br><br>**[4. 공통 응답 형식 분리 (3.2)]**<br>- 공통 응답 형식 분리 — 단건 응답(ApiSingleResponse)에서 pagination 제거 |
 | v3.6 | 2026-02-06 | **Device Setting API 추가 (Camera Settings GET/PATCH, Proxy Settings GET/PATCH), Enum 7종 추가 (EnumOperationMode, EnumWindyMode, EnumWeatherMode, EnumCameraVideoMode, EnumOnOff, EnumDayNightMode, EnumPalette)**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumOperationMode (2종)**: NORMAL, REGISTER<br>- **EnumWindyMode (4종)**: wind0, wind1, wind2, wind3<br>- **EnumWeatherMode (7종)**: NORMAL, FOG, SEA_FOG, YELLOW_DUST, RAIN, SNOW, HEAT_HAZE<br>- **EnumCameraVideoMode (4종)**: NORMAL, STABILIZATION, BLC, NIGHT_ENHANCE<br>- **EnumOnOff (2종)**: on, off<br>- **EnumDayNightMode (3종)**: AUTO, DAY, NIGHT<br>- **EnumPalette (4종)**: WHITE_HOT, BLACK_HOT, RAINBOW, IRONBOW<br><br>**[2. Camera Settings API (5.3.7~5.3.8)]**<br>- **GET /api/devices/cameras/{camera_id}/settings**: 카메라 설정 조회 (Lazy 생성)<br>- **PATCH /api/devices/cameras/{camera_id}/settings**: 카메라 설정 수정 (Upsert)<br>- **설정 필드**: weather_mode, camera_mode, heater, fan, headlight, day_night_mode, pan_tilt_speed, zoom_speed, palette<br><br>**[3. Proxy Settings API (8.8)]**<br>- **GET /api/servers/{server_id}/proxy-settings**: 프록시 설정 조회 (Lazy 생성)<br>- **PATCH /api/servers/{server_id}/proxy-settings**: 프록시 설정 수정 (Upsert)<br>- **설정 필드**: operation_mode, windy_mode |
 | v3.5 | 2026-02-02 | **Audit Log SENSITIVE_FIELDS 정합성 수정**<br><br>**[1. 민감필드 목록 동기화 (9.6.4)]**<br>- `password_hash`, `hashed_password`, `refresh_token`, `user_password` 추가<br>- PRD_Audit_Log.md Section 5.2와 완전 동기화<br>- audit_service.py SENSITIVE_FIELDS 코드와 문서 일치<br><br>**[2. 테스트 수정]**<br>- `test_session_forced_logout_audit_log`: UserSession `login_at` → `created_at` 동기화 (PRD_UserSession_Improvement.md v1.2) |

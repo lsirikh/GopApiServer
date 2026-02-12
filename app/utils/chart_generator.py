@@ -10,6 +10,9 @@ import matplotlib
 matplotlib.use('Agg')  # Non-GUI backend for server-side rendering
 import matplotlib.pyplot as plt
 
+plt.rcParams['font.family'] = 'Malgun Gothic'
+plt.rcParams['axes.unicode_minus'] = False
+
 
 class ChartGenerator:
     """차트 이미지 생성 유틸리티"""

@@ -24,6 +24,25 @@ class PDFGenerator:
 
     # 페이지 여백 설정
     PAGE_MARGIN = 20 * mm
+    # 한글 폰트 이름 (등록 후 사용)
+    FONT_NAME = 'Helvetica'
+    FONT_NAME_BOLD = 'Helvetica-Bold'
+    _fonts_registered = False
+
+    @classmethod
+    def _register_fonts(cls):
+        """한글 폰트(맑은 고딕) 등록. 실패 시 Helvetica fallback."""
+        if cls._fonts_registered:
+            return
+        try:
+            pdfmetrics.registerFont(TTFont('MalgunGothic', 'malgun.ttf'))
+            pdfmetrics.registerFont(TTFont('MalgunGothicBold', 'malgunbd.ttf'))
+            cls.FONT_NAME = 'MalgunGothic'
+            cls.FONT_NAME_BOLD = 'MalgunGothicBold'
+        except Exception:
+            cls.FONT_NAME = 'Helvetica'
+            cls.FONT_NAME_BOLD = 'Helvetica-Bold'
+        cls._fonts_registered = True
 
     @classmethod
     def generate_report(
@@ -51,6 +70,7 @@ class PDFGenerator:
         Returns:
             PDF bytes
         """
+        cls._register_fonts()
         buf = io.BytesIO()
 
         # PDF 문서 생성
@@ -92,6 +112,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='ReportTitle',
             parent=styles['Heading1'],
+            fontName=cls.FONT_NAME,
             fontSize=24,
             spaceAfter=10,
             alignment=1  # 가운데 정렬
@@ -101,6 +122,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='ReportSubtitle',
             parent=styles['Normal'],
+            fontName=cls.FONT_NAME,
             fontSize=12,
             textColor=colors.grey,
             alignment=1,
@@ -111,6 +133,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='SectionTitle',
             parent=styles['Heading2'],
+            fontName=cls.FONT_NAME,
             fontSize=16,
             spaceBefore=20,
             spaceAfter=10
@@ -120,6 +143,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='SectionContent',
             parent=styles['Normal'],
+            fontName=cls.FONT_NAME,
             fontSize=11,
             spaceAfter=10,
             leading=14  # 줄 간격
@@ -214,6 +238,9 @@ class PDFGenerator:
 
         table = Table(data)
         table.setStyle(TableStyle([
+            # 한글 폰트 적용
+            ('FONTNAME', (0, 0), (-1, -1), cls.FONT_NAME),
+
             # 헤더 스타일
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),

@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timedelta
+from urllib.parse import quote
 import os
 
 from app.dependencies import get_db
@@ -518,9 +519,13 @@ def download_report(
     if not os.path.exists(generation.pdf_file_path):
         raise HTTPException(status_code=404, detail="PDF file not found on disk")
 
+    encoded_name = quote(f"{generation.title}.pdf")
+    headers = {
+        "Content-Disposition": f'attachment; filename="report_{generation_id}.pdf"; filename*=UTF-8\'\'{encoded_name}'
+    }
     return FileResponse(
         path=generation.pdf_file_path,
-        filename=f"{generation.title}.pdf",
+        headers=headers,
         media_type="application/pdf"
     )
 

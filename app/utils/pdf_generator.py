@@ -24,6 +24,32 @@ class PDFGenerator:
 
     # 페이지 여백 설정
     PAGE_MARGIN = 20 * mm
+    # 한글 폰트 이름 (등록 후 사용)
+    FONT_NAME = 'Helvetica'
+    FONT_NAME_BOLD = 'Helvetica-Bold'
+    _fonts_registered = False
+
+    # 폰트 후보 목록: (등록이름, normal파일, bold파일)
+    _FONT_CANDIDATES = [
+        ('MalgunGothic', 'malgun.ttf', 'malgunbd.ttf'),           # Windows
+        ('NanumGothic', 'NanumGothic.ttf', 'NanumGothicBold.ttf'),  # Linux (fonts-nanum)
+    ]
+
+    @classmethod
+    def _register_fonts(cls):
+        """한글 폰트 등록. Windows(맑은고딕) → Linux(나눔고딕) → Helvetica fallback."""
+        if cls._fonts_registered:
+            return
+        for name, normal, bold in cls._FONT_CANDIDATES:
+            try:
+                pdfmetrics.registerFont(TTFont(name, normal))
+                pdfmetrics.registerFont(TTFont(f'{name}Bold', bold))
+                cls.FONT_NAME = name
+                cls.FONT_NAME_BOLD = f'{name}Bold'
+                break
+            except Exception:
+                continue
+        cls._fonts_registered = True
 
     @classmethod
     def generate_report(
@@ -51,6 +77,7 @@ class PDFGenerator:
         Returns:
             PDF bytes
         """
+        cls._register_fonts()
         buf = io.BytesIO()
 
         # PDF 문서 생성
@@ -92,6 +119,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='ReportTitle',
             parent=styles['Heading1'],
+            fontName=cls.FONT_NAME,
             fontSize=24,
             spaceAfter=10,
             alignment=1  # 가운데 정렬
@@ -101,6 +129,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='ReportSubtitle',
             parent=styles['Normal'],
+            fontName=cls.FONT_NAME,
             fontSize=12,
             textColor=colors.grey,
             alignment=1,
@@ -111,6 +140,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='SectionTitle',
             parent=styles['Heading2'],
+            fontName=cls.FONT_NAME,
             fontSize=16,
             spaceBefore=20,
             spaceAfter=10
@@ -120,6 +150,7 @@ class PDFGenerator:
         styles.add(ParagraphStyle(
             name='SectionContent',
             parent=styles['Normal'],
+            fontName=cls.FONT_NAME,
             fontSize=11,
             spaceAfter=10,
             leading=14  # 줄 간격
@@ -203,26 +234,65 @@ class PDFGenerator:
 
     @classmethod
     def _build_table(cls, table_data: Dict[str, Any]) -> List:
-        """테이블 빌드"""
+        """테이블 빌드 (A4 가용 폭 기반 colWidths + Paragraph 래핑)"""
+        cls._register_fonts()
         story = []
 
         headers = table_data.get('headers', [])
         rows = table_data.get('rows', [])
 
-        # 테이블 데이터 구성
-        data = [headers] + rows
+        if not headers:
+            return story
 
-        table = Table(data)
+        # A4 가용 폭 계산
+        page_width = A4[0]  # 595.27 pt
+        available_width = page_width - 2 * cls.PAGE_MARGIN
+        num_cols = len(headers)
+        col_width = available_width / num_cols
+
+        # 셀 스타일 (Paragraph 래핑용)
+        cell_style = ParagraphStyle(
+            name='TableCell',
+            fontName=cls.FONT_NAME,
+            fontSize=9,
+            leading=11,
+            wordWrap='CJK',
+        )
+        header_style = ParagraphStyle(
+            name='TableHeader',
+            fontName=cls.FONT_NAME,
+            fontSize=10,
+            leading=12,
+            textColor=colors.whitesmoke,
+            alignment=1,  # CENTER
+        )
+
+        # 헤더를 Paragraph로 래핑
+        header_row = [Paragraph(str(h), header_style) for h in headers]
+
+        # 데이터 행을 Paragraph로 래핑
+        wrapped_rows = []
+        for row in rows:
+            wrapped_row = [Paragraph(str(cell), cell_style) for cell in row]
+            wrapped_rows.append(wrapped_row)
+
+        data = [header_row] + wrapped_rows
+
+        table = Table(data, colWidths=[col_width] * num_cols)
         table.setStyle(TableStyle([
+            # 한글 폰트 적용
+            ('FONTNAME', (0, 0), (-1, -1), cls.FONT_NAME),
+
             # 헤더 스타일
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
 
             # 데이터 행 스타일
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
 
             # 전체 테두리
             ('GRID', (0, 0), (-1, -1), 1, colors.black),

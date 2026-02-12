@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timedelta
+from urllib.parse import quote
 import os
 
 from app.dependencies import get_db
@@ -518,9 +519,13 @@ def download_report(
     if not os.path.exists(generation.pdf_file_path):
         raise HTTPException(status_code=404, detail="PDF file not found on disk")
 
+    encoded_name = quote(f"{generation.title}.pdf")
+    headers = {
+        "Content-Disposition": f'attachment; filename="report_{generation_id}.pdf"; filename*=UTF-8\'\'{encoded_name}'
+    }
     return FileResponse(
         path=generation.pdf_file_path,
-        filename=f"{generation.title}.pdf",
+        headers=headers,
         media_type="application/pdf"
     )
 
@@ -550,12 +555,24 @@ def preview_report(
     if generation.status != "COMPLETED":
         raise HTTPException(status_code=400, detail="Report is not COMPLETED yet")
 
+    # CUSTOM 타입이면 템플릿 컴포넌트 조회하여 필터링
+    enabled_components = None
+    if generation.report_type == "CUSTOM" and generation.template_id:
+        template = db.query(ReportTemplate).filter(
+            ReportTemplate.id == generation.template_id
+        ).first()
+        if template and template.components:
+            enabled_components = [
+                c["id"] for c in template.components
+                if c.get("enabled", True)
+            ]
+
     # Get structured preview data with charts and grids
     service = ReportService(db)
     # Calculate days from period_type
     period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
     days = period_days.get(generation.period_type, 7)
-    structured_data = service.get_structured_preview_data(days)
+    structured_data = service.get_structured_preview_data(days, enabled_components)
 
     return ApiResponse(
         success=True,

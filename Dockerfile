@@ -12,7 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    fonts-nanum \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
 
 # Copy requirements file
 COPY requirements.txt .

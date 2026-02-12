@@ -9,6 +9,32 @@ from typing import Dict, List, Any
 import matplotlib
 matplotlib.use('Agg')  # Non-GUI backend for server-side rendering
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+
+plt.rcParams['axes.unicode_minus'] = False
+# 한글 폰트: fontManager에 실제 등록된 폰트만 사용
+# (rcParams 설정은 미등록 폰트도 에러 없이 허용하므로 사전 검증 필요)
+_available_fonts = {f.name for f in fm.fontManager.ttflist}
+_korean_font = None
+for _name in ['Malgun Gothic', 'NanumGothic']:
+    if _name in _available_fonts:
+        _korean_font = _name
+        break
+
+if _korean_font is None:
+    # fontManager 미등록 시 폰트 파일 직접 추가
+    import os
+    for _path in [
+        r'C:\Windows\Fonts\malgun.ttf',
+        '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+    ]:
+        if os.path.exists(_path):
+            fm.fontManager.addfont(_path)
+            _korean_font = fm.FontProperties(fname=_path).get_name()
+            break
+
+if _korean_font:
+    plt.rcParams['font.family'] = _korean_font
 
 
 class ChartGenerator:

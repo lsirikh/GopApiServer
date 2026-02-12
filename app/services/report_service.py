@@ -23,7 +23,12 @@ CHART_COMPONENT_MAP = {
     "장비 상태 분포": "DEVICE_STATUS_PIE",
     "장비 유형별 현황": "DEVICE_TYPE_BAR",
     "이벤트 유형 분포": "EVENT_SUMMARY_PIE",
+    "이벤트 발생 추이": "EVENT_TREND_LINE",
     "시스템 이벤트 심각도": "SYSTEM_SEVERITY_BAR",
+    "시스템 이벤트 추이": "SYSTEM_TREND_LINE",
+    "역할별 사용자 분포": "USER_ROLE_PIE",
+    "일별 로그인 추이": "USER_LOGIN_TREND_LINE",
+    "로그인 결과 분포": "USER_LOGIN_RESULT_PIE",
 }
 
 GRID_COMPONENT_MAP = {
@@ -87,7 +92,7 @@ class ReportService:
             .all()
         )
         for status, count in status_query:
-            status_counts[status] = count
+            status_counts[status.value if hasattr(status, 'value') else status] = count
 
         # Type (category_device) counts
         type_counts = {}
@@ -499,8 +504,8 @@ class ReportService:
             rows.append([
                 log.id,
                 log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
-                log.resource_type or "",
-                log.action or "",
+                log.resource_type.value if hasattr(log.resource_type, 'value') else (log.resource_type or ""),
+                log.action.value if hasattr(log.action, 'value') else (log.action or ""),
                 log.resource_id if hasattr(log, 'resource_id') else "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
@@ -1025,6 +1030,20 @@ class ReportService:
                 )
                 charts.append(("이벤트 유형 분포", event_pie))
 
+            # Event trend line chart
+            if _is_enabled("EVENT_TREND_LINE") and event_stats.get("daily_labels"):
+                event_trend = ChartGenerator.generate_line_chart(
+                    labels=event_stats["daily_labels"],
+                    datasets=[
+                        {"label": ds["label"], "data": ds["values"]}
+                        for ds in event_stats["daily_trend"]
+                    ],
+                    title="이벤트 발생 추이",
+                    xlabel="날짜",
+                    ylabel="건수"
+                )
+                charts.append(("이벤트 발생 추이", event_trend))
+
             # System severity bar chart
             if _is_enabled("SYSTEM_SEVERITY_BAR") and system_stats["severity_counts"]:
                 severity_bar = ChartGenerator.generate_bar_chart(
@@ -1035,6 +1054,48 @@ class ReportService:
                 )
                 charts.append(("시스템 이벤트 심각도", severity_bar))
 
+            # System trend line chart
+            if _is_enabled("SYSTEM_TREND_LINE") and system_stats.get("daily_trend"):
+                sys_labels = [d["date"] for d in system_stats["daily_trend"]]
+                sys_values = [d["count"] for d in system_stats["daily_trend"]]
+                system_trend = ChartGenerator.generate_line_chart(
+                    labels=sys_labels,
+                    datasets=[{"label": "시스템 이벤트", "data": sys_values}],
+                    title="시스템 이벤트 추이",
+                    xlabel="날짜",
+                    ylabel="건수"
+                )
+                charts.append(("시스템 이벤트 추이", system_trend))
+
+            # User role pie chart
+            if _is_enabled("USER_ROLE_PIE") and user_stats["role_counts"]:
+                role_pie = ChartGenerator.generate_pie_chart(
+                    data=user_stats["role_counts"],
+                    title="역할별 사용자 분포"
+                )
+                charts.append(("역할별 사용자 분포", role_pie))
+
+            # User login trend line chart
+            if _is_enabled("USER_LOGIN_TREND_LINE") and user_stats.get("login_daily_trend"):
+                login_labels = [d["date"] for d in user_stats["login_daily_trend"]]
+                login_values = [d["count"] for d in user_stats["login_daily_trend"]]
+                login_trend = ChartGenerator.generate_line_chart(
+                    labels=login_labels,
+                    datasets=[{"label": "로그인", "data": login_values}],
+                    title="일별 로그인 추이",
+                    xlabel="날짜",
+                    ylabel="건수"
+                )
+                charts.append(("일별 로그인 추이", login_trend))
+
+            # User login result pie chart
+            if _is_enabled("USER_LOGIN_RESULT_PIE") and user_stats["login_result_counts"]:
+                login_result_pie = ChartGenerator.generate_pie_chart(
+                    data=user_stats["login_result_counts"],
+                    title="로그인 결과 분포"
+                )
+                charts.append(("로그인 결과 분포", login_result_pie))
+
             # 4. Build PDF sections
             sections = []
             if _is_enabled("SUMMARY_CARD"):
@@ -1042,10 +1103,10 @@ class ReportService:
                     "title": "1. 요약",
                     "content": (
                         f"보고서 기간: {generation.start_date.strftime('%Y-%m-%d')} ~ "
-                        f"{generation.end_date.strftime('%Y-%m-%d')}\n"
-                        f"총 장비 수: {sum(device_stats['type_counts'].values())}대\n"
-                        f"총 이벤트 수: {sum(event_stats['event_type_counts'].values())}건\n"
-                        f"총 시스템 이벤트 수: {sum(system_stats['severity_counts'].values())}건\n"
+                        f"{generation.end_date.strftime('%Y-%m-%d')}<br/>"
+                        f"총 장비 수: {sum(device_stats['type_counts'].values())}대<br/>"
+                        f"총 이벤트 수: {sum(event_stats['event_type_counts'].values())}건<br/>"
+                        f"총 시스템 이벤트 수: {sum(system_stats['severity_counts'].values())}건<br/>"
                         f"총 사용자 수: {sum(user_stats['role_counts'].values())}명"
                     )
                 })
@@ -1079,6 +1140,14 @@ class ReportService:
                             "rows": grid_data["rows"],
                         }
                     })
+
+            # 4.2 섹션 번호 부여
+            for idx, section in enumerate(sections):
+                title = section.get("title", "")
+                # 이미 번호가 있으면 skip ("1. 요약" 등)
+                if not title or (len(title) > 1 and title[0].isdigit() and '. ' in title[:5]):
+                    continue
+                section["title"] = f"{idx + 1}. {title}"
 
             # 5. Generate PDF
             pdf_bytes = PDFGenerator.generate_report(

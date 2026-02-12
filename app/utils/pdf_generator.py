@@ -234,16 +234,51 @@ class PDFGenerator:
 
     @classmethod
     def _build_table(cls, table_data: Dict[str, Any]) -> List:
-        """테이블 빌드"""
+        """테이블 빌드 (A4 가용 폭 기반 colWidths + Paragraph 래핑)"""
+        cls._register_fonts()
         story = []
 
         headers = table_data.get('headers', [])
         rows = table_data.get('rows', [])
 
-        # 테이블 데이터 구성
-        data = [headers] + rows
+        if not headers:
+            return story
 
-        table = Table(data)
+        # A4 가용 폭 계산
+        page_width = A4[0]  # 595.27 pt
+        available_width = page_width - 2 * cls.PAGE_MARGIN
+        num_cols = len(headers)
+        col_width = available_width / num_cols
+
+        # 셀 스타일 (Paragraph 래핑용)
+        cell_style = ParagraphStyle(
+            name='TableCell',
+            fontName=cls.FONT_NAME,
+            fontSize=9,
+            leading=11,
+            wordWrap='CJK',
+        )
+        header_style = ParagraphStyle(
+            name='TableHeader',
+            fontName=cls.FONT_NAME,
+            fontSize=10,
+            leading=12,
+            textColor=colors.whitesmoke,
+            alignment=1,  # CENTER
+        )
+
+        # 헤더를 Paragraph로 래핑
+        header_row = [Paragraph(str(h), header_style) for h in headers]
+
+        # 데이터 행을 Paragraph로 래핑
+        wrapped_rows = []
+        for row in rows:
+            wrapped_row = [Paragraph(str(cell), cell_style) for cell in row]
+            wrapped_rows.append(wrapped_row)
+
+        data = [header_row] + wrapped_rows
+
+        table = Table(data, colWidths=[col_width] * num_cols)
         table.setStyle(TableStyle([
             # 한글 폰트 적용
             ('FONTNAME', (0, 0), (-1, -1), cls.FONT_NAME),
@@ -252,11 +287,12 @@ class PDFGenerator:
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
 
             # 데이터 행 스타일
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
 
             # 전체 테두리
             ('GRID', (0, 0), (-1, -1), 1, colors.black),

@@ -16,7 +16,28 @@ from app.models.system_event import SystemEvent
 from app.models.config_change_log import ConfigChangeLog
 from app.models.audit_log import AuditLog
 from app.models.user import AccountUser, UserLoginLog, UserSession
-from app.models.report import ReportGeneration
+from app.models.report import ReportGeneration, ReportTemplate
+
+# PDF 차트/그리드 → EnumReportComponent 매핑 (PRD_Report_CustomTemplate_Filter)
+CHART_COMPONENT_MAP = {
+    "장비 상태 분포": "DEVICE_STATUS_PIE",
+    "장비 유형별 현황": "DEVICE_TYPE_BAR",
+    "이벤트 유형 분포": "EVENT_SUMMARY_PIE",
+    "시스템 이벤트 심각도": "SYSTEM_SEVERITY_BAR",
+}
+
+GRID_COMPONENT_MAP = {
+    "장비 목록": "DEVICE_GRID",
+    "탐지 이벤트 목록": "EVENT_DETECTION_GRID",
+    "장애 이벤트 목록": "EVENT_MALFUNCTION_GRID",
+    "조치 이벤트 목록": "EVENT_ACTION_GRID",
+    "시스템 이벤트 목록": "SYSTEM_EVENT_GRID",
+    "설정 변경 이력": "SYSTEM_CONFIG_GRID",
+    "감사 로그": "SYSTEM_AUDIT_GRID",
+    "사용자 목록": "USER_GRID",
+    "로그인 이력": "USER_LOGIN_GRID",
+    "세션 목록": "USER_SESSION_GRID",
+}
 
 
 class ReportService:
@@ -24,6 +45,29 @@ class ReportService:
 
     def __init__(self, db: Session):
         self.db = db
+
+    def get_enabled_components(self, generation: ReportGeneration) -> Optional[List[str]]:
+        """
+        ReportGeneration에서 활성화된 컴포넌트 ID 목록 추출
+
+        Returns:
+            None: STANDARD 또는 템플릿 없음 → 전체 포함
+            List[str]: CUSTOM 템플릿의 enabled=True인 컴포넌트 ID 목록
+        """
+        if generation.report_type != "CUSTOM" or not generation.template_id:
+            return None
+
+        template = self.db.query(ReportTemplate).filter(
+            ReportTemplate.id == generation.template_id
+        ).first()
+
+        if not template or not template.components:
+            return None
+
+        return [
+            c["id"] for c in template.components
+            if c.get("enabled", True)
+        ]
 
     def get_device_statistics(self) -> Dict[str, Any]:
         """
@@ -546,10 +590,16 @@ class ReportService:
     # Phase 5: Structured Preview Data
     # ==================================================================
 
-    def get_structured_preview_data(self, days: int = 7) -> Dict[str, Any]:
+    def get_structured_preview_data(self, days: int = 7, enabled_components: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         구조화된 보고서 미리보기 데이터 생성
         PRD_Report_Preview_Debug GAP-10: 11섹션 구조 (차트/그리드 분리)
+        PRD_Report_CustomTemplate_Filter: enabled_components로 비정형 필터링
+
+        Args:
+            days: 통계 기간
+            enabled_components: 활성화된 컴포넌트 ID 목록.
+                None이면 전체 반환 (STANDARD), 리스트면 해당 컴포넌트만 (CUSTOM)
 
         Sections:
         1. 요약 (summary_data: 장비/이벤트/서버 카드)
@@ -763,6 +813,30 @@ class ReportService:
             },
         ]
 
+        # 비정형 보고서 필터링: enabled_components가 제공되면 해당 컴포넌트만 포함
+        if enabled_components is not None:
+            filtered = []
+            for section in sections:
+                # charts 필터링
+                charts = [c for c in section.get("charts", []) if c.get("id") in enabled_components]
+                # grids 필터링
+                grids = [g for g in section.get("grids", []) if g.get("id") in enabled_components]
+
+                # summary_data가 있고 SUMMARY_CARD가 enabled면 유지
+                has_summary = section.get("summary_data") and "SUMMARY_CARD" in enabled_components
+
+                if charts or grids or has_summary:
+                    new_section = {
+                        "name": section["name"],
+                        "title": section["title"],
+                        "charts": charts,
+                        "grids": grids,
+                    }
+                    if section.get("summary_data") and has_summary:
+                        new_section["summary_data"] = section["summary_data"]
+                    filtered.append(new_section)
+            sections = filtered
+
         return {"sections": sections}
 
     def get_preview_data(self, days: int = 7) -> Dict[str, Any]:
@@ -896,6 +970,13 @@ class ReportService:
             generation.status = "GENERATING"
             self.db.commit()
 
+            # 1.1 CUSTOM 필터링: 활성 컴포넌트 목록 조회
+            enabled = self.get_enabled_components(generation)
+
+            def _is_enabled(component_id: str) -> bool:
+                """컴포넌트가 활성화되었는지 확인 (None이면 전체 활성)"""
+                return enabled is None or component_id in enabled
+
             # 2. Collect statistics
             preview_data = self.get_preview_data()
             device_stats = self.get_device_statistics()
@@ -903,23 +984,23 @@ class ReportService:
             system_stats = self.get_system_statistics()
             user_stats = self.get_user_statistics()
 
-            # 2.1 Collect grid data for tables
-            device_grid = self.get_device_grid_data()
-            detection_grid = self.get_detection_grid_data()
-            malfunction_grid = self.get_malfunction_grid_data()
-            action_grid = self.get_action_grid_data()
-            system_event_grid = self.get_system_event_grid_data()
-            config_grid = self.get_config_grid_data()
-            audit_grid = self.get_audit_grid_data()
-            user_grid = self.get_user_grid_data()
-            user_login_grid = self.get_user_login_grid_data()
-            user_session_grid = self.get_user_session_grid_data()
+            # 2.1 Collect grid data for tables (활성 컴포넌트만)
+            device_grid = self.get_device_grid_data() if _is_enabled("DEVICE_GRID") else None
+            detection_grid = self.get_detection_grid_data() if _is_enabled("EVENT_DETECTION_GRID") else None
+            malfunction_grid = self.get_malfunction_grid_data() if _is_enabled("EVENT_MALFUNCTION_GRID") else None
+            action_grid = self.get_action_grid_data() if _is_enabled("EVENT_ACTION_GRID") else None
+            system_event_grid = self.get_system_event_grid_data() if _is_enabled("SYSTEM_EVENT_GRID") else None
+            config_grid = self.get_config_grid_data() if _is_enabled("SYSTEM_CONFIG_GRID") else None
+            audit_grid = self.get_audit_grid_data() if _is_enabled("SYSTEM_AUDIT_GRID") else None
+            user_grid = self.get_user_grid_data() if _is_enabled("USER_GRID") else None
+            user_login_grid = self.get_user_login_grid_data() if _is_enabled("USER_LOGIN_GRID") else None
+            user_session_grid = self.get_user_session_grid_data() if _is_enabled("USER_SESSION_GRID") else None
 
-            # 3. Generate charts
+            # 3. Generate charts (활성 컴포넌트만)
             charts = []
 
             # Device status pie chart
-            if device_stats["status_counts"]:
+            if _is_enabled("DEVICE_STATUS_PIE") and device_stats["status_counts"]:
                 pie_chart = ChartGenerator.generate_pie_chart(
                     data=device_stats["status_counts"],
                     title="장비 상태"
@@ -927,7 +1008,7 @@ class ReportService:
                 charts.append(("장비 상태 분포", pie_chart))
 
             # Device type bar chart
-            if device_stats["type_counts"]:
+            if _is_enabled("DEVICE_TYPE_BAR") and device_stats["type_counts"]:
                 bar_chart = ChartGenerator.generate_bar_chart(
                     data=device_stats["type_counts"],
                     title="장비 유형별 현황",
@@ -937,7 +1018,7 @@ class ReportService:
                 charts.append(("장비 유형별 현황", bar_chart))
 
             # Event type pie chart
-            if event_stats["event_type_counts"]:
+            if _is_enabled("EVENT_SUMMARY_PIE") and event_stats["event_type_counts"]:
                 event_pie = ChartGenerator.generate_donut_chart(
                     data=event_stats["event_type_counts"],
                     title="이벤트 유형"
@@ -945,7 +1026,7 @@ class ReportService:
                 charts.append(("이벤트 유형 분포", event_pie))
 
             # System severity bar chart
-            if system_stats["severity_counts"]:
+            if _is_enabled("SYSTEM_SEVERITY_BAR") and system_stats["severity_counts"]:
                 severity_bar = ChartGenerator.generate_bar_chart(
                     data=system_stats["severity_counts"],
                     title="시스템 이벤트 심각도",
@@ -955,8 +1036,9 @@ class ReportService:
                 charts.append(("시스템 이벤트 심각도", severity_bar))
 
             # 4. Build PDF sections
-            sections = [
-                {
+            sections = []
+            if _is_enabled("SUMMARY_CARD"):
+                sections.append({
                     "title": "1. 요약",
                     "content": (
                         f"보고서 기간: {generation.start_date.strftime('%Y-%m-%d')} ~ "
@@ -966,8 +1048,7 @@ class ReportService:
                         f"총 시스템 이벤트 수: {sum(system_stats['severity_counts'].values())}건\n"
                         f"총 사용자 수: {sum(user_stats['role_counts'].values())}명"
                     )
-                }
-            ]
+                })
 
             # Add chart sections
             for title, chart_image in charts:
@@ -976,7 +1057,7 @@ class ReportService:
                     "chart_image": chart_image
                 })
 
-            # 4.1 Add table sections for grid data
+            # 4.1 Add table sections for grid data (활성 컴포넌트만)
             grid_tables = [
                 ("장비 목록", device_grid),
                 ("탐지 이벤트 목록", detection_grid),
@@ -990,7 +1071,7 @@ class ReportService:
                 ("세션 목록", user_session_grid),
             ]
             for table_title, grid_data in grid_tables:
-                if grid_data["rows"]:
+                if grid_data and grid_data["rows"]:
                     sections.append({
                         "title": table_title,
                         "table": {
@@ -1033,16 +1114,20 @@ class ReportService:
                 "system_stats": system_stats,
                 "user_stats": user_stats,
                 "grid_counts": {
-                    "device_grid": device_grid["total_rows"],
-                    "detection_grid": detection_grid["total_rows"],
-                    "malfunction_grid": malfunction_grid["total_rows"],
-                    "action_grid": action_grid["total_rows"],
-                    "system_event_grid": system_event_grid["total_rows"],
-                    "config_grid": config_grid["total_rows"],
-                    "audit_grid": audit_grid["total_rows"],
-                    "user_grid": user_grid["total_rows"],
-                    "user_login_grid": user_login_grid["total_rows"],
-                    "user_session_grid": user_session_grid["total_rows"],
+                    name: grid["total_rows"]
+                    for name, grid in [
+                        ("device_grid", device_grid),
+                        ("detection_grid", detection_grid),
+                        ("malfunction_grid", malfunction_grid),
+                        ("action_grid", action_grid),
+                        ("system_event_grid", system_event_grid),
+                        ("config_grid", config_grid),
+                        ("audit_grid", audit_grid),
+                        ("user_grid", user_grid),
+                        ("user_login_grid", user_login_grid),
+                        ("user_session_grid", user_session_grid),
+                    ]
+                    if grid is not None
                 },
             }
             self.db.commit()

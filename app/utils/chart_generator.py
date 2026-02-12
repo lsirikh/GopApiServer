@@ -10,8 +10,14 @@ import matplotlib
 matplotlib.use('Agg')  # Non-GUI backend for server-side rendering
 import matplotlib.pyplot as plt
 
-plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
+# 한글 폰트: Windows(맑은고딕) → Linux(나눔고딕) fallback
+for _font in ['Malgun Gothic', 'NanumGothic']:
+    try:
+        plt.rcParams['font.family'] = _font
+        break
+    except Exception:
+        continue
 
 
 class ChartGenerator:

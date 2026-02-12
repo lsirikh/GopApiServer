@@ -29,19 +29,26 @@ class PDFGenerator:
     FONT_NAME_BOLD = 'Helvetica-Bold'
     _fonts_registered = False
 
+    # 폰트 후보 목록: (등록이름, normal파일, bold파일)
+    _FONT_CANDIDATES = [
+        ('MalgunGothic', 'malgun.ttf', 'malgunbd.ttf'),           # Windows
+        ('NanumGothic', 'NanumGothic.ttf', 'NanumGothicBold.ttf'),  # Linux (fonts-nanum)
+    ]
+
     @classmethod
     def _register_fonts(cls):
-        """한글 폰트(맑은 고딕) 등록. 실패 시 Helvetica fallback."""
+        """한글 폰트 등록. Windows(맑은고딕) → Linux(나눔고딕) → Helvetica fallback."""
         if cls._fonts_registered:
             return
-        try:
-            pdfmetrics.registerFont(TTFont('MalgunGothic', 'malgun.ttf'))
-            pdfmetrics.registerFont(TTFont('MalgunGothicBold', 'malgunbd.ttf'))
-            cls.FONT_NAME = 'MalgunGothic'
-            cls.FONT_NAME_BOLD = 'MalgunGothicBold'
-        except Exception:
-            cls.FONT_NAME = 'Helvetica'
-            cls.FONT_NAME_BOLD = 'Helvetica-Bold'
+        for name, normal, bold in cls._FONT_CANDIDATES:
+            try:
+                pdfmetrics.registerFont(TTFont(name, normal))
+                pdfmetrics.registerFont(TTFont(f'{name}Bold', bold))
+                cls.FONT_NAME = name
+                cls.FONT_NAME_BOLD = f'{name}Bold'
+                break
+            except Exception:
+                continue
         cls._fonts_registered = True
 
     @classmethod

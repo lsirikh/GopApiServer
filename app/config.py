@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # Thumbnail Storage
+    THUMBNAIL_STORAGE_PATH: str = "data/thumbnails"
+
     # CORS
     CORS_ORIGINS: str = '["*"]'
 

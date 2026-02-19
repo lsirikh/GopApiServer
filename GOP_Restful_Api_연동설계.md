@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-02-11  
-**버전**: v3.8  
+**최종 수정일**: 2026-02-19  
+**버전**: v4.0  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -24,6 +24,7 @@
      - 5.3.9 [카메라 설정 수정 (전체)](#539-카메라-설정-수정-전체) *(v3.7 신규)*
    - 5.4 [Speaker API](#54-speaker-api) *(v2.4 신규)*
    - 5.5 [Enclosure API](#55-enclosure-api) *(v2.4 신규)*
+     - 5.5.13 [Enclosure Metrics 독립 목록 조회](#5513-enclosure-metrics-독립-목록-조회) *(v3.9 신규)*
    - 5.6 [DeviceGroup API](#56-devicegroup-api)
    - 5.7 [Camera Preset API](#57-camera-preset-api) *(v2.1 신규)*
    - 5.8 [ROI API](#58-roi-api) *(v2.1 신규)*
@@ -36,6 +37,7 @@
    - 6.3 [Connection Event API](#63-connection-event-api)
    - 6.4 [Action Event API](#64-action-event-api)
    - 6.5 [Detection Log API](#65-detection-log-api) *(v3.8 신규)*
+   - 6.6 [Thumbnail API](#66-thumbnail-api) *(v4.0 신규)*
 7. [Integration API 설계](#7-integration-api-설계)
    - 7.1 [개요](#71-개요)
    - 7.2 [EventMapping API](#72-eventmapping-api)
@@ -46,6 +48,7 @@
    - 8.1 [개요](#81-개요)
    - 8.2 [Server Category API](#82-server-category-api)
    - 8.3 [Server Instance API](#83-server-instance-api)
+     - 8.3.7 [서버별 시스템 이벤트 조회](#837-서버별-시스템-이벤트-조회) *(v3.9 신규)*
    - 8.4 [Dashboard Summary API](#84-dashboard-summary-api)
    - 8.5 [기본 데이터 (Seed)](#85-기본-데이터-seed)
    - 8.6 [Server Metrics API](#86-server-metrics-api) *(v2.9 신규)*
@@ -4866,6 +4869,48 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - `before_date` 미지정 시 해당 Enclosure의 **모든 메트릭** 삭제
 - 삭제된 데이터는 복구 불가
 
+#### 5.5.13 Enclosure Metrics 독립 목록 조회 *(v3.9 신규)*
+
+전체 함체 메트릭을 독립적으로 조회합니다 (flat_router 패턴).
+
+**Endpoint**: `GET /api/enclosure-metrics`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|---------|------|------|--------|------|
+| page | integer | N | 1 | 페이지 번호 |
+| limit | integer | N | 50 | 페이지당 항목 수 |
+| enclosure_id | integer | N | - | 특정 함체 필터 |
+| from_date | datetime | N | - | 시작 시간 (ISO 8601) |
+| to_date | datetime | N | - | 종료 시간 (ISO 8601) |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Enclosure metrics retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "enclosure_id": 1,
+        "temperature": 25.5,
+        "humidity": 60.0,
+        "voltage": 220.0,
+        "current": 1.5,
+        "created_at": "2026-02-13T10:00:00Z"
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total_pages": 1
+  }
+}
+```
+
 ---
 
 ### 5.6 DeviceGroup API
@@ -7155,6 +7200,7 @@ Accept: application/json
         "type_device": "Multi",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": [
@@ -7259,6 +7305,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7365,6 +7412,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7447,6 +7495,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7535,6 +7584,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7673,6 +7723,7 @@ Accept: application/json
         "type_device": "Fence",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": [
@@ -7775,6 +7826,7 @@ Accept: application/json
         "type_device": "Fence",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": [
@@ -7864,6 +7916,7 @@ Accept: application/json
       "type_device": "Fence",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -7966,6 +8019,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -8043,6 +8097,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -8130,6 +8185,7 @@ Accept: application/json
       "type_device": "Multi",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -8360,6 +8416,7 @@ Accept: application/json
         "type_device": "Fence",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": [
@@ -8381,6 +8438,7 @@ Accept: application/json
         "type_device": "Multi",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": [
@@ -8453,6 +8511,7 @@ Accept: application/json
       "type_device": "Fence",
       "version": "v1.5.0",
       "status": "ACTIVATED",
+      "is_enable": true,
       "controller_id": 1,
       "geolocation": null,
       "device_groups": [
@@ -8799,16 +8858,11 @@ Accept: application/json
         "group_device": 999,
         "name_device": "Test Sensor",
         "type_device": "Fence",
-        "status": "ACTIVATED",
         "version": "1.0.0",
-        "ip_address": null,
-        "ip_port": null,
+        "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
-        "urls": null,
-        "mode": null,
-        "category": null,
-        "is_record": null,
         "device_groups": []
       },
       "device_description": "[Fence] Test Sensor (number: 101, id: 2)",
@@ -8874,6 +8928,7 @@ Accept: application/json
           "type_device": "Fence",
           "version": "v1.5.0",
           "status": "ACTIVATED",
+          "is_enable": true,
           "controller_id": 1,
           "geolocation": null,
           "device_groups": []
@@ -8907,6 +8962,7 @@ Accept: application/json
           "type_device": "Multi",
           "version": "v1.5.0",
           "status": "ACTIVATED",
+          "is_enable": true,
           "controller_id": 1,
           "geolocation": null,
           "device_groups": []
@@ -8993,6 +9049,7 @@ Accept: application/json
         "type_device": "Fence",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": []
@@ -9082,6 +9139,7 @@ Accept: application/json
         "type_device": "Fence",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": []
@@ -9155,6 +9213,7 @@ Accept: application/json
         "type_device": "Fence",
         "version": "v1.5.0",
         "status": "ACTIVATED",
+        "is_enable": true,
         "controller_id": 1,
         "geolocation": null,
         "device_groups": []
@@ -9325,11 +9384,14 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
       "device": {
         "id": 101,
         "number_device": 1,
+        "group_device": 1, // (Deprecated 예정, 레거시)
         "name_device": "Sensor-A-1",
         "type_device": "Multi",
-        "status": "NORMAL",
+        "version": "v1.5.0",
+        "status": "ACTIVATED",
         "is_enable": true,
         "controller_id": 1,
+        "geolocation": null,
         "device_groups": []
       },
       "device_description": "[Multi] Sensor-A-1 (number: 1, id: 101)",
@@ -9376,6 +9438,158 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
 
 **Error Response:**
 - 404: 탐지 로그를 찾을 수 없음
+
+---
+
+### 6.6 Thumbnail API *(v4.0 신규)*
+
+카메라 썸네일 이미지를 업로드, 저장, 조회, 삭제하는 API입니다.
+이미지 파일은 서버 파일 시스템에 날짜별 폴더 구조(`{날짜}/{client_file_name}`)로 저장되며, DB에 메타데이터와 파일 경로를 관리합니다.
+클라이언트가 파일명을 직접 지정하여 DetectionEvent와 병렬 등록이 가능합니다 (FK 없이 HTTP URL로 연결).
+
+#### 6.6.1 썸네일 업로드
+
+- **Endpoint**: `POST /api/thumbnails`
+- **설명**: 썸네일 이미지 업로드 (multipart/form-data, 클라이언트 지정 파일명)
+
+**Form Parameters:**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|:----:|------|
+| `file` | File | O | 이미지 파일 (image/jpeg, image/png, image/gif, image/webp) |
+| `file_name` | string | O | 저장할 파일명 (클라이언트 지정, 예: `CAM-001_2026-02-19_14-30-25-123.jpg`) |
+
+**Response (201 Created):**
+
+```json
+{
+  "success": true,
+  "message": "Thumbnail uploaded successfully",
+  "data": {
+    "id": 1,
+    "file_path": "data/thumbnails/2026-02-19/CAM-001_2026-02-19_14-30-25-123.jpg",
+    "file_name": "CAM-001_2026-02-19_14-30-25-123.jpg",
+    "file_size": 245760,
+    "mime_type": "image/jpeg",
+    "width": 1920,
+    "height": 1080,
+    "image_url": "/api/thumbnails/images/CAM-001_2026-02-19_14-30-25-123.jpg",
+    "created_at": "2026-02-19T14:30:25.123+09:00"
+  }
+}
+```
+
+**Error Response:**
+- 400: 지원하지 않는 파일 형식
+- 409: 동일 file_name 이미 존재
+- 422: file_name 또는 file 누락
+
+#### 6.6.2 썸네일 목록 조회
+
+- **Endpoint**: `GET /api/thumbnails`
+- **설명**: 썸네일 목록 조회 (날짜 범위 필터링, 페이지네이션)
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|:----:|--------|------|
+| `page` | int | X | 1 | 페이지 번호 |
+| `limit` | int | X | 20 | 페이지당 항목 수 (최대 100) |
+| `start_date` | datetime | X | - | 시작 날짜 필터 |
+| `end_date` | datetime | X | - | 종료 날짜 필터 |
+
+**Response (200 OK):** `ApiResponse[list[ThumbnailResponse]]`
+
+```json
+{
+  "success": true,
+  "message": "Thumbnails retrieved successfully",
+  "data": [
+    {
+      "id": 1,
+      "file_path": "data/thumbnails/2026-02-19/CAM-001_2026-02-19_14-30-25-123.jpg",
+      "file_name": "CAM-001_2026-02-19_14-30-25-123.jpg",
+      "file_size": 245760,
+      "mime_type": "image/jpeg",
+      "width": null,
+      "height": null,
+      "image_url": "/api/thumbnails/images/CAM-001_2026-02-19_14-30-25-123.jpg",
+      "created_at": "2026-02-19T14:30:25.123+09:00"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+#### 6.6.3 썸네일 메타데이터 조회
+
+- **Endpoint**: `GET /api/thumbnails/{id}`
+- **설명**: 썸네일 메타데이터 단건 조회
+
+**Response (200 OK):** `ApiSingleResponse[ThumbnailResponse]`
+
+**Error Response:**
+- 404: 썸네일을 찾을 수 없음
+
+#### 6.6.4 썸네일 이미지 다운로드 (ID 기반)
+
+- **Endpoint**: `GET /api/thumbnails/{id}/image`
+- **설명**: 썸네일 이미지 바이너리 반환 (FileResponse, ID 기반)
+
+**Response (200 OK):** `FileResponse` (Content-Type: image/*)
+
+**Error Response:**
+- 404: 썸네일 DB 레코드 없음 또는 파일이 디스크에 존재하지 않음
+
+#### 6.6.5 썸네일 이미지 다운로드 (파일명 기반)
+
+- **Endpoint**: `GET /api/thumbnails/images/{file_name}`
+- **설명**: 파일명으로 이미지 바이너리 반환 (FileResponse). `DetectionEvent.detail.thumbnail`에 이 URL을 저장하여 서브시스템이 직접 조회 가능.
+
+**Path Parameter:**
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `file_name` | string | 저장된 파일명 (예: `CAM-001_2026-02-19_14-30-25-123.jpg`) |
+
+**Response (200 OK):** `FileResponse` (Content-Type: image/*)
+
+**Error Response:**
+- 404: 해당 file_name의 DB 레코드 없음 또는 파일이 디스크에 존재하지 않음
+
+#### 6.6.6 썸네일 삭제
+
+- **Endpoint**: `DELETE /api/thumbnails/{id}`
+- **설명**: 썸네일 삭제 (파일 + DB 레코드)
+
+**동작:**
+- 파일 시스템에서 이미지 파일 삭제
+- DB에서 메타데이터 레코드 삭제
+- 파일이 이미 없는 경우에도 DB 삭제 진행
+
+**Response (200 OK):** `ApiSingleResponse` (data: null)
+
+**Error Response:**
+- 404: 썸네일을 찾을 수 없음
+
+#### ThumbnailResponse 스키마
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | int | 고유 식별자 |
+| `file_path` | string | 서버 파일 시스템 경로 |
+| `file_name` | string | 클라이언트 지정 파일명 (UNIQUE) |
+| `file_size` | int | 파일 크기 (bytes) |
+| `mime_type` | string | MIME 타입 |
+| `width` | int \| null | 이미지 너비 (px) |
+| `height` | int \| null | 이미지 높이 (px) |
+| `image_url` | string | 이미지 다운로드 URL (computed: `/api/thumbnails/images/{file_name}`) |
+| `created_at` | datetime | 생성 시간 |
 
 ---
 
@@ -11922,6 +12136,54 @@ Accept: application/json
 }
 ```
 
+#### 8.3.7 서버별 시스템 이벤트 조회 *(v3.9 신규)*
+
+특정 서버에서 발생한 시스템 이벤트 목록을 조회합니다.
+
+**Endpoint**: `GET /api/servers/{server_id}/system-events`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| server_id | integer | Y | 서버 ID |
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|---------|------|------|--------|------|
+| page | integer | N | 1 | 페이지 번호 |
+| limit | integer | N | 50 | 페이지당 항목 수 |
+| severity | string | N | - | 심각도 필터 (INFO, WARNING, ERROR, CRITICAL) |
+| acknowledged | boolean | N | - | 확인 여부 필터 |
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "System events retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "type_event": "threshold_warning",
+        "severity": "WARNING",
+        "source": "server_metrics",
+        "message": "CPU usage exceeded 80%",
+        "acknowledged": false,
+        "server_description": "VMS Server #1",
+        "created_at": "2026-02-13T10:00:00Z",
+        "updated_at": "2026-02-13T10:00:00Z"
+      }
+    ],
+    "total": 1
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total_pages": 1
+  }
+}
+```
+
 ---
 
 ### 8.4 Dashboard Summary API
@@ -13777,9 +14039,9 @@ PDF 파일 다운로드를 요청합니다.
 
 | Method | Endpoint | 설명 |
 |--------|----------|------|
-| GET | `/reports/preview/{generation_id}` | HTML 미리보기 페이지 |
+| GET | `/api/reports/generations/{generation_id}/preview-page` | HTML 미리보기 페이지 |
 
-#### 10.5.2 GET `/reports/preview/{generation_id}`
+#### 10.5.2 GET `/api/reports/generations/{generation_id}/preview-page`
 
 Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 
@@ -13879,14 +14141,16 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/devices/controllers` - 목록 조회
 - `POST /api/devices/controllers` - 생성
 - `GET /api/devices/controllers/{id}` - 단일 조회
-- `PATCH /api/devices/controllers/{id}` - 수정
+- `PATCH /api/devices/controllers/{id}` - 수정 (부분)
+- `PUT /api/devices/controllers/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/devices/controllers/{id}` - 삭제
 
 **Sensors**:
 - `GET /api/devices/sensors` - 목록 조회
 - `POST /api/devices/sensors` - 생성
 - `GET /api/devices/sensors/{id}` - 단일 조회
-- `PATCH /api/devices/sensors/{id}` - 수정
+- `PATCH /api/devices/sensors/{id}` - 수정 (부분)
+- `PUT /api/devices/sensors/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/devices/sensors/{id}` - 삭제
 
 **Cameras**:
@@ -13961,13 +14225,30 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/devices/enclosures/{enclosure_id}/metrics/latest` - 최신 메트릭 조회
 - `DELETE /api/devices/enclosures/{enclosure_id}/metrics` - 메트릭 삭제
 
+**Enclosure Metrics 독립 목록** (v3.9 추가):
+- `GET /api/enclosure-metrics` - 전체 함체 메트릭 목록 조회 (독립)
+
+**Camera Settings** (v3.6 신규):
+- `GET /api/devices/cameras/{camera_id}/settings` - 카메라 설정 조회
+- `PATCH /api/devices/cameras/{camera_id}/settings` - 카메라 설정 수정 (부분)
+- `PUT /api/devices/cameras/{camera_id}/settings` - 카메라 설정 수정 (전체)
+
+**Lamps** (v3.4 신규):
+- `GET /api/devices/lamps` - 경광등 목록 조회
+- `POST /api/devices/lamps` - 경광등 생성
+- `GET /api/devices/lamps/{id}` - 경광등 단일 조회
+- `PATCH /api/devices/lamps/{id}` - 경광등 수정 (부분)
+- `PUT /api/devices/lamps/{id}` - 경광등 수정 (전체)
+- `DELETE /api/devices/lamps/{id}` - 경광등 삭제
+
 #### Event Endpoints
 
 **Detection Events**:
 - `GET /api/events/detections` - 목록 조회
 - `POST /api/events/detections` - 생성
 - `GET /api/events/detections/{id}` - 단일 조회
-- `PATCH /api/events/detections/{id}` - 수정
+- `PATCH /api/events/detections/{id}` - 수정 (부분)
+- `PUT /api/events/detections/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/events/detections/{id}` - 삭제
 - `GET /api/events/detections/{event_id}/action` - Action Event 조회
 
@@ -13975,7 +14256,8 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/events/malfunctions` - 목록 조회
 - `POST /api/events/malfunctions` - 생성
 - `GET /api/events/malfunctions/{id}` - 단일 조회
-- `PATCH /api/events/malfunctions/{id}` - 수정
+- `PATCH /api/events/malfunctions/{id}` - 수정 (부분)
+- `PUT /api/events/malfunctions/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/events/malfunctions/{id}` - 삭제
 - `GET /api/events/malfunctions/{event_id}/action` - Action Event 조회
 
@@ -13983,14 +14265,16 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/events/connections` - 목록 조회
 - `POST /api/events/connections` - 생성
 - `GET /api/events/connections/{id}` - 단일 조회
-- `PATCH /api/events/connections/{id}` - 수정
+- `PATCH /api/events/connections/{id}` - 수정 (부분)
+- `PUT /api/events/connections/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/events/connections/{id}` - 삭제
 
 **Action Events**:
 - `GET /api/events/actions` - 목록 조회
 - `POST /api/events/actions` - 생성
 - `GET /api/events/actions/{id}` - 단일 조회
-- `PATCH /api/events/actions/{id}` - 수정
+- `PATCH /api/events/actions/{id}` - 수정 (부분)
+- `PUT /api/events/actions/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/events/actions/{id}` - 삭제
 
 **Detection Logs**:
@@ -14023,6 +14307,14 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `PUT /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 수정 (전체)
 - `DELETE /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 삭제
 
+**Event Mapping Lamps** (v3.4 신규):
+- `GET /api/integrations/event-mappings/{mapping_id}/lamps` - 경광등 연동 목록 조회
+- `POST /api/integrations/event-mappings/{mapping_id}/lamps` - 경광등 연동 생성
+- `GET /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 단일 조회
+- `PATCH /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 수정 (부분)
+- `PUT /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 수정 (전체)
+- `DELETE /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 삭제
+
 **Mapping SubResource 독립 List** (v3.8 신규):
 | `GET` | `/api/integrations/mapping-cameras` | 전체 MappingCamera 조회 (독립) | v3.8 |
 | `GET` | `/api/integrations/mapping-speakers` | 전체 MappingSpeaker 조회 (독립) | v3.8 |
@@ -14053,6 +14345,11 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/servers/{server_id}/metrics/latest` - 최신 메트릭 조회
 - `DELETE /api/servers/{server_id}/metrics` - 메트릭 삭제
 
+**Proxy Settings** (v3.6 신규):
+- `GET /api/servers/{server_id}/proxy-settings` - 프록시 설정 조회
+- `PATCH /api/servers/{server_id}/proxy-settings` - 프록시 설정 수정 (부분)
+- `PUT /api/servers/{server_id}/proxy-settings` - 프록시 설정 수정 (전체)
+
 **System Events** (v2.9 신규):
 - `GET /api/system-events` - 이벤트 목록 조회
 - `POST /api/system-events` - 이벤트 생성
@@ -14061,6 +14358,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `DELETE /api/system-events/{id}` - 이벤트 삭제
 - `POST /api/system-events/{id}/acknowledge` - 이벤트 확인
 - `GET /api/system-events/summary` - 요약 통계 조회
+- `GET /api/servers/{server_id}/system-events` - 서버별 시스템 이벤트 조회 *(v3.9 추가)*
 
 #### Account Endpoints (v3.0 신규)
 
@@ -14126,8 +14424,18 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/reports/generations/{id}/download` - PDF 다운로드
 - `GET /api/reports/generations/{id}/preview` - 미리보기 데이터
 
-**Report Preview (Non-API)**:
-- `GET /reports/preview/{generation_id}` - HTML 미리보기 페이지
+**Report Preview Page**:
+- `GET /api/reports/generations/{generation_id}/preview-page` - HTML 미리보기 페이지
+
+#### Thumbnail Endpoints (v4.0 신규)
+
+**Thumbnails**:
+- `POST /api/thumbnails` - 썸네일 이미지 업로드 (multipart form data, 클라이언트 지정 file_name)
+- `GET /api/thumbnails` - 썸네일 목록 조회 (날짜 필터링, 페이지네이션)
+- `GET /api/thumbnails/{id}` - 썸네일 메타데이터 조회
+- `GET /api/thumbnails/{id}/image` - 썸네일 이미지 다운로드 (ID 기반, FileResponse)
+- `GET /api/thumbnails/images/{file_name}` - 썸네일 이미지 다운로드 (파일명 기반, FileResponse)
+- `DELETE /api/thumbnails/{id}` - 썸네일 삭제 (파일 + DB)
 
 ### 12.2 Event-Device 리팩토링 변경사항 (v2.3)
 
@@ -14330,6 +14638,8 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v4.0 | 2026-02-19 | **Thumbnail API 신규 (6.6)**<br><br>**[1. Thumbnail API 신규 (6.6)]**<br>- POST /api/thumbnails: 썸네일 이미지 업로드 (multipart form data, 클라이언트 지정 file_name)<br>- GET /api/thumbnails: 썸네일 목록 조회 (날짜 필터링, 페이지네이션)<br>- GET /api/thumbnails/{id}: 썸네일 메타데이터 조회<br>- GET /api/thumbnails/{id}/image: 썸네일 이미지 다운로드 (ID 기반, FileResponse)<br>- GET /api/thumbnails/images/{file_name}: 썸네일 이미지 다운로드 (파일명 기반, FileResponse)<br>- DELETE /api/thumbnails/{id}: 썸네일 삭제 (파일 + DB)<br>- ThumbnailResponse 스키마: image_url computed field (`/api/thumbnails/images/{file_name}`)<br>- 파일 저장 구조: {날짜}/{client_file_name} (밀리초 포함 네이밍 컨벤션)<br>- DetectionEvent와 FK 없이 연결 (detail.thumbnail HTTP URL 참조) |
+| v3.9 | 2026-02-13 | **API 엔드포인트 정합성 동기화 (12.1 부록 수정, 누락 섹션 추가)**<br><br>**[1. 12.1 부록 정합성 수정]**<br>- Lamps 6개 엔드포인트 추가<br>- Camera Settings 3개 엔드포인트 추가<br>- Proxy Settings 3개 엔드포인트 추가<br>- Event Mapping Lamps 6개 엔드포인트 추가<br>- Controllers, Sensors, Events(4종) PUT 엔드포인트 6건 추가<br>- Server system-events, Enclosure-metrics flat, Report preview-page 추가<br>- Report Preview (Non-API) 경로 수정<br><br>**[2. Server 시스템 이벤트 조회 추가 (8.3.7)]**<br>- GET /api/servers/{server_id}/system-events: 서버별 시스템 이벤트 필터 조회<br><br>**[3. Enclosure Metrics 독립 목록 추가 (5.5.13)]**<br>- GET /api/enclosure-metrics: 전체 함체 메트릭 독립 조회 (flat_router 패턴)<br><br>**[4. Report Preview Page 경로 수정 (10.5)]**<br>- GET /reports/preview/{id} → GET /api/reports/generations/{id}/preview-page |
 | v3.8 | 2026-02-11 | **Detection Log API 추가**<br><br>**[1. Detection Log API 신규 (6.5)]**<br>- **GET /api/detection-logs**: 탐지 로그 목록 조회 (DetectionEvent + ActionEvent LEFT JOIN)<br>- **GET /api/detection-logs/{event_id}**: 탐지 로그 단건 조회<br>- **DetectionLogResponse 스키마**: DetectionEventResponse + action(ActionNested) 필드<br>- **ActionNested 스키마**: id, content, user, created_at, updated_at (경량, from_event 미포함)<br>- 읽기 전용 API (CRUD 미제공)<br>- 기존 Detection/Action API 변경 없음<br><br>**[5. MappingCamera/Speaker/Lamp 독립 List API 추가 (7.3.8, 7.4.8, 7.5.7)]**<br>- GET /api/integrations/mapping-cameras: 전체 MappingCamera 조회 (필터: event_mapping_id, camera_id, is_enable)<br>- GET /api/integrations/mapping-speakers: 전체 MappingSpeaker 조회 (필터: event_mapping_id, speaker_id, is_enable)<br>- GET /api/integrations/mapping-lamps: 전체 MappingLamp 조회 (필터: event_mapping_id, lamp_id, is_enable)<br>- 서브시스템 캐시용 독립 읽기 전용 API (기존 계층형 API 유지) |
 | v3.7 | 2026-02-09 | **Device Setting PUT API 추가, CameraSetting focus_mode/iris_mode 필드 확장, Enum 2종 추가**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumFocusMode (2종)**: AUTO, MANUAL<br>- **EnumIrisMode (2종)**: AUTO, MANUAL<br>- **EnumTrackingStatus (3종)**: ACTIVE, LOST, IDLE<br><br>**[2. Camera Settings API 변경 (5.3.7~5.3.9)]**<br>- **5.3.7 GET 응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.8 PATCH 요청/응답 변경**: focus_mode, iris_mode 필드 추가<br>- **5.3.9 PUT /api/devices/cameras/{camera_id}/settings 신규**: 전체 교체 (Upsert)<br>- CameraSetting API에서 pan_tilt_speed, zoom_speed 삭제, tracking(EnumTrackingStatus) 추가<br><br>**[3. Proxy Settings API 변경 (8.8.2~8.8.3)]**<br>- **8.8.2 제목 변경**: "프록시 설정 수정" → "프록시 설정 수정 (부분)"<br>- **8.8.3 PUT /api/servers/{server_id}/proxy-settings 신규**: 전체 교체 (Upsert)<br><br>**[4. 공통 응답 형식 분리 (3.2)]**<br>- 공통 응답 형식 분리 — 단건 응답(ApiSingleResponse)에서 pagination 제거 |
 | v3.6 | 2026-02-06 | **Device Setting API 추가 (Camera Settings GET/PATCH, Proxy Settings GET/PATCH), Enum 7종 추가 (EnumOperationMode, EnumWindyMode, EnumWeatherMode, EnumCameraVideoMode, EnumOnOff, EnumDayNightMode, EnumPalette)**<br><br>**[1. Device Setting Enum 추가 (4.9)]**<br>- **EnumOperationMode (2종)**: NORMAL, REGISTER<br>- **EnumWindyMode (4종)**: wind0, wind1, wind2, wind3<br>- **EnumWeatherMode (7종)**: NORMAL, FOG, SEA_FOG, YELLOW_DUST, RAIN, SNOW, HEAT_HAZE<br>- **EnumCameraVideoMode (4종)**: NORMAL, STABILIZATION, BLC, NIGHT_ENHANCE<br>- **EnumOnOff (2종)**: on, off<br>- **EnumDayNightMode (3종)**: AUTO, DAY, NIGHT<br>- **EnumPalette (4종)**: WHITE_HOT, BLACK_HOT, RAINBOW, IRONBOW<br><br>**[2. Camera Settings API (5.3.7~5.3.8)]**<br>- **GET /api/devices/cameras/{camera_id}/settings**: 카메라 설정 조회 (Lazy 생성)<br>- **PATCH /api/devices/cameras/{camera_id}/settings**: 카메라 설정 수정 (Upsert)<br>- **설정 필드**: weather_mode, camera_mode, heater, fan, headlight, day_night_mode, pan_tilt_speed, zoom_speed, palette<br><br>**[3. Proxy Settings API (8.8)]**<br>- **GET /api/servers/{server_id}/proxy-settings**: 프록시 설정 조회 (Lazy 생성)<br>- **PATCH /api/servers/{server_id}/proxy-settings**: 프록시 설정 수정 (Upsert)<br>- **설정 필드**: operation_mode, windy_mode |
@@ -14359,5 +14669,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v3.7
-**최종 업데이트**: 2026-02-09
+**문서 버전**: v4.0
+**최종 업데이트**: 2026-02-19

@@ -25,7 +25,7 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -131,6 +131,22 @@ tags_metadata = [
         "description": "이벤트 매핑 경광등 설정 API. EventMapping에 연동된 경광등 동작을 관리합니다. PRD: PRD_Lamp_Device.md v1.1",
     },
     {
+        "name": "Mapping Cameras",
+        "description": "이벤트 매핑 카메라 독립 목록 API. 전체 매핑 카메라를 조회합니다.",
+    },
+    {
+        "name": "Mapping Speakers",
+        "description": "이벤트 매핑 스피커 독립 목록 API. 전체 매핑 스피커를 조회합니다.",
+    },
+    {
+        "name": "Mapping Lamps",
+        "description": "이벤트 매핑 경광등 독립 목록 API. 전체 매핑 경광등을 조회합니다.",
+    },
+    {
+        "name": "Detection Logs",
+        "description": "탐지 로그 조회 API. 탐지 이벤트 로그를 조회합니다.",
+    },
+    {
         "name": "Server Categories",
         "description": "서버 카테고리 관리 API.",
     },
@@ -169,6 +185,10 @@ tags_metadata = [
     {
         "name": "Reports",
         "description": "보고서 템플릿 및 생성 이력 관리 API. PRD: PRD_Report_System.md Section 6",
+    },
+    {
+        "name": "Thumbnails",
+        "description": "카메라 썸네일 이미지 업로드/조회/삭제 API. PRD: PRD_Thumbnail_Image.md v1.0",
     },
 ]
 
@@ -562,6 +582,7 @@ app.include_router(camera_presets.router, prefix="/api/devices/cameras", tags=["
 app.include_router(rois.router, prefix="/api/presets", tags=["ROIs"])
 app.include_router(xypoints.router, prefix="/api/rois", tags=["XyPoints"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
+app.include_router(thumbnails.router, prefix="/api/thumbnails", tags=["Thumbnails"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

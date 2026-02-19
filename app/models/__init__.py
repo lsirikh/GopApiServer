@@ -11,6 +11,7 @@ from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.models.file_group import FileGroup
 from app.models.audit_log import AuditLog
 from app.models.device_setting import ProxySetting, CameraSetting
+from app.models.thumbnail import Thumbnail
 
 __all__ = [
     # Device models
@@ -49,4 +50,6 @@ __all__ = [
     # Device Setting models
     "ProxySetting",
     "CameraSetting",
+    # Thumbnail models
+    "Thumbnail",
 ]

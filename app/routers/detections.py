@@ -209,6 +209,7 @@ async def get_detection_events(
             result=e.result.value,
             device=_build_device_nested_response(e.device),
             device_description=e.device_description,
+            detail=e.detail,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -563,6 +564,7 @@ async def replace_detection_event(
         result=event.result.value,
         device=_build_device_nested_response(device),
         device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
@@ -685,6 +687,7 @@ async def get_action_event_for_detection(
         result=detection.result.value,
         device=_build_device_nested_response(detection.device),
         device_description=detection.device_description,
+        detail=detection.detail,
         created_at=detection.created_at,
         updated_at=detection.updated_at
     )

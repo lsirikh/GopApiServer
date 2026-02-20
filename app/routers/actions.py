@@ -152,6 +152,7 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
             result=event.result.value,
             device=_build_device_nested_response(event.device),
             device_description=event.device_description,
+            detail=event.detail,
             created_at=event.created_at,
             updated_at=event.updated_at
         )

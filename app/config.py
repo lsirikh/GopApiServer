@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # Initialization
+    INIT_SAMPLE_DATA: bool = False
+
     # Thumbnail Storage
     THUMBNAIL_STORAGE_PATH: str = "data/thumbnails"
 

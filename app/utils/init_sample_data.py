@@ -5,8 +5,12 @@ Creates comprehensive sample data across all GOP schema tables.
 Requirements:
 - Events: 110+ records (60 detection, 25 malfunction, 25 connection)
 - Devices: Controllers 3, Sensors 300 (100 per controller), others 30 each
+- DeviceGroups: 5 groups with device mappings
 - Users: 5 (excluding admin)
 - Login logs, sessions, system events, config change logs, audit logs
+- CameraPresets + ROI + XyPoints for PTZ cameras
+- EnclosureMetrics time-series data
+- DetectionEvent detail JSONB (AI 탐지 상세)
 
 Idempotent: Safe to call multiple times — skips if data already exists.
 """
@@ -16,7 +20,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.models.user import UserGroup, AccountUser, UserSession, UserLoginLog
-from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp
+from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp, EnclosureMetric
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
+from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.models.event import Event, DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
 from app.models.system_event import SystemEvent
 from app.models.config_change_log import ConfigChangeLog
@@ -24,7 +30,7 @@ from app.models.audit_log import AuditLog
 from app.models.server import Server, ServerCategory
 from app.models.device_setting import ProxySetting, CameraSetting
 from app.utils.enums import (
-    EnumDeviceType, EnumDeviceStatus,
+    EnumDeviceType, EnumDeviceStatus, EnumDeviceCategory,
     EnumCameraMode, EnumCameraType, EnumSpeakerType, EnumDoorStatus,
     EnumDetectionType, EnumFaultType,
     EnumSystemEventType, EnumSystemEventSeverity,
@@ -42,6 +48,41 @@ from app.config import settings
 
 # Reproducible random for consistent sample data
 random.seed(42)
+
+
+# ── GOP 좌표 데이터 ─────────────────────────────────────
+# 실제 GOP(일반전초) 경계 지역 기반 가상 좌표 (강원도 철원~화천 일대)
+
+GOP_COORDS = [
+    # A구역 (서쪽) — 철원 일대
+    {"location": "A구역-초소1", "latitude": 38.3145, "longitude": 127.1312, "altitude": 285.0},
+    {"location": "A구역-초소2", "latitude": 38.3178, "longitude": 127.1401, "altitude": 310.0},
+    {"location": "A구역-초소3", "latitude": 38.3201, "longitude": 127.1489, "altitude": 295.0},
+    {"location": "A구역-감시탑", "latitude": 38.3220, "longitude": 127.1350, "altitude": 340.0},
+    # B구역 (중앙) — 화천 일대
+    {"location": "B구역-초소1", "latitude": 38.3310, "longitude": 127.1620, "altitude": 320.0},
+    {"location": "B구역-초소2", "latitude": 38.3342, "longitude": 127.1708, "altitude": 305.0},
+    {"location": "B구역-초소3", "latitude": 38.3375, "longitude": 127.1795, "altitude": 330.0},
+    {"location": "B구역-감시탑", "latitude": 38.3390, "longitude": 127.1700, "altitude": 365.0},
+    # C구역 (동쪽)
+    {"location": "C구역-초소1", "latitude": 38.3480, "longitude": 127.1950, "altitude": 340.0},
+    {"location": "C구역-초소2", "latitude": 38.3512, "longitude": 127.2038, "altitude": 355.0},
+    {"location": "C구역-초소3", "latitude": 38.3545, "longitude": 127.2125, "altitude": 370.0},
+    {"location": "C구역-감시탑", "latitude": 38.3560, "longitude": 127.2050, "altitude": 395.0},
+]
+
+
+def _geo(zone_idx: int, sub_idx: int = 0) -> dict:
+    """Generate geolocation for zone (0=A, 1=B, 2=C) with sub-offset."""
+    base = GOP_COORDS[zone_idx * 4 + (sub_idx % 4)]
+    offset_lat = random.uniform(-0.002, 0.002)
+    offset_lng = random.uniform(-0.002, 0.002)
+    return {
+        "location": base["location"],
+        "latitude": round(base["latitude"] + offset_lat, 6),
+        "longitude": round(base["longitude"] + offset_lng, 6),
+        "altitude": round(base["altitude"] + random.uniform(-10, 10), 1),
+    }
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -201,8 +242,8 @@ SENSOR_TYPES = [
 ]
 
 
-def _create_devices(db: Session) -> dict:
-    """Create all devices. Returns {category: [ids]} mapping."""
+def _create_devices(db: Session, server_ids: list[int]) -> dict:
+    """Create all devices with realistic GOP data. Returns {category: [ids]} mapping."""
     existing = db.query(Device).count()
     if existing > 0:
         print(f"  [OK] Devices already exist: {existing}")
@@ -215,26 +256,36 @@ def _create_devices(db: Session) -> dict:
             "lamps": [l.id for l in db.query(Lamp).all()],
         }
 
+    # SPEAKER_API 서버 ID 찾기
+    spk_server_id = None
+    if server_ids:
+        spk_servers = db.query(Server).join(ServerCategory).filter(
+            ServerCategory.type_server == EnumServerType.SPEAKER_API
+        ).all()
+        if spk_servers:
+            spk_server_id = spk_servers[0].id
+
     ids = {"controllers": [], "sensors": [], "cameras": [], "speakers": [], "enclosures": [], "lamps": []}
 
-    # ── Controllers (3) ──
+    # ── Controllers (3) — 구역별 제어기 ──
     ctrl_configs = [
-        ("A구역 제어기", "10.0.1.1", 9010),
-        ("B구역 제어기", "10.0.2.1", 9011),
-        ("C구역 제어기", "10.0.3.1", 9012),
+        ("A구역 제어기", "10.0.1.1", 9010, 0),
+        ("B구역 제어기", "10.0.2.1", 9011, 1),
+        ("C구역 제어기", "10.0.3.1", 9012, 2),
     ]
-    for i, (name, ip, port) in enumerate(ctrl_configs):
+    for i, (name, ip, port, zone) in enumerate(ctrl_configs):
         c = Controller(
-            number_device=i + 1, group_device=1, name_device=name,
+            number_device=i + 1, group_device=i + 1, name_device=name,
             type_device=EnumDeviceType.Controller, status=EnumDeviceStatus.ACTIVATED,
             is_enable=True, version="v2.1.0",
             ip_address=ip, ip_port=port,
+            geolocation=_geo(zone, 3),  # 감시탑 위치
         )
         db.add(c)
         db.flush()
         ids["controllers"].append(c.id)
 
-    # ── Sensors (300 = 100 per controller) ──
+    # ── Sensors (300 = 100 per controller) — 구역별 센서 ──
     for ctrl_idx, ctrl_id in enumerate(ids["controllers"]):
         for j in range(100):
             num = ctrl_idx * 100 + j + 1
@@ -249,51 +300,86 @@ def _create_devices(db: Session) -> dict:
                 is_enable=random.choices([True, False], weights=[95, 5])[0],
                 version=f"v1.{random.randint(0, 5)}.{random.randint(0, 9)}",
                 controller_id=ctrl_id,
+                geolocation=_geo(ctrl_idx, j % 4),
             )
             db.add(s)
     db.flush()
     ids["sensors"] = [s.id for s in db.query(Sensor).all()]
 
-    # ── Cameras (30) ──
+    # ── Cameras (30) — RTSP URL + 하드웨어 스펙 포함 ──
     cam_modes = [EnumCameraMode.ONVIF, EnumCameraMode.EMSTONE_API, EnumCameraMode.INNODEP_API]
     cam_types = [EnumCameraType.FIXED, EnumCameraType.PTZ]
+    hw_specs = [
+        {"manufacturer": "Hanwha Vision", "model": "XNO-8080R", "resolution": "3840x2160",
+         "sensor": "1/1.8\" 8MP CMOS", "lens": "3.9~9.4mm"},
+        {"manufacturer": "Hanwha Vision", "model": "XNP-9300RW", "resolution": "3840x2160",
+         "sensor": "1/1.8\" 8MP CMOS", "lens": "4.44~142.6mm (32x)"},
+        {"manufacturer": "IDIS", "model": "DC-S6282HRXA", "resolution": "1920x1080",
+         "sensor": "1/2.8\" 2MP CMOS", "lens": "4.5~135mm (30x)"},
+        {"manufacturer": "EMSTONE", "model": "EV-8240AI", "resolution": "3840x2160",
+         "sensor": "1/1.2\" 8MP CMOS", "lens": "3.6~11mm (3x)"},
+        {"manufacturer": "INNODEP", "model": "IDB-IR480", "resolution": "640x480",
+         "sensor": "Uncooled VOx FPA", "lens": "35mm thermal"},
+    ]
     for i in range(30):
+        zone_idx = i % 3
+        cam_ip = f"10.1.{zone_idx + 1}.{i + 1}"
+        cam_type = cam_types[0] if i % 3 != 2 else cam_types[1]  # 매 3번째는 PTZ
+        cam_mode = cam_modes[i % len(cam_modes)]
+        hw = hw_specs[i % len(hw_specs)]
         cam = Camera(
-            number_device=i + 1, group_device=1,
-            name_device=f"카메라-{i + 1:03d}",
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"카메라-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
             type_device=EnumDeviceType.IpCamera,
             status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR], weights=[90, 10])[0],
             is_enable=True, version=f"v3.{random.randint(0, 3)}.{random.randint(0, 9)}",
-            ip_address=f"10.1.1.{i + 1}", ip_port=554,
+            ip_address=cam_ip, ip_port=554,
             user_name="admin", user_password="camera123",
-            mode=random.choice(cam_modes), category=random.choice(cam_types),
+            urls={
+                "homepage": {"url": f"http://{cam_ip}/"},
+                "onvif": {"device_service": f"http://{cam_ip}:8000/onvif/device_service"},
+                "streams": {
+                    "rtsp": {
+                        "main": f"rtsp://{cam_ip}:554/Streaming/Channels/101",
+                        "sub": f"rtsp://{cam_ip}:554/Streaming/Channels/102",
+                    },
+                },
+                "snapshot": {"ch1": f"http://{cam_ip}/cgi-bin/snapshot.cgi"},
+            },
+            mode=cam_mode, category=cam_type,
             is_record=random.choice([True, False]),
+            hardware_spec=hw,
+            geolocation=_geo(zone_idx, i % 4),
         )
         db.add(cam)
     db.flush()
     ids["cameras"] = [c.id for c in db.query(Camera).all()]
 
-    # ── Speakers (30) ──
+    # ── Speakers (30) — server_id 연결 + geolocation ──
     spk_types = [EnumSpeakerType.NORMAL, EnumSpeakerType.ADMIN, EnumSpeakerType.MONITOR]
     for i in range(30):
+        zone_idx = i % 3
         spk = Speaker(
-            number_device=i + 1, group_device=1,
-            name_device=f"스피커-{i + 1:03d}",
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"스피커-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
             type_device=EnumDeviceType.IpSpeaker,
             status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.DEACTIVATED], weights=[90, 10])[0],
             is_enable=True, version=f"v1.{random.randint(0, 2)}.0",
             speaker_type=random.choice(spk_types),
-            description=f"스피커 {i + 1} - {chr(65 + i % 3)}구역",
+            server_id=spk_server_id,
+            description=f"스피커 {i + 1} - {chr(65 + zone_idx)}구역 {['초소1', '초소2', '초소3', '감시탑'][i % 4]}",
+            geolocation=_geo(zone_idx, i % 4),
         )
         db.add(spk)
     db.flush()
     ids["speakers"] = [s.id for s in db.query(Speaker).all()]
 
-    # ── Enclosures (30) ──
+    # ── Enclosures (30) — threshold_config + geolocation ──
     for i in range(30):
+        zone_idx = i % 3
         enc = Enclosure(
-            number_device=i + 1, group_device=1,
-            name_device=f"함체-{i + 1:03d}",
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"함체-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
             type_device=EnumDeviceType.Enclosure,
             status=random.choices(
                 [EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR, EnumDeviceStatus.DEACTIVATED],
@@ -303,21 +389,34 @@ def _create_devices(db: Session) -> dict:
             door_status=random.choices([EnumDoorStatus.CLOSED, EnumDoorStatus.OPEN], weights=[85, 15])[0],
             heater_enabled=random.choice([True, False]),
             fan_enabled=random.choice([True, False]),
+            geolocation=_geo(zone_idx, i % 4),
+            threshold_config={
+                "temperature": {"min": -20.0, "max": 55.0, "unit": "°C"},
+                "humidity": {"min": 10.0, "max": 90.0, "unit": "%"},
+                "voltage": {"min": 11.0, "max": 14.5, "unit": "V"},
+                "current": {"min": 0.0, "max": 10.0, "unit": "A"},
+                "vibration": {"max": 80, "unit": "level"},
+                "ups_battery_level": {"min": 20, "unit": "%"},
+            },
         )
         db.add(enc)
     db.flush()
     ids["enclosures"] = [e.id for e in db.query(Enclosure).all()]
 
-    # ── Lamps (30) ──
+    # ── Lamps (30) — user_name/user_password + geolocation ──
     for i in range(30):
+        zone_idx = i % 3
         lmp = Lamp(
-            number_device=i + 1, group_device=1,
-            name_device=f"경광등-{i + 1:03d}",
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"경광등-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
             type_device=EnumDeviceType.Lamp,
             status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.DEACTIVATED], weights=[90, 10])[0],
             is_enable=True, version=f"v1.0.{random.randint(0, 5)}",
-            ip_address=f"10.3.1.{i + 1}", ip_port=80,
-            description=f"경광등 {i + 1} - {chr(65 + i % 3)}구역",
+            ip_address=f"10.3.{zone_idx + 1}.{i + 1}", ip_port=80,
+            user_name="admin",
+            user_password="lamp123",
+            description=f"경광등 {i + 1} - {chr(65 + zone_idx)}구역 {['초소1', '초소2', '초소3', '감시탑'][i % 4]}",
+            geolocation=_geo(zone_idx, i % 4),
         )
         db.add(lmp)
     db.flush()
@@ -332,14 +431,263 @@ def _create_devices(db: Session) -> dict:
     return ids
 
 
+# ── Device Groups ────────────────────────────────────────
+
+def _create_device_groups(db: Session, device_ids: dict):
+    """Create 5 device groups with device mappings."""
+    existing = db.query(DeviceGroup).count()
+    if existing > 0:
+        print(f"  [OK] Device groups already exist: {existing}")
+        return
+
+    groups_data = [
+        {"name": "A구역 전체", "description": "A구역(서쪽) 전체 장비 그룹 — 철원 일대"},
+        {"name": "B구역 전체", "description": "B구역(중앙) 전체 장비 그룹 — 화천 일대"},
+        {"name": "C구역 전체", "description": "C구역(동쪽) 전체 장비 그룹"},
+        {"name": "PTZ 카메라", "description": "PTZ 회전형 카메라 전체"},
+        {"name": "긴급 방송장비", "description": "긴급 방송용 스피커 + 경광등 그룹"},
+    ]
+
+    group_objs = []
+    for gd in groups_data:
+        g = DeviceGroup(**gd)
+        db.add(g)
+        db.flush()
+        group_objs.append(g)
+
+    # 구역별 매핑 (A=group_device 1, B=2, C=3)
+    zone_groups = {1: group_objs[0].id, 2: group_objs[1].id, 3: group_objs[2].id}
+    category_map = {
+        "controllers": EnumDeviceCategory.CONTROLLER,
+        "sensors": EnumDeviceCategory.SENSOR,
+        "cameras": EnumDeviceCategory.CAMERA,
+        "speakers": EnumDeviceCategory.SPEAKER,
+        "enclosures": EnumDeviceCategory.ENCLOSURE,
+        "lamps": EnumDeviceCategory.LAMP,
+    }
+
+    count = 0
+    for cat_key, cat_enum in category_map.items():
+        dev_ids = device_ids.get(cat_key, [])
+        for dev_id in dev_ids:
+            # group_device로 구역 판별 (1=A, 2=B, 3=C)
+            if cat_key == "controllers":
+                dev = db.query(Controller).filter(Controller.id == dev_id).first()
+            elif cat_key == "sensors":
+                dev = db.query(Sensor).filter(Sensor.id == dev_id).first()
+            elif cat_key == "cameras":
+                dev = db.query(Camera).filter(Camera.id == dev_id).first()
+            elif cat_key == "speakers":
+                dev = db.query(Speaker).filter(Speaker.id == dev_id).first()
+            elif cat_key == "enclosures":
+                dev = db.query(Enclosure).filter(Enclosure.id == dev_id).first()
+            else:
+                dev = db.query(Lamp).filter(Lamp.id == dev_id).first()
+
+            if dev and dev.group_device in zone_groups:
+                mapping = DeviceGroupMapping(
+                    device_id=dev_id,
+                    category_device=cat_enum,
+                    group_id=zone_groups[dev.group_device],
+                )
+                db.add(mapping)
+                count += 1
+
+    # PTZ 카메라 그룹 (category == PTZ)
+    ptz_cameras = db.query(Camera).filter(Camera.category == EnumCameraType.PTZ).all()
+    for cam in ptz_cameras:
+        mapping = DeviceGroupMapping(
+            device_id=cam.id,
+            category_device=EnumDeviceCategory.CAMERA,
+            group_id=group_objs[3].id,
+        )
+        db.add(mapping)
+        count += 1
+
+    # 긴급 방송장비 그룹 (ADMIN 스피커 + 전체 경광등)
+    admin_speakers = db.query(Speaker).filter(Speaker.speaker_type == EnumSpeakerType.ADMIN).all()
+    for spk in admin_speakers:
+        mapping = DeviceGroupMapping(
+            device_id=spk.id,
+            category_device=EnumDeviceCategory.SPEAKER,
+            group_id=group_objs[4].id,
+        )
+        db.add(mapping)
+        count += 1
+
+    all_lamps = db.query(Lamp).all()
+    for lmp in all_lamps:
+        mapping = DeviceGroupMapping(
+            device_id=lmp.id,
+            category_device=EnumDeviceCategory.LAMP,
+            group_id=group_objs[4].id,
+        )
+        db.add(mapping)
+        count += 1
+
+    db.commit()
+    print(f"  [OK] Device groups created: {len(groups_data)}, mappings: {count}")
+
+
+# ── Camera Presets + ROI + XyPoints ──────────────────────
+
+def _create_camera_presets(db: Session):
+    """Create camera presets with ROI and XyPoints for PTZ cameras."""
+    existing = db.query(CameraPreset).count()
+    if existing > 0:
+        print(f"  [OK] Camera presets already exist: {existing}")
+        return
+
+    ptz_cameras = db.query(Camera).filter(Camera.category == EnumCameraType.PTZ).all()
+    if not ptz_cameras:
+        print("  [WARN] No PTZ cameras — skipping camera presets")
+        return
+
+    preset_templates = [
+        {"preset_name": "Home", "touring_time": 0},
+        {"preset_name": "좌측 경계", "touring_time": 8},
+        {"preset_name": "우측 경계", "touring_time": 10},
+        {"preset_name": "정문 감시", "touring_time": 12},
+        {"preset_name": "후방 감시", "touring_time": 15},
+    ]
+
+    roi_templates = [
+        {"name": "침입 감지 영역", "resolution_width": 1920.0, "resolution_height": 1080.0,
+         "points": [(0.1, 0.3), (0.9, 0.3), (0.9, 0.9), (0.1, 0.9)]},
+        {"name": "배회 감지 영역", "resolution_width": 1920.0, "resolution_height": 1080.0,
+         "points": [(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)]},
+        {"name": "철조망 영역", "resolution_width": 3840.0, "resolution_height": 2160.0,
+         "points": [(0.0, 0.4), (1.0, 0.4), (1.0, 0.7), (0.0, 0.7)]},
+    ]
+
+    preset_count = 0
+    roi_count = 0
+    point_count = 0
+
+    for cam in ptz_cameras:
+        for idx, pt in enumerate(preset_templates):
+            preset = CameraPreset(
+                camera_id=cam.id,
+                camera_name=cam.name_device,
+                preset_index=idx + 1,
+                preset_name=pt["preset_name"],
+                touring_time=pt["touring_time"],
+            )
+            db.add(preset)
+            db.flush()
+            preset_count += 1
+
+            # Home 프리셋에만 ROI 2~3개 추가
+            if idx == 0:
+                num_rois = random.randint(2, 3)
+                for ri in range(num_rois):
+                    rt = roi_templates[ri % len(roi_templates)]
+                    roi = ROI(
+                        preset_id=preset.id,
+                        name=rt["name"],
+                        resolution_width=rt["resolution_width"],
+                        resolution_height=rt["resolution_height"],
+                        is_enable=True,
+                    )
+                    db.add(roi)
+                    db.flush()
+                    roi_count += 1
+
+                    for order, (x, y) in enumerate(rt["points"]):
+                        pt_obj = XyPoint(
+                            roi_id=roi.id,
+                            x=x, y=y, order=order,
+                        )
+                        db.add(pt_obj)
+                        point_count += 1
+
+    db.commit()
+    print(f"  [OK] Camera presets created: {preset_count}, ROIs: {roi_count}, XyPoints: {point_count}")
+
+
+# ── Enclosure Metrics ────────────────────────────────────
+
+def _create_enclosure_metrics(db: Session):
+    """Create time-series enclosure metrics (last 24h, every 30min per enclosure)."""
+    existing = db.query(EnclosureMetric).count()
+    if existing > 0:
+        print(f"  [OK] Enclosure metrics already exist: {existing}")
+        return
+
+    enclosures = db.query(Enclosure).limit(10).all()  # First 10 enclosures only (to limit data volume)
+    if not enclosures:
+        print("  [WARN] No enclosures — skipping enclosure metrics")
+        return
+
+    now = datetime.now(settings.tz)
+    count = 0
+    for enc in enclosures:
+        base_temp = random.uniform(-5.0, 25.0)  # 계절별 기본 온도
+        base_humidity = random.uniform(30.0, 70.0)
+        base_voltage = random.uniform(12.0, 13.8)
+
+        # 24시간 * 2 (30분 간격) = 48 레코드
+        for slot in range(48):
+            ts = now - timedelta(minutes=30 * slot)
+            # 시간에 따른 온도 변동 (낮에 높고, 밤에 낮음)
+            hour = ts.hour
+            temp_offset = 5.0 * (1 - abs(hour - 14) / 14)  # 14시에 최고
+            temp = round(base_temp + temp_offset + random.uniform(-2, 2), 1)
+            humidity = round(base_humidity + random.uniform(-5, 5), 1)
+            voltage = round(base_voltage + random.uniform(-0.5, 0.5), 2)
+            current = round(random.uniform(0.5, 3.5), 2)
+
+            metric = EnclosureMetric(
+                enclosure_id=enc.id,
+                temperature=str(temp),
+                humidity=str(humidity),
+                voltage=str(voltage),
+                current=str(current),
+                vibration=random.randint(0, 15),
+                ups_battery_level=random.randint(70, 100),
+                ups_charging=random.choice([True, False]),
+                detail={
+                    "door_open_count": random.randint(0, 2),
+                    "power_source": random.choice(["AC", "UPS"]),
+                },
+                created_at=ts,
+            )
+            db.add(metric)
+            count += 1
+
+    db.commit()
+    print(f"  [OK] Enclosure metrics created: {count}")
+
+
 # ── Events ───────────────────────────────────────────────
 
 DETECTION_TYPES = [t for t in EnumDetectionType if t != EnumDetectionType.NONE]
 FAULT_TYPES = list(EnumFaultType)
 
+# AI 탐지 상세 정보 템플릿
+DETECTION_DETAILS = [
+    {"thumbnail": "/api/thumbnails/1/image", "ai_objects": [
+        {"class": "person", "confidence": 0.92, "bbox": [120, 80, 340, 520]},
+    ], "zone": "침입 감지 영역"},
+    {"thumbnail": "/api/thumbnails/2/image", "ai_objects": [
+        {"class": "person", "confidence": 0.87, "bbox": [200, 100, 380, 480]},
+        {"class": "person", "confidence": 0.73, "bbox": [500, 120, 650, 490]},
+    ], "zone": "철조망 영역"},
+    {"thumbnail": "/api/thumbnails/3/image", "ai_objects": [
+        {"class": "vehicle", "confidence": 0.95, "bbox": [50, 200, 600, 450]},
+    ], "zone": "정문 감시"},
+    {"thumbnail": None, "ai_objects": [
+        {"class": "animal", "confidence": 0.68, "bbox": [300, 350, 420, 450]},
+    ], "zone": "배회 감지 영역"},
+    {"thumbnail": "/api/thumbnails/5/image", "ai_objects": [
+        {"class": "person", "confidence": 0.96, "bbox": [150, 50, 350, 500]},
+    ], "zone": "좌측 경계", "alarm_level": "HIGH"},
+    None,  # 일부 이벤트는 detail 없음
+]
+
 
 def _create_events(db: Session, device_ids: dict) -> dict:
-    """Create 110 events. Returns {category: [event_ids]}."""
+    """Create 110 events with realistic detail data. Returns {category: [event_ids]}."""
     existing = db.query(Event).count()
     if existing > 0:
         print(f"  [OK] Events already exist: {existing}")
@@ -350,22 +698,37 @@ def _create_events(db: Session, device_ids: dict) -> dict:
         }
 
     sensor_ids = device_ids.get("sensors", [])
+    camera_ids = device_ids.get("cameras", [])
     all_ids = []
     for v in device_ids.values():
         all_ids.extend(v)
 
     eids = {"detection": [], "malfunction": [], "connection": []}
 
-    # ── Detection events (60) ──
-    for _ in range(60):
-        dev_id = random.choice(sensor_ids) if sensor_ids else (random.choice(all_ids) if all_ids else None)
+    # ── Detection events (60) — 센서 + 카메라 탐지 ──
+    for i in range(60):
+        # 70% 센서 탐지, 30% 카메라 AI 탐지
+        if random.random() < 0.7 and sensor_ids:
+            dev_id = random.choice(sensor_ids)
+            desc = f"센서 탐지 - 장비#{dev_id}"
+            detail = random.choice([None, None, DETECTION_DETAILS[-1]])  # 센서는 대부분 detail 없음
+        elif camera_ids:
+            dev_id = random.choice(camera_ids)
+            desc = f"AI 영상 탐지 - 카메라#{dev_id}"
+            detail = random.choice(DETECTION_DETAILS)
+        else:
+            dev_id = random.choice(all_ids) if all_ids else None
+            desc = f"탐지 - 장비#{dev_id}"
+            detail = None
+
         dt = _rand_dt(30)
         e = DetectionEvent(
             type_event="Intrusion",
             device_id=dev_id,
-            device_description=f"센서 탐지 - 장비#{dev_id}",
+            device_description=desc,
             result=random.choice(DETECTION_TYPES),
             action_reported=random.choice(["True", "False"]),
+            detail=detail,
             created_at=dt, updated_at=dt,
         )
         db.add(e)
@@ -376,12 +739,18 @@ def _create_events(db: Session, device_ids: dict) -> dict:
     for _ in range(25):
         dev_id = random.choice(all_ids) if all_ids else None
         dt = _rand_dt(30)
+        fault = random.choice(FAULT_TYPES)
         e = MalfunctionEvent(
             type_event="Fault",
             device_id=dev_id,
             device_description=f"장비 장애 - 장비#{dev_id}",
-            reason=random.choice(FAULT_TYPES),
+            reason=fault,
             action_reported=random.choice(["True", "False"]),
+            detail={
+                "fault_code": f"ERR-{random.randint(1000, 9999)}",
+                "duration_seconds": random.randint(10, 3600),
+                "auto_recovered": random.choice([True, False]),
+            } if random.random() < 0.6 else None,
             created_at=dt, updated_at=dt,
         )
         db.add(e)
@@ -799,31 +1168,40 @@ def initialize_sample_data(db: Session):
     # 2. Servers (categories already exist from init_server_data)
     server_ids = _create_servers(db)
 
-    # 3. Devices
-    device_ids = _create_devices(db)
+    # 3. Devices (with geolocation, urls, hardware_spec, threshold_config)
+    device_ids = _create_devices(db, server_ids)
 
-    # 4. Events
+    # 4. Device groups + mappings (N:N)
+    _create_device_groups(db, device_ids)
+
+    # 5. Camera presets + ROI + XyPoints (PTZ cameras)
+    _create_camera_presets(db)
+
+    # 6. Enclosure metrics (time-series)
+    _create_enclosure_metrics(db)
+
+    # 7. Events (with detail JSONB)
     event_ids = _create_events(db, device_ids)
 
-    # 5. Action events
+    # 8. Action events
     _create_action_events(db, event_ids, user_names)
 
-    # 6. System events
+    # 9. System events
     _create_system_events(db, server_ids)
 
-    # 7. Config change logs
+    # 10. Config change logs
     _create_config_change_logs(db, user_ids)
 
-    # 8. Audit logs
+    # 11. Audit logs
     _create_audit_logs(db, user_ids)
 
-    # 9. User sessions
+    # 12. User sessions
     _create_user_sessions(db, user_ids)
 
-    # 10. Login logs
+    # 13. Login logs
     _create_login_logs(db, user_ids)
 
-    # 11. Device settings (proxy + camera)
+    # 14. Device settings (proxy + camera)
     _create_proxy_settings(db, server_ids)
     _create_camera_settings(db)
 

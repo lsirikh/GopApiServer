@@ -15,6 +15,7 @@ services:
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRATION_HOURS=24
       - DATABASE_URL=sqlite:///./data/gop.db
+      - INIT_SAMPLE_DATA=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
     restart: unless-stopped

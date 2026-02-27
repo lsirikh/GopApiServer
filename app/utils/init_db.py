@@ -11,6 +11,7 @@ from app.utils.auth import hash_password
 from app.utils.init_server_data import initialize_server_data
 from app.utils.init_report_data import initialize_report_data
 from app.utils.init_sample_data import initialize_sample_data
+from app.config import settings
 
 
 def create_tables():
@@ -97,7 +98,10 @@ def initialize_database():
         create_admin_account_user(db)
         initialize_server_data(db)
         initialize_report_data(db)
-        initialize_sample_data(db)
+        if settings.INIT_SAMPLE_DATA:
+            initialize_sample_data(db)
+        else:
+            print("[SKIP] Sample data (INIT_SAMPLE_DATA=false)")
     finally:
         db.close()
 

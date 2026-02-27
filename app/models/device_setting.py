@@ -51,4 +51,4 @@ class CameraSetting(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
 
-    camera = relationship("Camera", backref="camera_setting", uselist=False)
+    camera = relationship("Camera", back_populates="setting", uselist=False)

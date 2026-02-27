@@ -261,7 +261,7 @@ class ControllerResponse(BaseModel):
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
     type_device: EnumDeviceType = Field(..., description="장치 타입")
-    version: str = Field(..., description="버전")
+    version: Optional[str] = Field(None, description="버전")
     status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
@@ -363,7 +363,7 @@ class SensorResponse(BaseModel):
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
     type_device: EnumDeviceType = Field(..., description="센서 타입")
-    version: str = Field(..., description="버전")
+    version: Optional[str] = Field(None, description="버전")
     status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
@@ -483,7 +483,7 @@ class CameraResponse(BaseModel):
     group_device: int = Field(..., description="장치 그룹 번호 (레거시)")
     name_device: str = Field(..., description="장치 이름")
     type_device: EnumDeviceType = Field(..., description="장치 타입")
-    version: str = Field(..., description="버전")
+    version: Optional[str] = Field(None, description="버전")
     status: EnumDeviceStatus = Field(..., description="상태")
     is_enable: bool = Field(..., description="장비 활성화 여부")
     ip_address: str = Field(..., description="IP 주소")
@@ -632,6 +632,8 @@ class SpeakerCreate(BaseModel):
         description="좌표/위치 정보 (JSON)",
         json_schema_extra={"example": GEOLOCATION_EXAMPLE}
     )
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
 
 class SpeakerUpdate(BaseModel):
@@ -657,6 +659,8 @@ class SpeakerUpdate(BaseModel):
         description="좌표/위치 정보 (JSON)",
         json_schema_extra={"example": GEOLOCATION_EXAMPLE}
     )
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
 
 class SpeakerResponse(BaseModel):
@@ -692,6 +696,11 @@ class SpeakerResponse(BaseModel):
     server: Optional[ServerNestedResponse] = Field(
         None,
         description="연결된 서버 정보 (방송서버)"
+    )
+
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    device_groups: List[DeviceGroupNestedResponse] = Field(
+        default=[], description="소속 디바이스 그룹 목록 (N:N 관계)"
     )
 
     model_config = ConfigDict(from_attributes=True)
@@ -772,6 +781,8 @@ class EnclosureCreate(BaseModel):
     threshold_config: Optional[EnclosureThresholdConfig] = Field(None, description="알람 임계값")
     heater_enabled: bool = Field(False, description="히터 활성화")
     fan_enabled: bool = Field(False, description="팬 활성화")
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -805,6 +816,8 @@ class EnclosureUpdate(BaseModel):
     threshold_config: Optional[EnclosureThresholdConfig] = Field(None, description="알람 임계값")
     heater_enabled: Optional[bool] = Field(None, description="히터 활성화")
     fan_enabled: Optional[bool] = Field(None, description="팬 활성화")
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -844,6 +857,11 @@ class EnclosureResponse(BaseModel):
     threshold_config: Optional[EnclosureThresholdConfig] = Field(None, description="알람 임계값")
     heater_enabled: bool = Field(..., description="히터 활성화 상태")
     fan_enabled: bool = Field(..., description="팬 활성화 상태")
+
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    device_groups: List[DeviceGroupNestedResponse] = Field(
+        default=[], description="소속 디바이스 그룹 목록 (N:N 관계)"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -964,6 +982,8 @@ class LampCreate(BaseModel):
         description="좌표/위치 정보 (JSON)",
         json_schema_extra={"example": GEOLOCATION_EXAMPLE}
     )
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -995,6 +1015,8 @@ class LampUpdate(BaseModel):
         description="좌표/위치 정보",
         json_schema_extra={"example": GEOLOCATION_EXAMPLE}
     )
+    # PRD_DeviceGroup_Support_Completion.md: N:N 관계
+    group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1078,6 +1100,7 @@ def _rebuild_models():
     SensorResponse.model_rebuild()
     CameraResponse.model_rebuild()
     SpeakerResponse.model_rebuild()
+    EnclosureResponse.model_rebuild()
     LampResponse.model_rebuild()
 
 # 모듈 로드 시 자동으로 model_rebuild() 실행

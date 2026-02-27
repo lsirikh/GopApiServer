@@ -5,13 +5,14 @@ URL Pattern: /api/devices/enclosures (Device 하위 리소스)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Enclosure
-from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus, EnumConfigResourceType, EnumConfigActionType
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import (
     EnclosureCreate,
     EnclosureUpdate,
@@ -19,7 +20,8 @@ from app.schemas.device import (
     EnclosureControl,
     EnclosureStatusUpdate,
     EnclosureThresholdConfig,
-    Geolocation
+    Geolocation,
+    DeviceGroupNestedResponse
 )
 # EnclosureDetailInfo 제거됨 (PRD_Enclosure_Metrics_Separation.md v1.0)
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -28,7 +30,56 @@ from app.services.config_log_service import log_config_change, get_identifier, g
 router = APIRouter(tags=["Enclosures"])
 
 
-def _enclosure_to_response(enclosure: Enclosure) -> EnclosureResponse:
+def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.ENCLOSURE) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for an enclosure (PRD_DeviceGroup_Support_Completion.md)"""
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).all()
+
+    if not mappings:
+        return []
+
+    group_ids = [m.group_id for m in mappings]
+    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+
+    return [
+        DeviceGroupNestedResponse(
+            id=g.id,
+            name=g.name,
+            description=g.description,
+            device_count=db.query(DeviceGroupMapping).filter(
+                DeviceGroupMapping.group_id == g.id
+            ).count()
+        )
+        for g in groups
+    ]
+
+
+def _update_device_group_mappings(
+    db: Session,
+    device_id: int,
+    group_ids: List[int],
+    category_device: EnumDeviceCategory = EnumDeviceCategory.ENCLOSURE
+):
+    """Update device group mappings for an enclosure (PRD_DeviceGroup_Support_Completion.md)"""
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).delete()
+
+    for group_id in group_ids:
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        if group:
+            mapping = DeviceGroupMapping(
+                device_id=device_id,
+                category_device=category_device,
+                group_id=group_id
+            )
+            db.add(mapping)
+
+
+def _enclosure_to_response(enclosure: Enclosure, db: Session) -> EnclosureResponse:
     """Convert Enclosure model to EnclosureResponse schema"""
     # Convert JSONB to Pydantic schemas
     # detail_info 제거됨 → enclosure_metrics API 사용 (PRD_Enclosure_Metrics_Separation.md v1.0)
@@ -40,6 +91,9 @@ def _enclosure_to_response(enclosure: Enclosure) -> EnclosureResponse:
     threshold_config = None
     if enclosure.threshold_config:
         threshold_config = EnclosureThresholdConfig(**enclosure.threshold_config)
+
+    # PRD_DeviceGroup_Support_Completion.md: device_groups 조회
+    device_groups = _get_device_groups_nested(db, enclosure.id, EnumDeviceCategory.ENCLOSURE)
 
     return EnclosureResponse(
         id=enclosure.id,
@@ -56,7 +110,8 @@ def _enclosure_to_response(enclosure: Enclosure) -> EnclosureResponse:
         heater_enabled=enclosure.heater_enabled,
         fan_enabled=enclosure.fan_enabled,
         created_at=enclosure.created_at,
-        updated_at=enclosure.updated_at
+        updated_at=enclosure.updated_at,
+        device_groups=device_groups
     )
 
 
@@ -105,7 +160,7 @@ async def get_enclosures(
     enclosures = query.offset(skip).limit(limit).all()
 
     # Convert to response format
-    enclosure_responses = [_enclosure_to_response(e) for e in enclosures]
+    enclosure_responses = [_enclosure_to_response(e, db) for e in enclosures]
 
     pagination = PaginationMeta(
         page=page,
@@ -148,7 +203,7 @@ async def get_enclosure(
             detail=f"Enclosure with id {enclosure_id} not found"
         )
 
-    enclosure_response = _enclosure_to_response(enclosure)
+    enclosure_response = _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -201,6 +256,11 @@ async def create_enclosure(
     db.commit()
     db.refresh(new_enclosure)
 
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if enclosure_data.group_ids is not None:
+        _update_device_group_mappings(db, new_enclosure.id, enclosure_data.group_ids, EnumDeviceCategory.ENCLOSURE)
+        db.commit()
+
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
     log_config_change(
         db=db,
@@ -212,7 +272,7 @@ async def create_enclosure(
         description="Enclosure 생성"
     )
 
-    enclosure_response = _enclosure_to_response(new_enclosure)
+    enclosure_response = _enclosure_to_response(new_enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -263,12 +323,19 @@ async def update_enclosure(
     # Update fields if provided
     update_data = enclosure_data.model_dump(exclude_unset=True)
 
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 분리 처리
+    group_ids = update_data.pop("group_ids", None)
+
     for field, value in update_data.items():
         # Handle nested Pydantic models (JSONB fields)
         if field in ['geolocation', 'threshold_config'] and value is not None:
             setattr(enclosure, field, value if isinstance(value, dict) else value.model_dump(mode='json'))
         else:
             setattr(enclosure, field, value)
+
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if group_ids is not None:
+        _update_device_group_mappings(db, enclosure.id, group_ids, EnumDeviceCategory.ENCLOSURE)
 
     db.commit()
     db.refresh(enclosure)
@@ -288,7 +355,7 @@ async def update_enclosure(
             description="Enclosure 수정"
         )
 
-    enclosure_response = _enclosure_to_response(enclosure)
+    enclosure_response = _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -342,10 +409,14 @@ async def replace_enclosure(
     enclosure.heater_enabled = enclosure_data.heater_enabled
     enclosure.fan_enabled = enclosure_data.fan_enabled
 
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if enclosure_data.group_ids is not None:
+        _update_device_group_mappings(db, enclosure.id, enclosure_data.group_ids, EnumDeviceCategory.ENCLOSURE)
+
     db.commit()
     db.refresh(enclosure)
 
-    enclosure_response = _enclosure_to_response(enclosure)
+    enclosure_response = _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -467,7 +538,7 @@ async def update_enclosure_status(
             description=f"Enclosure 상태 변경: {old_door_status} → {enclosure.door_status}"
         )
 
-    enclosure_response = _enclosure_to_response(enclosure)
+    enclosure_response = _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -519,7 +590,7 @@ async def control_enclosure(
     db.commit()
     db.refresh(enclosure)
 
-    enclosure_response = _enclosure_to_response(enclosure)
+    enclosure_response = _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,

@@ -5,12 +5,13 @@ URL Pattern: /api/devices/lamps (Device 하위 리소스)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Lamp
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
 from app.schemas.device import LampCreate, LampUpdate, LampResponse, DeviceGroupNestedResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -19,20 +20,59 @@ from app.services.config_log_service import log_config_change, get_identifier, g
 router = APIRouter(tags=["Lamps"])
 
 
+def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.LAMP) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for a lamp (PRD_DeviceGroup_Support_Completion.md)"""
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).all()
+
+    if not mappings:
+        return []
+
+    group_ids = [m.group_id for m in mappings]
+    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+
+    return [
+        DeviceGroupNestedResponse(
+            id=g.id,
+            name=g.name,
+            description=g.description,
+            device_count=db.query(DeviceGroupMapping).filter(
+                DeviceGroupMapping.group_id == g.id
+            ).count()
+        )
+        for g in groups
+    ]
+
+
+def _update_device_group_mappings(
+    db: Session,
+    device_id: int,
+    group_ids: List[int],
+    category_device: EnumDeviceCategory = EnumDeviceCategory.LAMP
+):
+    """Update device group mappings for a lamp (PRD_DeviceGroup_Support_Completion.md)"""
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).delete()
+
+    for group_id in group_ids:
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        if group:
+            mapping = DeviceGroupMapping(
+                device_id=device_id,
+                category_device=category_device,
+                group_id=group_id
+            )
+            db.add(mapping)
+
+
 def _lamp_to_response(lamp: Lamp, db: Session) -> LampResponse:
     """Convert Lamp model to LampResponse schema"""
-    # Build DeviceGroupNestedResponse list
-    device_groups = []
-    if hasattr(lamp, 'group_mappings') and lamp.group_mappings:
-        for mapping in lamp.group_mappings:
-            group = mapping.device_group
-            if group:
-                device_groups.append(DeviceGroupNestedResponse(
-                    id=group.id,
-                    name=group.name,
-                    description=group.description,
-                    device_count=group.device_mappings.count() if hasattr(group, 'device_mappings') else 0
-                ))
+    # PRD_DeviceGroup_Support_Completion.md: 깨진 코드 수정 → DeviceGroupMapping 직접 쿼리
+    device_groups = _get_device_groups_nested(db, lamp.id, EnumDeviceCategory.LAMP)
 
     return LampResponse(
         id=lamp.id,
@@ -185,6 +225,11 @@ async def create_lamp(
     db.commit()
     db.refresh(lamp)
 
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if lamp_data.group_ids is not None:
+        _update_device_group_mappings(db, lamp.id, lamp_data.group_ids, EnumDeviceCategory.LAMP)
+        db.commit()
+
     # Log config change (PRD v1.2)
     log_config_change(
         db=db,
@@ -231,6 +276,10 @@ async def patch_lamp(
 
     # Update provided fields
     update_data = lamp_data.model_dump(exclude_unset=True)
+
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 분리 처리
+    group_ids = update_data.pop("group_ids", None)
+
     for field, value in update_data.items():
         if field == "type_device" and value is not None:
             try:
@@ -245,6 +294,10 @@ async def patch_lamp(
         elif field == "geolocation" and value is not None:
             value = value.model_dump() if hasattr(value, 'model_dump') else value
         setattr(lamp, field, value)
+
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if group_ids is not None:
+        _update_device_group_mappings(db, lamp.id, group_ids, EnumDeviceCategory.LAMP)
 
     db.commit()
     db.refresh(lamp)
@@ -323,6 +376,10 @@ async def put_lamp(
     lamp.user_password = lamp_data.user_password
     lamp.description = lamp_data.description
     lamp.geolocation = lamp_data.geolocation.model_dump() if lamp_data.geolocation else None
+
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if lamp_data.group_ids is not None:
+        _update_device_group_mappings(db, lamp.id, lamp_data.group_ids, EnumDeviceCategory.LAMP)
 
     db.commit()
     db.refresh(lamp)

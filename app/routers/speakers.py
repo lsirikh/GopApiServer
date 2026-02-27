@@ -6,20 +6,70 @@ URL Pattern: /api/devices/speakers (Device 하위 리소스)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.device import Speaker
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.models.server import Server
-from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumConfigResourceType, EnumConfigActionType
-from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
+from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse, DeviceGroupNestedResponse
 from app.schemas.server import ServerNestedResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Speakers"])
+
+
+def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.SPEAKER) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for a speaker (PRD_DeviceGroup_Support_Completion.md)"""
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).all()
+
+    if not mappings:
+        return []
+
+    group_ids = [m.group_id for m in mappings]
+    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+
+    return [
+        DeviceGroupNestedResponse(
+            id=g.id,
+            name=g.name,
+            description=g.description,
+            device_count=db.query(DeviceGroupMapping).filter(
+                DeviceGroupMapping.group_id == g.id
+            ).count()
+        )
+        for g in groups
+    ]
+
+
+def _update_device_group_mappings(
+    db: Session,
+    device_id: int,
+    group_ids: List[int],
+    category_device: EnumDeviceCategory = EnumDeviceCategory.SPEAKER
+):
+    """Update device group mappings for a speaker (PRD_DeviceGroup_Support_Completion.md)"""
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device_id,
+        DeviceGroupMapping.category_device == category_device
+    ).delete()
+
+    for group_id in group_ids:
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        if group:
+            mapping = DeviceGroupMapping(
+                device_id=device_id,
+                category_device=category_device,
+                group_id=group_id
+            )
+            db.add(mapping)
 
 
 def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
@@ -40,6 +90,9 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
             threshold_config=speaker.server.threshold_config
         )
 
+    # PRD_DeviceGroup_Support_Completion.md: device_groups 조회
+    device_groups = _get_device_groups_nested(db, speaker.id, EnumDeviceCategory.SPEAKER)
+
     return SpeakerResponse(
         id=speaker.id,
         category_device=speaker.category_device.value,
@@ -55,7 +108,8 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
         speaker_type=speaker.speaker_type.value,
         description=speaker.description,
         geolocation=speaker.geolocation,  # PRD_Speaker_Geolocation.md v1.0
-        server=server_nested
+        server=server_nested,
+        device_groups=device_groups
     )
 
 
@@ -213,6 +267,11 @@ async def create_speaker(
     db.commit()
     db.refresh(new_speaker)
 
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if speaker_data.group_ids is not None:
+        _update_device_group_mappings(db, new_speaker.id, speaker_data.group_ids, EnumDeviceCategory.SPEAKER)
+        db.commit()
+
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
     log_config_change(
         db=db,
@@ -273,6 +332,9 @@ async def update_speaker(
     # Update fields if provided
     update_data = speaker_data.model_dump(exclude_unset=True)
 
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 분리 처리
+    group_ids = update_data.pop("group_ids", None)
+
     # Validate server_id if provided and not null
     if "server_id" in update_data and update_data["server_id"] is not None:
         server = db.query(Server).filter(Server.id == update_data["server_id"]).first()
@@ -289,6 +351,10 @@ async def update_speaker(
 
     for field, value in update_data.items():
         setattr(speaker, field, value)
+
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if group_ids is not None:
+        _update_device_group_mappings(db, speaker.id, group_ids, EnumDeviceCategory.SPEAKER)
 
     db.commit()
     db.refresh(speaker)
@@ -374,6 +440,10 @@ async def replace_speaker(
     speaker.server_id = speaker_data.server_id
     speaker.description = speaker_data.description
     speaker.geolocation = geolocation_dict  # PRD_Speaker_Geolocation.md v1.0
+
+    # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
+    if speaker_data.group_ids is not None:
+        _update_device_group_mappings(db, speaker.id, speaker_data.group_ids, EnumDeviceCategory.SPEAKER)
 
     db.commit()
     db.refresh(speaker)

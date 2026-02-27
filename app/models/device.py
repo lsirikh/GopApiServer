@@ -199,6 +199,8 @@ class Camera(Device):
 
     # Relationship to CameraPreset
     presets = relationship("CameraPreset", back_populates="camera", cascade="all, delete-orphan", lazy="dynamic")
+    # Relationship to CameraSetting (PRD_Device_Setting.md)
+    setting = relationship("CameraSetting", back_populates="camera", cascade="all, delete-orphan", uselist=False)
 
     def __repr__(self):
         return (

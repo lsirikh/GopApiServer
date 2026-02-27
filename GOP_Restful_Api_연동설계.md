@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-02-19  
-**버전**: v4.0  
+**최종 수정일**: 2026-02-26
+**버전**: v4.1
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -3428,6 +3428,9 @@ Accept: application/json
         "longitude": 127.5678,
         "altitude": 245.5
       },
+      "device_groups": [
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+      ],
       "server": {
         "id": 1,
         "category_id": 10,
@@ -3513,6 +3516,9 @@ Accept: application/json
       "longitude": 127.5678,
       "altitude": 245.5
     },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ],
     "server": {
       "id": 1,
       "category_id": 10,
@@ -3576,7 +3582,8 @@ Accept: application/json
     "location": "GOP 3초소 방송실",
     "latitude": 38.1234,
     "longitude": 127.5678
-  }
+  },
+  "group_ids": [1]
 }
 ```
 
@@ -3596,7 +3603,8 @@ Accept: application/json
     "latitude": 38.1234,
     "longitude": 127.5678,
     "altitude": 245.5
-  }
+  },
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -3613,6 +3621,7 @@ Accept: application/json
 | server_id | integer | N | null | 방송서버 ID (FK) |
 | description | string | N | null | 설명 |
 | geolocation | object | N | null | 좌표/위치 정보 (JSON) |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response (201 Created)**:
 ```json
@@ -3638,6 +3647,9 @@ Accept: application/json
       "longitude": 127.5678,
       "altitude": 245.5
     },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ],
     "server": {
       "id": 1,
       "category_id": 10,
@@ -3713,7 +3725,8 @@ Accept: application/json
     "latitude": 38.1235,
     "longitude": 127.5679,
     "altitude": 246.0
-  }
+  },
+  "group_ids": [1]
 }
 ```
 
@@ -3733,7 +3746,8 @@ Accept: application/json
     "latitude": 38.1235,
     "longitude": 127.5679,
     "altitude": 246.0
-  }
+  },
+  "group_ids": [1] // (optional) 소속 디바이스 그룹 ID 배열 변경
 }
 ```
 
@@ -3750,6 +3764,7 @@ Accept: application/json
 | server_id | integer | N | - | 방송서버 ID (null 허용) (현재 값 유지) |
 | description | string | N | - | 설명 (현재 값 유지) |
 | geolocation | object | N | - | 좌표/위치 정보 (현재 값 유지) |
+| group_ids | array[int] | N | - | 소속 디바이스 그룹 ID 배열 (현재 값 유지) |
 
 **Response (200 OK)**:
 ```json
@@ -3775,6 +3790,9 @@ Accept: application/json
       "longitude": 127.5679,
       "altitude": 246.0
     },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ],
     "server": {
       "id": 1,
       "category_id": 10,
@@ -3841,7 +3859,8 @@ Accept: application/json
     "latitude": 38.1300,
     "longitude": 127.5700,
     "altitude": 250.0
-  }
+  },
+  "group_ids": [1]
 }
 ```
 
@@ -3867,7 +3886,8 @@ Accept: application/json
     "latitude": 38.1300,
     "longitude": 127.5700,
     "altitude": 250.0
-  }
+  },
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -3884,6 +3904,7 @@ Accept: application/json
 | server_id | integer | N | null | 방송서버 ID |
 | description | string | N | null | 설명 |
 | geolocation | object | N | null | 좌표/위치 정보 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response (200 OK)**:
 ```json
@@ -3909,6 +3930,9 @@ Accept: application/json
       "longitude": 127.5700,
       "altitude": 250.0
     },
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ],
     "server": {
       "id": 2,
       "category_id": 10,
@@ -4073,7 +4097,10 @@ Accept: application/json
       "heater_enabled": false,
       "fan_enabled": false,
       "created_at": "2026-01-08T10:00:00.000000",
-      "updated_at": "2026-01-08T10:00:00.000000"
+      "updated_at": "2026-01-08T10:00:00.000000",
+      "device_groups": [
+        {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+      ]
     }
   ],
   "pagination": {
@@ -4144,7 +4171,8 @@ Accept: application/json
     "location": "GOP 4초소",
     "latitude": 38.1234,
     "longitude": 127.5678
-  }
+  },
+  "group_ids": [1]
 }
 ```
 
@@ -4166,7 +4194,8 @@ Accept: application/json
     "temp_low": -15.0
   },
   "heater_enabled": false,
-  "fan_enabled": false
+  "fan_enabled": false,
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -4184,6 +4213,7 @@ Accept: application/json
 | threshold_config | object | N | null | 알람 임계값 (JSONB) |
 | heater_enabled | boolean | N | false | 히터 활성화 |
 | fan_enabled | boolean | N | false | 팬 활성화 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 > **Note**: 환경 모니터링 데이터(온도, 습도 등)는 `POST /api/devices/enclosures/{id}/metrics` API를 통해 별도 저장합니다.
 
@@ -4214,7 +4244,10 @@ Accept: application/json
     "heater_enabled": false,
     "fan_enabled": false,
     "created_at": "2026-01-08T11:00:00.000000",
-    "updated_at": "2026-01-08T11:00:00.000000"
+    "updated_at": "2026-01-08T11:00:00.000000",
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ]
   }
 }
 ```
@@ -4249,7 +4282,8 @@ Accept: application/json
 {
   "name_device": "GOP 3초소 함체 (수정)",
   "door_status": "OPEN",
-  "status": "DEACTIVATED"
+  "status": "DEACTIVATED",
+  "group_ids": [1]
 }
 ```
 
@@ -4263,7 +4297,8 @@ Accept: application/json
 {
   "name_device": "GOP 3초소 함체 (수정)",
   "door_status": "OPEN",
-  "status": "DEACTIVATED"
+  "status": "DEACTIVATED",
+  "group_ids": [1] // (optional) 소속 디바이스 그룹 ID 배열 변경
 }
 ```
 
@@ -4281,6 +4316,7 @@ Accept: application/json
 | threshold_config | object | N | - | 알람 임계값 (JSONB) (현재 값 유지) |
 | heater_enabled | boolean | N | - | 히터 활성화 (현재 값 유지) |
 | fan_enabled | boolean | N | - | 팬 활성화 (현재 값 유지) |
+| group_ids | array[int] | N | - | 소속 디바이스 그룹 ID 배열 (현재 값 유지) |
 
 **Response (200 OK)**:
 ```json
@@ -4306,7 +4342,10 @@ Accept: application/json
     "heater_enabled": false,
     "fan_enabled": false,
     "created_at": "2026-01-08T10:00:00.000000",
-    "updated_at": "2026-01-08T11:30:00.000000"
+    "updated_at": "2026-01-08T11:30:00.000000",
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ]
   }
 }
 ```
@@ -4354,7 +4393,8 @@ Accept: application/json
     "temp_low": -15.0
   },
   "heater_enabled": true,
-  "fan_enabled": false
+  "fan_enabled": false,
+  "group_ids": [1]
 }
 ```
 
@@ -4386,7 +4426,8 @@ Accept: application/json
     "temp_low": -15.0
   },
   "heater_enabled": true,
-  "fan_enabled": false
+  "fan_enabled": false,
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -4404,6 +4445,7 @@ Accept: application/json
 | threshold_config | object | N | null | 알람 임계값 (JSONB) |
 | heater_enabled | boolean | N | false | 히터 활성화 |
 | fan_enabled | boolean | N | false | 팬 활성화 |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response (200 OK)**:
 ```json
@@ -4432,7 +4474,10 @@ Accept: application/json
     "heater_enabled": true,
     "fan_enabled": false,
     "created_at": "2026-01-08T10:00:00.000000",
-    "updated_at": "2026-01-08T12:00:00.000000"
+    "updated_at": "2026-01-08T12:00:00.000000",
+    "device_groups": [
+      {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+    ]
   }
 }
 ```
@@ -7068,7 +7113,8 @@ Accept: application/json
     "latitude": 38.1234,
     "longitude": 127.5678,
     "altitude": 245.5
-  }
+  },
+  "group_ids": [1, 2] // (optional) 소속 디바이스 그룹 ID 배열 (N:N 관계)
 }
 ```
 
@@ -7088,6 +7134,7 @@ Accept: application/json
 | user_password | string | N | null | 접속 비밀번호 (max: 255) |
 | description | string | N | null | 설명 (max: 500) |
 | geolocation | object | N | null | 좌표/위치 정보 (JSONB) |
+| group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
 **Response (201 Created)**: 생성된 Lamp 객체
 
@@ -7101,7 +7148,8 @@ Accept: application/json
 {
   "name_device": "Lamp-A-1-Updated",
   "ip_port": 8080,
-  "description": "GOP 1구역 전방 경광등 - 업데이트"
+  "description": "GOP 1구역 전방 경광등 - 업데이트",
+  "group_ids": [1] // (optional) 소속 디바이스 그룹 ID 배열 변경
 }
 ```
 
@@ -14638,6 +14686,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v4.1 | 2026-02-26 | **DeviceGroup 지원 완성 (5.4, 5.5, 5.11)**<br><br>**[1. Speaker API DeviceGroup 지원 (5.4)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 상세조회, 생성, PATCH, PUT)<br><br>**[2. Enclosure API DeviceGroup 지원 (5.5)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 생성, PATCH, PUT)<br><br>**[3. Lamp API DeviceGroup Request 추가 (5.11)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response의 `device_groups`는 v3.4에서 이미 지원<br><br>**[결과]** 6개 장비 타입(Controller, Sensor, Camera, Speaker, Enclosure, Lamp) 모두 DeviceGroup N:N 관계 Request/Response 완전 지원 |
 | v4.0 | 2026-02-19 | **Thumbnail API 신규 (6.6)**<br><br>**[1. Thumbnail API 신규 (6.6)]**<br>- POST /api/thumbnails: 썸네일 이미지 업로드 (multipart form data, 클라이언트 지정 file_name)<br>- GET /api/thumbnails: 썸네일 목록 조회 (날짜 필터링, 페이지네이션)<br>- GET /api/thumbnails/{id}: 썸네일 메타데이터 조회<br>- GET /api/thumbnails/{id}/image: 썸네일 이미지 다운로드 (ID 기반, FileResponse)<br>- GET /api/thumbnails/images/{file_name}: 썸네일 이미지 다운로드 (파일명 기반, FileResponse)<br>- DELETE /api/thumbnails/{id}: 썸네일 삭제 (파일 + DB)<br>- ThumbnailResponse 스키마: image_url computed field (`/api/thumbnails/images/{file_name}`)<br>- 파일 저장 구조: {날짜}/{client_file_name} (밀리초 포함 네이밍 컨벤션)<br>- DetectionEvent와 FK 없이 연결 (detail.thumbnail HTTP URL 참조) |
 | v3.9 | 2026-02-13 | **API 엔드포인트 정합성 동기화 (12.1 부록 수정, 누락 섹션 추가)**<br><br>**[1. 12.1 부록 정합성 수정]**<br>- Lamps 6개 엔드포인트 추가<br>- Camera Settings 3개 엔드포인트 추가<br>- Proxy Settings 3개 엔드포인트 추가<br>- Event Mapping Lamps 6개 엔드포인트 추가<br>- Controllers, Sensors, Events(4종) PUT 엔드포인트 6건 추가<br>- Server system-events, Enclosure-metrics flat, Report preview-page 추가<br>- Report Preview (Non-API) 경로 수정<br><br>**[2. Server 시스템 이벤트 조회 추가 (8.3.7)]**<br>- GET /api/servers/{server_id}/system-events: 서버별 시스템 이벤트 필터 조회<br><br>**[3. Enclosure Metrics 독립 목록 추가 (5.5.13)]**<br>- GET /api/enclosure-metrics: 전체 함체 메트릭 독립 조회 (flat_router 패턴)<br><br>**[4. Report Preview Page 경로 수정 (10.5)]**<br>- GET /reports/preview/{id} → GET /api/reports/generations/{id}/preview-page |
 | v3.8 | 2026-02-11 | **Detection Log API 추가**<br><br>**[1. Detection Log API 신규 (6.5)]**<br>- **GET /api/detection-logs**: 탐지 로그 목록 조회 (DetectionEvent + ActionEvent LEFT JOIN)<br>- **GET /api/detection-logs/{event_id}**: 탐지 로그 단건 조회<br>- **DetectionLogResponse 스키마**: DetectionEventResponse + action(ActionNested) 필드<br>- **ActionNested 스키마**: id, content, user, created_at, updated_at (경량, from_event 미포함)<br>- 읽기 전용 API (CRUD 미제공)<br>- 기존 Detection/Action API 변경 없음<br><br>**[5. MappingCamera/Speaker/Lamp 독립 List API 추가 (7.3.8, 7.4.8, 7.5.7)]**<br>- GET /api/integrations/mapping-cameras: 전체 MappingCamera 조회 (필터: event_mapping_id, camera_id, is_enable)<br>- GET /api/integrations/mapping-speakers: 전체 MappingSpeaker 조회 (필터: event_mapping_id, speaker_id, is_enable)<br>- GET /api/integrations/mapping-lamps: 전체 MappingLamp 조회 (필터: event_mapping_id, lamp_id, is_enable)<br>- 서브시스템 캐시용 독립 읽기 전용 API (기존 계층형 API 유지) |
@@ -14669,5 +14718,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.0
-**최종 업데이트**: 2026-02-19
+**문서 버전**: v4.1
+**최종 업데이트**: 2026-02-26

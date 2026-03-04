@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-03-03  
-**버전**: v4.2  
+**최종 수정일**: 2026-03-04  
+**버전**: v4.3  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -7678,7 +7678,7 @@ Accept: application/json
 **삭제 제약**:
 - `action_reported="True"`인 DetectionEvent는 삭제할 수 없습니다
 - 조치 보고가 등록된 경우, ActionEvent를 먼저 삭제해야 합니다
-- ActionEvent 삭제 시 `action_reported`가 자동으로 "False"로 복원됩니다
+- ActionEvent 삭제 시 해당 source event에 남은 ActionEvent가 0개이면 `action_reported`가 자동으로 "False"로 복원됩니다
 
 **성공 응답 예시** (200 OK):
 ```json
@@ -7721,16 +7721,16 @@ Accept: application/json
 
 ---
 
-#### 6.1.7 Detection Event의 Action Event 조회
+#### 6.1.7 Detection Event의 Action Event 목록 조회
 
-**Endpoint**: `GET /api/events/detections/{event_id}/action`
+**Endpoint**: `GET /api/events/detections/{event_id}/actions`
 
 **Phase**: 20.1
 
 **설명**:
-특정 Detection Event에 연결된 Action Event를 조회합니다.
-- 1:1 관계를 활용한 효율적인 조회
-- Action Event가 없는 경우 (action_reported="False") 404 반환
+특정 Detection Event에 연결된 Action Event 목록을 조회합니다.
+- 1:N 관계: 하나의 Detection Event에 여러 개의 ActionEvent가 연결될 수 있습니다
+- Action Event가 없는 경우 빈 리스트(`[]`) 반환 (404 아님)
 - Response에 nested source event (DetectionEvent) 포함
 
 **Path Parameters**:
@@ -7738,7 +7738,7 @@ Accept: application/json
 
 **Request Example**:
 ```http
-GET /api/events/detections/1001/action HTTP/1.1
+GET /api/events/detections/1001/actions HTTP/1.1
 Host: control-service.company.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Accept: application/json
@@ -7754,43 +7754,45 @@ Accept: application/json
 ```json
 {
   "success": true,
-  "message": "Action event retrieved successfully",
-  "data": {
-    "id": 4001,
-    "type_event": "Action",
-    "content": "침입 탐지 확인 및 순찰 출동 요청",
-    "user": "operator_test",
-    "from_event": {
-      "id": 1001,
-      "type_event": "Intrusion",
-      "action_reported": "True",
-      "device": {
-        "id": 103,
-        "number_device": 3,
-        "group_device": 1,
-        "name_device": "Sensor-A-3",
-        "type_device": "Fence",
-        "version": "v1.5.0",
-        "status": "ACTIVATED",
-        "is_enable": true,
-        "controller_id": 1,
-        "geolocation": null,
-        "device_groups": [
+  "message": "Action events retrieved successfully",
+  "data": [
+    {
+      "id": 4001,
+      "type_event": "Action",
+      "content": "침입 탐지 확인 및 순찰 출동 요청",
+      "user": "operator_test",
+      "from_event": {
+        "id": 1001,
+        "type_event": "Intrusion",
+        "action_reported": "True",
+        "device": {
+          "id": 103,
+          "number_device": 3,
+          "group_device": 1,
+          "name_device": "Sensor-A-3",
+          "type_device": "Fence",
+          "version": "v1.5.0",
+          "status": "ACTIVATED",
+          "is_enable": true,
+          "controller_id": 1,
+          "geolocation": null,
+          "device_groups": [
           {"id": 1, "name": "A구역 센서그룹"}
-        ]
+          ]
+        },
+        "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
+        "result": "PIR_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
+        "detail": {
+          "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+          "signal": 1500
+        },
+        "created_at": "2025-01-14T10:15:23.100Z",
+        "updated_at": "2025-01-14T10:15:23.100Z"
       },
-      "device_description": "[Fence] Sensor-A-3 (number: 3, id: 103)",
-      "result": "PIR_SENSOR", //(EnumDetectionType) - v2.6 별도 필드
-      "detail": {
-        "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
-        "signal": 1500
-      },
-      "created_at": "2025-01-14T10:15:23.100Z",
-      "updated_at": "2025-01-14T10:15:23.100Z"
-    },
-    "created_at": "2025-01-14T10:20:00.000Z",
-    "updated_at": "2025-01-14T10:20:00.000Z"
-  },
+      "created_at": "2025-01-14T10:20:00.000Z",
+      "updated_at": "2025-01-14T10:20:00.000Z"
+    }
+  ],
   "meta": {
     "timestamp": "2025-01-14T12:00:00.250Z",
     "request_id": "550e8500-e29b-41d4-a716-446655440000"
@@ -7810,20 +7812,6 @@ Accept: application/json
   }
 }
 ```
-
-**Error Response** (404 Not Found - Action Event 없음):
-```json
-{
-  "success": false,
-  "message": "조치 보고가 등록되지 않은 탐지 이벤트입니다. / No action event found for this detection event.",
-  "data": null,
-  "meta": {
-    "timestamp": "2025-01-14T12:00:00.250Z",
-    "request_id": "550e8500-e29b-41d4-a716-446655440000"
-  }
-}
-```
-
 ---
 
 ### 6.2 Malfunction Event API
@@ -8276,7 +8264,7 @@ Accept: application/json
 **삭제 제약**:
 - `action_reported="True"`인 MalfunctionEvent는 삭제할 수 없습니다
 - 조치 보고가 등록된 경우, ActionEvent를 먼저 삭제해야 합니다
-- ActionEvent 삭제 시 `action_reported`가 자동으로 "False"로 복원됩니다
+- ActionEvent 삭제 시 해당 source event에 남은 ActionEvent가 0개이면 `action_reported`가 자동으로 "False"로 복원됩니다
 
 **성공 응답 예시** (200 OK):
 ```json
@@ -8319,14 +8307,14 @@ Accept: application/json
 
 ---
 
-#### 6.2.7 Malfunction Event의 Action Event 조회
+#### 6.2.7 Malfunction Event의 Action Event 목록 조회
 
-**Endpoint**: `GET /api/events/malfunctions/{event_id}/action`
+**Endpoint**: `GET /api/events/malfunctions/{event_id}/actions`
 
 **설명**:
-특정 Malfunction Event에 연결된 Action Event를 조회합니다.
-- 1:1 관계를 활용한 효율적인 조회
-- Action Event가 없는 경우 (action_reported="False") 404 반환
+특정 Malfunction Event에 연결된 Action Event 목록을 조회합니다.
+- 1:N 관계: 하나의 Malfunction Event에 여러 개의 ActionEvent가 연결될 수 있습니다
+- Action Event가 없는 경우 빈 리스트(`[]`) 반환 (404 아님)
 - Response에 nested source event (MalfunctionEvent) 포함
 
 **Path Parameters**:
@@ -8334,7 +8322,7 @@ Accept: application/json
 
 **Request Example**:
 ```http
-GET /api/events/malfunctions/2001/action HTTP/1.1
+GET /api/events/malfunctions/2001/actions HTTP/1.1
 Host: control-service.company.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Accept: application/json
@@ -8350,45 +8338,47 @@ Accept: application/json
 ```json
 {
   "success": true,
-  "message": "Action event retrieved successfully",
-  "data": {
-    "id": 4002,
-    "type_event": "Action",
-    "content": "장애 확인 및 유지보수팀 연락",
-    "user": "operator_malfunction",
-    "from_event": {
-      "id": 2001,
-      "type_event": "Fault",
-      "action_reported": "True",
-      "device": {
-        "id": 2,
-        "number_device": 2,
-        "group_device": 1,
-        "name_device": "Controller-B",
-        "type_device": "Controller",
-        "status": "Error",
-        "version": "v2.0.0",
-        "ip_address": "192.168.1.102",
-        "ip_port": 8080,
-        "geolocation": null,
-        "device_groups": [
-          { "id": 2, "name": "B구역 컨트롤러 그룹" }
-        ]
+  "message": "Action events retrieved successfully",
+  "data": [
+    {
+      "id": 4002,
+      "type_event": "Action",
+      "content": "장애 확인 및 유지보수팀 연락",
+      "user": "operator_malfunction",
+      "from_event": {
+        "id": 2001,
+        "type_event": "Fault",
+        "action_reported": "True",
+        "device": {
+          "id": 2,
+          "number_device": 2,
+          "group_device": 1,
+          "name_device": "Controller-B",
+          "type_device": "Controller",
+          "status": "Error",
+          "version": "v2.0.0",
+          "ip_address": "192.168.1.102",
+          "ip_port": 8080,
+          "geolocation": null,
+          "device_groups": [
+            { "id": 2, "name": "B구역 컨트롤러 그룹" }
+          ]
+        },
+        "device_description": "[Controller] Controller-B (number: 2, id: 2)",
+        "detail": {
+          "reason": "FAULT_CONTROLLER", //(EnumFaultType)
+          "first_start": 100,
+          "first_end": 200,
+          "second_start": 300,
+          "second_end": 400
+        },
+        "created_at": "2025-01-14T11:00:00.000Z",
+        "updated_at": "2025-01-14T11:00:00.000Z"
       },
-      "device_description": "[Controller] Controller-B (number: 2, id: 2)",
-      "detail": {
-        "reason": "FAULT_CONTROLLER", //(EnumFaultType)
-        "first_start": 100,
-        "first_end": 200,
-        "second_start": 300,
-        "second_end": 400
-      },
-      "created_at": "2025-01-14T11:00:00.000Z",
-      "updated_at": "2025-01-14T11:00:00.000Z"
-    },
-    "created_at": "2025-01-14T11:05:00.000Z",
-    "updated_at": "2025-01-14T11:05:00.000Z"
-  },
+      "created_at": "2025-01-14T11:05:00.000Z",
+      "updated_at": "2025-01-14T11:05:00.000Z"
+    }
+  ],
   "meta": {
     "timestamp": "2025-01-14T13:00:00.250Z",
     "request_id": "550e8501-e29b-41d4-a716-446655440000"
@@ -8409,18 +8399,6 @@ Accept: application/json
 }
 ```
 
-**Error Response** (404 Not Found - Action Event 없음):
-```json
-{
-  "success": false,
-  "message": "조치 보고가 등록되지 않은 장애 이벤트입니다. / No action event found for this malfunction event.",
-  "data": null,
-  "meta": {
-    "timestamp": "2025-01-14T13:00:00.250Z",
-    "request_id": "550e8501-e29b-41d4-a716-446655440000"
-  }
-}
-```
 
 ---
 
@@ -8870,7 +8848,7 @@ Accept: application/json
 
 **자동 동작**:
 - ActionEvent 생성 시 source event의 `action_reported` 필드가 자동으로 "True"로 업데이트됩니다
-- 1:1 관계: 하나의 source event에는 최대 하나의 ActionEvent만 생성 가능합니다
+- 1:N 관계: 하나의 source event에 여러 개의 ActionEvent를 생성할 수 있습니다
 - 대상 이벤트 타입:
   - `Intrusion` → DetectionEvent 업데이트
   - `Fault` → MalfunctionEvent 업데이트
@@ -9301,7 +9279,7 @@ Accept: application/json
 ```
 
 **자동 동작**:
-- ActionEvent 삭제 시 source event의 `action_reported` 필드가 자동으로 "False"로 복원됩니다
+- ActionEvent 삭제 시 해당 source event에 남은 ActionEvent가 0개이면 `action_reported` 필드가 자동으로 "False"로 복원됩니다
 - 복원 후에는 source event를 삭제할 수 있게 됩니다
 - 대상 이벤트 타입:
   - `Intrusion` → DetectionEvent 복원
@@ -9339,7 +9317,7 @@ Accept: application/json
 #### 6.4.7 Action Event 동작 로직 상세
 
 **개요**:
-ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에 대한 조치 보고를 기록하며, source event와 1:1 관계를 유지합니다.
+ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에 대한 조치 보고를 기록하며, source event와 1:N 관계를 유지합니다.
 
 **생성 시 자동 동작**:
 
@@ -9352,15 +9330,15 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
    - `Intrusion` (침입 탐지) → DetectionEvent 업데이트
    - `Fault` (장애 발생) → MalfunctionEvent 업데이트
 
-3. **1:1 관계 제약**:
-   - 하나의 source event에는 최대 하나의 ActionEvent만 생성 가능합니다
-   - 이미 ActionEvent가 존재하는 경우, 기존 ActionEvent를 먼저 삭제해야 합니다
+3. **1:N 관계**:
+   - 하나의 source event에 여러 개의 ActionEvent를 생성할 수 있습니다
+   - 각 ActionEvent는 독립적으로 관리됩니다
 
 **삭제 시 자동 동작**:
 
 1. **Source Event 자동 복원**:
-   - ActionEvent가 삭제되면 source event의 `action_reported` 필드가 자동으로 "True" → "False"로 복원됩니다
-   - 이는 조치 보고가 취소되었음을 나타냅니다
+   - ActionEvent가 삭제되면 남은 ActionEvent 수를 확인하여, 0개이면 source event의 `action_reported` 필드가 "True" → "False"로 복원됩니다
+   - 아직 다른 ActionEvent가 남아있으면 `action_reported`는 "True"를 유지합니다
    - `updated_at` 타임스탬프도 자동으로 갱신됩니다
 
 2. **Source Event 삭제 가능**:
@@ -9389,7 +9367,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
    ↓
 3. DetectionEvent 삭제 시도 → 409 Conflict (삭제 불가)
    ↓
-4. ActionEvent 삭제 → DetectionEvent.action_reported="False" (자동 복원)
+4. ActionEvent 삭제 → 남은 ActionEvent 0개 → DetectionEvent.action_reported="False" (자동 복원)
    ↓
 5. DetectionEvent 삭제 → 200 OK (삭제 성공)
 ```
@@ -14504,7 +14482,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `PATCH /api/events/detections/{id}` - 수정 (부분)
 - `PUT /api/events/detections/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/events/detections/{id}` - 삭제
-- `GET /api/events/detections/{event_id}/action` - Action Event 조회
+- `GET /api/events/detections/{event_id}/actions` - Action Event 목록 조회
 
 **Malfunction Events**:
 - `GET /api/events/malfunctions` - 목록 조회
@@ -14513,7 +14491,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `PATCH /api/events/malfunctions/{id}` - 수정 (부분)
 - `PUT /api/events/malfunctions/{id}` - 수정 (전체) *(v3.9 추가)*
 - `DELETE /api/events/malfunctions/{id}` - 삭제
-- `GET /api/events/malfunctions/{event_id}/action` - Action Event 조회
+- `GET /api/events/malfunctions/{event_id}/actions` - Action Event 목록 조회
 
 **Connection Events**:
 - `GET /api/events/connections` - 목록 조회
@@ -14898,6 +14876,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v4.3 | 2026-03-04 | **ActionEvent 1:N 관계 반영 (6.1.7, 6.2.7, 6.4)**<br><br>**[1. Detection/Malfunction Action 조회 → 1:N (6.1.7, 6.2.7)]**<br>- Endpoint 변경: `/{event_id}/action` → `/{event_id}/actions` (복수형)<br>- 응답 형식 변경: 단건 객체 → 배열(`data: [...]`)<br>- 메시지 변경: "Action event retrieved" → "Action events retrieved"<br>- Action Event 미존재 시 빈 배열 반환 (404 제거)<br><br>**[2. Action 생성/삭제 로직 변경 (6.4.1, 6.4.6, 6.4.7)]**<br>- 1:1 제약 제거 → 1:N 관계: 하나의 source event에 여러 ActionEvent 생성 가능<br>- 삭제 시 count 기반 복원: 남은 ActionEvent가 0개일 때만 `action_reported`를 "False"로 복원<br>- 6.1.6/6.2.6 삭제 주석 동기화 |
 | v4.2 | 2026-03-03 | **Event Statistics API 신규 (6.7)**<br><br>**[1. Event Statistics API 신규 (6.7)]**<br>- GET /api/events/statistics/summary: 이벤트 타입별 건수 요약 (원형 그래프 + 요약 카드)<br>- GET /api/events/statistics/trend: 시간대별 이벤트 건수 추이 (라인 차트)<br>- GET /api/events/statistics/by-device: 제어기별/카메라별 이벤트 건수 (막대 그래프)<br>- GET /api/events/statistics/dashboard: 대시보드 통합 (summary + trend + by-device 단일 호출)<br>- 탐지 이벤트 센서/카메라 분리 집계 (Device.category_device 기준)<br>- 파생 메트릭: daily_averages (일평균), active_devices (활성 장비 수)<br>- EventSummaryResponse, EventTrendResponse, EventByDeviceResponse, EventDashboardResponse 스키마<br><br>**[2. ControllerStats action 필드 추가 (6.7.3)]**<br>- controllers[].action: 제어기 소속 센서의 탐지 이벤트에 대한 조치 건수<br>- 집계 경로: ActionEvent.from_event_id → Event.device_id → Sensor.controller_id<br>- dashboard API (6.7.4) by_device.controllers에도 동일 적용 |
 | v4.1 | 2026-02-26 | **DeviceGroup 지원 완성 (5.4, 5.5, 5.11)**<br><br>**[1. Speaker API DeviceGroup 지원 (5.4)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 상세조회, 생성, PATCH, PUT)<br><br>**[2. Enclosure API DeviceGroup 지원 (5.5)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 생성, PATCH, PUT)<br><br>**[3. Lamp API DeviceGroup Request 추가 (5.11)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response의 `device_groups`는 v3.4에서 이미 지원<br><br>**[결과]** 6개 장비 타입(Controller, Sensor, Camera, Speaker, Enclosure, Lamp) 모두 DeviceGroup N:N 관계 Request/Response 완전 지원 |
 | v4.0 | 2026-02-19 | **Thumbnail API 신규 (6.6)**<br><br>**[1. Thumbnail API 신규 (6.6)]**<br>- POST /api/thumbnails: 썸네일 이미지 업로드 (multipart form data, 클라이언트 지정 file_name)<br>- GET /api/thumbnails: 썸네일 목록 조회 (날짜 필터링, 페이지네이션)<br>- GET /api/thumbnails/{id}: 썸네일 메타데이터 조회<br>- GET /api/thumbnails/{id}/image: 썸네일 이미지 다운로드 (ID 기반, FileResponse)<br>- GET /api/thumbnails/images/{file_name}: 썸네일 이미지 다운로드 (파일명 기반, FileResponse)<br>- DELETE /api/thumbnails/{id}: 썸네일 삭제 (파일 + DB)<br>- ThumbnailResponse 스키마: image_url computed field (`/api/thumbnails/images/{file_name}`)<br>- 파일 저장 구조: {날짜}/{client_file_name} (밀리초 포함 네이밍 컨벤션)<br>- DetectionEvent와 FK 없이 연결 (detail.thumbnail HTTP URL 참조) |
@@ -14931,5 +14910,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.2
-**최종 업데이트**: 2026-03-03
+**문서 버전**: v4.3
+**최종 업데이트**: 2026-03-04

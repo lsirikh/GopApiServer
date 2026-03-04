@@ -25,7 +25,7 @@ class Thumbnail(Base):
     height = Column(Integer, nullable=True, doc="이미지 높이 (px)")
     created_at = Column(
         DateTime,
-        default=lambda: dt.now(settings.tz),
+        default=lambda: dt.now(settings.tz).replace(tzinfo=None),
         nullable=False,
         index=True,
         doc="생성 시간"

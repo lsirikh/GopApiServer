@@ -52,7 +52,7 @@ class AuditLog(Base):
     # 타임스탬프
     created_at = Column(
         DateTime,
-        default=lambda: datetime.now(settings.tz),
+        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
         nullable=False,
         index=True
     )

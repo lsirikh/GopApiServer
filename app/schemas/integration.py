@@ -8,6 +8,7 @@ PRD: PRD_Lamp_Device.md v1.1 - EventMappingLamp
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, List
 
 from app.schemas.device import (
@@ -60,8 +61,8 @@ class EventMappingResponse(BaseModel):
     category_event_mapping: EnumMappingEventCategory
     description: Optional[str]
     status: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -180,8 +181,8 @@ class EventMappingCameraResponse(BaseModel):
     delay_time: int
     is_enable: bool
     priority: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -320,8 +321,8 @@ class EventMappingSpeakerResponse(BaseModel):
     repeat_count: int
     is_enable: bool
     priority: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -439,7 +440,7 @@ class EventMappingLampResponse(BaseModel):
     light_mode: EnumLightMode = Field(..., description="점등 모드", json_schema_extra={"example": "steady"})
     is_enable: bool = Field(..., description="활성화 여부", json_schema_extra={"example": True})
     priority: int = Field(..., description="우선순위", json_schema_extra={"example": 1})
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)

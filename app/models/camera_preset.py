@@ -37,8 +37,8 @@ class CameraPreset(Base):
     preset_index = Column(Integer, nullable=False)
     preset_name = Column(String(100), nullable=False)
     touring_time = Column(Integer, nullable=False, default=10)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Unique constraint: camera_id + preset_index
     __table_args__ = (
@@ -75,8 +75,8 @@ class ROI(Base):
     resolution_width = Column(Float, nullable=False)
     resolution_height = Column(Float, nullable=False)
     is_enable = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Relationships
     preset = relationship("CameraPreset", back_populates="rois")
@@ -106,8 +106,8 @@ class XyPoint(Base):
     x = Column(Float, nullable=False)
     y = Column(Float, nullable=False)
     order = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Unique constraint: roi_id + order
     __table_args__ = (

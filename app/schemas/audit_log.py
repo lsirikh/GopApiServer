@@ -5,6 +5,7 @@ PRD: PRD_Audit_Log.md v1.0
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 
 from app.utils.enums import (
     EnumAuditActionType, EnumAuditStatus, EnumAuditResourceType, EnumUserRole,
@@ -125,7 +126,7 @@ class AuditLogResponse(BaseModel):
     error_message: Optional[str] = Field(None, description="오류 메시지")
 
     # 타임스탬프
-    created_at: datetime = Field(..., description="생성 시간", json_schema_extra={"example": "2026-01-19T10:30:00+09:00"})
+    created_at: KSTDatetime = Field(..., description="생성 시간", json_schema_extra={"example": "2026-01-19T10:30:00+09:00"})
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -174,12 +175,12 @@ class AuditLogFilter(BaseModel):
     )
 
     # 날짜 필터
-    start_date: Optional[datetime] = Field(
+    start_date: Optional[KSTDatetime] = Field(
         None,
         description="시작 날짜 (이 날짜 이후의 로그만 조회)",
         json_schema_extra={"example": "2026-01-01T00:00:00+09:00"}
     )
-    end_date: Optional[datetime] = Field(
+    end_date: Optional[KSTDatetime] = Field(
         None,
         description="종료 날짜 (이 날짜 이전의 로그만 조회)",
         json_schema_extra={"example": "2026-01-31T23:59:59+09:00"}

@@ -6,6 +6,7 @@ PRD: PRD_EventStatistics_Api.md v2.1
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 
 
 # ===== Trend (라인 차트) =====
@@ -21,8 +22,8 @@ class EventTrendItem(BaseModel):
 
 class EventTrendResponse(BaseModel):
     interval: str = Field(..., description="집계 단위: hour/day")
-    start_date: datetime
-    end_date: datetime
+    start_date: KSTDatetime
+    end_date: KSTDatetime
     series: list[EventTrendItem] = Field(default_factory=list)
 
 
@@ -46,8 +47,8 @@ class CameraStats(BaseModel):
 
 
 class EventByDeviceResponse(BaseModel):
-    start_date: datetime
-    end_date: datetime
+    start_date: KSTDatetime
+    end_date: KSTDatetime
     controllers: list[ControllerStats] = Field(default_factory=list)
     cameras: list[CameraStats] = Field(default_factory=list)
 
@@ -69,8 +70,8 @@ class ActiveDevices(BaseModel):
 
 
 class EventSummaryResponse(BaseModel):
-    start_date: datetime
-    end_date: datetime
+    start_date: KSTDatetime
+    end_date: KSTDatetime
     days_in_range: int = Field(1, description="조회 기간 일수 (최소 1)")
     total: int = 0
     sensor_detection: int = 0

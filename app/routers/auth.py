@@ -233,7 +233,7 @@ async def login(
         if user.failed_login_count >= 5:
             user.is_locked = True
             user.lock_reason = "Too many failed login attempts"
-            user.locked_at = datetime.now(settings.tz)
+            user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
 
         db.commit()
 
@@ -255,7 +255,7 @@ async def login(
         user_id=user.id,
         token=access_token,
         refresh_token=refresh_token,
-        expires_at=datetime.now(settings.tz) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
+        expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
         is_active=True,
         ip_address=client_ip,
         user_agent=user_agent
@@ -348,7 +348,7 @@ async def logout(
 
     if session:
         session.is_active = False
-        session.logged_out_at = datetime.now(settings.tz)
+        session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
         session.logout_reason = "USER_LOGOUT"
 
         # Create UserLoginLog record

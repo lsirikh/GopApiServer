@@ -72,8 +72,8 @@ class Event(Base):
     sequence = Column(Integer, nullable=True, doc="시퀀스 번호 (Deprecated - PRD v2.7)")
 
     # ===== Timestamps =====
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
-    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # ===== Relationships =====
     device = relationship("Device", foreign_keys=[device_id])
@@ -265,8 +265,8 @@ class ActionEvent(Base):
     content = Column(String(500), nullable=False, doc="조치 내용")
     user = Column(String(100), nullable=False, index=True, doc="조치한 사용자")
 
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz), nullable=False, index=True)
-    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz), onupdate=lambda: dt.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # ===== Relationship =====
     source_event = relationship(

@@ -4,6 +4,7 @@ PRD: PRD_Speaker_Device.md - Section 5.2
 """
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, List
 
 
@@ -28,7 +29,7 @@ class FileGroupResponse(BaseModel):
     group_id: int
     group_name: str
     files: Optional[List[str]] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)

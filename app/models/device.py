@@ -57,8 +57,8 @@ class Device(Base):
     version = Column(String(50), nullable=True)  # PRD v1.2: nullable
     status = Column(SQLEnum(EnumDeviceStatus), nullable=False, default=EnumDeviceStatus.ACTIVATED)
     is_enable = Column(Boolean, nullable=False, default=True)  # PRD_Device_IsEnable_Field.md: 장비 활성화 여부
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Polymorphic configuration
     __mapper_args__ = {
@@ -387,7 +387,7 @@ class EnclosureMetric(Base):
     ups_battery_level = Column(Integer, nullable=True)
     ups_charging = Column(Boolean, nullable=True)
     detail = Column(JSON, nullable=True, default=None)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Relationship to Enclosure
     enclosure = relationship("Enclosure", back_populates="metrics")

@@ -42,8 +42,8 @@ class FileGroup(Base):
     files = Column(JSON, nullable=True)  # JSONB array: ["file1.mp3", "file2.mp3"]
 
     # Timestamps
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Unique constraint: (server_id, group_id)
     __table_args__ = (

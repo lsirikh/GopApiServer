@@ -37,6 +37,7 @@ services:
       - INIT_SAMPLE_DATA=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
+      - TZ=Asia/Seoul
     depends_on:
       postgres:
         condition: service_healthy

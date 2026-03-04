@@ -4,6 +4,7 @@ Based on PRD_Server_Monitoring.md
 """
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, List, Dict, Any
 
 from app.utils.enums import EnumServerType, EnumServerStatus
@@ -55,8 +56,8 @@ class ServerCategoryResponse(BaseModel):
     type_server: EnumServerType
     description: Optional[str] = None
     sort_order: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -144,8 +145,8 @@ class ServerResponse(BaseModel):
         None,
         description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
     )
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -218,8 +219,8 @@ class ServerCategoryWithServers(BaseModel):
     type_server: EnumServerType
     description: Optional[str] = None
     sort_order: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
     servers: List[ServerResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -288,7 +289,7 @@ class ServerMetricsCreate(BaseModel):
     network_out_mbps: Optional[float] = None
     process_count: Optional[int] = None
     detail: Optional[Dict[str, Any]] = None
-    collected_at: Optional[datetime] = None
+    collected_at: Optional[KSTDatetime] = None
 
 
 class ServerMetricsResponse(BaseModel):
@@ -309,8 +310,8 @@ class ServerMetricsResponse(BaseModel):
     network_out_mbps: Optional[float] = None
     process_count: Optional[int] = None
     detail: Optional[Dict[str, Any]] = None
-    collected_at: Optional[datetime] = None
-    created_at: datetime
+    collected_at: Optional[KSTDatetime] = None
+    created_at: KSTDatetime
     threshold_exceeded: Optional[Dict[str, Any]] = None  # 임계치 초과 정보
 
     model_config = ConfigDict(from_attributes=True)

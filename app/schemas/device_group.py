@@ -6,6 +6,7 @@ PRD: PRD_Camera_Urls_JsonB.md v1.0 - Camera urls JSONB 통합
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Union, TYPE_CHECKING
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from app.utils.enums import (
     EnumDeviceType, EnumDeviceStatus,
     EnumCameraMode, EnumCameraType, EnumSpeakerType, EnumDoorStatus,
@@ -68,12 +69,12 @@ class DeviceGroupResponse(BaseModel):
         description="그룹 내 디바이스 수",
         json_schema_extra={"example": 5}
     )
-    created_at: datetime = Field(
+    created_at: KSTDatetime = Field(
         ...,
         description="생성 일시",
         json_schema_extra={"example": "2025-01-01T00:00:00.000Z"}
     )
-    updated_at: datetime = Field(
+    updated_at: KSTDatetime = Field(
         ...,
         description="수정 일시",
         json_schema_extra={"example": "2025-01-01T00:00:00.000Z"}

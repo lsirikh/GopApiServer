@@ -4,6 +4,7 @@ Based on PRD_System_Event.md Section 3
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, Any, Dict
 
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
@@ -212,17 +213,17 @@ class SystemEventResponse(BaseModel):
         description="확인자",
         json_schema_extra={"example": "admin"}
     )
-    acknowledged_at: Optional[datetime] = Field(
+    acknowledged_at: Optional[KSTDatetime] = Field(
         None,
         description="확인 시간",
         json_schema_extra={"example": "2026-01-20T10:30:00"}
     )
-    created_at: datetime = Field(
+    created_at: KSTDatetime = Field(
         ...,
         description="생성 시간",
         json_schema_extra={"example": "2026-01-20T10:00:00"}
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: Optional[KSTDatetime] = Field(
         None,
         description="수정 시간 (PRD 3.2)",
         json_schema_extra={"example": "2026-01-20T10:15:00"}

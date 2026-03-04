@@ -103,18 +103,18 @@ def update_source_action_reported(db: Session, source_event: Event) -> None:
 
 
 # Helper function to reset source event action_reported
-def reset_source_action_reported(db: Session, source_event: Event) -> None:
+def reset_source_action_reported(db: Session, source_event: Event, excluding_action_id: int) -> None:
     """
-    ActionEvent 삭제 시 원본 이벤트의 action_reported 필드를 "False"로 리셋
+    ActionEvent 삭제 시 원본 이벤트의 action_reported 필드를 카운트 기반으로 관리
 
-    PRD v1.5: polymorphic relationship을 통해 이벤트 타입 자동 확인
-
-    원본 이벤트와 ActionEvent의 1:1 관계로 인해 남은 ActionEvent 수를 세지 않고
-    무조건 "False"로 리셋합니다.
+    PRD: PRD_ActionEvent_1N_Refactoring.md v2.0
+    - 삭제 대상 ActionEvent를 제외하고 남은 ActionEvent 수를 확인
+    - 0개이면 "False", 1개 이상이면 "True" 유지
 
     Args:
         db: 데이터베이스 세션
-        source_event: 원본 이벤트 객체 (polymorphic - DetectionEvent, MalfunctionEvent, ConnectionEvent)
+        source_event: 원본 이벤트 객체 (polymorphic)
+        excluding_action_id: 삭제 대상 ActionEvent ID (카운트에서 제외)
 
     Note:
         DetectionEvent와 MalfunctionEvent만 action_reported 필드를 가집니다.
@@ -126,7 +126,12 @@ def reset_source_action_reported(db: Session, source_event: Event) -> None:
 
     # DetectionEvent와 MalfunctionEvent만 action_reported 필드를 가짐
     if isinstance(source_event, (DetectionEvent, MalfunctionEvent)):
-        source_event.action_reported = "False"
+        remaining_count = db.query(ActionEvent).filter(
+            ActionEvent.from_event_id == source_event.id,
+            ActionEvent.id != excluding_action_id
+        ).count()
+        if remaining_count == 0:
+            source_event.action_reported = "False"
 
 
 # Helper function to build source event response from polymorphic event
@@ -633,9 +638,9 @@ async def delete_action_event(
     deleted_identifier = {"id": event.id, "type_event": event.type_event}
     deleted_name = f"ActionEvent-{event.id} ({event.type_event})"
 
-    # Reset source event's action_reported to "False" (1:1 relationship)
-    # Uses polymorphic relationship to get source event
-    reset_source_action_reported(db, event.source_event)
+    # Reset source event's action_reported based on remaining count (1:N relationship)
+    # PRD: PRD_ActionEvent_1N_Refactoring.md v2.0
+    reset_source_action_reported(db, event.source_event, excluding_action_id=event.id)
 
     db.delete(event)
     db.commit()

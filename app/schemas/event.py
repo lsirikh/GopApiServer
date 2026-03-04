@@ -16,7 +16,7 @@ from app.utils.enums import (
 )
 
 if TYPE_CHECKING:
-    from app.schemas.device import SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse
+    from app.schemas.device import SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse
 
 
 # Enum value constants for documentation
@@ -119,7 +119,7 @@ class DetectionEventResponse(BaseModel):
     action_reported: EnumTrueFalse = Field(..., example="False", description="조치 보고 여부")
     result: EnumDetectionType = Field(..., example="PIR_SENSOR", description="탐지 결과")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
-    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
+    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
     detail: Optional[Dict[str, Any]] = Field(
@@ -235,7 +235,7 @@ class MalfunctionEventResponse(BaseModel):
     action_reported: EnumTrueFalse = Field(..., example="False", description="조치 보고 여부")
     reason: EnumFaultType = Field(..., example="FAULT_CONTROLLER", description="고장 원인")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
-    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
+    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
@@ -321,7 +321,7 @@ class ConnectionEventResponse(BaseModel):
     id: int = Field(..., example=1, description="이벤트 ID")
     type_event: EnumEventType = Field(..., example="Connection", description="이벤트 유형")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
-    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
+    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
@@ -399,10 +399,10 @@ class DetectionLogResponse(BaseModel):
     type_event: EnumEventType = Field(..., description="이벤트 유형")
     action_reported: EnumTrueFalse = Field(..., description="조치보고 여부")
     result: EnumDetectionType = Field(..., description="탐지 결과")
-    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse"]] = Field(None, description="장치 정보")
+    device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보")
-    action: Optional[ActionNested] = Field(None, description="조치보고 정보 (없으면 null)")
+    actions: list[ActionNested] = Field(default_factory=list, description="조치보고 목록 (없으면 빈 리스트)")
     created_at: datetime = Field(..., description="생성 일시")
     updated_at: datetime = Field(..., description="수정 일시")
 
@@ -411,9 +411,10 @@ class DetectionLogResponse(BaseModel):
 
 # Forward reference resolution for Nested Response schemas
 # This must be done after all classes are defined
-from app.schemas.device import DeviceNestedResponse, SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse
+from app.schemas.device import DeviceNestedResponse, SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse
 
 DetectionEventResponse.model_rebuild()
 MalfunctionEventResponse.model_rebuild()
 ConnectionEventResponse.model_rebuild()
+ActionEventResponse.model_rebuild()
 DetectionLogResponse.model_rebuild()

@@ -25,7 +25,7 @@ from uuid import uuid4
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -189,6 +189,10 @@ tags_metadata = [
     {
         "name": "Thumbnails",
         "description": "카메라 썸네일 이미지 업로드/조회/삭제 API. PRD: PRD_Thumbnail_Image.md v1.0",
+    },
+    {
+        "name": "Event Statistics",
+        "description": "이벤트 통계 집계 API. 대시보드 차트용 경량 응답. PRD: PRD_EventStatistics_Api.md v2.1",
     },
 ]
 
@@ -542,6 +546,16 @@ app.add_middleware(
 app.add_middleware(APILoggingMiddleware)  # Applied second
 app.add_middleware(RequestIDMiddleware)   # Applied first
 
+
+@app.middleware("http")
+async def add_utf8_charset(request: Request, call_next):
+    """JSON 응답에 charset=utf-8 명시 — 클라이언트 한글 인코딩 보장"""
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if "application/json" in ct and "charset" not in ct:
+        response.headers["content-type"] = ct + "; charset=utf-8"
+    return response
+
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
@@ -583,6 +597,7 @@ app.include_router(rois.router, prefix="/api/presets", tags=["ROIs"])
 app.include_router(xypoints.router, prefix="/api/rois", tags=["XyPoints"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(thumbnails.router, prefix="/api/thumbnails", tags=["Thumbnails"])
+app.include_router(event_statistics.router, prefix="/api/events/statistics", tags=["Event Statistics"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

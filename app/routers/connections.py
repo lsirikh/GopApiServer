@@ -8,7 +8,7 @@ PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - group_event 필드 제거됨
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 from datetime import datetime
 import math
@@ -16,13 +16,16 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import ConnectionEvent
-from app.models.device import Device, Sensor, Controller, Camera
+from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.schemas.event import ConnectionEventCreate, ConnectionEventResponse, ConnectionEventUpdate
 from app.schemas.device import (
     DeviceGroupNestedResponse,
+    DeviceNestedResponse,
     SensorNestedResponse,
     ControllerNestedResponse,
-    CameraNestedResponse
+    CameraNestedResponse,
+    SpeakerNestedResponse,
+    LampNestedResponse,
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType, EnumConfigResourceType, EnumConfigActionType
@@ -40,7 +43,7 @@ def _generate_device_description(device: Device) -> str:
     return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse]]:
+def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """
     Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
 
@@ -50,6 +53,9 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
     - Sensor → SensorNestedResponse
     - Controller → ControllerNestedResponse
     - Camera → CameraNestedResponse
+    - Speaker → SpeakerNestedResponse
+    - Enclosure → DeviceNestedResponse (전용 NestedResponse 없음)
+    - Lamp → LampNestedResponse
     """
     if device is None:
         return None
@@ -116,9 +122,59 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             ip_port=device.ip_port,
             device_groups=device_groups
         )
+    elif isinstance(device, Speaker):
+        return SpeakerNestedResponse(
+            id=device.id,
+            category_device=device.category_device.value,
+            number_device=device.number_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            speaker_type=device.speaker_type.value if device.speaker_type else "NORMAL",
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Lamp):
+        return LampNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            user_name=device.user_name,
+            description=device.description,
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Enclosure):
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
+            device_groups=device_groups
+        )
     else:
-        # Fallback: 알 수 없는 Device 타입 (발생하지 않아야 함)
-        return None
+        # Fallback: 알 수 없는 Device 타입
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
+            device_groups=device_groups
+        )
 
 
 @router.get("", response_model=ApiResponse[list[ConnectionEventResponse]])
@@ -148,7 +204,7 @@ async def get_connection_events(
     **Response**: 연결 이벤트 목록 및 페이지네이션 정보
     """
     # Build query with joinedload for device
-    query = db.query(ConnectionEvent).options(joinedload(ConnectionEvent.device))
+    query = db.query(ConnectionEvent).options(selectinload(ConnectionEvent.device))
 
     # Apply filters (PRD v2.1: device_id 기반 필터링)
     if device_id is not None:
@@ -225,7 +281,7 @@ async def get_connection_event(
     - 404: 연결 이벤트를 찾을 수 없음
     """
     event = db.query(ConnectionEvent).options(
-        joinedload(ConnectionEvent.device)
+        selectinload(ConnectionEvent.device)
     ).filter(ConnectionEvent.id == event_id).first()
 
     if not event:
@@ -358,7 +414,7 @@ async def update_connection_event(
     - 404: 연결 이벤트를 찾을 수 없음
     """
     event = db.query(ConnectionEvent).options(
-        joinedload(ConnectionEvent.device)
+        selectinload(ConnectionEvent.device)
     ).filter(ConnectionEvent.id == event_id).first()
 
     if not event:

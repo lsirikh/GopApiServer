@@ -3,8 +3,9 @@ Sample data initialization for development/demo environment.
 Creates comprehensive sample data across all GOP schema tables.
 
 Requirements:
-- Events: 110+ records (60 detection, 25 malfunction, 25 connection)
-- Devices: Controllers 3, Sensors 300 (100 per controller), others 30 each
+- Events: 28000+ records (3000 detection/3일, 5000 malfunction/5일, 20000 connection)
+- Action events: 5000 (조치보고), ~1000 events remain unreported
+- Devices: Controllers 5, Sensors 300 (60 per controller), others 30 each
 - DeviceGroups: 5 groups with device mappings
 - Users: 5 (excluding admin)
 - Login logs, sessions, system events, config change logs, audit logs
@@ -69,6 +70,16 @@ GOP_COORDS = [
     {"location": "C구역-초소2", "latitude": 38.3512, "longitude": 127.2038, "altitude": 355.0},
     {"location": "C구역-초소3", "latitude": 38.3545, "longitude": 127.2125, "altitude": 370.0},
     {"location": "C구역-감시탑", "latitude": 38.3560, "longitude": 127.2050, "altitude": 395.0},
+    # D구역 (동북쪽) — 양구 일대
+    {"location": "D구역-초소1", "latitude": 38.4215, "longitude": 127.8820, "altitude": 310.0},
+    {"location": "D구역-초소2", "latitude": 38.4248, "longitude": 127.8905, "altitude": 325.0},
+    {"location": "D구역-초소3", "latitude": 38.4280, "longitude": 127.8990, "altitude": 340.0},
+    {"location": "D구역-감시탑", "latitude": 38.4295, "longitude": 127.8870, "altitude": 375.0},
+    # E구역 (북쪽) — 인제 일대
+    {"location": "E구역-초소1", "latitude": 38.3890, "longitude": 128.1620, "altitude": 295.0},
+    {"location": "E구역-초소2", "latitude": 38.3920, "longitude": 128.1710, "altitude": 315.0},
+    {"location": "E구역-초소3", "latitude": 38.3955, "longitude": 128.1800, "altitude": 330.0},
+    {"location": "E구역-감시탑", "latitude": 38.3970, "longitude": 128.1700, "altitude": 360.0},
 ]
 
 
@@ -237,8 +248,7 @@ def _create_servers(db: Session) -> list[int]:
 # ── Devices ──────────────────────────────────────────────
 
 SENSOR_TYPES = [
-    EnumDeviceType.Fence, EnumDeviceType.PIR, EnumDeviceType.Contact,
-    EnumDeviceType.Underground, EnumDeviceType.Cable, EnumDeviceType.Laser,
+    EnumDeviceType.Fence,
 ]
 
 
@@ -267,11 +277,13 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
 
     ids = {"controllers": [], "sensors": [], "cameras": [], "speakers": [], "enclosures": [], "lamps": []}
 
-    # ── Controllers (3) — 구역별 제어기 ──
+    # ── Controllers (5) — 구역별 제어기 ──
     ctrl_configs = [
         ("A구역 제어기", "10.0.1.1", 9010, 0),
         ("B구역 제어기", "10.0.2.1", 9011, 1),
         ("C구역 제어기", "10.0.3.1", 9012, 2),
+        ("D구역 제어기", "10.0.4.1", 9013, 3),
+        ("E구역 제어기", "10.0.5.1", 9014, 4),
     ]
     for i, (name, ip, port, zone) in enumerate(ctrl_configs):
         c = Controller(
@@ -285,13 +297,13 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
         db.flush()
         ids["controllers"].append(c.id)
 
-    # ── Sensors (300 = 100 per controller) — 구역별 센서 ──
+    # ── Sensors (300 = 60 per controller) — 구역별 센서, device_number 1-60 반복 ──
     for ctrl_idx, ctrl_id in enumerate(ids["controllers"]):
-        for j in range(100):
-            num = ctrl_idx * 100 + j + 1
+        for j in range(60):
+            num = j + 1  # 1-60 반복 (제어기별 독립)
             s = Sensor(
                 number_device=num, group_device=ctrl_idx + 1,
-                name_device=f"센서-{num:04d}",
+                name_device=f"센서-{chr(65 + ctrl_idx)}{num:03d}",
                 type_device=random.choice(SENSOR_TYPES),
                 status=random.choices(
                     [EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR, EnumDeviceStatus.DEACTIVATED],
@@ -322,14 +334,14 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
          "sensor": "Uncooled VOx FPA", "lens": "35mm thermal"},
     ]
     for i in range(30):
-        zone_idx = i % 3
+        zone_idx = i % 5
         cam_ip = f"10.1.{zone_idx + 1}.{i + 1}"
         cam_type = cam_types[0] if i % 3 != 2 else cam_types[1]  # 매 3번째는 PTZ
         cam_mode = cam_modes[i % len(cam_modes)]
         hw = hw_specs[i % len(hw_specs)]
         cam = Camera(
             number_device=i + 1, group_device=zone_idx + 1,
-            name_device=f"카메라-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
+            name_device=f"카메라-{chr(65 + zone_idx)}{(i // 5) + 1:02d}",
             type_device=EnumDeviceType.IpCamera,
             status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR], weights=[90, 10])[0],
             is_enable=True, version=f"v3.{random.randint(0, 3)}.{random.randint(0, 9)}",
@@ -358,10 +370,10 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
     # ── Speakers (30) — server_id 연결 + geolocation ──
     spk_types = [EnumSpeakerType.NORMAL, EnumSpeakerType.ADMIN, EnumSpeakerType.MONITOR]
     for i in range(30):
-        zone_idx = i % 3
+        zone_idx = i % 5
         spk = Speaker(
             number_device=i + 1, group_device=zone_idx + 1,
-            name_device=f"스피커-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
+            name_device=f"스피커-{chr(65 + zone_idx)}{(i // 5) + 1:02d}",
             type_device=EnumDeviceType.IpSpeaker,
             status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.DEACTIVATED], weights=[90, 10])[0],
             is_enable=True, version=f"v1.{random.randint(0, 2)}.0",
@@ -376,10 +388,10 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
 
     # ── Enclosures (30) — threshold_config + geolocation ──
     for i in range(30):
-        zone_idx = i % 3
+        zone_idx = i % 5
         enc = Enclosure(
             number_device=i + 1, group_device=zone_idx + 1,
-            name_device=f"함체-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
+            name_device=f"함체-{chr(65 + zone_idx)}{(i // 5) + 1:02d}",
             type_device=EnumDeviceType.Enclosure,
             status=random.choices(
                 [EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR, EnumDeviceStatus.DEACTIVATED],
@@ -405,10 +417,10 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
 
     # ── Lamps (30) — user_name/user_password + geolocation ──
     for i in range(30):
-        zone_idx = i % 3
+        zone_idx = i % 5
         lmp = Lamp(
             number_device=i + 1, group_device=zone_idx + 1,
-            name_device=f"경광등-{chr(65 + zone_idx)}{(i // 3) + 1:02d}",
+            name_device=f"경광등-{chr(65 + zone_idx)}{(i // 5) + 1:02d}",
             type_device=EnumDeviceType.Lamp,
             status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.DEACTIVATED], weights=[90, 10])[0],
             is_enable=True, version=f"v1.0.{random.randint(0, 5)}",
@@ -687,14 +699,15 @@ DETECTION_DETAILS = [
 
 
 def _create_events(db: Session, device_ids: dict) -> dict:
-    """Create 110 events with realistic detail data. Returns {category: [event_ids]}."""
+    """Create bulk events: 3000 detection (3일), 5000 malfunction (5일), 20000 connection.
+    Returns {category: [event_ids]}."""
     existing = db.query(Event).count()
     if existing > 0:
         print(f"  [OK] Events already exist: {existing}")
         return {
-            "detection": [e.id for e in db.query(DetectionEvent).all()],
-            "malfunction": [e.id for e in db.query(MalfunctionEvent).all()],
-            "connection": [e.id for e in db.query(ConnectionEvent).all()],
+            "detection": [e.id for e in db.query(DetectionEvent.id).all()],
+            "malfunction": [e.id for e in db.query(MalfunctionEvent.id).all()],
+            "connection": [e.id for e in db.query(ConnectionEvent.id).all()],
         }
 
     sensor_ids = device_ids.get("sensors", [])
@@ -703,15 +716,24 @@ def _create_events(db: Session, device_ids: dict) -> dict:
     for v in device_ids.values():
         all_ids.extend(v)
 
+    now = datetime.now(settings.tz)
     eids = {"detection": [], "malfunction": [], "connection": []}
 
-    # ── Detection events (60) — 센서 + 카메라 탐지 ──
-    for i in range(60):
+    # ── Detection events (3000건, 3일간 = 하루 ~1000건) ──
+    print("    Creating detection events (3000)...", flush=True)
+    for i in range(3000):
+        # 3일 범위 내 시간 분산
+        dt = now - timedelta(
+            days=random.randint(0, 2),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
         # 70% 센서 탐지, 30% 카메라 AI 탐지
         if random.random() < 0.7 and sensor_ids:
             dev_id = random.choice(sensor_ids)
             desc = f"센서 탐지 - 장비#{dev_id}"
-            detail = random.choice([None, None, DETECTION_DETAILS[-1]])  # 센서는 대부분 detail 없음
+            detail = random.choice([None, None, None, DETECTION_DETAILS[-1]])
         elif camera_ids:
             dev_id = random.choice(camera_ids)
             desc = f"AI 영상 탐지 - 카메라#{dev_id}"
@@ -721,31 +743,41 @@ def _create_events(db: Session, device_ids: dict) -> dict:
             desc = f"탐지 - 장비#{dev_id}"
             detail = None
 
-        dt = _rand_dt(30)
         e = DetectionEvent(
             type_event="Intrusion",
             device_id=dev_id,
             device_description=desc,
             result=random.choice(DETECTION_TYPES),
-            action_reported=random.choice(["True", "False"]),
+            action_reported="False",  # action_reported는 아래에서 일괄 설정
             detail=detail,
             created_at=dt, updated_at=dt,
         )
         db.add(e)
-        db.flush()
-        eids["detection"].append(e.id)
 
-    # ── Malfunction events (25) ──
-    for _ in range(25):
+        # 500건마다 flush (메모리 절약)
+        if (i + 1) % 500 == 0:
+            db.flush()
+
+    db.flush()
+    eids["detection"] = [e.id for e in db.query(DetectionEvent.id).all()]
+
+    # ── Malfunction events (5000건, 5일간 = 하루 ~1000건) ──
+    print("    Creating malfunction events (5000)...", flush=True)
+    for i in range(5000):
+        dt = now - timedelta(
+            days=random.randint(0, 4),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
         dev_id = random.choice(all_ids) if all_ids else None
-        dt = _rand_dt(30)
         fault = random.choice(FAULT_TYPES)
         e = MalfunctionEvent(
             type_event="Fault",
             device_id=dev_id,
             device_description=f"장비 장애 - 장비#{dev_id}",
             reason=fault,
-            action_reported=random.choice(["True", "False"]),
+            action_reported="False",
             detail={
                 "fault_code": f"ERR-{random.randint(1000, 9999)}",
                 "duration_seconds": random.randint(10, 3600),
@@ -754,13 +786,23 @@ def _create_events(db: Session, device_ids: dict) -> dict:
             created_at=dt, updated_at=dt,
         )
         db.add(e)
-        db.flush()
-        eids["malfunction"].append(e.id)
 
-    # ── Connection events (25) ──
-    for _ in range(25):
+        if (i + 1) % 500 == 0:
+            db.flush()
+
+    db.flush()
+    eids["malfunction"] = [e.id for e in db.query(MalfunctionEvent.id).all()]
+
+    # ── Connection events (20000건) ──
+    print("    Creating connection events (20000)...", flush=True)
+    for i in range(20000):
+        dt = now - timedelta(
+            days=random.randint(0, 7),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
         dev_id = random.choice(all_ids) if all_ids else None
-        dt = _rand_dt(30)
         e = ConnectionEvent(
             type_event="Connection",
             device_id=dev_id,
@@ -768,8 +810,12 @@ def _create_events(db: Session, device_ids: dict) -> dict:
             created_at=dt, updated_at=dt,
         )
         db.add(e)
-        db.flush()
-        eids["connection"].append(e.id)
+
+        if (i + 1) % 1000 == 0:
+            db.flush()
+
+    db.flush()
+    eids["connection"] = [e.id for e in db.query(ConnectionEvent.id).all()]
 
     db.commit()
     total = sum(len(v) for v in eids.values())
@@ -789,22 +835,59 @@ ACTION_CONTENTS = [
 
 
 def _create_action_events(db: Session, event_ids: dict, user_names: list[str]):
-    """Create action events for ~50% of detection and ~30% of malfunction events."""
+    """Create 5000 action events. ~1000 detection+malfunction events remain without action (action_reported=False)."""
     existing = db.query(ActionEvent).count()
     if existing > 0:
         print(f"  [OK] Action events already exist: {existing}")
         return
 
-    targets = []
-    for eid in event_ids.get("detection", []):
-        if random.random() < 0.5:
-            targets.append(eid)
-    for eid in event_ids.get("malfunction", []):
-        if random.random() < 0.3:
-            targets.append(eid)
+    # 탐지 + 장애 이벤트 합치기
+    det_ids = list(event_ids.get("detection", []))
+    mal_ids = list(event_ids.get("malfunction", []))
+    all_event_ids = det_ids + mal_ids  # 3000 + 5000 = 8000
+    random.shuffle(all_event_ids)
 
-    for from_id in targets:
-        dt = _rand_dt(25)
+    # 5000건 조치보고 대상 선택 (나머지 3000건 중 ~1000건은 action_reported=False 유지)
+    targets = all_event_ids[:5000]
+    # 나머지 3000건 중 ~2000건은 action_reported=True로 변경 (보고는 했지만 조치 미등록)
+    remaining = all_event_ids[5000:]
+    reported_no_action = remaining[:2000]
+    # 나머지 ~1000건은 action_reported=False 그대로 유지
+
+    # 조치보고 대상 이벤트의 action_reported = "True" 일괄 업데이트
+    print("    Updating action_reported for target events...", flush=True)
+    target_set = set(targets)
+    reported_set = set(reported_no_action)
+    update_true_ids = list(target_set | reported_set)  # 5000 + 2000 = 7000건 True
+
+    # DetectionEvent, MalfunctionEvent 각각 분리 업데이트 (action_reported는 child 테이블에 있음)
+    det_id_set = set(det_ids)
+    mal_id_set = set(mal_ids)
+    det_update = [eid for eid in update_true_ids if eid in det_id_set]
+    mal_update = [eid for eid in update_true_ids if eid in mal_id_set]
+
+    for batch_start in range(0, len(det_update), 1000):
+        batch = det_update[batch_start:batch_start + 1000]
+        db.query(DetectionEvent).filter(DetectionEvent.id.in_(batch)).update(
+            {"action_reported": "True"}, synchronize_session=False
+        )
+    for batch_start in range(0, len(mal_update), 1000):
+        batch = mal_update[batch_start:batch_start + 1000]
+        db.query(MalfunctionEvent).filter(MalfunctionEvent.id.in_(batch)).update(
+            {"action_reported": "True"}, synchronize_session=False
+        )
+    db.flush()
+
+    # 5000건 조치 이벤트 생성
+    print("    Creating action events (5000)...", flush=True)
+    now = datetime.now(settings.tz)
+    for i, from_id in enumerate(targets):
+        dt = now - timedelta(
+            days=random.randint(0, 5),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
         a = ActionEvent(
             from_event_id=from_id,
             type_event="Action",
@@ -814,8 +897,13 @@ def _create_action_events(db: Session, event_ids: dict, user_names: list[str]):
         )
         db.add(a)
 
+        if (i + 1) % 500 == 0:
+            db.flush()
+
     db.commit()
-    print(f"  [OK] Action events created: {len(targets)}")
+    unreported = len(all_event_ids) - len(update_true_ids)
+    print(f"  [OK] Action events created: {len(targets)} "
+          f"(reported: {len(update_true_ids)}, unreported: ~{unreported})")
 
 
 # ── System Events ────────────────────────────────────────

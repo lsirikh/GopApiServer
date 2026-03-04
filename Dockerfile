@@ -6,7 +6,10 @@ WORKDIR /app
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fonts-nanum \
     fontconfig \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 

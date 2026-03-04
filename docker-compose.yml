@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gop-postgres
+    environment:
+      POSTGRES_DB: gop
+      POSTGRES_USER: gop_user
+      POSTGRES_PASSWORD: gop_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gop_user -d gop"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   api_server-fastapi:
     container_name: api_server-fastapi
     build:
@@ -14,10 +32,13 @@ services:
       - JWT_SECRET_KEY=your-secret-key-change-in-production
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRATION_HOURS=24
-      - DATABASE_URL=sqlite:///./data/gop.db
+      - DATABASE_URL=postgresql://gop_user:gop_pass@postgres:5432/gop
       - INIT_SAMPLE_DATA=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
@@ -28,12 +49,14 @@ services:
 
   db-admin:
     container_name: db-admin
-    image: coleifer/sqlite-web
+    image: adminer
     ports:
       - "8080:8080"
-    volumes:
-      - ./data:/data
-    command: ["sqlite_web", "/data/gop.db", "--host", "0.0.0.0", "--port", "8080"]
-    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
     depends_on:
-      - api_server-fastapi
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  pgdata:

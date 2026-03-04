@@ -8,7 +8,7 @@ PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - group_event 필드 제거됨
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 from datetime import datetime
 import math
@@ -16,13 +16,16 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
-from app.models.device import Device, Sensor, Controller, Camera
+from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.schemas.event import DetectionEventCreate, DetectionEventResponse, DetectionEventUpdate, ActionEventResponse
 from app.schemas.device import (
     DeviceGroupNestedResponse,
+    DeviceNestedResponse,
     SensorNestedResponse,
     ControllerNestedResponse,
-    CameraNestedResponse
+    CameraNestedResponse,
+    SpeakerNestedResponse,
+    LampNestedResponse,
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from typing import Union
@@ -42,7 +45,7 @@ def _generate_device_description(device: Device) -> str:
     return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse]]:
+def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """
     Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
 
@@ -52,6 +55,9 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
     - Sensor → SensorNestedResponse
     - Controller → ControllerNestedResponse
     - Camera → CameraNestedResponse
+    - Speaker → SpeakerNestedResponse
+    - Enclosure → DeviceNestedResponse (전용 NestedResponse 없음)
+    - Lamp → LampNestedResponse
     """
     if device is None:
         return None
@@ -118,9 +124,20 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             ip_port=device.ip_port,
             device_groups=device_groups
         )
-    else:
-        # Fallback: 알 수 없는 Device 타입은 Controller 형식으로 반환
-        return ControllerNestedResponse(
+    elif isinstance(device, Speaker):
+        return SpeakerNestedResponse(
+            id=device.id,
+            category_device=device.category_device.value,
+            number_device=device.number_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            speaker_type=device.speaker_type.value if device.speaker_type else "NORMAL",
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Lamp):
+        return LampNestedResponse(
             id=device.id,
             number_device=device.number_device,
             group_device=device.group_device,
@@ -129,8 +146,35 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             version=device.version,
             status=device.status.value,
             is_enable=device.is_enable,
-            ip_address=getattr(device, 'ip_address', ''),
-            ip_port=getattr(device, 'ip_port', 0),
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            user_name=device.user_name,
+            description=device.description,
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Enclosure):
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
+            device_groups=device_groups
+        )
+    else:
+        # Fallback: 알 수 없는 Device 타입
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
             device_groups=device_groups
         )
 
@@ -166,7 +210,7 @@ async def get_detection_events(
     **Response**: 탐지 이벤트 목록 및 페이지네이션 정보
     """
     # Build query with device eager loading (PRD v2.1)
-    query = db.query(DetectionEvent).options(joinedload(DetectionEvent.device))
+    query = db.query(DetectionEvent).options(selectinload(DetectionEvent.device))
 
     # Apply filters (PRD v2.1: device_id 기반 필터링)
     if device_id is not None:
@@ -252,7 +296,7 @@ async def get_detection_event(
     """
     # PRD v1.1: Eager load device relationship
     event = db.query(DetectionEvent).options(
-        joinedload(DetectionEvent.device)
+        selectinload(DetectionEvent.device)
     ).filter(DetectionEvent.id == event_id).first()
 
     if not event:
@@ -411,7 +455,7 @@ async def update_detection_event(
     """
     # PRD v1.1: Eager load device relationship
     event = db.query(DetectionEvent).options(
-        joinedload(DetectionEvent.device)
+        selectinload(DetectionEvent.device)
     ).filter(DetectionEvent.id == event_id).first()
 
     if not event:
@@ -637,25 +681,25 @@ async def delete_detection_event(
     )
 
 
-@router.get("/{event_id}/action", response_model=ApiSingleResponse[ActionEventResponse])
-async def get_action_event_for_detection(
+@router.get("/{event_id}/actions", response_model=ApiResponse[list[ActionEventResponse]])
+async def get_action_events_for_detection(
     event_id: int,
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    탐지 이벤트의 조치 이벤트 조회
+    탐지 이벤트의 조치 이벤트 목록 조회
 
-    특정 탐지 이벤트에 연결된 조치 이벤트를 조회합니다.
+    특정 탐지 이벤트에 연결된 조치 이벤트 목록을 조회합니다.
+    PRD: PRD_ActionEvent_1N_Refactoring.md v2.0 — 1:N 관계 리스트 반환
 
     **파라미터**:
     - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    **Response**: 조치 이벤트 정보 (연결된 원본 이벤트 포함)
+    **Response**: 조치 이벤트 목록 (빈 리스트 허용)
 
     **Error**:
     - 404: 탐지 이벤트를 찾을 수 없음
-    - 404: 해당 탐지 이벤트에 연결된 조치 이벤트가 없음
     """
     # 1. DetectionEvent 존재 확인
     detection = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
@@ -665,21 +709,12 @@ async def get_action_event_for_detection(
             detail=f"Detection event not found with Id={event_id}"
         )
 
-    # 2. ActionEvent 조회 (1:1 관계)
-    # Note: from_event_id는 events.id FK로, Detection ID로 직접 조회 가능
-    action = db.query(ActionEvent).filter(
+    # 2. ActionEvent 목록 조회 (1:N 관계)
+    actions = db.query(ActionEvent).filter(
         ActionEvent.from_event_id == event_id
-    ).first()
+    ).order_by(ActionEvent.created_at.desc()).all()
 
-    if not action:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="조치 보고가 등록되지 않은 탐지 이벤트입니다. / No action event found for this detection event."
-        )
-
-    # 3. ActionEventResponse 구성 (nested source event 포함)
-    # PRD v1.3: device nested 포함, device_id/sequence 제외
-    # PRD v1.4: category_event 필드 제거
+    # 3. source event response 구성
     source_event_response = DetectionEventResponse(
         id=detection.id,
         type_event=detection.type_event,
@@ -692,18 +727,22 @@ async def get_action_event_for_detection(
         updated_at=detection.updated_at
     )
 
-    action_response = ActionEventResponse(
-        id=action.id,
-        type_event=action.type_event,
-        content=action.content,
-        user=action.user,
-        from_event=source_event_response,  # Nested event object with device nested
-        created_at=action.created_at,
-        updated_at=action.updated_at
-    )
+    # 4. ActionEventResponse 리스트 구성
+    action_responses = [
+        ActionEventResponse(
+            id=action.id,
+            type_event=action.type_event,
+            content=action.content,
+            user=action.user,
+            from_event=source_event_response,
+            created_at=action.created_at,
+            updated_at=action.updated_at
+        )
+        for action in actions
+    ]
 
-    return ApiSingleResponse(
+    return ApiResponse(
         success=True,
-        message="Action event retrieved successfully",
-        data=action_response
+        message="Action events retrieved successfully",
+        data=action_responses
     )

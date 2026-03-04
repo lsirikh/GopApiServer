@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-02-26
-**버전**: v4.1
+**최종 수정일**: 2026-03-03  
+**버전**: v4.2  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -38,6 +38,7 @@
    - 6.4 [Action Event API](#64-action-event-api)
    - 6.5 [Detection Log API](#65-detection-log-api) *(v3.8 신규)*
    - 6.6 [Thumbnail API](#66-thumbnail-api) *(v4.0 신규)*
+   - 6.7 [Event Statistics API](#67-event-statistics-api) *(v4.2 신규)*
 7. [Integration API 설계](#7-integration-api-설계)
    - 7.1 [개요](#71-개요)
    - 7.2 [EventMapping API](#72-eventmapping-api)
@@ -9639,6 +9640,211 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
 | `image_url` | string | 이미지 다운로드 URL (computed: `/api/thumbnails/images/{file_name}`) |
 | `created_at` | datetime | 생성 시간 |
 
+### 6.7 Event Statistics API *(v4.2 신규)*
+
+이벤트 통계 집계 API — 대시보드 차트용 경량 응답을 제공합니다.
+서버에서 SQL 집계 후 결과만 전송하여, 기존 전량 다운로드 방식 대비 응답 크기를 99% 감소시킵니다.
+탐지 이벤트를 센서/카메라로 분리 집계하며, 3가지 차트 유형(원형·라인·막대)에 맞는 전용 데이터를 제공합니다.
+
+#### 6.7.1 이벤트 요약 (원형 그래프 + 요약 카드)
+
+- **Endpoint**: `GET /api/events/statistics/summary`
+- **설명**: 이벤트 타입별 건수 요약, 일평균, 활성 장비 수
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|:----:|------|
+| `start_date` | datetime | O | 조회 시작 시간 (ISO 8601) |
+| `end_date` | datetime | O | 조회 종료 시간 (ISO 8601) |
+
+**Response (200 OK):** `ApiSingleResponse[EventSummaryResponse]`
+
+```json
+{
+  "success": true,
+  "message": "Event summary statistics retrieved",
+  "data": {
+    "start_date": "2025-01-15T00:00:00",
+    "end_date": "2025-01-22T00:00:00",
+    "days_in_range": 7,
+    "total": 275,
+    "sensor_detection": 150,
+    "camera_detection": 30,
+    "malfunction": 45,
+    "connection": 30,
+    "action": 20,
+    "daily_averages": {
+      "sensor_detection": 21.4,
+      "camera_detection": 4.3,
+      "malfunction": 6.4,
+      "connection": 4.3,
+      "action": 2.9
+    },
+    "active_devices": {
+      "sensors": 25,
+      "cameras": 15,
+      "controllers": 5
+    }
+  }
+}
+```
+
+**필드 설명:**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `days_in_range` | int | 조회 기간 일수 (최소 1) |
+| `total` | int | 전체 이벤트 건수 (5종 합계) |
+| `sensor_detection` | int | 센서 탐지 건수 (Device.category_device == sensor) |
+| `camera_detection` | int | 카메라(AI) 탐지 건수 (Device.category_device == camera) |
+| `malfunction` | int | 장애 이벤트 건수 |
+| `connection` | int | 연결 이벤트 건수 |
+| `action` | int | 조치 이벤트 건수 |
+| `daily_averages.*` | float | 각 타입의 일평균 (count / days_in_range, 소수점 1자리) |
+| `active_devices.sensors` | int | 기간 내 이벤트 발생 센서 수 (DISTINCT device_id) |
+| `active_devices.cameras` | int | 기간 내 이벤트 발생 카메라 수 (DISTINCT device_id) |
+| `active_devices.controllers` | int | 기간 내 이벤트 발생 제어기 수 (DISTINCT controller_id) |
+
+#### 6.7.2 이벤트 추이 (라인 차트)
+
+- **Endpoint**: `GET /api/events/statistics/trend`
+- **설명**: 시간대별 이벤트 건수 추이
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|:----:|--------|------|
+| `start_date` | datetime | O | - | 조회 시작 시간 (ISO 8601) |
+| `end_date` | datetime | O | - | 조회 종료 시간 (ISO 8601) |
+| `interval` | string | X | `hour` | 집계 단위: `hour`, `day` |
+
+**Response (200 OK):** `ApiSingleResponse[EventTrendResponse]`
+
+```json
+{
+  "success": true,
+  "message": "Event trend statistics retrieved",
+  "data": {
+    "interval": "hour",
+    "start_date": "2025-01-15T00:00:00",
+    "end_date": "2025-01-16T00:00:00",
+    "series": [
+      {
+        "time_bucket": "2025-01-15 00",
+        "sensor_detection": 3,
+        "camera_detection": 1,
+        "malfunction": 30,
+        "connection": 0,
+        "action": 2
+      },
+      {
+        "time_bucket": "2025-01-15 01",
+        "sensor_detection": 0,
+        "camera_detection": 5,
+        "malfunction": 28,
+        "connection": 0,
+        "action": 0
+      }
+    ]
+  }
+}
+```
+
+**time_bucket 형식:**
+- `hour`: `"YYYY-MM-DD HH"` (예: `"2025-01-15 10"`)
+- `day`: `"YYYY-MM-DD"` (예: `"2025-01-15"`)
+
+#### 6.7.3 제어기별/카메라별 이벤트 (막대 그래프)
+
+- **Endpoint**: `GET /api/events/statistics/by-device`
+- **설명**: 제어기별 센서 이벤트 + 카메라별 AI 탐지 건수
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|:----:|------|
+| `start_date` | datetime | O | 조회 시작 시간 (ISO 8601) |
+| `end_date` | datetime | O | 조회 종료 시간 (ISO 8601) |
+
+**Response (200 OK):** `ApiSingleResponse[EventByDeviceResponse]`
+
+```json
+{
+  "success": true,
+  "message": "Event statistics by device retrieved",
+  "data": {
+    "start_date": "2025-01-15T00:00:00",
+    "end_date": "2025-01-16T00:00:00",
+    "controllers": [
+      {
+        "controller_id": 1,
+        "controller_name": "Controller-A",
+        "controller_number": 1,
+        "sensor_detection": 45,
+        "malfunction": 12,
+        "connection": 3,
+        "action": 5
+      }
+    ],
+    "cameras": [
+      {
+        "camera_id": 101,
+        "camera_name": "AI-Camera-Front",
+        "camera_number": 10,
+        "camera_detection": 25
+      }
+    ]
+  }
+}
+```
+
+**설계 포인트:**
+- `controllers[]`: Sensor.controller_id 기준 제어기별 집계 (sensor_detection, malfunction, connection, action)
+- `controllers[].action`: ActionEvent.from_event_id → Event.device_id → Sensor.controller_id 경로로 집계
+- `cameras[]`: Camera 기준 카메라별 AI 탐지 건수 (camera_detection)
+
+#### 6.7.4 대시보드 통합
+
+- **Endpoint**: `GET /api/events/statistics/dashboard`
+- **설명**: summary + trend + by-device 3개 API 통합 단일 호출
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|:----:|--------|------|
+| `start_date` | datetime | O | - | 조회 시작 시간 (ISO 8601) |
+| `end_date` | datetime | O | - | 조회 종료 시간 (ISO 8601) |
+| `interval` | string | X | `hour` | 추이 집계 단위: `hour`, `day` |
+
+**Response (200 OK):** `ApiSingleResponse[EventDashboardResponse]`
+
+```json
+{
+  "success": true,
+  "message": "Event dashboard statistics retrieved",
+  "data": {
+    "summary": { "total": 275, "days_in_range": 7, "sensor_detection": 150, "..." : "..." },
+    "trend": { "interval": "hour", "series": [ "..." ] },
+    "by_device": { "controllers": [ "..." ], "cameras": [ "..." ] }
+  }
+}
+```
+
+> 단일 HTTP 호출로 3개 차트 데이터를 모두 가져올 수 있어 네트워크 라운드트립을 최소화합니다.
+
+#### EventStatistics 스키마 요약
+
+| 스키마 | 용도 | 주요 필드 |
+|--------|------|-----------|
+| `EventSummaryResponse` | 원형 그래프 + 요약 카드 | total, sensor/camera_detection, malfunction, connection, action, daily_averages, active_devices |
+| `EventTrendResponse` | 라인 차트 | interval, series[EventTrendItem] |
+| `EventTrendItem` | 시간 버킷별 건수 | time_bucket, sensor/camera_detection, malfunction, connection, action |
+| `ControllerStats` | 제어기별 통계 | controller_id, controller_name, controller_number, sensor_detection, malfunction, connection, action |
+| `CameraStats` | 카메라별 통계 | camera_id, camera_name, camera_number, camera_detection |
+| `EventByDeviceResponse` | 막대 그래프 | controllers[ControllerStats], cameras[CameraStats] |
+| `EventDashboardResponse` | 통합 대시보드 | summary, trend, by_device |
+
 ---
 
 ## 7. Integration API 설계
@@ -14329,6 +14535,12 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/detection-logs` - 탐지 로그 목록 조회
 - `GET /api/detection-logs/{event_id}` - 탐지 로그 단건 조회
 
+**Event Statistics** (v4.2 신규):
+- `GET /api/events/statistics/summary` - 이벤트 타입별 건수 요약 (원형 그래프 + 요약 카드)
+- `GET /api/events/statistics/trend` - 시간대별 이벤트 건수 추이 (라인 차트)
+- `GET /api/events/statistics/by-device` - 제어기별/카메라별 이벤트 건수 (막대 그래프)
+- `GET /api/events/statistics/dashboard` - 대시보드 통합 (summary + trend + by-device)
+
 #### Integration Endpoints
 
 **Event Mappings**:
@@ -14686,6 +14898,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v4.2 | 2026-03-03 | **Event Statistics API 신규 (6.7)**<br><br>**[1. Event Statistics API 신규 (6.7)]**<br>- GET /api/events/statistics/summary: 이벤트 타입별 건수 요약 (원형 그래프 + 요약 카드)<br>- GET /api/events/statistics/trend: 시간대별 이벤트 건수 추이 (라인 차트)<br>- GET /api/events/statistics/by-device: 제어기별/카메라별 이벤트 건수 (막대 그래프)<br>- GET /api/events/statistics/dashboard: 대시보드 통합 (summary + trend + by-device 단일 호출)<br>- 탐지 이벤트 센서/카메라 분리 집계 (Device.category_device 기준)<br>- 파생 메트릭: daily_averages (일평균), active_devices (활성 장비 수)<br>- EventSummaryResponse, EventTrendResponse, EventByDeviceResponse, EventDashboardResponse 스키마<br><br>**[2. ControllerStats action 필드 추가 (6.7.3)]**<br>- controllers[].action: 제어기 소속 센서의 탐지 이벤트에 대한 조치 건수<br>- 집계 경로: ActionEvent.from_event_id → Event.device_id → Sensor.controller_id<br>- dashboard API (6.7.4) by_device.controllers에도 동일 적용 |
 | v4.1 | 2026-02-26 | **DeviceGroup 지원 완성 (5.4, 5.5, 5.11)**<br><br>**[1. Speaker API DeviceGroup 지원 (5.4)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 상세조회, 생성, PATCH, PUT)<br><br>**[2. Enclosure API DeviceGroup 지원 (5.5)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 생성, PATCH, PUT)<br><br>**[3. Lamp API DeviceGroup Request 추가 (5.11)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response의 `device_groups`는 v3.4에서 이미 지원<br><br>**[결과]** 6개 장비 타입(Controller, Sensor, Camera, Speaker, Enclosure, Lamp) 모두 DeviceGroup N:N 관계 Request/Response 완전 지원 |
 | v4.0 | 2026-02-19 | **Thumbnail API 신규 (6.6)**<br><br>**[1. Thumbnail API 신규 (6.6)]**<br>- POST /api/thumbnails: 썸네일 이미지 업로드 (multipart form data, 클라이언트 지정 file_name)<br>- GET /api/thumbnails: 썸네일 목록 조회 (날짜 필터링, 페이지네이션)<br>- GET /api/thumbnails/{id}: 썸네일 메타데이터 조회<br>- GET /api/thumbnails/{id}/image: 썸네일 이미지 다운로드 (ID 기반, FileResponse)<br>- GET /api/thumbnails/images/{file_name}: 썸네일 이미지 다운로드 (파일명 기반, FileResponse)<br>- DELETE /api/thumbnails/{id}: 썸네일 삭제 (파일 + DB)<br>- ThumbnailResponse 스키마: image_url computed field (`/api/thumbnails/images/{file_name}`)<br>- 파일 저장 구조: {날짜}/{client_file_name} (밀리초 포함 네이밍 컨벤션)<br>- DetectionEvent와 FK 없이 연결 (detail.thumbnail HTTP URL 참조) |
 | v3.9 | 2026-02-13 | **API 엔드포인트 정합성 동기화 (12.1 부록 수정, 누락 섹션 추가)**<br><br>**[1. 12.1 부록 정합성 수정]**<br>- Lamps 6개 엔드포인트 추가<br>- Camera Settings 3개 엔드포인트 추가<br>- Proxy Settings 3개 엔드포인트 추가<br>- Event Mapping Lamps 6개 엔드포인트 추가<br>- Controllers, Sensors, Events(4종) PUT 엔드포인트 6건 추가<br>- Server system-events, Enclosure-metrics flat, Report preview-page 추가<br>- Report Preview (Non-API) 경로 수정<br><br>**[2. Server 시스템 이벤트 조회 추가 (8.3.7)]**<br>- GET /api/servers/{server_id}/system-events: 서버별 시스템 이벤트 필터 조회<br><br>**[3. Enclosure Metrics 독립 목록 추가 (5.5.13)]**<br>- GET /api/enclosure-metrics: 전체 함체 메트릭 독립 조회 (flat_router 패턴)<br><br>**[4. Report Preview Page 경로 수정 (10.5)]**<br>- GET /reports/preview/{id} → GET /api/reports/generations/{id}/preview-page |
@@ -14718,5 +14931,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.1
-**최종 업데이트**: 2026-02-26
+**문서 버전**: v4.2
+**최종 업데이트**: 2026-03-03

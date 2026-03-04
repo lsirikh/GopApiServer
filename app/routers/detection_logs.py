@@ -6,7 +6,7 @@ PRD: PRD_DetectionLog_API.md v1.0
 - 탐지 로그 화면 전용 (CRUD 미제공)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 from datetime import datetime
 import math
@@ -14,13 +14,16 @@ import math
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import DetectionEvent, ActionEvent
-from app.models.device import Device, Sensor, Controller, Camera
+from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.schemas.event import DetectionLogResponse, ActionNested
 from app.schemas.device import (
     DeviceGroupNestedResponse,
+    DeviceNestedResponse,
     SensorNestedResponse,
     ControllerNestedResponse,
-    CameraNestedResponse
+    CameraNestedResponse,
+    SpeakerNestedResponse,
+    LampNestedResponse,
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from typing import Union
@@ -28,7 +31,7 @@ from typing import Union
 router = APIRouter(tags=[])
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse]]:
+def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)"""
     if device is None:
         return None
@@ -92,8 +95,20 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             ip_port=device.ip_port,
             device_groups=device_groups
         )
-    else:
-        return ControllerNestedResponse(
+    elif isinstance(device, Speaker):
+        return SpeakerNestedResponse(
+            id=device.id,
+            category_device=device.category_device.value,
+            number_device=device.number_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            speaker_type=device.speaker_type.value if device.speaker_type else "NORMAL",
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Lamp):
+        return LampNestedResponse(
             id=device.id,
             number_device=device.number_device,
             group_device=device.group_device,
@@ -102,26 +117,52 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
             version=device.version,
             status=device.status.value,
             is_enable=device.is_enable,
-            ip_address=getattr(device, 'ip_address', ''),
-            ip_port=getattr(device, 'ip_port', 0),
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            user_name=device.user_name,
+            description=device.description,
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Enclosure):
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
+            device_groups=device_groups
+        )
+    else:
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
             device_groups=device_groups
         )
 
 
-def _build_action_nested(actions) -> Optional[ActionNested]:
-    """Event.actions 리스트에서 첫 번째 ActionEvent를 ActionNested로 변환"""
+def _build_actions_nested(actions) -> list[ActionNested]:
+    """Event.actions 리스트를 ActionNested 리스트로 변환 (PRD_ActionEvent_1N v2.0)"""
     if not actions:
-        return None
-    action = actions[0] if isinstance(actions, list) else None
-    if action is None:
-        return None
-    return ActionNested(
-        id=action.id,
-        content=action.content,
-        user=action.user,
-        created_at=action.created_at,
-        updated_at=action.updated_at
-    )
+        return []
+    return [
+        ActionNested(
+            id=action.id,
+            content=action.content,
+            user=action.user,
+            created_at=action.created_at,
+            updated_at=action.updated_at
+        )
+        for action in actions
+    ]
 
 
 @router.get("", response_model=ApiResponse[list[DetectionLogResponse]])
@@ -153,8 +194,8 @@ async def get_detection_logs(
     """
     # LEFT JOIN: Device + ActionEvent eager loading
     query = db.query(DetectionEvent).options(
-        joinedload(DetectionEvent.device),
-        joinedload(DetectionEvent.actions)
+        selectinload(DetectionEvent.device),
+        selectinload(DetectionEvent.actions)
     )
 
     # Apply filters
@@ -197,7 +238,7 @@ async def get_detection_logs(
             device=_build_device_nested_response(e.device),
             device_description=e.device_description,
             detail=e.detail,
-            action=_build_action_nested(e.actions),
+            actions=_build_actions_nested(e.actions),
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -237,8 +278,8 @@ async def get_detection_log(
     - 404: 탐지 로그를 찾을 수 없음
     """
     event = db.query(DetectionEvent).options(
-        joinedload(DetectionEvent.device),
-        joinedload(DetectionEvent.actions)
+        selectinload(DetectionEvent.device),
+        selectinload(DetectionEvent.actions)
     ).filter(DetectionEvent.id == event_id).first()
 
     if not event:
@@ -255,7 +296,7 @@ async def get_detection_log(
         device=_build_device_nested_response(event.device),
         device_description=event.device_description,
         detail=event.detail,
-        action=_build_action_nested(event.actions),
+        actions=_build_actions_nested(event.actions),
         created_at=event.created_at,
         updated_at=event.updated_at
     )

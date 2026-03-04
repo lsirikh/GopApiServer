@@ -29,6 +29,8 @@ _KST = timezone(timedelta(hours=9))
 _ENCODERS_BY_TYPE[datetime] = lambda v: (v.replace(tzinfo=_KST) if v.tzinfo is None else v).isoformat()
 
 from app.config import settings
+from app.database import engine
+from app.db_triggers import apply_triggers
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
 from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics
@@ -215,6 +217,9 @@ async def lifespan(app: FastAPI):
 
     # Initialize database
     initialize_database()
+
+    # Apply PostgreSQL pg_notify triggers (skips if SQLite)
+    apply_triggers(engine)
 
     print(f"Server running on http://{settings.HOST}:{settings.PORT}")
     print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")

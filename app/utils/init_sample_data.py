@@ -315,6 +315,26 @@ def _create_devices(db: Session, server_ids: list[int]) -> dict:
                 geolocation=_geo(ctrl_idx, j % 4),
             )
             db.add(s)
+
+    # ── MultiSensors (50 = 10 per controller) — device_number 61-70 ──
+    for ctrl_idx, ctrl_id in enumerate(ids["controllers"]):
+        for j in range(10):
+            num = 61 + j  # 61-70
+            s = Sensor(
+                number_device=num, group_device=ctrl_idx + 1,
+                name_device=f"멀티센서-{chr(65 + ctrl_idx)}{num:03d}",
+                type_device=EnumDeviceType.Multi,
+                status=random.choices(
+                    [EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR, EnumDeviceStatus.DEACTIVATED],
+                    weights=[85, 10, 5],
+                )[0],
+                is_enable=random.choices([True, False], weights=[95, 5])[0],
+                version=f"v2.{random.randint(0, 3)}.{random.randint(0, 9)}",
+                controller_id=ctrl_id,
+                geolocation=_geo(ctrl_idx, j % 4),
+            )
+            db.add(s)
+
     db.flush()
     ids["sensors"] = [s.id for s in db.query(Sensor).all()]
 

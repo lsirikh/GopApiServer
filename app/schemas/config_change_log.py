@@ -14,6 +14,7 @@ Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, Any, Dict, List
 
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
@@ -114,7 +115,7 @@ class ConfigChangeLogResponse(BaseModel):
         description="설명",
         json_schema_extra={"example": "Camera 정보 수정"}
     )
-    created_at: datetime = Field(
+    created_at: KSTDatetime = Field(
         ...,
         description="생성 시간",
         json_schema_extra={"example": "2026-01-20T10:30:00"}

@@ -32,8 +32,8 @@ class ReportTemplate(Base):
     default_period = Column(String(20), default="7d")
 
     # Timestamps
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Relationships
     owner = relationship("AccountUser", back_populates="report_templates")
@@ -81,7 +81,7 @@ class ReportGeneration(Base):
     error_message = Column(String(1000), nullable=True)
 
     # 타임스탬프 (created_at만 - 변경 불가)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships

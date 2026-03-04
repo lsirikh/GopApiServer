@@ -3,6 +3,7 @@ API Log Schemas
 """
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional
 
 
@@ -13,7 +14,7 @@ class ApiLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    timestamp: datetime
+    timestamp: KSTDatetime
     resource: str
     method: str
     client_uuid: Optional[str] = None

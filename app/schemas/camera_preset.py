@@ -5,6 +5,7 @@ PRD: docs/PRD_Camera_Preset_ROI.md
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 
 
 # ============================================================
@@ -86,8 +87,8 @@ class ROIResponse(BaseModel):
     resolution_height: float = Field(..., description="Reference resolution height")
     is_enable: bool = Field(default=True, description="Whether ROI is active")
     point_count: int = Field(default=0, description="Number of polygon vertices")
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -119,8 +120,8 @@ class ROIDetailResponse(BaseModel):
     resolution_height: float = Field(..., description="Reference resolution height")
     is_enable: bool = Field(default=True, description="Whether ROI is active")
     points: List[XyPointNestedResponse] = Field(default_factory=list)
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -176,8 +177,8 @@ class CameraPresetResponse(BaseModel):
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
     roi_count: int = Field(default=0, description="Number of ROIs in preset")
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -221,8 +222,8 @@ class CameraPresetDetailResponse(BaseModel):
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
     rois: List[ROINestedResponse] = Field(default_factory=list)
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -244,8 +245,8 @@ class ROIListNestedResponseWithPoints(BaseModel):
     is_enable: bool = Field(default=True, description="Whether ROI is active")
     point_count: int = Field(default=0, description="Number of polygon vertices")
     points: List[XyPointNestedResponse] = Field(default_factory=list)
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -259,8 +260,8 @@ class CameraPresetListItem(BaseModel):
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
     roi_count: int = Field(default=0, description="Number of ROIs in preset")
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
     rois: Optional[List[ROIListNestedResponse]] = Field(default=None, description="ROIs (include_rois=true일 때만 포함)")
 
     model_config = ConfigDict(from_attributes=True)
@@ -281,8 +282,8 @@ class ROIListItem(BaseModel):
     resolution_height: float = Field(..., description="Reference resolution height")
     is_enable: bool = Field(default=True, description="Whether ROI is active")
     point_count: int = Field(default=0, description="Number of polygon vertices")
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
     points: Optional[List[XyPointNestedResponse]] = Field(default=None, description="Points (include_points=true일 때만 포함)")
 
     model_config = ConfigDict(from_attributes=True)
@@ -301,8 +302,8 @@ class XyPointListItem(BaseModel):
     x: float
     y: float
     order: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 

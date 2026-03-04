@@ -72,14 +72,14 @@ class SystemEvent(Base):
     # 타임스탬프
     created_at = Column(
         DateTime,
-        default=lambda: datetime.now(settings.tz),
+        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
         nullable=False,
         index=True
     )
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(settings.tz),
-        onupdate=lambda: datetime.now(settings.tz),
+        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None),
         nullable=True
     )  # PRD 3.2: 수정 시간
 

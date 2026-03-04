@@ -27,8 +27,8 @@ class ProxySetting(Base):
     server_id = Column(Integer, ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     operation_mode = Column(SAEnum(EnumOperationMode), nullable=False, default=EnumOperationMode.NORMAL)
     windy_mode = Column(SAEnum(EnumWindyMode), nullable=False, default=EnumWindyMode.WIND0)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     server = relationship("Server", backref="proxy_setting", uselist=False)
 
@@ -48,7 +48,7 @@ class CameraSetting(Base):
     iris_mode = Column(SAEnum(EnumIrisMode), nullable=False, default=EnumIrisMode.AUTO)
     tracking = Column(SAEnum(EnumTrackingStatus), nullable=False, default=EnumTrackingStatus.IDLE)
     palette = Column(SAEnum(EnumPalette), nullable=True, default=None)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     camera = relationship("Camera", back_populates="setting", uselist=False)

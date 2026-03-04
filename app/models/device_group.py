@@ -28,8 +28,8 @@ class DeviceGroup(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(200), nullable=False, unique=True, index=True)
     description = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Relationship to DeviceGroupMapping (Junction Table)
     device_mappings = relationship(
@@ -90,7 +90,7 @@ class DeviceGroupMapping(Base):
         nullable=False,
         index=True
     )
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Unique constraint: prevent duplicate device-group combinations (including category_device)
     __table_args__ = (

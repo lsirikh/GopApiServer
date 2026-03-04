@@ -5,6 +5,7 @@ PRD: PRD_Thumbnail_Image.md v1.1
 """
 from pydantic import BaseModel, ConfigDict, computed_field
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional
 
 
@@ -19,7 +20,7 @@ class ThumbnailResponse(BaseModel):
     mime_type: str
     width: Optional[int] = None
     height: Optional[int] = None
-    created_at: datetime
+    created_at: KSTDatetime
 
     @computed_field
     @property

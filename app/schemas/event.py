@@ -9,6 +9,7 @@ PRD v2.7: Device Polymorphic Response
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, Union, Literal, List, Dict, Any, TYPE_CHECKING
 
 from app.utils.enums import (
@@ -137,8 +138,8 @@ class DetectionEventResponse(BaseModel):
             }
         }
     )
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -250,8 +251,8 @@ class MalfunctionEventResponse(BaseModel):
             }
         }
     )
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -323,8 +324,8 @@ class ConnectionEventResponse(BaseModel):
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -351,7 +352,7 @@ class ActionEventCreate(BaseModel):
     content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
     user: str = Field(..., example="operator1", description="조치자")
     from_event_id: int = Field(..., example=1, description="원본 이벤트 ID (events.id FK)")
-    created_at: Optional[datetime] = Field(None, description="생성 일시 (미입력시 자동 생성)")
+    created_at: Optional[KSTDatetime] = Field(None, description="생성 일시 (미입력시 자동 생성)")
 
 
 class ActionEventResponse(BaseModel):
@@ -361,8 +362,8 @@ class ActionEventResponse(BaseModel):
     content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
     user: str = Field(..., example="operator1", description="조치자")
     from_event: Union['DetectionEventResponse', 'MalfunctionEventResponse', 'ConnectionEventResponse'] = Field(..., description="원본 이벤트 객체")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -379,7 +380,7 @@ class ActionEventUpdate(BaseModel):
     content: Optional[str] = Field(None, example="침입 확인 및 경비 출동", description="조치 내용")
     user: Optional[str] = Field(None, example="operator1", description="조치자")
     from_event_id: Optional[int] = Field(None, example=1, description="원본 이벤트 ID (events.id FK)")
-    created_at: Optional[datetime] = Field(None, description="생성 일시")
+    created_at: Optional[KSTDatetime] = Field(None, description="생성 일시")
 
 
 class ActionNested(BaseModel):
@@ -387,8 +388,8 @@ class ActionNested(BaseModel):
     id: int = Field(..., description="ActionEvent ID")
     content: str = Field(..., description="조치 내용")
     user: str = Field(..., description="조치자")
-    created_at: datetime = Field(..., description="조치 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="조치 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -403,8 +404,8 @@ class DetectionLogResponse(BaseModel):
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보")
     actions: list[ActionNested] = Field(default_factory=list, description="조치보고 목록 (없으면 빈 리스트)")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 

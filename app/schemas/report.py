@@ -9,6 +9,7 @@ PRD: PRD_Report_System.md Section 5
 """
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, List, Any
 
 from app.utils.enums import EnumReportType, EnumReportPeriod, EnumReportStatus
@@ -79,8 +80,8 @@ class ReportTemplateResponse(BaseModel):
     components: List[Any]  # JSON stored as list of dicts
     default_period: EnumReportPeriod
     description: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -198,8 +199,8 @@ class ReportPreviewResponse(BaseModel):
     id: int
     title: str
     period_type: EnumReportPeriod
-    start_date: datetime
-    end_date: datetime
+    start_date: KSTDatetime
+    end_date: KSTDatetime
     sections: List[ReportSection]
     generator_name: Optional[str] = None
     generator_department: Optional[str] = None
@@ -239,7 +240,7 @@ class ReportTemplateListResponse(BaseModel):
     is_public: bool
     component_count: int
     default_period: EnumReportPeriod
-    created_at: datetime
+    created_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -251,9 +252,9 @@ class ReportGenerationListResponse(BaseModel):
     title: str
     period_type: EnumReportPeriod
     status: EnumReportStatus
-    created_at: datetime
+    created_at: KSTDatetime
     generator_name: Optional[str] = None
-    completed_at: Optional[datetime] = None
+    completed_at: Optional[KSTDatetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -271,10 +272,10 @@ class ReportGenerationResponse(BaseModel):
     report_type: EnumReportType
     title: str
     period_type: EnumReportPeriod
-    start_date: datetime
-    end_date: datetime
+    start_date: KSTDatetime
+    end_date: KSTDatetime
     status: EnumReportStatus
-    created_at: datetime
+    created_at: KSTDatetime
 
     # Nullable fields
     template_id: Optional[int] = None
@@ -286,6 +287,6 @@ class ReportGenerationResponse(BaseModel):
     pdf_file_path: Optional[str] = None
     pdf_file_size: Optional[int] = None
     error_message: Optional[str] = None
-    completed_at: Optional[datetime] = None
+    completed_at: Optional[KSTDatetime] = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -5,6 +5,7 @@ PRD: PRD_Account_Design.md Section 4
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 
 from app.utils.enums import (
     EnumUserRole, EnumLogoutReason,
@@ -66,8 +67,8 @@ class UserGroupResponse(BaseModel):
     permissions: Optional[Dict[str, Any]] = None
     is_active: bool
     user_count: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: KSTDatetime
+    updated_at: KSTDatetime
 
     model_config = {"from_attributes": True}
 
@@ -186,11 +187,11 @@ class AccountUserResponse(BaseModel):
     is_active: bool = Field(..., description="활성 상태", json_schema_extra={"example": True})
     is_locked: bool = Field(..., description="잠금 상태", json_schema_extra={"example": False})
     lock_reason: Optional[str] = Field(None, description="잠금 사유")
-    locked_at: Optional[datetime] = Field(None, description="잠금 시간")
-    last_login_at: Optional[datetime] = Field(None, description="마지막 로그인 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
+    locked_at: Optional[KSTDatetime] = Field(None, description="잠금 시간")
+    last_login_at: Optional[KSTDatetime] = Field(None, description="마지막 로그인 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
     last_login_ip: Optional[str] = Field(None, description="마지막 로그인 IP", json_schema_extra={"example": "192.168.1.100"})
-    created_at: datetime = Field(..., description="생성 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
-    updated_at: datetime = Field(..., description="수정 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
+    created_at: KSTDatetime = Field(..., description="생성 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
+    updated_at: KSTDatetime = Field(..., description="수정 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
 
     model_config = {"from_attributes": True}
 
@@ -218,13 +219,13 @@ class UserSessionResponse(BaseModel):
     role: Optional[EnumUserRole] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    expires_at: datetime
+    expires_at: KSTDatetime
     is_active: bool
     logout_reason: Optional[EnumLogoutReason] = None
-    logged_out_at: Optional[datetime] = None
+    logged_out_at: Optional[KSTDatetime] = None
     # Standard timestamps (renamed from login_at, last_activity)
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    created_at: KSTDatetime
+    updated_at: Optional[KSTDatetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -249,7 +250,7 @@ class UserLoginLogResponse(BaseModel):
     failure_reason: Optional[EnumLoginFailureReason] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    created_at: datetime
+    created_at: KSTDatetime
 
     model_config = {"from_attributes": True}
 
@@ -271,8 +272,8 @@ class UserResponse(BaseModel):
     id: int
     username: str
     role: EnumUserRole
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: Optional[KSTDatetime] = None
+    updated_at: Optional[KSTDatetime] = None
 
     model_config = {"from_attributes": True}
 

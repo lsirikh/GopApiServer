@@ -3,6 +3,7 @@ Device Setting Schemas
 PRD: PRD_Device_Setting.md Section 4
 """
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,8 +44,8 @@ class ProxySettingResponse(BaseModel):
     server_id: int = Field(..., description="서버 ID")
     operation_mode: EnumOperationMode = Field(..., description="운용 모드")
     windy_mode: EnumWindyMode = Field(..., description="풍량 모드")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,7 +96,7 @@ class CameraSettingResponse(BaseModel):
     iris_mode: EnumIrisMode = Field(..., description="조리개 모드")
     tracking: EnumTrackingStatus = Field(..., description="추적 상태")
     palette: Optional[EnumPalette] = Field(None, description="열화상 팔레트 (열화상 카메라만, nullable)", json_schema_extra=_nullable_palette_schema)
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)

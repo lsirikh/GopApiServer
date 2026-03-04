@@ -23,8 +23,8 @@ class UserGroup(Base):
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Audit fields (FK to User - defined later via Integer for now)
     created_by = Column(Integer, nullable=True)
@@ -77,8 +77,8 @@ class AccountUser(Base):
     last_login_ip = Column(String(45), nullable=True)  # IPv6 length
 
     # Timestamps
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Audit fields
     created_by = Column(Integer, nullable=True)
@@ -122,8 +122,8 @@ class UserSession(Base):
     logged_out_at = Column(DateTime, nullable=True)
 
     # Standard timestamps (PRD_UserSession_Improvement.md v1.2)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)  # was: login_at
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=True)   # was: last_activity
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)  # was: login_at
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=True)   # was: last_activity
 
     # Status fields
     is_active = Column(Boolean, default=True, nullable=False)
@@ -162,7 +162,7 @@ class UserLoginLog(Base):
     user_agent = Column(String(500), nullable=True)
 
     # Timestamp
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False, index=True)
 
     # Relationships
     user = relationship("AccountUser", back_populates="login_logs")
@@ -186,8 +186,8 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(20), default="user", nullable=False)  # "admin" or "user"
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz), onupdate=lambda: datetime.now(settings.tz), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     def __repr__(self):
         return f"<User(username='{self.username}', role='{self.role}')>"

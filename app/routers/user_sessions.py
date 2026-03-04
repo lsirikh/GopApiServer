@@ -113,7 +113,7 @@ async def force_logout_all_user_sessions(
         session.is_active = False
         session.logout_reason = "FORCED"
         session.forced_by = current_user.id
-        session.logged_out_at = datetime.now(settings.tz)
+        session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
 
         # Create a login log entry for each force logout
         log_entry = UserLoginLog(

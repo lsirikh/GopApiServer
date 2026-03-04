@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
 
+from app.config import settings
 from app.dependencies import get_db
 from app.models.system_event import SystemEvent
 from app.models.server import Server
@@ -286,7 +287,7 @@ def acknowledge_system_event(
     # 확인 처리
     event.is_acknowledged = True
     event.acknowledged_by = ack_data.acknowledged_by
-    event.acknowledged_at = datetime.now()
+    event.acknowledged_at = datetime.now(settings.tz).replace(tzinfo=None)
 
     db.commit()
     db.refresh(event)

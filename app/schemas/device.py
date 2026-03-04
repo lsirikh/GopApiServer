@@ -9,6 +9,7 @@ PRD: PRD_Lamp_Device.md v1.1 - Lamp Device (경광등)
 """
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
+from app.schemas.common import KSTDatetime
 from typing import Optional, List, TYPE_CHECKING
 
 from app.utils.enums import (
@@ -268,8 +269,8 @@ class ControllerResponse(BaseModel):
     ip_port: int = Field(..., description="포트 번호")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
     # v2.4: SensorNestedResponse 사용 (timestamp 제외, device_groups 포함)
     sensors: Optional[List['SensorNestedResponse']] = Field(None, description="소속 센서 목록 (include_sensors=true 시)")
     # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
@@ -369,8 +370,8 @@ class SensorResponse(BaseModel):
     controller_id: int = Field(..., description="소속 컨트롤러 ID")
     # PRD_Controller_Sensor_Geolocation.md: 위치 정보 추가
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보 (JSON)")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
     # v2.5: Nested Response 규칙 적용 - ControllerNestedResponse 사용 (timestamp 제외)
     controller: Optional['ControllerNestedResponse'] = Field(None, description="소속 컨트롤러 정보 (include_controller=true 시)")
     # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
@@ -498,8 +499,8 @@ class CameraResponse(BaseModel):
     geolocation: Optional[Geolocation] = Field(None, description="좌표/위치 정보")
     # PRD_Camera_Urls_JsonB.md: URLs JSONB 통합
     urls: Optional[CameraUrls] = Field(None, description="카메라 URL 정보 (JSONB)")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
     # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
     device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
 
@@ -679,8 +680,8 @@ class SpeakerResponse(BaseModel):
     version: Optional[str] = Field(None, description="버전", examples=["1.0.0"])
     status: EnumDeviceStatus = Field(..., description="상태", examples=["ACTIVATED"])
     is_enable: bool = Field(..., description="장비 활성화 여부", examples=[True])
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     # Speaker-specific fields
     speaker_type: EnumSpeakerType = Field(..., description="스피커 타입", examples=["NORMAL"])
@@ -844,8 +845,8 @@ class EnclosureResponse(BaseModel):
         description="장비 운영 상태 (Device 상속): ACTIVATED/DEACTIVATED/ERROR"
     )
     is_enable: bool = Field(..., description="장비 활성화 여부")
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     # Enclosure 전용 필드
     door_status: EnumDoorStatus = Field(
@@ -934,7 +935,7 @@ class EnclosureMetricResponse(BaseModel):
     ups_battery_level: Optional[int] = Field(None, description="UPS 배터리 잔량 (%)")
     ups_charging: Optional[bool] = Field(None, description="UPS 충전 중 여부")
     detail: Optional[dict] = Field(None, description="추가 상세 정보 (JSONB)")
-    created_at: datetime = Field(..., description="생성 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1035,8 +1036,8 @@ class LampResponse(BaseModel):
     version: Optional[str] = Field(None, description="펌웨어 버전", json_schema_extra={"example": "v1.0.0"})
     status: EnumDeviceStatus = Field(..., description="장비 운영 상태", json_schema_extra={"example": "ACTIVATED"})
     is_enable: bool = Field(..., description="장비 활성화 여부", json_schema_extra={"example": True})
-    created_at: datetime = Field(..., description="생성 일시")
-    updated_at: datetime = Field(..., description="수정 일시")
+    created_at: KSTDatetime = Field(..., description="생성 일시")
+    updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     # Lamp 전용 필드
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})

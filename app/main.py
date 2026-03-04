@@ -19,8 +19,14 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from fastapi.openapi.docs import get_swagger_ui_html
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
+
+# Patch FastAPI's datetime encoder to output ISO 8601 with +09:00 (KST)
+# Covers plain-dict responses that bypass Pydantic model serialization
+from fastapi.encoders import ENCODERS_BY_TYPE as _ENCODERS_BY_TYPE
+_KST = timezone(timedelta(hours=9))
+_ENCODERS_BY_TYPE[datetime] = lambda v: (v.replace(tzinfo=_KST) if v.tzinfo is None else v).isoformat()
 
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware

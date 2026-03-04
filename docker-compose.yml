@@ -3,16 +3,16 @@ services:
     image: postgres:16-alpine
     container_name: gop-postgres
     environment:
-      POSTGRES_DB: gop
-      POSTGRES_USER: gop_user
-      POSTGRES_PASSWORD: gop_pass
+      POSTGRES_DB: ${POSTGRES_DB:-gop}
+      POSTGRES_USER: ${POSTGRES_USER:-gop_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gop_pass}
       PGTZ: Asia/Seoul
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gop_user -d gop"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gop_user} -d ${POSTGRES_DB:-gop}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -29,14 +29,14 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
-      - AUTH_MODE=public
-      - JWT_SECRET_KEY=your-secret-key-change-in-production
-      - JWT_ALGORITHM=HS256
-      - JWT_EXPIRATION_HOURS=24
-      - DATABASE_URL=postgresql://gop_user:gop_pass@postgres:5432/gop
-      - INIT_SAMPLE_DATA=true
-      - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=8000
+      - AUTH_MODE=${AUTH_MODE:-public}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
+      - DATABASE_URL=${API_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - INIT_SAMPLE_DATA=${INIT_SAMPLE_DATA:-true}
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=${SERVER_PORT:-8000}
       - TZ=Asia/Seoul
     depends_on:
       postgres:
@@ -55,9 +55,9 @@ services:
       dockerfile: Dockerfile
     container_name: gop-db-monitor
     environment:
-      - DATABASE_URL=postgresql://gop_user:gop_pass@postgres:5432/gop
-      - NATS_URL=nats://host.docker.internal:4222
-      - UNIT_ID=unit001
+      - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - NATS_URL=${NATS_URL:-nats://localhost:4222}
+      - UNIT_ID=${UNIT_ID:-unit001}
       - PYTHONUNBUFFERED=1
     depends_on:
       postgres:

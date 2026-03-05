@@ -11,7 +11,18 @@ PRD v1.5: from_type_event 필드 제거
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+_KST = timezone(timedelta(hours=9))
+
+
+def _to_kst_naive(dt_val: datetime | None) -> datetime | None:
+    """timezone-aware datetime → KST naive (DB 저장용). naive는 이미 KST로 간주."""
+    if dt_val is None:
+        return None
+    if dt_val.tzinfo is not None:
+        return dt_val.astimezone(_KST).replace(tzinfo=None)
+    return dt_val
 import math
 
 from app.dependencies import get_db
@@ -391,7 +402,7 @@ async def create_action_event(
         content=event_data.content,
         user=event_data.user,
         from_event_id=event_data.from_event_id,
-        created_at=event_data.created_at
+        created_at=_to_kst_naive(event_data.created_at)
     )
 
     db.add(new_event)

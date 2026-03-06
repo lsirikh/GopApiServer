@@ -35,7 +35,7 @@ from app.schemas.event import (
 )
 from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
-from app.utils.enums import EnumTrueFalse, EnumConfigResourceType, EnumConfigActionType
+from app.utils.enums import EnumTrueFalse, EnumConfigResourceType, EnumConfigActionType, EnumDeviceStatus
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
 
@@ -395,6 +395,12 @@ async def create_action_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Source event with id {event_data.from_event_id} not found"
         )
+
+    # PRD_Malfunction_Device_Status v1.1: 조치 완료 시 원본 장비 ACTIVATED 복구
+    if source_event.device_id:
+        device = db.query(Device).filter(Device.id == source_event.device_id).first()
+        if device:
+            device.status = EnumDeviceStatus.ACTIVATED
 
     # Create new action event
     new_event = ActionEvent(

@@ -28,7 +28,7 @@ from app.schemas.device import (
     LampNestedResponse,
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
-from app.utils.enums import EnumDeviceType, EnumConfigResourceType, EnumConfigActionType
+from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 from typing import Union
 
@@ -356,6 +356,9 @@ async def create_malfunction_event(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Device with id {event_data.device_id} not found"
         )
+
+    # PRD_Malfunction_Device_Status v1.1: 장비 상태를 ERROR로 변경
+    device.status = EnumDeviceStatus.ERROR
 
     # Convert string enum values to enum types
     try:

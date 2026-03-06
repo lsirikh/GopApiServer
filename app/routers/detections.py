@@ -29,7 +29,7 @@ from app.schemas.device import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from typing import Union
-from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.utils.enums import EnumDeviceStatus, EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=[])
@@ -360,6 +360,9 @@ async def create_detection_event(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Device with id {event_data.device_id} not found"
         )
+
+    # PRD_Malfunction_Device_Status v1.1: 탐지 이벤트 발생 = 장비 정상 작동
+    device.status = EnumDeviceStatus.ACTIVATED
 
     # Convert string enum values to enum types
     try:

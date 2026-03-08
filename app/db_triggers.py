@@ -94,6 +94,40 @@ BEGIN
             'action', action_type,
             'resource_id', resource_id
         );
+    -- PRD_SYNC_Child_Table_Triggers v1.0: 하위 테이블 → 부모 SYNC 발행
+    ELSIF TG_TABLE_NAME IN ('event_mapping_cameras', 'event_mapping_speakers', 'event_mapping_lamps') THEN
+        IF TG_OP = 'DELETE' THEN
+            resource_id := OLD.event_mapping_id;
+        ELSE
+            resource_id := NEW.event_mapping_id;
+        END IF;
+        payload := jsonb_build_object(
+            'cmd', 'SYNC_EVENT_MAPPING',
+            'action', 'UPDATED',
+            'resource_id', resource_id
+        );
+    ELSIF TG_TABLE_NAME = 'device_group_mappings' THEN
+        IF TG_OP = 'DELETE' THEN
+            resource_id := OLD.group_id;
+        ELSE
+            resource_id := NEW.group_id;
+        END IF;
+        payload := jsonb_build_object(
+            'cmd', 'SYNC_DEVICE_GROUP',
+            'action', 'UPDATED',
+            'resource_id', resource_id
+        );
+    ELSIF TG_TABLE_NAME = 'rois' THEN
+        IF TG_OP = 'DELETE' THEN
+            resource_id := OLD.preset_id;
+        ELSE
+            resource_id := NEW.preset_id;
+        END IF;
+        payload := jsonb_build_object(
+            'cmd', 'SYNC_PRESET',
+            'action', 'UPDATED',
+            'resource_id', resource_id
+        );
     ELSE
         RETURN NULL;
     END IF;
@@ -170,6 +204,37 @@ GET_TRIGGER_SQLS = [
     DROP TRIGGER IF EXISTS trg_sync_proxy_settings ON proxy_settings;
     CREATE TRIGGER trg_sync_proxy_settings
         AFTER INSERT OR UPDATE OR DELETE ON proxy_settings
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    """,
+    # PRD_SYNC_Child_Table_Triggers v1.0: 하위 테이블 트리거
+    """
+    DROP TRIGGER IF EXISTS trg_sync_event_mapping_cameras ON event_mapping_cameras;
+    CREATE TRIGGER trg_sync_event_mapping_cameras
+        AFTER INSERT OR UPDATE OR DELETE ON event_mapping_cameras
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_sync_event_mapping_speakers ON event_mapping_speakers;
+    CREATE TRIGGER trg_sync_event_mapping_speakers
+        AFTER INSERT OR UPDATE OR DELETE ON event_mapping_speakers
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_sync_event_mapping_lamps ON event_mapping_lamps;
+    CREATE TRIGGER trg_sync_event_mapping_lamps
+        AFTER INSERT OR UPDATE OR DELETE ON event_mapping_lamps
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_sync_device_group_mappings ON device_group_mappings;
+    CREATE TRIGGER trg_sync_device_group_mappings
+        AFTER INSERT OR UPDATE OR DELETE ON device_group_mappings
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_sync_rois ON rois;
+    CREATE TRIGGER trg_sync_rois
+        AFTER INSERT OR UPDATE OR DELETE ON rois
         FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
     """,
 ]

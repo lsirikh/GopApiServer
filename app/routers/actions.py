@@ -27,6 +27,7 @@ import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
+from sqlalchemy.orm import with_polymorphic
 from app.models.event import ActionEvent, Event, DetectionEvent, MalfunctionEvent, ConnectionEvent
 from app.models.device import Device
 from app.schemas.event import (
@@ -260,7 +261,8 @@ async def get_action_events(
     # Query Event base class with polymorphic loading (automatically loads subtypes)
     event_map = {}
     if source_event_ids:
-        source_events = db.query(Event).filter(Event.id.in_(source_event_ids)).all()
+        poly_event = with_polymorphic(Event, [DetectionEvent, MalfunctionEvent, ConnectionEvent])
+        source_events = db.query(poly_event).filter(poly_event.id.in_(source_event_ids)).all()
         for source_event in source_events:
             event_map[source_event.id] = build_source_event_response(source_event)
 

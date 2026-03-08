@@ -27,7 +27,7 @@ import math
 
 from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
-from sqlalchemy.orm import with_polymorphic
+from sqlalchemy.orm import selectin_polymorphic
 from app.models.event import ActionEvent, Event, DetectionEvent, MalfunctionEvent, ConnectionEvent
 from app.models.device import Device
 from app.schemas.event import (
@@ -166,7 +166,7 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
             id=event.id,
             type_event=event.type_event,
             action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
-            result=event.result.value if event.result is not None else None,
+            result=event.result.value,
             device=_build_device_nested_response(event.device),
             device_description=event.device_description,
             detail=event.detail,
@@ -178,7 +178,7 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
             id=event.id,
             type_event=event.type_event,
             action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
-            reason=event.reason.value if event.reason is not None else None,
+            reason=event.reason.value,
             device=_build_device_nested_response(event.device),
             device_description=event.device_description,
             detail=event.detail,
@@ -261,8 +261,9 @@ async def get_action_events(
     # Query Event base class with polymorphic loading (automatically loads subtypes)
     event_map = {}
     if source_event_ids:
-        poly_event = with_polymorphic(Event, [DetectionEvent, MalfunctionEvent, ConnectionEvent])
-        source_events = db.query(poly_event).filter(poly_event.id.in_(source_event_ids)).all()
+        source_events = db.query(Event).options(
+            selectin_polymorphic(Event, [DetectionEvent, MalfunctionEvent, ConnectionEvent])
+        ).filter(Event.id.in_(source_event_ids)).all()
         for source_event in source_events:
             event_map[source_event.id] = build_source_event_response(source_event)
 

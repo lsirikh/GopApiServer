@@ -225,11 +225,60 @@ GET_TRIGGER_SQLS = [
         AFTER INSERT OR UPDATE OR DELETE ON event_mapping_lamps
         FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
     """,
+    # device_group_mappings: statement-level 트리거로 변경 (PRD_DeviceGroup_BulkUnassign §5.3)
+    # 벌크 INSERT/DELETE N건 → group_id 별 1건만 SYNC_DEVICE_GROUP 발행
+    # 등록(POST .../devices)도 자동 수혜. PG10+ REFERENCING NEW/OLD TABLE 필요.
     """
     DROP TRIGGER IF EXISTS trg_sync_device_group_mappings ON device_group_mappings;
-    CREATE TRIGGER trg_sync_device_group_mappings
-        AFTER INSERT OR UPDATE OR DELETE ON device_group_mappings
-        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    DROP TRIGGER IF EXISTS trg_sync_dgm_ins ON device_group_mappings;
+    DROP TRIGGER IF EXISTS trg_sync_dgm_del ON device_group_mappings;
+    DROP TRIGGER IF EXISTS trg_sync_dgm_upd ON device_group_mappings;
+
+    CREATE OR REPLACE FUNCTION fn_notify_dgm_stmt()
+    RETURNS trigger AS $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            FOR r IN SELECT DISTINCT group_id FROM new_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_DEVICE_GROUP','action','UPDATED','resource_id',r.group_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'DELETE' THEN
+            FOR r IN SELECT DISTINCT group_id FROM old_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_DEVICE_GROUP','action','UPDATED','resource_id',r.group_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'UPDATE' THEN
+            FOR r IN
+                SELECT DISTINCT group_id FROM old_rows
+                UNION
+                SELECT DISTINCT group_id FROM new_rows
+            LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_DEVICE_GROUP','action','UPDATED','resource_id',r.group_id
+                )::text);
+            END LOOP;
+        END IF;
+        RETURN NULL;
+    END $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER trg_sync_dgm_ins
+        AFTER INSERT ON device_group_mappings
+        REFERENCING NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_dgm_stmt();
+
+    CREATE TRIGGER trg_sync_dgm_del
+        AFTER DELETE ON device_group_mappings
+        REFERENCING OLD TABLE AS old_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_dgm_stmt();
+
+    CREATE TRIGGER trg_sync_dgm_upd
+        AFTER UPDATE ON device_group_mappings
+        REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_dgm_stmt();
     """,
     """
     DROP TRIGGER IF EXISTS trg_sync_rois ON rois;

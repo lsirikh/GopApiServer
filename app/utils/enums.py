@@ -463,9 +463,6 @@ class EnumAuditActionType(str, Enum):
     SESSION_TERMINATED = "SESSION_TERMINATED"  # 세션 종료 (로그아웃)
     SESSION_FORCED_LOGOUT = "SESSION_FORCED_LOGOUT"  # 강제 로그아웃
 
-    # 디바이스 그룹 멤버십 (PRD_DeviceGroup_BulkUnassign FR-9)
-    DEVICE_GROUP_UNASSIGNED = "DEVICE_GROUP_UNASSIGNED"  # 디바이스 그룹에서 디바이스 해제 (벌크)
-
 
 class EnumAuditResourceType(str, Enum):
     """

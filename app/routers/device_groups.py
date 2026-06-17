@@ -32,7 +32,6 @@ from app.schemas.device_group import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
-from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/devices/groups", tags=["DeviceGroups"])
 
@@ -767,20 +766,6 @@ async def bulk_unassign_devices_from_group(
     """
     group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
     if not group:
-        # AuditLog FAILURE (PRD_DeviceGroup_BulkUnassign FR-9)
-        await log_action(
-            db=db,
-            action_type="DEVICE_GROUP_UNASSIGNED",
-            resource_type="DEVICE_GROUP",
-            actor_login_id=current_user.login_id if current_user else "anonymous",
-            actor_id=current_user.id if current_user else None,
-            actor_name=current_user.name if current_user else None,
-            actor_role=current_user.role if current_user else None,
-            resource_id=group_id,
-            description=f"벌크 해제 실패: DeviceGroup ID {group_id} not found",
-            action_status="FAILURE",
-            error_message=f"DeviceGroup ID {group_id} not found",
-        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"},
@@ -837,26 +822,6 @@ async def bulk_unassign_devices_from_group(
     if not_found:
         parts.append(f"{len(not_found)}개 없음")
     message = ", ".join(parts)
-
-    # AuditLog SUCCESS (PRD_DeviceGroup_BulkUnassign FR-9)
-    await log_action(
-        db=db,
-        action_type="DEVICE_GROUP_UNASSIGNED",
-        resource_type="DEVICE_GROUP",
-        actor_login_id=current_user.login_id if current_user else "anonymous",
-        actor_id=current_user.id if current_user else None,
-        actor_name=current_user.name if current_user else None,
-        actor_role=current_user.role if current_user else None,
-        resource_id=group_id,
-        resource_name=f"DeviceGroup-{group_id} ({group.name})",
-        changes={"before": {"device_ids": removed, "categories": removed_categories}} if removed else None,
-        description=(
-            f"DeviceGroup에서 벌크 해제: "
-            f"requested={len(unique_ids)}, removed={len(removed)}, "
-            f"skipped={len(skipped)}, not_found={len(not_found)}"
-        ),
-        action_status="SUCCESS",
-    )
 
     return ApiSingleResponse(
         success=True,

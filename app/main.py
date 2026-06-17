@@ -280,10 +280,10 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- API Version: 2.9
-- PRD: PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md
+- API Version: 2.10
+- PRD: PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="1.5.0",
+    version="1.6.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",

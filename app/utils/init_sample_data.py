@@ -476,6 +476,8 @@ def _create_device_groups(db: Session, device_ids: dict):
         {"name": "A구역 전체", "description": "A구역(서쪽) 전체 장비 그룹 — 철원 일대"},
         {"name": "B구역 전체", "description": "B구역(중앙) 전체 장비 그룹 — 화천 일대"},
         {"name": "C구역 전체", "description": "C구역(동쪽) 전체 장비 그룹"},
+        {"name": "D구역 전체", "description": "D구역(동북쪽) 전체 장비 그룹 — 양구 일대"},
+        {"name": "E구역 전체", "description": "E구역(북쪽) 전체 장비 그룹 — 인제 일대"},
         {"name": "PTZ 카메라", "description": "PTZ 회전형 카메라 전체"},
         {"name": "긴급 방송장비", "description": "긴급 방송용 스피커 + 경광등 그룹"},
     ]
@@ -487,8 +489,11 @@ def _create_device_groups(db: Session, device_ids: dict):
         db.flush()
         group_objs.append(g)
 
-    # 구역별 매핑 (A=group_device 1, B=2, C=3)
-    zone_groups = {1: group_objs[0].id, 2: group_objs[1].id, 3: group_objs[2].id}
+    # 구역별 매핑 (A=group_device 1, B=2, C=3, D=4, E=5)
+    zone_groups = {
+        1: group_objs[0].id, 2: group_objs[1].id, 3: group_objs[2].id,
+        4: group_objs[3].id, 5: group_objs[4].id,
+    }
     category_map = {
         "controllers": EnumDeviceCategory.CONTROLLER,
         "sensors": EnumDeviceCategory.SENSOR,
@@ -531,7 +536,7 @@ def _create_device_groups(db: Session, device_ids: dict):
         mapping = DeviceGroupMapping(
             device_id=cam.id,
             category_device=EnumDeviceCategory.CAMERA,
-            group_id=group_objs[3].id,
+            group_id=group_objs[5].id,
         )
         db.add(mapping)
         count += 1
@@ -542,7 +547,7 @@ def _create_device_groups(db: Session, device_ids: dict):
         mapping = DeviceGroupMapping(
             device_id=spk.id,
             category_device=EnumDeviceCategory.SPEAKER,
-            group_id=group_objs[4].id,
+            group_id=group_objs[6].id,
         )
         db.add(mapping)
         count += 1
@@ -552,7 +557,7 @@ def _create_device_groups(db: Session, device_ids: dict):
         mapping = DeviceGroupMapping(
             device_id=lmp.id,
             category_device=EnumDeviceCategory.LAMP,
-            group_id=group_objs[4].id,
+            group_id=group_objs[6].id,
         )
         db.add(mapping)
         count += 1
@@ -698,20 +703,20 @@ FAULT_TYPES = list(EnumFaultType)
 
 # AI 탐지 상세 정보 템플릿
 DETECTION_DETAILS = [
-    {"thumbnail": "/api/thumbnails/1/image", "ai_objects": [
+    {"thumbnail": None, "ai_objects": [
         {"class": "person", "confidence": 0.92, "bbox": [120, 80, 340, 520]},
     ], "zone": "침입 감지 영역"},
-    {"thumbnail": "/api/thumbnails/2/image", "ai_objects": [
+    {"thumbnail": None, "ai_objects": [
         {"class": "person", "confidence": 0.87, "bbox": [200, 100, 380, 480]},
         {"class": "person", "confidence": 0.73, "bbox": [500, 120, 650, 490]},
     ], "zone": "철조망 영역"},
-    {"thumbnail": "/api/thumbnails/3/image", "ai_objects": [
+    {"thumbnail": None, "ai_objects": [
         {"class": "vehicle", "confidence": 0.95, "bbox": [50, 200, 600, 450]},
     ], "zone": "정문 감시"},
     {"thumbnail": None, "ai_objects": [
         {"class": "animal", "confidence": 0.68, "bbox": [300, 350, 420, 450]},
     ], "zone": "배회 감지 영역"},
-    {"thumbnail": "/api/thumbnails/5/image", "ai_objects": [
+    {"thumbnail": None, "ai_objects": [
         {"class": "person", "confidence": 0.96, "bbox": [150, 50, 350, 500]},
     ], "zone": "좌측 경계", "alarm_level": "HIGH"},
     None,  # 일부 이벤트는 detail 없음
@@ -736,6 +741,18 @@ def _create_events(db: Session, device_ids: dict) -> dict:
     for v in device_ids.values():
         all_ids.extend(v)
 
+    # device_description 생성을 위한 디바이스 정보 캐시
+    # 형식: "[{type_device}] {name_device} (number: {number_device}, id: {id})"
+    device_cache: dict[int, str] = {}
+    for dev in db.query(Device).all():
+        type_val = dev.type_device.value if hasattr(dev.type_device, 'value') else dev.type_device
+        device_cache[dev.id] = f"[{type_val}] {dev.name_device} (number: {dev.number_device}, id: {dev.id})"
+
+    def _desc(dev_id: int | None) -> str | None:
+        if dev_id is None:
+            return None
+        return device_cache.get(dev_id, f"[Unknown] device (id: {dev_id})")
+
     now = datetime.now(settings.tz).replace(tzinfo=None)
     eids = {"detection": [], "malfunction": [], "connection": []}
 
@@ -752,21 +769,18 @@ def _create_events(db: Session, device_ids: dict) -> dict:
         # 70% 센서 탐지, 30% 카메라 AI 탐지
         if random.random() < 0.7 and sensor_ids:
             dev_id = random.choice(sensor_ids)
-            desc = f"센서 탐지 - 장비#{dev_id}"
             detail = random.choice([None, None, None, DETECTION_DETAILS[-1]])
         elif camera_ids:
             dev_id = random.choice(camera_ids)
-            desc = f"AI 영상 탐지 - 카메라#{dev_id}"
             detail = random.choice(DETECTION_DETAILS)
         else:
             dev_id = random.choice(all_ids) if all_ids else None
-            desc = f"탐지 - 장비#{dev_id}"
             detail = None
 
         e = DetectionEvent(
             type_event="Intrusion",
             device_id=dev_id,
-            device_description=desc,
+            device_description=_desc(dev_id),
             result=random.choice(DETECTION_TYPES),
             action_reported="False",  # action_reported는 아래에서 일괄 설정
             detail=detail,
@@ -795,7 +809,7 @@ def _create_events(db: Session, device_ids: dict) -> dict:
         e = MalfunctionEvent(
             type_event="Fault",
             device_id=dev_id,
-            device_description=f"장비 장애 - 장비#{dev_id}",
+            device_description=_desc(dev_id),
             reason=fault,
             action_reported="False",
             detail={
@@ -826,7 +840,7 @@ def _create_events(db: Session, device_ids: dict) -> dict:
         e = ConnectionEvent(
             type_event="Connection",
             device_id=dev_id,
-            device_description=f"연결 이벤트 - 장비#{dev_id}",
+            device_description=_desc(dev_id),
             created_at=dt, updated_at=dt,
         )
         db.add(e)

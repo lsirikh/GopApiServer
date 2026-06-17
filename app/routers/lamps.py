@@ -132,8 +132,8 @@ async def get_lamps(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get items with pagination
-    lamps = query.offset(skip).limit(limit).all()
+    # Get items with pagination (order by id for stable pagination)
+    lamps = query.order_by(Lamp.id).offset(skip).limit(limit).all()
 
     # Convert to response schema
     items = [_lamp_to_response(lamp, db) for lamp in lamps]

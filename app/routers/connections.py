@@ -229,7 +229,7 @@ async def get_connection_events(
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by created_at desc)
-    events = query.order_by(ConnectionEvent.created_at.desc()).offset(skip).limit(limit).all()
+    events = query.order_by(ConnectionEvent.created_at.desc(), ConnectionEvent.id.desc()).offset(skip).limit(limit).all()
 
     # PRD v2.1: Response uses device_id (no group_event, controller, sensor, type_device)
     # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)

@@ -53,7 +53,7 @@ async def get_camera_presets(
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
-    presets = query.offset(skip).limit(limit).all()
+    presets = query.order_by(CameraPreset.id).offset(skip).limit(limit).all()
 
     # Build response items
     items = []

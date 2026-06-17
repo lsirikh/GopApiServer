@@ -60,6 +60,8 @@ data/*.db
 .claude/
 Claude.md
 claude.md
+.playwright-mcp
+
 
 # reports (generated PDFs at root level only)
 /reports/

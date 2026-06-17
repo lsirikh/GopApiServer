@@ -123,7 +123,7 @@ async def get_audit_logs(
 
     total = query.count()
     skip = (page - 1) * limit
-    audit_logs = query.offset(skip).limit(limit).all()
+    audit_logs = query.order_by(AuditLog.id.desc()).offset(skip).limit(limit).all()
 
     total_pages = math.ceil(total / limit) if total > 0 else 1
 

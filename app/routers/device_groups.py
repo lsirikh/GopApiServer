@@ -104,7 +104,7 @@ async def get_device_groups(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    groups = query.offset(skip).limit(limit).all()
+    groups = query.order_by(DeviceGroup.id).offset(skip).limit(limit).all()
 
     group_responses = []
     for g in groups:

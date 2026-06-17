@@ -240,7 +240,7 @@ async def get_detection_events(
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by created_at desc)
-    events = query.order_by(DetectionEvent.created_at.desc()).offset(skip).limit(limit).all()
+    events = query.order_by(DetectionEvent.created_at.desc(), DetectionEvent.id.desc()).offset(skip).limit(limit).all()
 
     # Convert to response format (PRD v2.1: group_event 제거됨, device nested and device_description 포함)
     # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)

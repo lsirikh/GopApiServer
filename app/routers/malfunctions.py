@@ -224,15 +224,15 @@ async def get_malfunction_events(
     if end_date is not None:
         query = query.filter(MalfunctionEvent.created_at <= end_date)
 
-    # Get total count
-    total = db.query(MalfunctionEvent).count()
+    # Get total count (필터 적용된 쿼리 기준)
+    total = query.count()
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by created_at desc)
-    events = query.order_by(MalfunctionEvent.created_at.desc()).offset(skip).limit(limit).all()
+    events = query.order_by(MalfunctionEvent.created_at.desc(), MalfunctionEvent.id.desc()).offset(skip).limit(limit).all()
 
     # Convert to response format (PRD v2.1: group_event 제거됨, device nested and device_description 포함)
     # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)

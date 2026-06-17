@@ -52,7 +52,7 @@ async def get_points(
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
-    points = query.offset(skip).limit(limit).all()
+    points = query.order_by(XyPoint.id).offset(skip).limit(limit).all()
 
     # Build response items
     items = [

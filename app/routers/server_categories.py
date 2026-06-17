@@ -59,8 +59,8 @@ async def get_server_categories(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    categories = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    categories = query.order_by(ServerCategory.id).offset(skip).limit(limit).all()
 
     # Convert to response format
     category_responses = [

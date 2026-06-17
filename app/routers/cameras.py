@@ -169,8 +169,8 @@ async def get_cameras(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    cameras = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
 
     # Convert to response format using helper function
     camera_responses = [_camera_to_response(c, db) for c in cameras]

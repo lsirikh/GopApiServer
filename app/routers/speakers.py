@@ -154,8 +154,8 @@ async def get_speakers(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    speakers = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    speakers = query.order_by(Speaker.id).offset(skip).limit(limit).all()
 
     # Convert to response format
     speaker_responses = [_speaker_to_response(s, db) for s in speakers]

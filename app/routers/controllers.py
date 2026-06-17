@@ -200,8 +200,8 @@ async def get_controllers(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    controllers = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    controllers = query.order_by(Controller.id).offset(skip).limit(limit).all()
 
     # Convert to response format using helper function
     controller_responses = [

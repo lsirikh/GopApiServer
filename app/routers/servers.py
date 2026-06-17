@@ -134,8 +134,8 @@ async def get_servers(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    servers = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    servers = query.order_by(Server.id).offset(skip).limit(limit).all()
 
     # Convert to response format
     server_responses = [_server_to_response(s) for s in servers]

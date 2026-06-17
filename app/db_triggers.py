@@ -286,6 +286,167 @@ GET_TRIGGER_SQLS = [
         AFTER INSERT OR UPDATE OR DELETE ON rois
         FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
     """,
+    # event_mapping_cameras: row-level → statement-level
+    # 벌크 INSERT/DELETE N건 → event_mapping_id 별 1건만 SYNC_EVENT_MAPPING 발행
+    # PRD_EventMapping_BulkOperations.md §5.3
+    """
+    DROP TRIGGER IF EXISTS trg_sync_event_mapping_cameras ON event_mapping_cameras;
+    DROP TRIGGER IF EXISTS trg_sync_emc_ins ON event_mapping_cameras;
+    DROP TRIGGER IF EXISTS trg_sync_emc_del ON event_mapping_cameras;
+    DROP TRIGGER IF EXISTS trg_sync_emc_upd ON event_mapping_cameras;
+
+    CREATE OR REPLACE FUNCTION fn_notify_emc_stmt()
+    RETURNS trigger AS $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            FOR r IN SELECT DISTINCT event_mapping_id FROM new_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'DELETE' THEN
+            FOR r IN SELECT DISTINCT event_mapping_id FROM old_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'UPDATE' THEN
+            FOR r IN
+                SELECT DISTINCT event_mapping_id FROM old_rows
+                UNION
+                SELECT DISTINCT event_mapping_id FROM new_rows
+            LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        END IF;
+        RETURN NULL;
+    END $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER trg_sync_emc_ins
+        AFTER INSERT ON event_mapping_cameras
+        REFERENCING NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_emc_stmt();
+
+    CREATE TRIGGER trg_sync_emc_del
+        AFTER DELETE ON event_mapping_cameras
+        REFERENCING OLD TABLE AS old_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_emc_stmt();
+
+    CREATE TRIGGER trg_sync_emc_upd
+        AFTER UPDATE ON event_mapping_cameras
+        REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_emc_stmt();
+    """,
+    # event_mapping_speakers: row-level → statement-level
+    """
+    DROP TRIGGER IF EXISTS trg_sync_event_mapping_speakers ON event_mapping_speakers;
+    DROP TRIGGER IF EXISTS trg_sync_ems_ins ON event_mapping_speakers;
+    DROP TRIGGER IF EXISTS trg_sync_ems_del ON event_mapping_speakers;
+    DROP TRIGGER IF EXISTS trg_sync_ems_upd ON event_mapping_speakers;
+
+    CREATE OR REPLACE FUNCTION fn_notify_ems_stmt()
+    RETURNS trigger AS $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            FOR r IN SELECT DISTINCT event_mapping_id FROM new_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'DELETE' THEN
+            FOR r IN SELECT DISTINCT event_mapping_id FROM old_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'UPDATE' THEN
+            FOR r IN
+                SELECT DISTINCT event_mapping_id FROM old_rows
+                UNION
+                SELECT DISTINCT event_mapping_id FROM new_rows
+            LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        END IF;
+        RETURN NULL;
+    END $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER trg_sync_ems_ins
+        AFTER INSERT ON event_mapping_speakers
+        REFERENCING NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_ems_stmt();
+
+    CREATE TRIGGER trg_sync_ems_del
+        AFTER DELETE ON event_mapping_speakers
+        REFERENCING OLD TABLE AS old_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_ems_stmt();
+
+    CREATE TRIGGER trg_sync_ems_upd
+        AFTER UPDATE ON event_mapping_speakers
+        REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_ems_stmt();
+    """,
+    # event_mapping_lamps: row-level → statement-level
+    """
+    DROP TRIGGER IF EXISTS trg_sync_event_mapping_lamps ON event_mapping_lamps;
+    DROP TRIGGER IF EXISTS trg_sync_eml_ins ON event_mapping_lamps;
+    DROP TRIGGER IF EXISTS trg_sync_eml_del ON event_mapping_lamps;
+    DROP TRIGGER IF EXISTS trg_sync_eml_upd ON event_mapping_lamps;
+
+    CREATE OR REPLACE FUNCTION fn_notify_eml_stmt()
+    RETURNS trigger AS $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            FOR r IN SELECT DISTINCT event_mapping_id FROM new_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'DELETE' THEN
+            FOR r IN SELECT DISTINCT event_mapping_id FROM old_rows LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        ELSIF TG_OP = 'UPDATE' THEN
+            FOR r IN
+                SELECT DISTINCT event_mapping_id FROM old_rows
+                UNION
+                SELECT DISTINCT event_mapping_id FROM new_rows
+            LOOP
+                PERFORM pg_notify('gop_sync', jsonb_build_object(
+                    'cmd','SYNC_EVENT_MAPPING','action','UPDATED','resource_id',r.event_mapping_id
+                )::text);
+            END LOOP;
+        END IF;
+        RETURN NULL;
+    END $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER trg_sync_eml_ins
+        AFTER INSERT ON event_mapping_lamps
+        REFERENCING NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_eml_stmt();
+
+    CREATE TRIGGER trg_sync_eml_del
+        AFTER DELETE ON event_mapping_lamps
+        REFERENCING OLD TABLE AS old_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_eml_stmt();
+
+    CREATE TRIGGER trg_sync_eml_upd
+        AFTER UPDATE ON event_mapping_lamps
+        REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_eml_stmt();
+    """,
 ]
 
 

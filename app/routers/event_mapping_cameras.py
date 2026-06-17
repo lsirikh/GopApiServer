@@ -20,7 +20,12 @@ from app.schemas.integration import (
     EventMappingCameraResponse,
     EventMappingCameraListResponse,
     CameraNestedResponseIntegration as CameraNestedResponse,
-    PresetNestedResponse
+    PresetNestedResponse,
+    EventMappingCameraBulkCreateRequest,
+    EventMappingCameraBulkCreateFailure,
+    EventMappingCameraBulkCreateResponse,
+    EventMappingCameraBulkUnassignRequest,
+    EventMappingCameraBulkUnassignResponse,
 )
 from app.schemas.device import DeviceGroupNestedResponse
 from app.routers.auth import get_current_user_optional
@@ -533,4 +538,187 @@ def list_all_mapping_cameras(
             "items": [item.model_dump() for item in items],
             "total": len(items)
         }
+    }
+
+# ============================================
+# Bulk endpoints (PRD_EventMapping_BulkOperations.md §5)
+# ============================================
+@router.post(
+    "/{mapping_id}/cameras/bulk",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Bulk create camera configs for event mapping",
+    description="Create N camera configurations for an event mapping in a single call (1~100). Best-effort: returns created_ids + failed_items.",
+)
+def bulk_create_event_mapping_cameras(
+    mapping_id: int,
+    request: EventMappingCameraBulkCreateRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user_optional),
+):
+    """POST /api/event-mappings/{mapping_id}/cameras/bulk"""
+    # Check EventMapping exists
+    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    if not event_mapping:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event mapping with id {mapping_id} not found"
+        )
+
+    created_ids: list[int] = []
+    failed_items: list[EventMappingCameraBulkCreateFailure] = []
+    created_rows: list[EventMappingCamera] = []
+
+    for idx, item in enumerate(request.items):
+        # Camera FK 검증 (best-effort)
+        camera = db.query(Camera).filter(Camera.id == item.camera_id).first()
+        if not camera:
+            failed_items.append(EventMappingCameraBulkCreateFailure(
+                index=idx, item=item, error=f"Camera with id {item.camera_id} not found"
+            ))
+            continue
+
+        # target_preset_id 검증 (Optional)
+        if item.target_preset_id:
+            target_preset = db.query(CameraPreset).filter(
+                CameraPreset.id == item.target_preset_id
+            ).first()
+            if not target_preset:
+                failed_items.append(EventMappingCameraBulkCreateFailure(
+                    index=idx, item=item,
+                    error=f"Target preset with id {item.target_preset_id} not found"
+                ))
+                continue
+
+        # home_preset_id 검증 (Optional)
+        if item.home_preset_id:
+            home_preset = db.query(CameraPreset).filter(
+                CameraPreset.id == item.home_preset_id
+            ).first()
+            if not home_preset:
+                failed_items.append(EventMappingCameraBulkCreateFailure(
+                    index=idx, item=item,
+                    error=f"Home preset with id {item.home_preset_id} not found"
+                ))
+                continue
+
+        emc = EventMappingCamera(
+            event_mapping_id=mapping_id,
+            camera_id=item.camera_id,
+            target_preset_id=item.target_preset_id,
+            home_preset_id=item.home_preset_id,
+            delay_time=item.delay_time,
+            is_enable=item.is_enable,
+            priority=item.priority,
+        )
+        db.add(emc)
+        created_rows.append(emc)
+
+    # PK 채번 후 단일 commit (원자성)
+    db.flush()
+    for row in created_rows:
+        created_ids.append(row.id)
+    db.commit()
+
+    # ConfigChangeLog: 1건/요청 (CREATED) — created가 있을 때만
+    if created_ids:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+            resource_id=mapping_id,
+            resource_name=f"EventMapping-{mapping_id} cameras (bulk)",
+            action=EnumConfigActionType.CREATED,
+            after_state={"config_ids": created_ids, "count": len(created_ids)},
+            description=f"EventMapping에 {len(created_ids)}개 Camera 연동 일괄 생성 (bulk)",
+        )
+
+    parts = [f"{len(created_ids)}개 Camera 연동 생성 완료"]
+    if failed_items:
+        parts.append(f"{len(failed_items)}개 실패")
+    message = ", ".join(parts)
+
+    return {
+        "success": True,
+        "message": message,
+        "data": EventMappingCameraBulkCreateResponse(
+            mapping_id=mapping_id,
+            created_ids=created_ids,
+            failed_items=failed_items,
+            message=message,
+        ).model_dump(),
+    }
+
+
+@router.delete(
+    "/{mapping_id}/cameras",
+    response_model=dict,
+    summary="Bulk unassign camera configs from event mapping",
+    description="Unassign N camera configurations from an event mapping in a single call (1~100). Idempotent: removed/skipped/not_found 3-way classification.",
+)
+def bulk_delete_event_mapping_cameras(
+    mapping_id: int,
+    request: EventMappingCameraBulkUnassignRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user_optional),
+):
+    """DELETE /api/event-mappings/{mapping_id}/cameras"""
+    # Check EventMapping exists
+    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    if not event_mapping:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event mapping with id {mapping_id} not found"
+        )
+
+    # 중복 ID 제거 (멱등성)
+    unique_ids = list(dict.fromkeys(request.config_ids))
+
+    removed: list[int] = []
+    skipped: list[int] = []
+    not_found: list[int] = []
+
+    for config_id in unique_ids:
+        row = db.query(EventMappingCamera).filter(
+            EventMappingCamera.id == config_id
+        ).first()
+        if not row:
+            not_found.append(config_id)
+            continue
+        if row.event_mapping_id != mapping_id:
+            skipped.append(config_id)
+            continue
+        db.delete(row)
+        removed.append(config_id)
+
+    db.commit()  # 단일 commit (원자성)
+
+    # ConfigChangeLog: 1건/요청 (DELETED) — removed가 있을 때만
+    if removed:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+            resource_id=mapping_id,
+            resource_name=f"EventMapping-{mapping_id} cameras (bulk)",
+            action=EnumConfigActionType.DELETED,
+            before_state={"config_ids": removed, "count": len(removed)},
+            description=f"EventMapping에서 {len(removed)}개 Camera 연동 일괄 해제 (bulk)",
+        )
+
+    parts = [f"{len(removed)}개 Camera 연동 해제 완료"]
+    if skipped:
+        parts.append(f"{len(skipped)}개 건너뜀")
+    if not_found:
+        parts.append(f"{len(not_found)}개 없음")
+    message = ", ".join(parts)
+
+    return {
+        "success": True,
+        "message": message,
+        "data": EventMappingCameraBulkUnassignResponse(
+            mapping_id=mapping_id,
+            removed_config_ids=removed,
+            skipped_config_ids=skipped,
+            not_found_config_ids=not_found,
+            message=message,
+        ).model_dump(),
     }

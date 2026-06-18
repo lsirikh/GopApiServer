@@ -10948,8 +10948,8 @@ Content-Type: application/json
 | `mapping_id`             | int             | 대상 EventMapping의 PK                                                                |
 | `created_ids`            | `List[int]`     | 실제 INSERT에 성공한 **매핑 row PK (`event_mapping_cameras.id`) 목록** (요청 순서 보존). 단건 §7.3.6 DELETE path `{config_id}`와 동일 의미 — 카메라 PK가 아님 |
 | `failed_items`           | `List[object]`  | 검증/DB 오류로 실패한 항목. 각 원소: `{ "index": int, "item": {...}, "error": str }`. `item`은 입력 row 원본 에코 |
-| `skipped_config_ids`     | `List[int]`     | (envelope 일관성용 빈 배열 — 등록 시 분류 미구현, v4.5 코드 보강 예정. 현재 상시 `[]`) |
-| `not_found_config_ids`   | `List[int]`     | (envelope 일관성용 빈 배열 — 등록 시 분류 미구현, v4.5 코드 보강 예정. 현재 상시 `[]`. `camera_id` 부재는 `failed_items[*].error`로 노출) |
+| `skipped_config_ids`     | `List[int]`     | 이미 `(mapping_id, camera_id)` 매핑 row가 존재하여 INSERT를 건너뛴 **기존 매핑 row PK 목록** (v4.5 PR-B 신설 — 멱등성 보장). 같은 request 내 동일 `camera_id` 중복은 별개 — N건 모두 시도됨 (v4.6 별도 보강 권고) |
+| `not_found_config_ids`   | `List[int]`     | `cameras` 테이블에 존재하지 않는 입력 `camera_id` 목록 (v4.5 PR-B 신설 — 매핑 row PK가 아닌 카메라 PK). `target_preset_id` / `home_preset_id` 부재는 `failed_items[*].error`로 노출 |
 | `message`                | string          | 사람이 읽기 좋은 결과 요약                                                            |
 
 ##### Error Responses
@@ -10963,11 +10963,11 @@ Content-Type: application/json
 
 ##### ConfigChangeLog
 
-- `created_ids` ≥ 1일 때만 요청당 **1건** 기록 (Speaker/Lamp 벌크와 정합 — 전체 실패 시 미발행)
+- 요청당 **무조건 1건** 기록 (v4.5 PR-A 정합화 — Camera/Speaker/Lamp 모두 동일 정책). 0건 케이스도 `after_state.config_ids=[], count=0` 으로 기록되어 매니저가 호출 사실 자체를 감사 가능
 - `resource_type` = `EnumConfigResourceType.EVENT_MAPPING_CAMERA`
 - `action_type` = `EnumConfigActionType.CREATED`
 - `resource_id` = `mapping_id`
-- `description`: `(bulk)` 토큰 포함 — 단건/벌크 구분
+- `description`: `(bulk)` 토큰 포함 — 단건/벌크 구분 (예: `"EventMapping에 2개 Camera 연동 일괄 생성 (bulk)"`)
 - `after_state` 예시 (`config_ids`는 매핑 row PK 리스트 — 카메라 PK가 아님):
 
 ```json
@@ -11063,11 +11063,11 @@ Content-Type: application/json
 
 ##### ConfigChangeLog
 
-- `removed_config_ids` ≥ 1일 때만 요청당 **1건** 기록 (Speaker/Lamp 벌크와 정합 — 전부 skipped/not_found 시 미발행)
+- 요청당 **무조건 1건** 기록 (v4.5 PR-A 정합화). 0건 케이스도 `before_state.config_ids=[], count=0` 으로 기록
 - `resource_type` = `EnumConfigResourceType.EVENT_MAPPING_CAMERA`
 - `action_type` = `EnumConfigActionType.DELETED`
 - `resource_id` = `mapping_id`
-- `description`: `(bulk)` 토큰 포함 — 단건/벌크 구분
+- `description`: `(bulk)` 토큰 포함 — 단건/벌크 구분 (예: `"EventMapping에서 2개 Camera 연동 일괄 해제 (bulk)"`)
 - `before_state` 예시 (`config_ids`는 매핑 row PK 리스트 — 카메라 PK가 아님):
 
 ```json
@@ -12217,7 +12217,7 @@ Accept: application/json
 - **buzzer_sound (EnumBuzzerSound)**: Fire A-WANG, Emergency, Ambulance, PI-PI-PI, PI_continue
 - **light_mode (EnumLightMode)**: steady, blinking
 
-> **현 구현 제약 (v4.3)**: `EventMappingLampCreate`의 `color/buzzer_sound/light_mode`가 Pydantic Enum이 아닌 plain `str`로 정의되어 있어, 허용값 외 문자열은 Pydantic 422 검증을 통과하고 DB INSERT 시점에 Postgres enum 제약 위반으로 **HTTP 500 `Database integrity error`**가 반환된다. v4.5 코드 보강 시점에서 Pydantic Enum으로 전환되어 422로 일관화될 예정.
+> **v4.5 PR-C 정합화 (2026-06-18)**: `EventMappingLampCreate`/`Update`/`Replace`의 `color`/`buzzer_sound`/`light_mode`가 plain `str` → `EnumLampColor`/`EnumBuzzerSound`/`EnumLightMode` Pydantic 타입으로 전환됨. 허용값 외 입력은 Pydantic 422 검증에서 사전 차단(`Input should be 'Red', 'Orange', 'Green', 'Blue' or 'White'` 등 명확한 에러 메시지 반환). 더 이상 DB INSERT까지 도달하지 않으므로 enum 위반 500은 발생하지 않는다.
 
 > **주의 — `items[*].event_mapping_id` 무시 정책**:
 > 단건 스키마 재사용을 위해 `EventMappingLampCreate`에 정의된 `event_mapping_id` 필드를 본문에 포함할 수 있으나, 벌크 엔드포인트는 **path parameter `{mapping_id}`를 단일 신뢰원**으로 사용한다. `items` 각 요소의 `event_mapping_id`는 라우터에서 무시·덮어쓰기되므로 path와 body의 값이 달라도 path 값이 적용된다. 클라이언트는 `items[*].event_mapping_id`를 path와 동일한 값으로 채워 보내거나(권장), 0 등 placeholder를 넣어도 무방하다 — 어느 쪽이든 결과는 동일하다.
@@ -12300,8 +12300,8 @@ Accept: application/json
 |-----------|----------|
 | 200 OK | 정상 처리 (전체 성공/부분 성공/전체 row 실패 모두 200, 결과는 body `created_ids` / `failed_items`로 구분) |
 | 404 Not Found | `mapping_id`에 해당하는 EventMapping 미존재 |
-| 422 Unprocessable Entity | `items` 누락 / 빈 배열 / 100건 초과 / `lamp_id` 누락 / 타입 오류 등 Pydantic 검증 실패 (Enum 값 검증은 v4.3 미구현 — 아래 Enum 허용값 절 주의 참조) |
-| 500 Internal Server Error | DB 트랜잭션 오류 / Enum 제약 위반 (v4.5 코드 보강 시 422로 이관 예정) |
+| 422 Unprocessable Entity | `items` 누락 / 빈 배열 / 100건 초과 / `lamp_id` 누락 / **Enum 값 오류** 등 Pydantic 검증 실패 (`color`/`buzzer_sound`/`light_mode` 모두 v4.5 PR-C에서 `EnumLampColor`/`EnumBuzzerSound`/`EnumLightMode` Pydantic 타입으로 전환되어 422 보장. 예: `color="Purple"` → `"Input should be 'Red', 'Orange', 'Green', 'Blue' or 'White'"`) |
+| 500 Internal Server Error | DB 트랜잭션 오류 (Enum 제약 위반은 v4.5 PR-C 이후 422로 사전 차단됨) |
 
 **ConfigChangeLog 연동**:
 - 리소스 타입: `EnumConfigResourceType.EVENT_MAPPING_LAMP`
@@ -15808,6 +15808,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v4.5 | 2026-06-18 | **Bulk API 코드 보강 — v4.4 [G2 P1] 3건 실 구현 (PR-A/B/C)**<br>- [PR-A] `event_mapping_cameras.py:624,696` + Speaker/Lamp 모든 등록·해제 핸들러의 `if created_ids:` / `if removed:` 가드 제거 → ConfigChangeLog 무조건 1건/요청 발행 (0건 케이스도 `after_state.config_ids=[], count=0`으로 감사 가능). 영향 행: §7.3.9/10, §7.4.9/10, §7.5.9/10 ConfigChangeLog 절 일괄 갱신<br>- [PR-B] 3 라우터 등록 핸들러에 실 분류 로직 신설: `not_found_config_ids` = `cameras/speakers/lamps` 테이블 FK 미존재 ID, `skipped_config_ids` = 이미 `(mapping_id, device_id)` 매핑 row 존재 시 기존 row PK (멱등성). `failed_items`는 기타 검증(`target_preset_id` / `home_preset_id` / `file_group_id` 부재)에 한정. 응답 envelope이 v4.4 placeholder → 실 값으로 활성화. (같은 request 내 동일 `device_id` 중복은 v4.6 별도 보강 권고 — 현재 N건 모두 INSERT 시도)<br>- [PR-C] `app/schemas/integration.py:383~386` + Update/Replace 스키마의 Lamp `color` / `buzzer_sound` / `light_mode` 필드를 plain `str` → `EnumLampColor` / `EnumBuzzerSound` / `EnumLightMode` Pydantic 타입으로 전환. 허용값 외 입력 시 422 사전 차단 (예: `color="Purple"` → `"Input should be 'Red', 'Orange', 'Green', 'Blue' or 'White'"`). 더 이상 DB enum 위반 500 도달 불가<br>- 검증: 실 API 호출 4 시나리오 (CAM 분류, 0건 ConfigLog, LMP Purple 422) 모두 통과. pytest 55/66 (v4.4 51/66 대비 PR-B 분류 케이스 4건 추가 통과)<br>- 명세 §7.3.9 Response Fields 표 + ConfigChangeLog 절 + §7.5.9 Enum 허용값 절 + HTTP 코드 표 갱신. v4.4의 "v4.5 보강 예정" 주석 4건 모두 실 동작으로 교체<br>- 롤백: git tag `pre-v45` (HEAD=5ab139a, 본 commit 직전) |
 | v4.4 | 2026-06-18 | **Bulk API 명세-구현 정합화 — GAP 14건 정정 (5.6.9, 7.3.9, 7.3.10, 7.5.9, 7.5.10)**<br>- [G1 P0 치명 3건] §7.3.9 Request Body 표/Example을 실 코드(`camera_id` 외 5필드)로 교체, `created_ids/config_ids`가 **매핑 row PK** (`event_mapping_cameras.id`)임을 본문·예시·로그 3곳 일관 명시 — 매니저가 명세대로 호출 시 즉시 422 실패 차단<br>- [G2 P1 약속→코드 보강 3건, v4.5 분리] `skipped/not_found_config_ids` 등록 응답은 envelope 일관성용 placeholder로 명시 (실 분류는 v4.5), Camera ConfigLog 0건 시 미발행 정합(Speaker/Lamp와 일치), Lamp Enum 검증은 v4.3 plain `str` 한계로 위반값 시 HTTP 500 발생 가능 경고 (v4.5에서 Pydantic Enum 전환)<br>- [G3 P2 트리거명 2건] §7.5.9/10 `trg_sync_eml_insert/delete` → `trg_sync_eml_ins/del` (`db_triggers.py:435,440`), §7.3.9/10 "§6 이벤트 매트릭스" dangling reference 제거하고 `fn_notify_emc_stmt` + `SELECT DISTINCT event_mapping_id` 루프 + `cmd=SYNC_EVENT_MAPPING/action=UPDATED` 단일 발행 직접 기술<br>- [G4 P3 문서 정합성 6건] §5.6.9 `meta.message` 표기 오류 → `data.message` 정정 (envelope top-level mirror 명시), L11843~11861 영문/한글 Agent 작업노트 leak 제거 + §7.5 헤더 2회 중복 통합, L11065 `(§7.3.5)` → `(§7.3.6)` cross-ref 정정, L10963/L11067 가공 `/members/bulk` `/members` → 실 `/devices` path 정정, 200 OK 응답에 envelope `meta` 부재 사실 명시(4xx/5xx에만 동봉)<br>- 검증: `docs/sim/raw_data.json` 19 시나리오 (`CAM_create_doc_schema_bad` HTTP 422, `LMP_create_enum_purple` HTTP 500 확정) + `docs/workflow_audit_v3/a01~a09.md` 9 agent 적대적 검증<br>- 본 PRD: `docs/PRD_BulkAPI_Spec_Sync_v4.4.md` (529 라인, 16섹션)<br>- 코드 변경 없음 — 명세를 코드에 정합화. v4.5에서 PR-A(0건 ConfigLog) / PR-B(skipped/not_found 실 분류) / PR-C(Lamp Enum) 보강 |
 | v4.3 | 2026-06-17 | **ActionEvent 1:N 관계 반영 + Bulk API 7건 신설 + statement-level 트리거 마이그레이션 (6.1.7, 6.2.7, 6.4, 5.6.9, 7.3.9, 7.3.10, 7.4.9, 7.4.10, 7.5.9, 7.5.10, 부록 12.1)**<br><br>**[1. Detection/Malfunction Action 조회 → 1:N (6.1.7, 6.2.7)]**<br>- Endpoint 변경: `/{event_id}/action` → `/{event_id}/actions` (복수형)<br>- 응답 형식 변경: 단건 객체 → 배열(`data: [...]`)<br>- 메시지 변경: "Action event retrieved" → "Action events retrieved"<br>- Action Event 미존재 시 빈 배열 반환 (404 제거)<br><br>**[2. Action 생성/삭제 로직 변경 (6.4.1, 6.4.6, 6.4.7)]**<br>- 1:1 제약 제거 → 1:N 관계: 하나의 source event에 여러 ActionEvent 생성 가능<br>- 삭제 시 count 기반 복원: 남은 ActionEvent가 0개일 때만 `action_reported`를 "False"로 복원<br>- 6.1.6/6.2.6 삭제 주석 동기화<br><br>**[3. DeviceGroup 디바이스 벌크 해제 신설 (5.6.9)]**<br>- 신규 엔드포인트: `DELETE /api/devices/groups/{group_id}/devices` (body: `device_ids: List[int]`, 1~100)<br>- 단건 해제(`5.6.8`)의 N회 호출을 1회로 통합 — 그룹 편집 UI 라운드트립 최소화<br>- 응답 3분류: `removed_device_ids` / `skipped_device_ids` / `not_found_device_ids` (멱등성 보장, 전체/부분 해제 모두 200)<br>- ConfigChangeLog: `EnumConfigResourceType.DEVICE_GROUP` / `EnumConfigActionType.UNASSIGNED` 1건/요청 (`before_state.device_ids` + categories)<br>- AuditLog 도메인 외 (AuditLog는 USER/USER_GROUP/USER_SESSION/PASSWORD에 한정, `PRD_Audit_Log.md §2.2.2`)<br>- NATS: `device_group_mappings` row-level → statement-level 트리거 마이그레이션 — 영향 받는 group_id당 `SYNC_DEVICE_GROUP/UPDATED` 1건만 발행 (등록 API도 자동 수혜, PostgreSQL 10+ `REFERENCING NEW/OLD TABLE` 필요)<br><br>**[4. EventMapping SubResource 벌크 API 6건 신설 — §7.3.9/§7.3.10/§7.4.9/§7.4.10/§7.5.9/§7.5.10 본문 신설 + 부록 §12.1 표 동기화 + Swagger OpenAPI 자동 노출]**<br>- Camera: `POST .../cameras/bulk` (벌크 등록 `items: List[Create]`), `DELETE .../cameras` (벌크 해제 `config_ids: List[int]`)<br>- Speaker: `POST .../speakers/bulk` + `DELETE .../speakers` (동일 패턴)<br>- Lamp: `POST .../lamps/bulk` + `DELETE .../lamps` (동일 패턴)<br>- 응답: 등록은 `created_ids` + `failed_items` (best-effort 부분 성공 시맨틱), 해제는 `removed/skipped/not_found_config_ids` 3분류 (DeviceGroup 미러)<br>- 기존 단건 CRUD(`{config_id}` 경로)는 그대로 유지 — 다중 선택 액션과 단건 액션 모두 지원<br>- NATS: `event_mapping_cameras/speakers/lamps` 3 테이블 row-level → statement-level 트리거 마이그레이션 — 영향 받는 `event_mapping_id`당 `SYNC_EVENT_MAPPING/UPDATED` 1건만 발행 (실측: 5건 등록/해제 시 5건 → 1건, 80% 감소)<br><br>**[5. §7.5 번호 중복 알림 (사후 정정 필요, 본 차수에서는 §7.5.9/§7.5.10으로 우회)]**<br>- 기존 명세에 #### 7.5.7 FK 정책 및 CASCADE 동작과 #### 7.5.7 MappingLamp 전체 목록 조회 (독립)가 같은 번호로 중복 채번됨 (v3.8에서 §7.3.8/§7.4.8 패턴 미준수)<br>- 본 차수에서는 신설 번호를 §7.5.9 / §7.5.10으로 부여하여 중복을 피하되, 기존 중복 자체는 차기 차수(v4.4)에서 후자 §7.5.7을 §7.5.9로 재채번하고 본 신설 번호를 §7.5.10/§7.5.11로 재조정 권장 |
 | v4.2 | 2026-03-03 | **Event Statistics API 신규 (6.7)**<br><br>**[1. Event Statistics API 신규 (6.7)]**<br>- GET /api/events/statistics/summary: 이벤트 타입별 건수 요약 (원형 그래프 + 요약 카드)<br>- GET /api/events/statistics/trend: 시간대별 이벤트 건수 추이 (라인 차트)<br>- GET /api/events/statistics/by-device: 제어기별/카메라별 이벤트 건수 (막대 그래프)<br>- GET /api/events/statistics/dashboard: 대시보드 통합 (summary + trend + by-device 단일 호출)<br>- 탐지 이벤트 센서/카메라 분리 집계 (Device.category_device 기준)<br>- 파생 메트릭: daily_averages (일평균), active_devices (활성 장비 수)<br>- EventSummaryResponse, EventTrendResponse, EventByDeviceResponse, EventDashboardResponse 스키마<br><br>**[2. ControllerStats action 필드 추가 (6.7.3)]**<br>- controllers[].action: 제어기 소속 센서의 탐지 이벤트에 대한 조치 건수<br>- 집계 경로: ActionEvent.from_event_id → Event.device_id → Sensor.controller_id<br>- dashboard API (6.7.4) by_device.controllers에도 동일 적용 |
@@ -15843,5 +15844,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.4
+**문서 버전**: v4.5
 **최종 업데이트**: 2026-06-18

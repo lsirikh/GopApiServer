@@ -544,13 +544,15 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# CORS middleware
+# CORS middleware (v4.6 FR-3: 화이트리스트 + 메서드/헤더 한정)
+# dev 환경은 ["*"] 허용 (편의), staging/prod는 settings.CORS_ORIGINS 명시 도메인만
+_cors_origins = settings.cors_origins_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this appropriately in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
 )
 
 # Custom middlewares (order matters - applied in reverse)

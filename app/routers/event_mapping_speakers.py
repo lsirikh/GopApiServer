@@ -486,8 +486,15 @@ def bulk_create_event_mapping_speakers(
     # PR-B (v4.5): 실 분류 로직
     skipped_config_ids: list[int] = []     # 이미 (mapping_id, speaker_id) 매핑 존재 시 기존 row PK
     not_found_config_ids: list[int] = []   # speakers 테이블에 speaker_id 부재 시 그 speaker_id
+    # v4.6 FR-5: 같은 request 내 동일 speaker_id 중복 추적
+    seen_in_request: set[int] = set()
 
     for idx, item in enumerate(request.items):
+        # v4.6 FR-5: 같은 request 내 동일 speaker_id → 무시 (멱등)
+        if item.speaker_id in seen_in_request:
+            continue
+        seen_in_request.add(item.speaker_id)
+
         # PR-B: Speaker FK 미존재 → not_found_config_ids
         speaker = db.query(Speaker).filter(Speaker.id == item.speaker_id).first()
         if not speaker:

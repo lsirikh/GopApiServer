@@ -479,8 +479,15 @@ def bulk_create_event_mapping_lamps(
     # PR-B (v4.5): 실 분류 로직
     skipped_config_ids: list[int] = []     # 이미 (mapping_id, lamp_id) 매핑 존재 시 기존 row PK
     not_found_config_ids: list[int] = []   # lamps 테이블에 lamp_id 부재 시 그 lamp_id
+    # v4.6 FR-5: 같은 request 내 동일 lamp_id 중복 추적
+    seen_in_request: set[int] = set()
 
     for idx, item in enumerate(request.items):
+        # v4.6 FR-5: 같은 request 내 동일 lamp_id → 무시 (멱등, DB UNIQUE 충돌 방지)
+        if item.lamp_id in seen_in_request:
+            continue
+        seen_in_request.add(item.lamp_id)
+
         # PR-B: Lamp FK 미존재 → not_found_config_ids
         lamp = db.query(Lamp).filter(Lamp.id == item.lamp_id).first()
         if not lamp:

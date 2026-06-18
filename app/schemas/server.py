@@ -131,7 +131,7 @@ class ServerUpdate(BaseModel):
 
 
 class ServerResponse(BaseModel):
-    """Schema for Server response"""
+    """Schema for Server response (v4.6 FR-2: user_password 응답 노출 제거)"""
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
@@ -140,7 +140,7 @@ class ServerResponse(BaseModel):
     port: int = Field(..., description="서버 포트")
     hostname: Optional[str] = Field(None, description="호스트명")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
-    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    # v4.6 FR-2: user_password 응답 노출 제거. 필요 시 ServerCreate/ServerUpdate로 송신
     threshold_config: Optional[Dict[str, Any]] = Field(
         None,
         description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
@@ -178,6 +178,7 @@ class ServerNestedResponse(BaseModel):
     Server Nested Response - for use in other resources (e.g., Speaker)
     PRD: PRD_Speaker_Device.md Section 5.3
     Excludes created_at, updated_at per nested response rule
+    v4.6 FR-2: user_password 응답 노출 제거 (ServerResponse와 동일 정책)
     """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
@@ -187,7 +188,7 @@ class ServerNestedResponse(BaseModel):
     port: int = Field(..., description="서버 포트")
     hostname: Optional[str] = Field(None, description="호스트명")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
-    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    # v4.6 FR-2: user_password 응답 노출 제거
     threshold_config: Optional[Dict[str, Any]] = Field(
         None,
         description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"

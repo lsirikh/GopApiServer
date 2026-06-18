@@ -94,18 +94,11 @@ BEGIN
             'action', action_type,
             'resource_id', resource_id
         );
-    -- PRD_SYNC_Child_Table_Triggers v1.0: 하위 테이블 → 부모 SYNC 발행
-    ELSIF TG_TABLE_NAME IN ('event_mapping_cameras', 'event_mapping_speakers', 'event_mapping_lamps') THEN
-        IF TG_OP = 'DELETE' THEN
-            resource_id := OLD.event_mapping_id;
-        ELSE
-            resource_id := NEW.event_mapping_id;
-        END IF;
-        payload := jsonb_build_object(
-            'cmd', 'SYNC_EVENT_MAPPING',
-            'action', 'UPDATED',
-            'resource_id', resource_id
-        );
+    -- v4.6 FR-8: event_mapping_cameras/speakers/lamps row-level 분기 제거
+    --   v4.3 마이그레이션에서 statement-level 트리거(fn_notify_emc_stmt /
+    --   fn_notify_ems_stmt / fn_notify_eml_stmt)로 대체됨. 이 row-level 분기는
+    --   더 이상 호출되지 않으나, 잘못 마이그레이션 되돌리면 SYNC_EVENT_MAPPING
+    --   이중 발행 위험. 안전을 위해 row-level 분기 제거.
     ELSIF TG_TABLE_NAME = 'device_group_mappings' THEN
         IF TG_OP = 'DELETE' THEN
             resource_id := OLD.group_id;

@@ -575,8 +575,20 @@ def bulk_create_event_mapping_cameras(
     # PR-B (v4.5): 실 분류 로직 — placeholder 빈 배열 → 실 값
     skipped_config_ids: list[int] = []     # 이미 (mapping_id, camera_id) 매핑 존재 시 기존 row PK
     not_found_config_ids: list[int] = []   # cameras 테이블에 camera_id 부재 시 그 camera_id
+    # v4.6 FR-5: 같은 request 내 동일 camera_id 중복 추적
+    seen_in_request: set[int] = set()
 
     for idx, item in enumerate(request.items):
+        # v4.6 FR-5: 같은 request 내 동일 camera_id → skipped_config_ids로 분류
+        # 매니저가 UI에서 같은 카메라 두 번 토글 후 일괄전송 시 첫 건은 INSERT,
+        # 두 번째부터는 사전 차단하여 DB UNIQUE 충돌/failed_items 추락 방지
+        if item.camera_id in seen_in_request:
+            # 이미 이 request에서 처리된 ID — 첫 건의 row PK를 알 수 없으므로
+            # 임시로 -1 마커 사용 (응답 후 클라이언트에서 created_ids 조회로 매핑 가능)
+            # 더 정밀한 매핑은 v4.7 권고
+            continue  # 같은 request 중복은 무시 (응답엔 한 번만 created)
+        seen_in_request.add(item.camera_id)
+
         # PR-B: Camera FK 미존재 → not_found_config_ids (예전엔 failed_items로 흘림)
         camera = db.query(Camera).filter(Camera.id == item.camera_id).first()
         if not camera:

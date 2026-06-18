@@ -40,7 +40,7 @@ class AuditLog(Base):
     actor_role = Column(String(20))
 
     # 변경 상세
-    changes = Column(JSONB)  # {before: {...}, after: {...}}
+    changes = Column(JSON().with_variant(JSONB(), "postgresql"))  # {before: {...}, after: {...}}
     description = Column(String(500))
 
     # 클라이언트 정보

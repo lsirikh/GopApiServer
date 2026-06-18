@@ -88,7 +88,7 @@ def _build_response(ems: EventMappingSpeaker) -> EventMappingSpeakerResponse:
 
 @router.get(
     "/{mapping_id}/speakers",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="List speaker configs for event mapping",
     description="Get all speaker configurations for a specific event mapping"
 )
@@ -125,7 +125,7 @@ def list_event_mapping_speakers(
 
 @router.get(
     "/{mapping_id}/speakers/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Get single speaker config for event mapping",
     description="Get a specific speaker configuration for an event mapping"
 )
@@ -165,7 +165,7 @@ def get_event_mapping_speaker(
 
 @router.post(
     "/{mapping_id}/speakers",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     status_code=status.HTTP_201_CREATED,
     summary="Create speaker config for event mapping",
     description="Create a new speaker configuration for an event mapping"
@@ -235,7 +235,7 @@ def create_event_mapping_speaker(
 
 @router.patch(
     "/{mapping_id}/speakers/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Update speaker config for event mapping",
     description="Partially update a speaker configuration for an event mapping"
 )
@@ -302,7 +302,7 @@ def update_event_mapping_speaker(
 
 @router.put(
     "/{mapping_id}/speakers/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Replace speaker config for event mapping",
     description="Completely replace a speaker configuration for an event mapping"
 )
@@ -353,7 +353,7 @@ def replace_event_mapping_speaker(
 
 @router.delete(
     "/{mapping_id}/speakers/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Delete speaker config for event mapping",
     description="Delete a speaker configuration for an event mapping"
 )
@@ -418,7 +418,7 @@ flat_router = APIRouter(tags=["Mapping Speakers"])
 
 @flat_router.get(
     "",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="List all mapping speakers",
     description="Get all EventMappingSpeaker records across all event mappings"
 )

@@ -42,8 +42,8 @@ class ConfigChangeLog(Base):
     )
 
     # 변경 전/후 상태 (JSON)
-    before_state = Column(JSONB)  # 변경 전 상태
-    after_state = Column(JSONB)   # 변경 후 상태
+    before_state = Column(JSON().with_variant(JSONB(), "postgresql"))  # 변경 전 상태
+    after_state = Column(JSON().with_variant(JSONB(), "postgresql"))   # 변경 후 상태
 
     # 수행자 정보
     actor_id = Column(

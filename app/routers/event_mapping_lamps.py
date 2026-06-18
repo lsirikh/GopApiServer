@@ -86,7 +86,7 @@ def _build_response(eml: EventMappingLamp) -> EventMappingLampResponse:
 
 @router.get(
     "/{mapping_id}/lamps",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="List lamp configs for event mapping",
     description="Get all lamp configurations for a specific event mapping"
 )
@@ -123,7 +123,7 @@ def list_event_mapping_lamps(
 
 @router.get(
     "/{mapping_id}/lamps/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Get single lamp config for event mapping",
     description="Get a specific lamp configuration for an event mapping"
 )
@@ -163,7 +163,7 @@ def get_event_mapping_lamp(
 
 @router.post(
     "/{mapping_id}/lamps",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     status_code=status.HTTP_201_CREATED,
     summary="Create lamp config for event mapping",
     description="Create a new lamp configuration for an event mapping"
@@ -226,7 +226,7 @@ def create_event_mapping_lamp(
 
 @router.patch(
     "/{mapping_id}/lamps/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Update lamp config for event mapping",
     description="Partially update a lamp configuration for an event mapping"
 )
@@ -293,7 +293,7 @@ def update_event_mapping_lamp(
 
 @router.put(
     "/{mapping_id}/lamps/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Replace lamp config for event mapping",
     description="Completely replace a lamp configuration for an event mapping"
 )
@@ -346,7 +346,7 @@ def replace_event_mapping_lamp(
 
 @router.delete(
     "/{mapping_id}/lamps/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Delete lamp config for event mapping",
     description="Delete a lamp configuration for an event mapping"
 )
@@ -411,7 +411,7 @@ flat_router = APIRouter(tags=["Mapping Lamps"])
 
 @flat_router.get(
     "",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="List all mapping lamps",
     description="Get all EventMappingLamp records across all event mappings"
 )

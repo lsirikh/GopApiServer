@@ -40,7 +40,7 @@ class FileGroup(Base):
     )
     group_id = Column(Integer, nullable=False)
     group_name = Column(String(100), nullable=False)
-    files = Column(JSONB, nullable=True)  # JSONB array: ["file1.mp3", "file2.mp3"]
+    files = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # JSONB array: ["file1.mp3", "file2.mp3"]
 
     # Timestamps
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)

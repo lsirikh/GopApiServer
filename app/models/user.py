@@ -20,7 +20,7 @@ class UserGroup(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    permissions = Column(JSONB, nullable=True)
+    permissions = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Timestamps

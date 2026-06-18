@@ -111,7 +111,7 @@ def _build_response(emc: EventMappingCamera, db: Session) -> EventMappingCameraR
 
 @router.get(
     "/{mapping_id}/cameras",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="List camera configs for event mapping",
     description="Get all camera configurations for a specific event mapping"
 )
@@ -148,7 +148,7 @@ def list_event_mapping_cameras(
 
 @router.get(
     "/{mapping_id}/cameras/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Get camera config by ID",
     description="Get a specific camera configuration"
 )
@@ -188,7 +188,7 @@ def get_event_mapping_camera(
 
 @router.post(
     "/{mapping_id}/cameras",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     status_code=status.HTTP_201_CREATED,
     summary="Create camera config",
     description="Create a new camera configuration for an event mapping"
@@ -268,7 +268,7 @@ def create_event_mapping_camera(
 
 @router.patch(
     "/{mapping_id}/cameras/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Update camera config (partial)",
     description="Partially update a camera configuration"
 )
@@ -363,7 +363,7 @@ def patch_event_mapping_camera(
 
 @router.put(
     "/{mapping_id}/cameras/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Replace camera config",
     description="Fully replace a camera configuration"
 )
@@ -441,7 +441,7 @@ def put_event_mapping_camera(
 
 @router.delete(
     "/{mapping_id}/cameras/{config_id}",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="Delete camera config",
     description="Delete a camera configuration"
 )
@@ -507,7 +507,7 @@ flat_router = APIRouter(tags=["Mapping Cameras"])
 
 @flat_router.get(
     "",
-    response_model=dict,
+    response_model=ApiSingleResponse[dict],
     summary="List all mapping cameras",
     description="Get all EventMappingCamera records across all event mappings"
 )

@@ -29,7 +29,7 @@ class ReportTemplate(Base):
     owner_id = Column(Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True)
     is_public = Column(Boolean, nullable=False, default=False)
 
-    components = Column(JSONB, nullable=False)
+    components = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
     default_period = Column(String(20), default="7d")
 
     # Timestamps
@@ -68,10 +68,10 @@ class ReportGeneration(Base):
     generator_department = Column(String(100), nullable=True)
 
     # 필터 설정
-    severity_filter = Column(JSONB, nullable=True)
+    severity_filter = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 결과 데이터
-    summary_data = Column(JSONB, nullable=True)
+    summary_data = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 파일 정보
     pdf_file_path = Column(String(500), nullable=True)

@@ -100,7 +100,7 @@ class Controller(Device):
     # Controller-specific fields
     ip_address = Column(String(50), nullable=False)
     ip_port = Column(Integer, nullable=False)
-    geolocation = Column(JSONB, nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -139,7 +139,7 @@ class Sensor(Device):
 
     # Sensor-specific fields
     controller_id = Column(Integer, ForeignKey("controllers.id"), nullable=False, index=True)
-    geolocation = Column(JSONB, nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -184,14 +184,14 @@ class Camera(Device):
     ip_port = Column(Integer, nullable=False)
     user_name = Column(String(100), nullable=True)  # PRD v1.2: nullable
     user_password = Column(String(200), nullable=True)  # PRD v1.2: nullable
-    urls = Column(JSONB, nullable=True)  # PRD_Camera_Urls_JsonB.md: replaces rtsp_uri/rtsp_port
+    urls = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # PRD_Camera_Urls_JsonB.md: replaces rtsp_uri/rtsp_port
     mode = Column(SQLEnum(EnumCameraMode), nullable=False, default=EnumCameraMode.NONE)
     category = Column(SQLEnum(EnumCameraType), nullable=False, default=EnumCameraType.NONE)
 
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
     is_record = Column(Boolean, nullable=False, default=False)
-    hardware_spec = Column(JSONB, nullable=True, default=None)
-    geolocation = Column(JSONB, nullable=True, default=None)
+    hardware_spec = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -244,7 +244,7 @@ class Speaker(Device):
     )
     description = Column(String(500), nullable=True)
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
-    geolocation = Column(JSONB, nullable=True, default=None)
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
 
     # Polymorphic identity
     __mapper_args__ = {
@@ -387,7 +387,7 @@ class EnclosureMetric(Base):
     vibration = Column(Integer, nullable=True)
     ups_battery_level = Column(Integer, nullable=True)
     ups_charging = Column(Boolean, nullable=True)
-    detail = Column(JSONB, nullable=True, default=None)
+    detail = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Relationship to Enclosure

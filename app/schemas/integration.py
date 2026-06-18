@@ -380,10 +380,10 @@ class EventMappingLampCreate(BaseModel):
     """
     event_mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
     lamp_id: int = Field(..., description="대상 경광등 ID", json_schema_extra={"example": 501})
-    color: str = Field("Red", description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Red"})
+    color: EnumLampColor = Field(EnumLampColor.RED, description="경광등 색상 (EnumLampColor: Red/Orange/Green/Blue/White)", json_schema_extra={"example": "Red"})
     buzzer_time: int = Field(5, ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 5})
-    buzzer_sound: str = Field("PI-PI-PI", description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "PI-PI-PI"})
-    light_mode: str = Field("steady", description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
+    buzzer_sound: EnumBuzzerSound = Field(EnumBuzzerSound.PI_PI_PI, description="부저 소리 패턴 (EnumBuzzerSound: Fire A-WANG/Emergency/Ambulance/PI-PI-PI/PI_continue)", json_schema_extra={"example": "PI-PI-PI"})
+    light_mode: EnumLightMode = Field(EnumLightMode.STEADY, description="점등 모드 (EnumLightMode: steady/blinking)", json_schema_extra={"example": "steady"})
     is_enable: bool = Field(True, description="활성화 여부", json_schema_extra={"example": True})
     priority: int = Field(1, ge=1, description="우선순위 (낮을수록 높음)", json_schema_extra={"example": 1})
 
@@ -397,10 +397,10 @@ class EventMappingLampUpdate(BaseModel):
     모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
     """
     lamp_id: Optional[int] = Field(None, description="대상 경광등 ID", json_schema_extra={"example": 502})
-    color: Optional[str] = Field(None, description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Orange"})
+    color: Optional[EnumLampColor] = Field(None, description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Orange"})
     buzzer_time: Optional[int] = Field(None, ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 10})
-    buzzer_sound: Optional[str] = Field(None, description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Emergency"})
-    light_mode: Optional[str] = Field(None, description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "blinking"})
+    buzzer_sound: Optional[EnumBuzzerSound] = Field(None, description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Emergency"})
+    light_mode: Optional[EnumLightMode] = Field(None, description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "blinking"})
     is_enable: Optional[bool] = Field(None, description="활성화 여부", json_schema_extra={"example": False})
     priority: Optional[int] = Field(None, ge=1, description="우선순위", json_schema_extra={"example": 2})
 
@@ -413,10 +413,10 @@ class EventMappingLampReplace(BaseModel):
     """
     event_mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
     lamp_id: int = Field(..., description="대상 경광등 ID", json_schema_extra={"example": 503})
-    color: str = Field(..., description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Green"})
+    color: EnumLampColor = Field(..., description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Green"})
     buzzer_time: int = Field(..., ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 3})
-    buzzer_sound: str = Field(..., description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Ambulance"})
-    light_mode: str = Field(..., description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
+    buzzer_sound: EnumBuzzerSound = Field(..., description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Ambulance"})
+    light_mode: EnumLightMode = Field(..., description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
     is_enable: bool = Field(..., description="활성화 여부", json_schema_extra={"example": True})
     priority: int = Field(..., ge=1, description="우선순위", json_schema_extra={"example": 1})
 

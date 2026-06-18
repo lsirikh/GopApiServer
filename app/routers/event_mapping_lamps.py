@@ -472,14 +472,24 @@ def bulk_create_event_mapping_lamps(
     created_ids: list[int] = []
     failed_items: list[EventMappingLampBulkCreateFailure] = []
     created_rows: list[EventMappingLamp] = []
+    # PR-B (v4.5): 실 분류 로직
+    skipped_config_ids: list[int] = []     # 이미 (mapping_id, lamp_id) 매핑 존재 시 기존 row PK
+    not_found_config_ids: list[int] = []   # lamps 테이블에 lamp_id 부재 시 그 lamp_id
 
     for idx, item in enumerate(request.items):
-        # Lamp FK 검증 (best-effort)
+        # PR-B: Lamp FK 미존재 → not_found_config_ids
         lamp = db.query(Lamp).filter(Lamp.id == item.lamp_id).first()
         if not lamp:
-            failed_items.append(EventMappingLampBulkCreateFailure(
-                index=idx, item=item, error=f"Lamp with id {item.lamp_id} not found"
-            ))
+            not_found_config_ids.append(item.lamp_id)
+            continue
+
+        # PR-B: (mapping_id, lamp_id) 중복 매핑 → skipped_config_ids
+        existing = db.query(EventMappingLamp).filter(
+            EventMappingLamp.event_mapping_id == mapping_id,
+            EventMappingLamp.lamp_id == item.lamp_id,
+        ).first()
+        if existing:
+            skipped_config_ids.append(existing.id)
             continue
 
         eml = EventMappingLamp(
@@ -501,19 +511,22 @@ def bulk_create_event_mapping_lamps(
         created_ids.append(row.id)
     db.commit()
 
-    # ConfigChangeLog: 1건/요청 (CREATED) — created가 있을 때만
-    if created_ids:
-        log_config_change(
-            db=db,
-            resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
-            resource_id=mapping_id,
-            resource_name=f"EventMapping-{mapping_id} lamps (bulk)",
-            action=EnumConfigActionType.CREATED,
-            after_state={"config_ids": created_ids, "count": len(created_ids)},
-            description=f"EventMapping에 {len(created_ids)}개 Lamp 연동 일괄 생성 (bulk)",
-        )
+    # PR-A (v4.5): 무조건 1건/요청 (CREATED) — 0건 케이스도 발행
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
+        resource_id=mapping_id,
+        resource_name=f"EventMapping-{mapping_id} lamps (bulk)",
+        action=EnumConfigActionType.CREATED,
+        after_state={"config_ids": created_ids, "count": len(created_ids)},
+        description=f"EventMapping에 {len(created_ids)}개 Lamp 연동 일괄 생성 (bulk)",
+    )
 
     parts = [f"{len(created_ids)}개 Lamp 연동 생성 완료"]
+    if skipped_config_ids:
+        parts.append(f"{len(skipped_config_ids)}개 중복")
+    if not_found_config_ids:
+        parts.append(f"{len(not_found_config_ids)}개 없음")
     if failed_items:
         parts.append(f"{len(failed_items)}개 실패")
     message = ", ".join(parts)
@@ -525,6 +538,8 @@ def bulk_create_event_mapping_lamps(
             mapping_id=mapping_id,
             created_ids=created_ids,
             failed_items=failed_items,
+            skipped_config_ids=skipped_config_ids,
+            not_found_config_ids=not_found_config_ids,
             message=message,
         ).model_dump(),
     }

@@ -568,17 +568,27 @@ def bulk_create_event_mapping_cameras(
     created_ids: list[int] = []
     failed_items: list[EventMappingCameraBulkCreateFailure] = []
     created_rows: list[EventMappingCamera] = []
+    # PR-B (v4.5): 실 분류 로직 — placeholder 빈 배열 → 실 값
+    skipped_config_ids: list[int] = []     # 이미 (mapping_id, camera_id) 매핑 존재 시 기존 row PK
+    not_found_config_ids: list[int] = []   # cameras 테이블에 camera_id 부재 시 그 camera_id
 
     for idx, item in enumerate(request.items):
-        # Camera FK 검증 (best-effort)
+        # PR-B: Camera FK 미존재 → not_found_config_ids (예전엔 failed_items로 흘림)
         camera = db.query(Camera).filter(Camera.id == item.camera_id).first()
         if not camera:
-            failed_items.append(EventMappingCameraBulkCreateFailure(
-                index=idx, item=item, error=f"Camera with id {item.camera_id} not found"
-            ))
+            not_found_config_ids.append(item.camera_id)
             continue
 
-        # target_preset_id 검증 (Optional)
+        # PR-B: (mapping_id, camera_id) 중복 매핑 → skipped_config_ids (멱등성)
+        existing = db.query(EventMappingCamera).filter(
+            EventMappingCamera.event_mapping_id == mapping_id,
+            EventMappingCamera.camera_id == item.camera_id,
+        ).first()
+        if existing:
+            skipped_config_ids.append(existing.id)
+            continue
+
+        # target_preset_id 검증 (Optional) — 기타 검증 실패는 failed_items 유지
         if item.target_preset_id:
             target_preset = db.query(CameraPreset).filter(
                 CameraPreset.id == item.target_preset_id
@@ -620,19 +630,23 @@ def bulk_create_event_mapping_cameras(
         created_ids.append(row.id)
     db.commit()
 
-    # ConfigChangeLog: 1건/요청 (CREATED) — created가 있을 때만
-    if created_ids:
-        log_config_change(
-            db=db,
-            resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
-            resource_id=mapping_id,
-            resource_name=f"EventMapping-{mapping_id} cameras (bulk)",
-            action=EnumConfigActionType.CREATED,
-            after_state={"config_ids": created_ids, "count": len(created_ids)},
-            description=f"EventMapping에 {len(created_ids)}개 Camera 연동 일괄 생성 (bulk)",
-        )
+    # ConfigChangeLog: PR-A (v4.5) — 무조건 1건/요청 (CREATED)
+    # 0건 케이스도 발행: after_state.config_ids=[], count=0
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+        resource_id=mapping_id,
+        resource_name=f"EventMapping-{mapping_id} cameras (bulk)",
+        action=EnumConfigActionType.CREATED,
+        after_state={"config_ids": created_ids, "count": len(created_ids)},
+        description=f"EventMapping에 {len(created_ids)}개 Camera 연동 일괄 생성 (bulk)",
+    )
 
     parts = [f"{len(created_ids)}개 Camera 연동 생성 완료"]
+    if skipped_config_ids:
+        parts.append(f"{len(skipped_config_ids)}개 중복")
+    if not_found_config_ids:
+        parts.append(f"{len(not_found_config_ids)}개 없음")
     if failed_items:
         parts.append(f"{len(failed_items)}개 실패")
     message = ", ".join(parts)
@@ -644,6 +658,8 @@ def bulk_create_event_mapping_cameras(
             mapping_id=mapping_id,
             created_ids=created_ids,
             failed_items=failed_items,
+            skipped_config_ids=skipped_config_ids,
+            not_found_config_ids=not_found_config_ids,
             message=message,
         ).model_dump(),
     }
@@ -692,17 +708,17 @@ def bulk_delete_event_mapping_cameras(
 
     db.commit()  # 단일 commit (원자성)
 
-    # ConfigChangeLog: 1건/요청 (DELETED) — removed가 있을 때만
-    if removed:
-        log_config_change(
-            db=db,
-            resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
-            resource_id=mapping_id,
-            resource_name=f"EventMapping-{mapping_id} cameras (bulk)",
-            action=EnumConfigActionType.DELETED,
-            before_state={"config_ids": removed, "count": len(removed)},
-            description=f"EventMapping에서 {len(removed)}개 Camera 연동 일괄 해제 (bulk)",
-        )
+    # ConfigChangeLog: PR-A (v4.5) — 무조건 1건/요청 (DELETED)
+    # 0건 케이스도 발행: before_state.config_ids=[], count=0
+    log_config_change(
+        db=db,
+        resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
+        resource_id=mapping_id,
+        resource_name=f"EventMapping-{mapping_id} cameras (bulk)",
+        action=EnumConfigActionType.DELETED,
+        before_state={"config_ids": removed, "count": len(removed)},
+        description=f"EventMapping에서 {len(removed)}개 Camera 연동 일괄 해제 (bulk)",
+    )
 
     parts = [f"{len(removed)}개 Camera 연동 해제 완료"]
     if skipped:

@@ -8,6 +8,7 @@ PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - group_event 필드 제거됨
 """
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime as dt
 
@@ -135,7 +136,7 @@ class DetectionEvent(Event):
 
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보 JSONB
     detail = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         doc="탐지 상세 정보 (썸네일, AI 객체 등)"
     )
@@ -184,7 +185,7 @@ class MalfunctionEvent(Event):
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail JSONB로 이동
     # first_start, first_end, second_start, second_end 컬럼 제거됨
     detail = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         doc="오동작 상세 정보 (케이블 위치: first_start/end, second_start/end)"
     )

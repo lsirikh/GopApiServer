@@ -305,13 +305,13 @@ class Enclosure(Device):
     )
     # detail_info 제거됨 → enclosure_metrics 테이블로 분리 (PRD_Enclosure_Metrics_Separation.md v1.0)
     geolocation = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         default=None,
-        comment="위치 정보 (location, latitude, longitude, altitude)"
+        comment="위치 정보 (location, latitude, longitude, altitude, heading)"
     )
     threshold_config = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         default=None,
         comment="알람 임계값 설정"
@@ -431,10 +431,10 @@ class Lamp(Device):
     user_password = Column(String(255), nullable=True, comment="접속 비밀번호")
     description = Column(String(500), nullable=True, comment="설명")
     geolocation = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         default=None,
-        comment="위치 정보 (location, latitude, longitude, altitude)"
+        comment="위치 정보 (location, latitude, longitude, altitude, heading)"
     )
 
     # Polymorphic identity

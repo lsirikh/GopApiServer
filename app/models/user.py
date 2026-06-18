@@ -3,6 +3,7 @@ User Model for authentication
 PRD: PRD_Account_Design.md Section 4
 """
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -19,7 +20,7 @@ class UserGroup(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    permissions = Column(JSON, nullable=True)
+    permissions = Column(JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Timestamps

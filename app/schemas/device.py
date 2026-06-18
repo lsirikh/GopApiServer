@@ -135,6 +135,14 @@ class Geolocation(BaseModel):
         description="고도 (미터)",
         examples=[150.0]
     )
+    # v4.7 FR-13: 디바이스 본체 정면 방위각 (지향성)
+    heading: Optional[float] = Field(
+        None, ge=0.0, le=360.0,
+        description="본체 정면 방위각 (정북=0, 시계방향, 0~360°). "
+                    "Camera/Speaker/Sensor는 의미 있음. Lamp/Enclosure는 무방향 (null 권장). "
+                    "PTZ 카메라의 동적 회전은 별도 preset으로 처리.",
+        examples=[135.0]
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

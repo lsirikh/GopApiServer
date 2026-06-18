@@ -3,6 +3,7 @@ System Event model
 Based on PRD_System_Event.md Section 3
 """
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey, JSON, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -61,7 +62,7 @@ class SystemEvent(Base):
     # 이벤트 내용
     title = Column(String(200), nullable=False)
     message = Column(String(1000), nullable=True)
-    detail = Column(JSON, nullable=True)  # 추가 상세 정보
+    detail = Column(JSONB, nullable=True)  # 추가 상세 정보
     source = Column(String(100), nullable=True)  # 이벤트 발생 소스 (PRD 3.2)
 
     # 확인(Acknowledge) 관련

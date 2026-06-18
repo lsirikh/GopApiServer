@@ -1,6 +1,9 @@
-# PRD: GOP_Restful_Api 연동설계 v4.6 — Bulk API Post-Mortem (잔존 GAP 12건 정리)
+# PRD: v4.4 Phase 3 — Post-Mortem (구 v4.6) — Bulk API Post-Mortem (잔존 GAP 12건 정리)
 
-> **차수**: v4.5 → v4.6
+> **차수 통합 안내** (2026-06-18): 본 PRD는 원래 별도 차수로 작성되었으나, 하루 1차수 원칙에 따라 v4.4 (오늘 하루 일괄)의 Phase로 통합됨. 본문 내 v4.5/v4.6/v4.7 표기는 원본 작성 시점의 차수 컨텍스트 보존 (실 적용은 v4.4 안에 있음).
+
+
+> **차수**: v4.4 Phase 2 → v4.4 Phase 3
 > **작성자**: 이기호 차장
 > **작성일**: 2026-06-19
 > **선행 산출물**: `docs/workflow_health_v46/A~J.md` (Workflow w/r91vn26e 9 agent + synthesis health check), `docs/PRD_BulkAPI_Spec_Sync_v4.4.md` (v4.4 산출물)

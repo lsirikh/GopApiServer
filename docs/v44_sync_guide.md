@@ -1,20 +1,20 @@
-# GOP_Restful_Api_연동설계.md v4.5 동기화 가이드 — 매니저 4종
+# GOP_Restful_Api_연동설계.md v4.4 동기화 가이드 (오늘 하루 통합 차수) — 매니저 4종
 
-> **차수**: v4.5 (2026-06-18) → 매니저 사본 4곳
+> **차수**: v4.4 (구 v4.5 phase) (2026-06-18) → 매니저 사본 4곳
 > **작성자**: 이기호 차장
 > **작성일**: 2026-06-19
-> **목적**: v4.6 FR-4 — .NET 사본 4곳 stale 상태 해소
+> **목적**: v4.4 (구 v4.6 phase) FR-4 — .NET 사본 4곳 stale 상태 해소
 
 ---
 
 ## 1. 두괄식 — 왜 동기화 필요한가
 
-DBApi의 마스터 명세서가 v4.3 → v4.4 → v4.5로 3차수 갱신됐는데, .NET 매니저 측 사본 4곳이 **모두 옛 버전**입니다.
+DBApi의 마스터 명세서가 v4.3 → v4.4 → v4.4 (구 v4.5 phase)로 3차수 갱신됐는데, .NET 매니저 측 사본 4곳이 **모두 옛 버전**입니다.
 
 | 사본 위치 | 현재 버전 | 일자 | 갭 | 위험도 |
 |---|---|---|---|---|
 | **`c:\workspace_app\Ironwall.Dotnet.Libraries\Docs\`** | v4.2 | 2026-03-03 | 3개월 + Bulk API 전체 미반영 | 🔴 **Critical** |
-| **`c:\source\repos\Dotnet.Rtsp.Viewer.Ui\Docs\`** | v4.3 | 2026-03-04 | v4.4 GAP 14건 + v4.5 PR-A/B/C/D 미반영 | 🟠 High |
+| **`c:\source\repos\Dotnet.Rtsp.Viewer.Ui\Docs\`** | v4.3 | 2026-03-04 | v4.4 GAP 14건 + v4.4 (구 v4.5 phase) PR-A/B/C/D 미반영 | 🟠 High |
 | **`c:\workspace_app\Dotnet.Monitoring.Solution\Docs\`** | v1.6 | 2025-11-26 | 7개월 (DB 동기화 위주, REST 의존 적음) | 🟡 Medium |
 | `c:\workspace_app\Ironwall.Dotnet.Libraries\Docs\Backup\pre_docs\` | 백업 | - | 손대지 않음 | - |
 
@@ -28,10 +28,10 @@ DBApi의 마스터 명세서가 v4.3 → v4.4 → v4.5로 3차수 갱신됐는�
 c:\workspace_python\api-test-server\GOP_Restful_Api_연동설계.md
 ```
 
-- **버전**: v4.5 (2026-06-18)
+- **버전**: v4.4 (구 v4.5 phase) (2026-06-18)
 - **git 추적**: ✅ commit `0bd252c`
 - **크기**: 521,458 bytes / 15,848 라인
-- **변경 이력**: v4.3 (Bulk 7건 신설) → v4.4 (GAP 14건 정정) → v4.5 (PR-A/B/C/D 코드 보강 + Swagger 정합)
+- **변경 이력**: v4.3 (Bulk 7건 신설) → v4.4 (GAP 14건 정정) → v4.4 (구 v4.5 phase) (PR-A/B/C/D 코드 보강 + Swagger 정합)
 
 ---
 
@@ -61,7 +61,7 @@ Copy-Item -Path $master -Destination $src -Force
 
 # 3. 검증
 Get-Content $src | Select-String "문서 버전" | Select-Object -Last 1
-# 출력 기대: "**문서 버전**: v4.5"
+# 출력 기대: "**문서 버전**: v4.4 (구 v4.5 phase)"
 ```
 
 또는 PowerShell 한 줄:
@@ -74,14 +74,14 @@ Copy-Item "c:\workspace_python\api-test-server\GOP_Restful_Api_연동설계.md" 
 동기화 후 각 사본에서 확인:
 
 ```powershell
-# 푸터 v4.5 확인
+# 푸터 v4.4 (구 v4.5 phase) 확인
 (Get-Content "<사본 경로>" -Tail 3) -join "`n"
 # 기대 출력:
-# **문서 버전**: v4.5
+# **문서 버전**: v4.4 (구 v4.5 phase)
 # **최종 업데이트**: 2026-06-18
 
-# 변경 이력 v4.5 행 존재 확인
-Select-String -Path "<사본 경로>" -Pattern "v4.5 \| 2026-06-18" | Measure-Object | Select-Object Count
+# 변경 이력 v4.4 (구 v4.5 phase) 행 존재 확인
+Select-String -Path "<사본 경로>" -Pattern "v4.4 (구 v4.5 phase) \| 2026-06-18" | Measure-Object | Select-Object Count
 # 기대: Count = 1
 
 # §5.6.9 본문 존재 확인 (DeviceGroup 벌크 해제)
@@ -95,9 +95,9 @@ Select-String -Path "<사본 경로>" -Pattern "7.3.9 카메라 벌크 등록" |
 
 ---
 
-## 4. v4.3 → v4.5 주요 변경 요약 (매니저용)
+## 4. v4.3 → v4.4 (구 v4.5 phase) 주요 변경 요약 (매니저용)
 
-### 4.1 신규 엔드포인트 7건 (v4.3 신설, v4.4/v4.5 정합화 완료)
+### 4.1 신규 엔드포인트 7건 (v4.3 신설, v4.4/v4.4 (구 v4.5 phase) 정합화 완료)
 
 | 엔드포인트 | 메서드 | 목적 |
 |---|---|---|
@@ -109,7 +109,7 @@ Select-String -Path "<사본 경로>" -Pattern "7.3.9 카메라 벌크 등록" |
 | `/api/integrations/event-mappings/{mapping_id}/lamps/bulk` | POST | Lamp 벌크 등록 |
 | `/api/integrations/event-mappings/{mapping_id}/lamps` | DELETE | Lamp 벌크 해제 |
 
-### 4.2 응답 envelope (v4.5 PR-D 정합)
+### 4.2 응답 envelope (v4.4 (구 v4.5 phase) PR-D 정합)
 
 ```json
 {
@@ -137,7 +137,7 @@ Select-String -Path "<사본 경로>" -Pattern "7.3.9 카메라 벌크 등록" |
 3. **NATS 트리거명**: `trg_sync_eml_ins/del` (옛 `trg_sync_eml_insert/delete` 잘못)
 4. **DeviceGroup path**: `/devices` (옛 `/members/bulk` `/members` 잘못)
 
-### 4.4 v4.5 코드 보강 4건 (PR-A/B/C/D)
+### 4.4 v4.4 (구 v4.5 phase) 코드 보강 4건 (PR-A/B/C/D)
 
 - **PR-A**: ConfigChangeLog 0건 케이스도 무조건 발행 (감사 가능성)
 - **PR-B**: `skipped/not_found_config_ids` 실 분류 활성화 (이전 placeholder)
@@ -148,7 +148,7 @@ Select-String -Path "<사본 경로>" -Pattern "7.3.9 카메라 벌크 등록" |
 
 ## 5. 자동 생성 코드 (DTO) 재생성 권고
 
-v4.5 명세 동기화 후 .NET 클라이언트 자동 생성 도구 (NSwag / OpenAPI Generator / Swashbuckle) 재실행:
+v4.4 (구 v4.5 phase) 명세 동기화 후 .NET 클라이언트 자동 생성 도구 (NSwag / OpenAPI Generator / Swashbuckle) 재실행:
 
 ```bash
 # Swagger UI에서 OpenAPI JSON 다운로드
@@ -169,15 +169,15 @@ openapi-generator-cli generate -i openapi_v45.json -g csharp -o ./generated
 
 ---
 
-## 6. v4.6 차수 진행 안내
+## 6. v4.4 (구 v4.6 phase) 차수 진행 안내
 
-DBApi 팀이 현재 v4.6 (잔존 GAP 12건 정리) 작업 진행 중:
+DBApi 팀이 현재 v4.4 (구 v4.6 phase) (잔존 GAP 12건 정리) 작업 진행 중:
 - **P0** (즉시): JWT 시크릿 + user_password 마스킹 + CORS + .NET 사본 동기화 ← **본 문서가 이 작업**
 - **P1**: PR-B 한계 보강 + pytest 11건 정합 + 단건 14건 response_model + dead code + AUTH_MODE
 - **P2**: §7.5.7 재채번 + PRD git 추적
-- **v4.7 분리**: JWT 회전 (jti 블랙리스트)
+- **v4.4 (구 v4.7 phase) 분리**: JWT 회전 (jti 블랙리스트)
 
-→ v4.6 명세 배포 시 (2026-06-23 예정) 본 가이드와 함께 매니저 재공지 예정.
+→ v4.4 (구 v4.6 phase) 명세 배포 시 (2026-06-23 예정) 본 가이드와 함께 매니저 재공지 예정.
 
 ---
 

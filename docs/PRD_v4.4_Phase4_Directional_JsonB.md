@@ -1,6 +1,9 @@
-# PRD: GOP_Restful_Api 연동설계 v4.7 — 지향성 도메인 확장 + v4.6 분리 3건 통합
+# PRD: v4.4 Phase 4 — 디바이스 지향성 + JSON→JSONB (구 v4.7) — 지향성 도메인 확장 + v4.6 분리 3건 통합
 
-> **차수**: v4.6 → v4.7
+> **차수 통합 안내** (2026-06-18): 본 PRD는 원래 별도 차수로 작성되었으나, 하루 1차수 원칙에 따라 v4.4 (오늘 하루 일괄)의 Phase로 통합됨. 본문 내 v4.5/v4.6/v4.7 표기는 원본 작성 시점의 차수 컨텍스트 보존 (실 적용은 v4.4 안에 있음).
+
+
+> **차수**: v4.4 Phase 3 → v4.4 Phase 4
 > **작성자**: 이기호 차장
 > **작성일**: 2026-06-23
 > **선행 산출물**: `docs/PRD_BulkAPI_PostMortem_v4.6.md` (P0/P1 9건 정리 완료), `docs/PRD_BulkAPI_Spec_Sync_v4.4.md`
@@ -481,7 +484,7 @@ v4.6에서 envelope key 일부 sed 정합화 완료, FR-5 dedup 적용으로 자
 
 ## §11 명세 패치 (Edit Pair)
 
-본 PRD 결재 후 본 메인이 `GOP_Restful_Api_연동설계.md` v4.6 → v4.7로 갱신할 주요 Edit Pair.
+본 PRD 결재 후 본 메인이 `GOP_Restful_Api_연동설계.md` v4.4 Phase 3 → v4.4 Phase 4로 갱신할 주요 Edit Pair.
 
 | # | 영역 | 변경 |
 |---|---|---|

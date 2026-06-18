@@ -498,8 +498,9 @@ class CameraResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
-    # v4.6 FR-2: user_password 응답 노출 제거 (Central UI 평문 비밀번호 노출 차단)
-    # 필요 시 Create/Update로만 송신 가능 (CameraCreate.user_password 유지)
+    # v4.4 Phase 5: user_password 응답 노출 복원 — 운영 사용 케이스 (등록 직후 확인 / 관리자 화면 / 통합상황도 자동연결)
+    # 보안 정책(롤 기반 / 별도 엔드포인트 / 마스킹)은 v4.5에서 결정 예정
+    user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
     mode: EnumCameraMode = Field(..., description="카메라 모드")
     category: EnumCameraType = Field(..., description="카메라 카테고리")
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
@@ -1052,8 +1053,8 @@ class LampResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
     user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
-    # v4.6 FR-2: user_password 응답 노출 제거 (Central UI 평문 비밀번호 노출 차단)
-    # 필요 시 LampCreate.user_password / LampUpdate.user_password 로만 송신 가능
+    # v4.4 Phase 5: user_password 응답 노출 복원 — 운영 사용 케이스 (보안 정책은 v4.5에서 결정)
+    user_password: Optional[str] = Field(None, description="접속 비밀번호", json_schema_extra={"example": "lamp1234"})
     description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
     geolocation: Optional[Geolocation] = Field(
         None,

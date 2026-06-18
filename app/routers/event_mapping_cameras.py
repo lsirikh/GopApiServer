@@ -28,6 +28,7 @@ from app.schemas.integration import (
     EventMappingCameraBulkUnassignResponse,
 )
 from app.schemas.device import DeviceGroupNestedResponse
+from app.schemas.common import ApiSingleResponse
 from app.routers.auth import get_current_user_optional
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
@@ -545,10 +546,13 @@ def list_all_mapping_cameras(
 # ============================================
 @router.post(
     "/{mapping_id}/cameras/bulk",
-    response_model=dict,
+    response_model=ApiSingleResponse[EventMappingCameraBulkCreateResponse],
     status_code=status.HTTP_200_OK,
     summary="Bulk create camera configs for event mapping",
     description="Create N camera configurations for an event mapping in a single call (1~100). Best-effort: returns created_ids + failed_items.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
+    },
 )
 def bulk_create_event_mapping_cameras(
     mapping_id: int,
@@ -651,25 +655,28 @@ def bulk_create_event_mapping_cameras(
         parts.append(f"{len(failed_items)}개 실패")
     message = ", ".join(parts)
 
-    return {
-        "success": True,
-        "message": message,
-        "data": EventMappingCameraBulkCreateResponse(
+    return ApiSingleResponse[EventMappingCameraBulkCreateResponse](
+        success=True,
+        message=message,
+        data=EventMappingCameraBulkCreateResponse(
             mapping_id=mapping_id,
             created_ids=created_ids,
             failed_items=failed_items,
             skipped_config_ids=skipped_config_ids,
             not_found_config_ids=not_found_config_ids,
             message=message,
-        ).model_dump(),
-    }
+        ),
+    )
 
 
 @router.delete(
     "/{mapping_id}/cameras",
-    response_model=dict,
+    response_model=ApiSingleResponse[EventMappingCameraBulkUnassignResponse],
     summary="Bulk unassign camera configs from event mapping",
     description="Unassign N camera configurations from an event mapping in a single call (1~100). Idempotent: removed/skipped/not_found 3-way classification.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
+    },
 )
 def bulk_delete_event_mapping_cameras(
     mapping_id: int,
@@ -727,14 +734,14 @@ def bulk_delete_event_mapping_cameras(
         parts.append(f"{len(not_found)}개 없음")
     message = ", ".join(parts)
 
-    return {
-        "success": True,
-        "message": message,
-        "data": EventMappingCameraBulkUnassignResponse(
+    return ApiSingleResponse[EventMappingCameraBulkUnassignResponse](
+        success=True,
+        message=message,
+        data=EventMappingCameraBulkUnassignResponse(
             mapping_id=mapping_id,
             removed_config_ids=removed,
             skipped_config_ids=skipped,
             not_found_config_ids=not_found,
             message=message,
-        ).model_dump(),
-    }
+        ),
+    )

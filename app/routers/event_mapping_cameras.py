@@ -494,7 +494,7 @@ def delete_event_mapping_camera(
     return {
         "success": True,
         "message": "Event mapping camera deleted successfully",
-        "data": None
+        "data": {}
     }
 
 

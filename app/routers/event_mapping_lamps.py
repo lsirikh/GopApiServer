@@ -398,7 +398,8 @@ def delete_event_mapping_lamp(
 
     return {
         "success": True,
-        "message": "Event mapping lamp deleted successfully"
+        "message": "Event mapping lamp deleted successfully",
+        "data": {}
     }
 
 

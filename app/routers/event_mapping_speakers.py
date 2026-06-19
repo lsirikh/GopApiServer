@@ -405,7 +405,8 @@ def delete_event_mapping_speaker(
 
     return {
         "success": True,
-        "message": "Event mapping speaker deleted successfully"
+        "message": "Event mapping speaker deleted successfully",
+        "data": {}
     }
 
 

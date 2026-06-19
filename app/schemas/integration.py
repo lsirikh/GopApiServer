@@ -6,7 +6,7 @@ PRD: PRD_CameraEventMapping_Refactoring.md v2.1
 PRD: PRD_CategoryEvent_Refactoring.md v1.1
 PRD: PRD_Lamp_Device.md v1.1 - EventMappingLamp
 """
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from app.schemas.common import KSTDatetime
 from typing import Optional, List
@@ -380,10 +380,10 @@ class EventMappingLampCreate(BaseModel):
     """
     event_mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
     lamp_id: int = Field(..., description="대상 경광등 ID", json_schema_extra={"example": 501})
-    color: str = Field("Red", description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Red"})
+    color: EnumLampColor = Field(EnumLampColor.RED, description="경광등 색상 (EnumLampColor: Red/Orange/Green/Blue/White)", json_schema_extra={"example": "Red"})
     buzzer_time: int = Field(5, ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 5})
-    buzzer_sound: str = Field("PI-PI-PI", description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "PI-PI-PI"})
-    light_mode: str = Field("steady", description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
+    buzzer_sound: EnumBuzzerSound = Field(EnumBuzzerSound.PI_PI_PI, description="부저 소리 패턴 (EnumBuzzerSound: Fire A-WANG/Emergency/Ambulance/PI-PI-PI/PI_continue)", json_schema_extra={"example": "PI-PI-PI"})
+    light_mode: EnumLightMode = Field(EnumLightMode.STEADY, description="점등 모드 (EnumLightMode: steady/blinking)", json_schema_extra={"example": "steady"})
     is_enable: bool = Field(True, description="활성화 여부", json_schema_extra={"example": True})
     priority: int = Field(1, ge=1, description="우선순위 (낮을수록 높음)", json_schema_extra={"example": 1})
 
@@ -397,10 +397,10 @@ class EventMappingLampUpdate(BaseModel):
     모든 필드가 선택적입니다. 제공된 필드만 업데이트됩니다.
     """
     lamp_id: Optional[int] = Field(None, description="대상 경광등 ID", json_schema_extra={"example": 502})
-    color: Optional[str] = Field(None, description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Orange"})
+    color: Optional[EnumLampColor] = Field(None, description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Orange"})
     buzzer_time: Optional[int] = Field(None, ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 10})
-    buzzer_sound: Optional[str] = Field(None, description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Emergency"})
-    light_mode: Optional[str] = Field(None, description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "blinking"})
+    buzzer_sound: Optional[EnumBuzzerSound] = Field(None, description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Emergency"})
+    light_mode: Optional[EnumLightMode] = Field(None, description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "blinking"})
     is_enable: Optional[bool] = Field(None, description="활성화 여부", json_schema_extra={"example": False})
     priority: Optional[int] = Field(None, ge=1, description="우선순위", json_schema_extra={"example": 2})
 
@@ -413,10 +413,10 @@ class EventMappingLampReplace(BaseModel):
     """
     event_mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
     lamp_id: int = Field(..., description="대상 경광등 ID", json_schema_extra={"example": 503})
-    color: str = Field(..., description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Green"})
+    color: EnumLampColor = Field(..., description="경광등 색상 (EnumLampColor)", json_schema_extra={"example": "Green"})
     buzzer_time: int = Field(..., ge=0, description="부저 작동 시간 (초)", json_schema_extra={"example": 3})
-    buzzer_sound: str = Field(..., description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Ambulance"})
-    light_mode: str = Field(..., description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
+    buzzer_sound: EnumBuzzerSound = Field(..., description="부저 소리 패턴 (EnumBuzzerSound)", json_schema_extra={"example": "Ambulance"})
+    light_mode: EnumLightMode = Field(..., description="점등 모드 (EnumLightMode)", json_schema_extra={"example": "steady"})
     is_enable: bool = Field(..., description="활성화 여부", json_schema_extra={"example": True})
     priority: int = Field(..., ge=1, description="우선순위", json_schema_extra={"example": 1})
 
@@ -444,3 +444,406 @@ class EventMappingLampResponse(BaseModel):
     updated_at: KSTDatetime = Field(..., description="수정 일시")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# EventMapping Bulk Schemas (PRD_EventMapping_BulkOperations.md §4.2~4.5)
+# ============================================
+class EventMappingCameraBulkCreateRequest(BaseModel):
+    """
+    카메라 연동 벌크 생성 요청 스키마
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.2
+    - 단건 EventMappingCameraCreate 재사용 (per-row 부가 필드 보존)
+    - 1~100건 처리 (DeviceGroup device_ids와 동일 상한)
+    """
+    items: List[EventMappingCameraCreate] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="일괄 생성할 Camera 연동 리스트 (1~100)",
+        json_schema_extra={"example": [
+            {"camera_id": 101, "target_preset_id": 201, "delay_time": 5, "is_enable": True},
+            {"camera_id": 102, "target_preset_id": 202, "delay_time": 3, "is_enable": True},
+        ]},
+    )
+
+    @field_validator('items')
+    @classmethod
+    def validate_items(cls, v):
+        if not v:
+            raise ValueError('items must not be empty')
+        return v
+
+
+class EventMappingCameraBulkCreateFailure(BaseModel):
+    """
+    카메라 연동 벌크 생성 실패 row 상세
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.3
+    """
+    index: int = Field(..., description="요청 items 내 0-based 인덱스", json_schema_extra={"example": 2})
+    item: EventMappingCameraCreate = Field(..., description="실패한 원본 입력 row")
+    error: str = Field(
+        ...,
+        description="실패 사유 (예: 'Camera 11 not found')",
+        json_schema_extra={"example": "Camera 11 not found"},
+    )
+
+
+class EventMappingCameraBulkCreateResponse(BaseModel):
+    """
+    카메라 연동 벌크 생성 응답 스키마 (부분 성공 시맨틱)
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.3
+    - HTTP 200 + failed_items 분리 반환 (best-effort)
+    """
+    mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    created_ids: List[int] = Field(
+        default_factory=list,
+        description="생성된 EventMappingCamera row PK 목록",
+        json_schema_extra={"example": [301, 302]},
+    )
+    failed_items: List[EventMappingCameraBulkCreateFailure] = Field(
+        default_factory=list,
+        description="실패 row 상세 (index, item, error)",
+    )
+    skipped_config_ids: List[int] = Field(
+        default_factory=list,
+        description="(envelope 일관성용 빈 리스트 — 등록 시 분류 없음)",
+        json_schema_extra={"example": []},
+    )
+    not_found_config_ids: List[int] = Field(
+        default_factory=list,
+        description="(envelope 일관성용 빈 리스트 — 등록 시 분류 없음)",
+        json_schema_extra={"example": []},
+    )
+    message: str = Field(
+        ...,
+        description="결과 요약 메시지",
+        json_schema_extra={"example": "2개 카메라 연동 생성 완료, 1개 실패"},
+    )
+
+
+class EventMappingCameraBulkUnassignRequest(BaseModel):
+    """
+    카메라 연동 벌크 해제 요청 스키마
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.4
+    - DeviceGroup DeviceUnassignRequest와 동일 패턴 (config_ids: List[int], 1~100)
+    """
+    config_ids: List[int] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="해제할 EventMappingCamera row PK 목록 (1~100, 중복 자동 제거)",
+        json_schema_extra={"example": [301, 302, 303, 999]},
+    )
+
+    @field_validator('config_ids')
+    @classmethod
+    def validate_config_ids(cls, v):
+        if not v:
+            raise ValueError('config_ids must not be empty')
+        return v
+
+
+class EventMappingCameraBulkUnassignResponse(BaseModel):
+    """
+    카메라 연동 벌크 해제 응답 스키마 (멱등성 3-way 분류)
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.5
+    - DeviceGroup DeviceBulkRemoveResponse 3-way 미러
+    """
+    mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    removed_config_ids: List[int] = Field(
+        default_factory=list,
+        description="실제 삭제된 EventMappingCamera row PK",
+        json_schema_extra={"example": [301, 302]},
+    )
+    skipped_config_ids: List[int] = Field(
+        default_factory=list,
+        description="row는 존재하나 mapping_id 불일치 (멱등)",
+        json_schema_extra={"example": [303]},
+    )
+    not_found_config_ids: List[int] = Field(
+        default_factory=list,
+        description="row 자체가 DB에 존재하지 않음",
+        json_schema_extra={"example": [999]},
+    )
+    message: str = Field(
+        ...,
+        description="결과 요약 메시지",
+        json_schema_extra={"example": "2개 카메라 연동 해제 완료, 1개 건너뜀, 1개 없음"},
+    )
+
+
+# ============================================
+# EventMappingSpeaker Bulk Schemas
+# PRD: PRD_EventMapping_BulkOperations.md §4.2~4.5
+# ============================================
+
+class EventMappingSpeakerBulkCreateRequest(BaseModel):
+    """
+    스피커 연동 벌크 생성 요청 스키마
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.2
+    - 단건 EventMappingSpeakerCreate 재사용 (file_group_id/repeat_count per-row 보존)
+    """
+    items: List[EventMappingSpeakerCreate] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="일괄 생성할 Speaker 연동 리스트 (1~100)",
+        json_schema_extra={"example": [
+            {"speaker_id": 401, "file_group_id": 11, "repeat_count": 3, "is_enable": True},
+            {"speaker_id": 402, "file_group_id": 12, "repeat_count": 1, "is_enable": True},
+        ]},
+    )
+
+    @field_validator('items')
+    @classmethod
+    def validate_items(cls, v):
+        if not v:
+            raise ValueError('items must not be empty')
+        return v
+
+
+class EventMappingSpeakerBulkCreateFailure(BaseModel):
+    """
+    스피커 연동 벌크 생성 실패 row 상세
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.3
+    """
+    index: int = Field(..., description="요청 items 내 0-based 인덱스", json_schema_extra={"example": 1})
+    item: EventMappingSpeakerCreate = Field(..., description="실패한 원본 입력 row")
+    error: str = Field(
+        ...,
+        description="실패 사유 (예: 'Speaker 999 not found')",
+        json_schema_extra={"example": "Speaker 999 not found"},
+    )
+
+
+class EventMappingSpeakerBulkCreateResponse(BaseModel):
+    """
+    스피커 연동 벌크 생성 응답 스키마 (부분 성공 시맨틱)
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.3
+    """
+    mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    created_ids: List[int] = Field(
+        default_factory=list,
+        description="생성된 EventMappingSpeaker row PK 목록",
+        json_schema_extra={"example": [501, 502]},
+    )
+    failed_items: List[EventMappingSpeakerBulkCreateFailure] = Field(
+        default_factory=list,
+        description="실패 row 상세 (index, item, error)",
+    )
+    skipped_config_ids: List[int] = Field(
+        default_factory=list,
+        description="(envelope 일관성용 빈 리스트 — 등록 시 분류 없음)",
+        json_schema_extra={"example": []},
+    )
+    not_found_config_ids: List[int] = Field(
+        default_factory=list,
+        description="(envelope 일관성용 빈 리스트 — 등록 시 분류 없음)",
+        json_schema_extra={"example": []},
+    )
+    message: str = Field(
+        ...,
+        description="결과 요약 메시지",
+        json_schema_extra={"example": "2개 스피커 연동 생성 완료, 1개 실패"},
+    )
+
+
+class EventMappingSpeakerBulkUnassignRequest(BaseModel):
+    """
+    스피커 연동 벌크 해제 요청 스키마
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.4
+    """
+    config_ids: List[int] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="해제할 EventMappingSpeaker row PK 목록 (1~100, 중복 자동 제거)",
+        json_schema_extra={"example": [501, 502, 503, 999]},
+    )
+
+    @field_validator('config_ids')
+    @classmethod
+    def validate_config_ids(cls, v):
+        if not v:
+            raise ValueError('config_ids must not be empty')
+        return v
+
+
+class EventMappingSpeakerBulkUnassignResponse(BaseModel):
+    """
+    스피커 연동 벌크 해제 응답 스키마 (멱등성 3-way 분류)
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.5
+    """
+    mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    removed_config_ids: List[int] = Field(
+        default_factory=list,
+        description="실제 삭제된 EventMappingSpeaker row PK",
+        json_schema_extra={"example": [501, 502]},
+    )
+    skipped_config_ids: List[int] = Field(
+        default_factory=list,
+        description="row는 존재하나 mapping_id 불일치 (멱등)",
+        json_schema_extra={"example": [503]},
+    )
+    not_found_config_ids: List[int] = Field(
+        default_factory=list,
+        description="row 자체가 DB에 존재하지 않음",
+        json_schema_extra={"example": [999]},
+    )
+    message: str = Field(
+        ...,
+        description="결과 요약 메시지",
+        json_schema_extra={"example": "2개 스피커 연동 해제 완료, 1개 건너뜀, 1개 없음"},
+    )
+
+
+# ============================================
+# EventMappingLamp Bulk Schemas
+# PRD: PRD_EventMapping_BulkOperations.md §4.2~4.5
+# ============================================
+
+class EventMappingLampBulkCreateRequest(BaseModel):
+    """
+    경광등 연동 벌크 생성 요청 스키마
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.2
+    - 단건 EventMappingLampCreate 재사용 (color/buzzer_time/buzzer_sound/light_mode per-row 보존)
+
+    NOTE: 단건 EventMappingLampCreate가 event_mapping_id를 포함하지만
+          벌크 엔드포인트는 path parameter {mapping_id}를 신뢰원으로 사용한다 (라우터에서 무시/덮어쓰기).
+    """
+    items: List[EventMappingLampCreate] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="일괄 생성할 Lamp 연동 리스트 (1~100)",
+        json_schema_extra={"example": [
+            {
+                "event_mapping_id": 10, "lamp_id": 501,
+                "color": "Red", "buzzer_time": 5, "buzzer_sound": "PI-PI-PI",
+                "light_mode": "steady", "is_enable": True, "priority": 1,
+            },
+            {
+                "event_mapping_id": 10, "lamp_id": 502,
+                "color": "Orange", "buzzer_time": 10, "buzzer_sound": "Emergency",
+                "light_mode": "blinking", "is_enable": True, "priority": 2,
+            },
+        ]},
+    )
+
+    @field_validator('items')
+    @classmethod
+    def validate_items(cls, v):
+        if not v:
+            raise ValueError('items must not be empty')
+        return v
+
+
+class EventMappingLampBulkCreateFailure(BaseModel):
+    """
+    경광등 연동 벌크 생성 실패 row 상세
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.3
+    """
+    index: int = Field(..., description="요청 items 내 0-based 인덱스", json_schema_extra={"example": 0})
+    item: EventMappingLampCreate = Field(..., description="실패한 원본 입력 row")
+    error: str = Field(
+        ...,
+        description="실패 사유 (예: 'Lamp 999 not found')",
+        json_schema_extra={"example": "Lamp 999 not found"},
+    )
+
+
+class EventMappingLampBulkCreateResponse(BaseModel):
+    """
+    경광등 연동 벌크 생성 응답 스키마 (부분 성공 시맨틱)
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.3
+    """
+    mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    created_ids: List[int] = Field(
+        default_factory=list,
+        description="생성된 EventMappingLamp row PK 목록",
+        json_schema_extra={"example": [701, 702]},
+    )
+    failed_items: List[EventMappingLampBulkCreateFailure] = Field(
+        default_factory=list,
+        description="실패 row 상세 (index, item, error)",
+    )
+    skipped_config_ids: List[int] = Field(
+        default_factory=list,
+        description="(envelope 일관성용 빈 리스트 — 등록 시 분류 없음)",
+        json_schema_extra={"example": []},
+    )
+    not_found_config_ids: List[int] = Field(
+        default_factory=list,
+        description="(envelope 일관성용 빈 리스트 — 등록 시 분류 없음)",
+        json_schema_extra={"example": []},
+    )
+    message: str = Field(
+        ...,
+        description="결과 요약 메시지",
+        json_schema_extra={"example": "2개 경광등 연동 생성 완료, 1개 실패"},
+    )
+
+
+class EventMappingLampBulkUnassignRequest(BaseModel):
+    """
+    경광등 연동 벌크 해제 요청 스키마
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.4
+    """
+    config_ids: List[int] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="해제할 EventMappingLamp row PK 목록 (1~100, 중복 자동 제거)",
+        json_schema_extra={"example": [701, 702, 703, 999]},
+    )
+
+    @field_validator('config_ids')
+    @classmethod
+    def validate_config_ids(cls, v):
+        if not v:
+            raise ValueError('config_ids must not be empty')
+        return v
+
+
+class EventMappingLampBulkUnassignResponse(BaseModel):
+    """
+    경광등 연동 벌크 해제 응답 스키마 (멱등성 3-way 분류)
+
+    PRD: PRD_EventMapping_BulkOperations.md §4.5
+    """
+    mapping_id: int = Field(..., description="EventMapping ID", json_schema_extra={"example": 10})
+    removed_config_ids: List[int] = Field(
+        default_factory=list,
+        description="실제 삭제된 EventMappingLamp row PK",
+        json_schema_extra={"example": [701, 702]},
+    )
+    skipped_config_ids: List[int] = Field(
+        default_factory=list,
+        description="row는 존재하나 mapping_id 불일치 (멱등)",
+        json_schema_extra={"example": [703]},
+    )
+    not_found_config_ids: List[int] = Field(
+        default_factory=list,
+        description="row 자체가 DB에 존재하지 않음",
+        json_schema_extra={"example": [999]},
+    )
+    message: str = Field(
+        ...,
+        description="결과 요약 메시지",
+        json_schema_extra={"example": "2개 경광등 연동 해제 완료, 1개 건너뜀, 1개 없음"},
+    )

@@ -9,6 +9,7 @@ Polymorphic Inheritance using Joined Table strategy.
 - Controller, Sensor, Camera, Speaker, Enclosure, Lamp: Child tables with specific fields
 """
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey, Boolean, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -99,7 +100,7 @@ class Controller(Device):
     # Controller-specific fields
     ip_address = Column(String(50), nullable=False)
     ip_port = Column(Integer, nullable=False)
-    geolocation = Column(JSON, nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -138,7 +139,7 @@ class Sensor(Device):
 
     # Sensor-specific fields
     controller_id = Column(Integer, ForeignKey("controllers.id"), nullable=False, index=True)
-    geolocation = Column(JSON, nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)  # PRD_Controller_Sensor_Geolocation.md
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -183,14 +184,14 @@ class Camera(Device):
     ip_port = Column(Integer, nullable=False)
     user_name = Column(String(100), nullable=True)  # PRD v1.2: nullable
     user_password = Column(String(200), nullable=True)  # PRD v1.2: nullable
-    urls = Column(JSON, nullable=True)  # PRD_Camera_Urls_JsonB.md: replaces rtsp_uri/rtsp_port
+    urls = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # PRD_Camera_Urls_JsonB.md: replaces rtsp_uri/rtsp_port
     mode = Column(SQLEnum(EnumCameraMode), nullable=False, default=EnumCameraMode.NONE)
     category = Column(SQLEnum(EnumCameraType), nullable=False, default=EnumCameraType.NONE)
 
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
     is_record = Column(Boolean, nullable=False, default=False)
-    hardware_spec = Column(JSON, nullable=True, default=None)
-    geolocation = Column(JSON, nullable=True, default=None)
+    hardware_spec = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
 
     # Polymorphic identity - use ENUM value
     __mapper_args__ = {
@@ -243,7 +244,7 @@ class Speaker(Device):
     )
     description = Column(String(500), nullable=True)
     # PRD_Speaker_Geolocation.md v1.0: 위치 정보 JSONB
-    geolocation = Column(JSON, nullable=True, default=None)
+    geolocation = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
 
     # Polymorphic identity
     __mapper_args__ = {
@@ -304,13 +305,13 @@ class Enclosure(Device):
     )
     # detail_info 제거됨 → enclosure_metrics 테이블로 분리 (PRD_Enclosure_Metrics_Separation.md v1.0)
     geolocation = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         default=None,
-        comment="위치 정보 (location, latitude, longitude, altitude)"
+        comment="위치 정보 (location, latitude, longitude, altitude, heading)"
     )
     threshold_config = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         default=None,
         comment="알람 임계값 설정"
@@ -386,7 +387,7 @@ class EnclosureMetric(Base):
     vibration = Column(Integer, nullable=True)
     ups_battery_level = Column(Integer, nullable=True)
     ups_charging = Column(Boolean, nullable=True)
-    detail = Column(JSON, nullable=True, default=None)
+    detail = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
     # Relationship to Enclosure
@@ -430,10 +431,10 @@ class Lamp(Device):
     user_password = Column(String(255), nullable=True, comment="접속 비밀번호")
     description = Column(String(500), nullable=True, comment="설명")
     geolocation = Column(
-        JSON,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=True,
         default=None,
-        comment="위치 정보 (location, latitude, longitude, altitude)"
+        comment="위치 정보 (location, latitude, longitude, altitude, heading)"
     )
 
     # Polymorphic identity

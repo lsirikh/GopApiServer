@@ -51,7 +51,7 @@ async def get_rois(
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
-    rois = query.offset(skip).limit(limit).all()
+    rois = query.order_by(ROI.id).offset(skip).limit(limit).all()
 
     # Build response items
     items = []

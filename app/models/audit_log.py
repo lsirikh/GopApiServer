@@ -3,6 +3,7 @@ Audit Log model for tracking user activities
 PRD: PRD_Audit_Log.md v1.0
 """
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -39,7 +40,7 @@ class AuditLog(Base):
     actor_role = Column(String(20))
 
     # 변경 상세
-    changes = Column(JSON)  # {before: {...}, after: {...}}
+    changes = Column(JSON().with_variant(JSONB(), "postgresql"))  # {before: {...}, after: {...}}
     description = Column(String(500))
 
     # 클라이언트 정보

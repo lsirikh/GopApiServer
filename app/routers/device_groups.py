@@ -21,6 +21,8 @@ from app.schemas.device_group import (
     DeviceAssignRequest,
     DeviceAssignResponse,
     DeviceRemoveResponse,
+    DeviceUnassignRequest,
+    DeviceBulkRemoveResponse,
     ControllerSummary,
     SensorSummary,
     CameraSummary,
@@ -104,7 +106,7 @@ async def get_device_groups(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    groups = query.offset(skip).limit(limit).all()
+    groups = query.order_by(DeviceGroup.id).offset(skip).limit(limit).all()
 
     group_responses = []
     for g in groups:
@@ -731,6 +733,106 @@ async def assign_devices_to_group(
         success=True,
         data=response,
         message=message
+    )
+
+
+@router.delete(
+    "/{group_id}/devices",
+    response_model=ApiSingleResponse[DeviceBulkRemoveResponse],
+    responses={
+        200: {"description": "벌크 해제 성공 (부분 성공 포함)"},
+        404: {"description": "DeviceGroup not found"},
+        422: {"description": "device_ids 검증 실패"},
+    },
+)
+async def bulk_unassign_devices_from_group(
+    group_id: int,
+    request: DeviceUnassignRequest,
+    current_user=Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    디바이스 그룹에서 디바이스 일괄 해제 (벌크)
+
+    PRD_DeviceGroup_BulkUnassign v1.0.
+
+    - **group_id**: 그룹 ID
+    - **device_ids**: 해제할 디바이스 ID 목록 (1~100, 중복 자동 제거)
+
+    **Response**: removed/skipped/not_found 3-way 분류
+    - removed_device_ids: 실제 매핑 삭제된 ID
+    - skipped_device_ids: device는 존재하나 그룹 멤버가 아님 (멱등)
+    - not_found_device_ids: device 자체가 DB에 없음
+    """
+    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"},
+        )
+
+    # 중복 ID 제거 (멱등성)
+    unique_ids = list(dict.fromkeys(request.device_ids))
+
+    removed: list[int] = []
+    skipped: list[int] = []
+    not_found: list[int] = []
+    removed_categories: dict[int, str] = {}
+
+    for device_id in unique_ids:
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if not device:
+            not_found.append(device_id)
+            continue
+
+        mapping = db.query(DeviceGroupMapping).filter(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == device.category_device,
+            DeviceGroupMapping.group_id == group_id,
+        ).first()
+
+        if not mapping:
+            skipped.append(device_id)
+            continue
+
+        db.delete(mapping)
+        removed.append(device_id)
+        removed_categories[device_id] = device.category_device.value
+
+    db.commit()  # 단일 commit (원자성)
+
+    # ConfigChangeLog: removed가 있을 때만 1건 발행
+    if removed:
+        log_config_change(
+            db=db,
+            resource_type=EnumConfigResourceType.DEVICE_GROUP,
+            resource_id=group_id,
+            resource_name=f"DeviceGroup-{group_id} ({group.name})",
+            action=EnumConfigActionType.UNASSIGNED,
+            before_state={
+                "device_ids": removed,
+                "categories": removed_categories,
+            },
+            description=f"DeviceGroup에서 {len(removed)}개 디바이스 해제 (bulk)",
+        )
+
+    parts = [f"{len(removed)}개 디바이스 해제 완료"]
+    if skipped:
+        parts.append(f"{len(skipped)}개 건너뜀")
+    if not_found:
+        parts.append(f"{len(not_found)}개 없음")
+    message = ", ".join(parts)
+
+    return ApiSingleResponse(
+        success=True,
+        data=DeviceBulkRemoveResponse(
+            group_id=group_id,
+            removed_device_ids=removed,
+            skipped_device_ids=skipped,
+            not_found_device_ids=not_found,
+            message=message,
+        ),
+        message=message,
     )
 
 

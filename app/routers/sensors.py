@@ -182,8 +182,8 @@ async def get_sensors(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    sensors = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    sensors = query.order_by(Sensor.id).offset(skip).limit(limit).all()
 
     # Convert to response format using helper function
     sensor_responses = [

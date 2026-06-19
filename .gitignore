@@ -60,18 +60,25 @@ data/*.db
 .claude/
 Claude.md
 claude.md
+.playwright-mcp
+
 
 # reports (generated PDFs at root level only)
 /reports/
 
 # Documentation & Planning
-docs/
-Docs/
+docs/*
+Docs/*
 plan.md
 PRD.md
 prd.md
 *prd.md
 prd*.md
+
+# v4.6 FR-12: PRD 산출물 + 동기화 가이드는 git 추적 (PC 손상 시 보존)
+!docs/PRD_*.md
+!docs/v45_sync_guide.md
+!docs/v46_release_notes.md
 
 # Tests cache & artifacts
 tests/__pycache__/

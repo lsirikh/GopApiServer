@@ -151,6 +151,11 @@ class CameraPresetBase(BaseModel):
     preset_index: int = Field(..., description="Preset index within camera")
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
+    # v4.6 — 감시금지구역 플래그 (차장 결재 2026-06-19 단순화)
+    is_restricted_zone: bool = Field(
+        default=False,
+        description="감시금지구역 표시 — true 시 매니저 측에서 통일 처리 (RTSP/녹화/이벤트/화면 모두 차단)"
+    )
 
 
 class CameraPresetCreate(CameraPresetBase):
@@ -163,6 +168,7 @@ class CameraPresetUpdate(BaseModel):
     preset_index: Optional[int] = None
     preset_name: Optional[str] = Field(default=None, max_length=100)
     touring_time: Optional[int] = None
+    is_restricted_zone: Optional[bool] = None
 
 
 class CameraPresetResponse(BaseModel):
@@ -176,6 +182,8 @@ class CameraPresetResponse(BaseModel):
     preset_index: int = Field(..., description="Preset index within camera")
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
+    # v4.6 감시금지구역
+    is_restricted_zone: bool = Field(default=False, description="감시금지구역 표시")
     roi_count: int = Field(default=0, description="Number of ROIs in preset")
     created_at: KSTDatetime
     updated_at: KSTDatetime
@@ -221,6 +229,8 @@ class CameraPresetDetailResponse(BaseModel):
     preset_index: int = Field(..., description="Preset index within camera")
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
+    # v4.6 감시금지구역
+    is_restricted_zone: bool = Field(default=False, description="감시금지구역 표시")
     rois: List[ROINestedResponse] = Field(default_factory=list)
     created_at: KSTDatetime
     updated_at: KSTDatetime

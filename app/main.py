@@ -280,10 +280,10 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- API Version: 2.9
-- PRD: PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md
+- API Version: 2.10
+- PRD: PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="1.5.0",
+    version="1.6.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -544,13 +544,15 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# CORS middleware
+# CORS middleware (v4.6 FR-3: 화이트리스트 + 메서드/헤더 한정)
+# dev 환경은 ["*"] 허용 (편의), staging/prod는 settings.CORS_ORIGINS 명시 도메인만
+_cors_origins = settings.cors_origins_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this appropriately in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
 )
 
 # Custom middlewares (order matters - applied in reverse)

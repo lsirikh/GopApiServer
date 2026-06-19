@@ -168,7 +168,7 @@ async def get_config_change_logs(
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # 정렬 및 페이지네이션
-    query = query.order_by(ConfigChangeLog.created_at.desc())
+    query = query.order_by(ConfigChangeLog.created_at.desc(), ConfigChangeLog.id.desc())
     skip = (page - 1) * limit
     logs = query.offset(skip).limit(limit).all()
 

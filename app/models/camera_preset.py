@@ -26,6 +26,7 @@ class CameraPreset(Base):
         preset_index: Preset index within camera (unique per camera)
         preset_name: Preset display name
         touring_time: Time to move from Home to this preset (seconds)
+        is_restricted_zone: 감시금지구역 플래그 (v4.6 신규)
         created_at: Creation timestamp
         updated_at: Last update timestamp
     """
@@ -37,6 +38,13 @@ class CameraPreset(Base):
     preset_index = Column(Integer, nullable=False)
     preset_name = Column(String(100), nullable=False)
     touring_time = Column(Integer, nullable=False, default=10)
+    # v4.6 — 감시금지구역 플래그 (차장 결재 2026-06-19 단순화)
+    is_restricted_zone = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="감시금지구역 표시 — true 시 매니저 측에서 통일 처리 (RTSP/녹화/이벤트/화면 모두 차단)"
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 

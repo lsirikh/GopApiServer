@@ -156,8 +156,8 @@ async def get_enclosures(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    enclosures = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    enclosures = query.order_by(Enclosure.id).offset(skip).limit(limit).all()
 
     # Convert to response format
     enclosure_responses = [_enclosure_to_response(e, db) for e in enclosures]

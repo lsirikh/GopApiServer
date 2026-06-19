@@ -74,7 +74,7 @@ async def get_logs(
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Apply pagination and ordering (most recent first)
-    logs = query.order_by(ApiLog.timestamp.desc()).offset(skip).limit(limit).all()
+    logs = query.order_by(ApiLog.timestamp.desc(), ApiLog.id.desc()).offset(skip).limit(limit).all()
 
     pagination = PaginationMeta(
         page=page,

@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: gop-postgres
+    container_name: api-test-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gop}
       POSTGRES_USER: ${POSTGRES_USER:-gop_user}
@@ -10,7 +10,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - api-test-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gop_user} -d ${POSTGRES_DB:-gop}"]
       interval: 5s
@@ -18,8 +18,9 @@ services:
       retries: 5
     restart: unless-stopped
 
-  api_server-fastapi:
-    container_name: api_server-fastapi
+  api-server:
+    container_name: api-test-server
+    image: api-test-server:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -53,19 +54,23 @@ services:
     build:
       context: ./db_monitor
       dockerfile: Dockerfile
-    container_name: gop-db-monitor
+    container_name: api-test-db-monitor
+    image: api-test-db-monitor:latest
     environment:
       - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
-      - NATS_URL=${NATS_URL:-nats://localhost:4222}
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
       - UNIT_ID=${UNIT_ID:-unit001}
       - PYTHONUNBUFFERED=1
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - default
+      - nats_external
 
   db-admin:
-    container_name: db-admin
+    container_name: api-test-db-admin
     image: adminer
     ports:
       - "8080:8080"
@@ -76,4 +81,10 @@ services:
     restart: unless-stopped
 
 volumes:
-  pgdata:
+  api-test-pgdata:
+
+networks:
+  default:
+  nats_external:
+    external: true
+    name: nats-core_nats-network

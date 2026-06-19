@@ -135,6 +135,14 @@ class Geolocation(BaseModel):
         description="고도 (미터)",
         examples=[150.0]
     )
+    # v4.7 FR-13: 디바이스 본체 정면 방위각 (지향성)
+    heading: Optional[float] = Field(
+        None, ge=0.0, le=360.0,
+        description="본체 정면 방위각 (정북=0, 시계방향, 0~360°). "
+                    "Camera/Speaker/Sensor는 의미 있음. Lamp/Enclosure는 무방향 (null 권장). "
+                    "PTZ 카메라의 동적 회전은 별도 preset으로 처리.",
+        examples=[135.0]
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -490,6 +498,8 @@ class CameraResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
+    # v4.4 Phase 5: user_password 응답 노출 복원 — 운영 사용 케이스 (등록 직후 확인 / 관리자 화면 / 통합상황도 자동연결)
+    # 보안 정책(롤 기반 / 별도 엔드포인트 / 마스킹)은 v4.5에서 결정 예정
     user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
     mode: EnumCameraMode = Field(..., description="카메라 모드")
     category: EnumCameraType = Field(..., description="카메라 카테고리")
@@ -1043,7 +1053,8 @@ class LampResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
     user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
-    user_password: Optional[str] = Field(None, description="접속 비밀번호", json_schema_extra={"example": "********"})
+    # v4.4 Phase 5: user_password 응답 노출 복원 — 운영 사용 케이스 (보안 정책은 v4.5에서 결정)
+    user_password: Optional[str] = Field(None, description="접속 비밀번호", json_schema_extra={"example": "lamp1234"})
     description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
     geolocation: Optional[Geolocation] = Field(
         None,

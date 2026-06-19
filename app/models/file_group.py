@@ -5,6 +5,7 @@ PRD: PRD_Speaker_Device.md - Section 4.4, 4.5
 FileGroup stores broadcast audio file pools for Speaker servers.
 """
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -39,7 +40,7 @@ class FileGroup(Base):
     )
     group_id = Column(Integer, nullable=False)
     group_name = Column(String(100), nullable=False)
-    files = Column(JSON, nullable=True)  # JSONB array: ["file1.mp3", "file2.mp3"]
+    files = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # JSONB array: ["file1.mp3", "file2.mp3"]
 
     # Timestamps
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)

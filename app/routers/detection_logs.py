@@ -226,7 +226,7 @@ async def get_detection_logs(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    events = query.order_by(DetectionEvent.created_at.desc()).offset(skip).limit(limit).all()
+    events = query.order_by(DetectionEvent.created_at.desc(), DetectionEvent.id.desc()).offset(skip).limit(limit).all()
 
     # Convert to response
     log_responses = [

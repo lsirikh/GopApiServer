@@ -6,6 +6,7 @@ PRD: PRD_Report_System.md Section 4
 - ReportGeneration: 보고서 생성 이력
 """
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -28,7 +29,7 @@ class ReportTemplate(Base):
     owner_id = Column(Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True)
     is_public = Column(Boolean, nullable=False, default=False)
 
-    components = Column(JSON, nullable=False)
+    components = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
     default_period = Column(String(20), default="7d")
 
     # Timestamps
@@ -67,10 +68,10 @@ class ReportGeneration(Base):
     generator_department = Column(String(100), nullable=True)
 
     # 필터 설정
-    severity_filter = Column(JSON, nullable=True)
+    severity_filter = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 결과 데이터
-    summary_data = Column(JSON, nullable=True)
+    summary_data = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 파일 정보
     pdf_file_path = Column(String(500), nullable=True)

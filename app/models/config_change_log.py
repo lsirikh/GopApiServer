@@ -3,6 +3,7 @@ ConfigChangeLog model for tracking configuration changes
 PRD: PRD_ConfigChangeLog.md v1.0
 """
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index, Enum, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -41,8 +42,8 @@ class ConfigChangeLog(Base):
     )
 
     # 변경 전/후 상태 (JSON)
-    before_state = Column(JSON)  # 변경 전 상태
-    after_state = Column(JSON)   # 변경 후 상태
+    before_state = Column(JSON().with_variant(JSONB(), "postgresql"))  # 변경 전 상태
+    after_state = Column(JSON().with_variant(JSONB(), "postgresql"))   # 변경 후 상태
 
     # 수행자 정보
     actor_id = Column(

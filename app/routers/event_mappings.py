@@ -69,8 +69,8 @@ async def get_event_mappings(
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    mappings = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    mappings = query.order_by(EventMapping.id).offset(skip).limit(limit).all()
 
     # Convert to response format (PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping)
     mapping_responses = [

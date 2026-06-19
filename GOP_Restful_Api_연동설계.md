@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-03-04  
-**버전**: v4.3  
+**최종 수정일**: 2026-06-19  
+**버전**: v4.6  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -5584,11 +5584,131 @@ Accept: application/json
 
 ---
 
+#### 5.6.9 디바이스 그룹에서 디바이스 벌크 해제 *(v4.3 신규)*
+
+**Endpoint**: `DELETE /api/devices/groups/{group_id}/devices`
+
+여러 디바이스를 한 번의 요청으로 그룹에서 일괄 해제합니다. 단건 해제(`5.6.8`)의 N회 호출을 1회로 통합하여 그룹 편집 UI에서의 라운드트립을 최소화하고, NATS `SYNC_DEVICE_GROUP` 메시지를 statement-level 트리거로 영향 받는 group당 1건만 발행하여 다운스트림 폭주를 차단합니다.
+
+**Request Example**:
+```http
+DELETE /api/devices/groups/1/devices HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "device_ids": [1, 2, 3, 999]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| group_id | integer | Y | DeviceGroup ID |
+
+**Request Body**:
+```json
+{
+  "device_ids": [1, 2, 3, 999]
+}
+```
+
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| device_ids | array[integer] | Y | 1 ≤ len ≤ 100, 중복 자동 제거 | 그룹에서 해제할 디바이스 ID 목록 |
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "2개 디바이스 해제 완료, 1개 건너뜀, 1개 없음",
+  "data": {
+    "group_id": 1,
+    "removed_device_ids": [1, 2],
+    "skipped_device_ids": [3],
+    "not_found_device_ids": [999],
+    "message": "2개 디바이스 해제 완료, 1개 건너뜀, 1개 없음"
+  },
+  "meta": {
+    "timestamp": "2026-06-17T10:41:00.302543+09:00",
+    "request_id": null
+  }
+}
+```
+
+> `data.message` 형식: removed/skipped/not_found 중 **개수가 0이 아닌 절만** 콤마로 연결됩니다. 예: skipped=0, not_found=0이면 `"3개 디바이스 해제 완료"` 만 표시. envelope top-level `message` 필드도 동일 문자열로 미러링된다.
+> `meta.timestamp`: KST 타임존(`+09:00`) ISO 8601. `meta.request_id`: 클라이언트가 `X-Request-ID` 헤더를 보내면 그 값, 없으면 `null`.
+
+| 응답 필드 | 타입 | 설명 |
+|----------|------|------|
+| group_id | integer | 대상 DeviceGroup ID |
+| removed_device_ids | array[integer] | 실제 매핑이 삭제된 디바이스 ID 목록 |
+| skipped_device_ids | array[integer] | device는 존재하지만 그룹 멤버가 아니라 처리할 게 없는 ID 목록 (멱등성 보장) |
+| not_found_device_ids | array[integer] | device 자체가 DB에 존재하지 않는 ID 목록 (404가 아니라 분류 응답) |
+| message | string | 처리 결과 요약 |
+
+**Error Response** (404 Not Found — 그룹 미존재):
+```json
+{
+  "success": false,
+  "message": "DeviceGroup ID 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response** (422 Unprocessable Entity — 빈 배열/100건 초과):
+```json
+{
+  "success": false,
+  "message": "device_ids must not be empty",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": null
+  }
+}
+```
+
+| HTTP 코드 | 발생 조건 |
+|-----------|----------|
+| 200 OK | 정상 처리 (전체/부분 해제 모두 200, 결과는 body 3분류로 구분) |
+| 404 Not Found | `group_id`에 해당하는 DeviceGroup 미존재 |
+| 422 Unprocessable Entity | `device_ids` 누락 / 빈 배열 / 100건 초과 / 타입 오류 |
+
+**ConfigChangeLog 연동**:
+- 리소스 타입: `EnumConfigResourceType.DEVICE_GROUP`
+- 액션 타입: `EnumConfigActionType.UNASSIGNED`
+- 요청당 **1건** 발행 (`before_state.device_ids`에 해제된 ID 리스트, `before_state.categories`에 `{device_id: category}` 매핑)
+- `description`: `"DeviceGroup에서 N개 디바이스 해제 (bulk)"`
+- `removed_device_ids`가 비어 있으면(전부 skipped/not_found) 미발행
+
+> AuditLog(사용자/계정 행위 감사 도메인)는 본 엔드포인트와 무관 — DeviceGroup 멤버십 변경은 ConfigChangeLog 도메인 (`EnumAuditResourceType`은 `PRD_Audit_Log.md §2.2.2`에 따라 USER/USER_GROUP/USER_SESSION/PASSWORD 4종으로 제한됨).
+
+**NATS SYNC 동작**:
+- `device_group_mappings` 테이블의 statement-level 트리거가 발화하여, 영향 받는 `group_id`당 **`SYNC_DEVICE_GROUP/UPDATED` 1건만 발행** (PostgreSQL 10+ `REFERENCING OLD TABLE`).
+- 등록(POST `/devices`)도 동일 트리거로 1건/group 발행 — 단건 호출 패턴의 N건 발행 대비 80%+ 감소.
+
+**변경 이력**:
+- v4.3 (2026-06-17): 신규. 단건 해제 API(`5.6.8`)의 벌크 보완. POST `/devices`(할당, `5.6.7`)와 메서드/응답 envelope 대칭 구조.
+
+---
+
 ### 5.7 Camera Preset API
 
 카메라의 프리셋(Preset)을 관리합니다. PTZ 카메라의 사전 정의된 위치/각도 설정을 저장하고 관리합니다.
 
 **계층 구조**: `Camera` → `CameraPreset` → `ROI` → `XyPoint`
+
+**v4.6 신규 — 감시금지구역 옵션 (차장 결재 2026-06-19)**:
+- `is_restricted_zone` (bool, default=false): 감시금지구역 표시
+  - true 시: 해당 프리셋으로 카메라가 이동했을 때 매니저 측에서 **통일 처리** (RTSP/녹화/이벤트/화면 모두 차단)
+  - false 시: 정상 감시 동작
+- 매니저별 처리: VMS(RTSP 차단) / NVR(녹화 중지) / db_monitor(이벤트 발행 차단) / Central UI(화면 마스킹) — 모두 `is_restricted_zone=true` 하나로 통일 트리거
+- 매니저 통합 가이드: `docs/v46_camera_preset_restricted_zone_guide.md`
 
 #### 5.7.1 CameraPreset 목록 조회
 
@@ -8176,7 +8296,6 @@ Accept: application/json
 {
   "device_id": 104,
   "type_event": "Fault",
-  "action_reported": "True",
   "reason": "FAULT_ETC",
   "detail": {
     "first_start": 2,
@@ -8188,13 +8307,13 @@ Accept: application/json
 ```
 
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.8 정책 (v4.6 명세 정정)**: `action_reported` 필드는 **시스템 자동 관리** (ActionEvent 생성/삭제 시 자동 갱신). 클라이언트가 전송할 수 없으며, 전송해도 무시됨.
 
 **Request Body** (전체 업데이트):
 ```json
 {
   "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
-  "action_reported": "True", //(EnumTrueFalse)
   "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "first_start": 2,
@@ -8204,6 +8323,7 @@ Accept: application/json
   }
 }
 ```
+> `action_reported` 제외 (v2.8 자동 관리)
 
 **Response Example** (200 OK):
 ```json
@@ -8917,12 +9037,13 @@ Accept: application/json
 
 **Endpoint**: `GET /api/events/actions`
 
-**Query Parameters**:
-- `start_date` (datetime, required): 조회 시작 시간 (ISO 8601)
-- `end_date` (datetime, required): 조회 종료 시간 (ISO 8601)
+**Query Parameters** (v4.6 정정 — 모두 optional, 코드 정책과 일치):
+- `start_date` (datetime, optional): 조회 시작 시간 (ISO 8601). 미지정 시 1년 전 기본값
+- `end_date` (datetime, optional): 조회 종료 시간 (ISO 8601). 미지정 시 현재 시각
 - `user` (string, optional): 사용자 필터
-- `page` (int, optional): 페이지 번호
-- `limit` (int, optional): 페이지당 항목 수
+- `from_event_id` (int, optional): 특정 source event(`DetectionEvent`/`MalfunctionEvent`) FK 필터 — **v4.6 추가**
+- `page` (int, optional, default=1): 페이지 번호
+- `limit` (int, optional, default=20): 페이지당 항목 수
 
 **Request Example**:
 ```http
@@ -9196,7 +9317,7 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/actions/{id}`
 
-**Request Example**:
+**Request Example** (v4.6 정정 — 4 필드 모두 required):
 ```http
 PUT /api/events/actions/4001 HTTP/1.1
 Host: control-service.company.com
@@ -9205,18 +9326,23 @@ Content-Type: application/json
 Accept: application/json
 
 {
+  "type_event": "Action",
   "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청",
-  "user": "operator_park"
+  "user": "operator_park",
+  "from_event_id": 1002
 }
 ```
 
-**Request Body** (전체 업데이트):
+**Request Body** (전체 업데이트, v4.6 정정 — 4 필드 모두 required):
 ```json
 {
-  "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청",
-  "user": "operator_park"
+  "type_event": "Action", //(string, required)
+  "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청", //(string, required)
+  "user": "operator_park", //(string, required)
+  "from_event_id": 1002 //(int, required - source event(Detection/Malfunction) FK)
 }
 ```
+> v4.6 정정: 옛 예시는 `{content, user}` 2필드만 표기했으나 코드 스키마는 4 required. 매니저가 2필드만 전송 시 즉시 422 발생.
 
 **Response Example** (200 OK):
 ```json
@@ -9377,7 +9503,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 ### 6.5 Detection Log API *(v3.8 신규)*
 
 탐지 이벤트와 조치보고를 JOIN하여 로그 화면 전용으로 제공하는 읽기 전용 API입니다.
-DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 포함됩니다.
+**DetectionEvent 1 : N ActionEvent** 관계 (PRD_ActionEvent_1N_Refactoring v2.0 반영, v4.6 명세 정정). 미조치 탐지 이벤트도 포함되며, 이 경우 `actions`는 빈 리스트(`[]`)로 반환됩니다.
 
 #### 6.5.1 Detection Log 목록 조회
 
@@ -9427,13 +9553,15 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
         "signal": 1500,
         "objects": [{"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}]
       },
-      "action": {
-        "id": 4001,
-        "content": "침입 탐지 확인 및 순찰 출동 요청",
-        "user": "operator_kim",
-        "created_at": "2026-01-06T10:16:00.100Z",
-        "updated_at": "2026-01-06T10:16:00.100Z"
-      },
+      "actions": [
+        {
+          "id": 4001,
+          "content": "침입 탐지 확인 및 순찰 출동 요청",
+          "user": "operator_kim",
+          "created_at": "2026-01-06T10:16:00.100Z",
+          "updated_at": "2026-01-06T10:16:00.100Z"
+        }
+      ],
       "created_at": "2026-01-06T10:15:23.100Z",
       "updated_at": "2026-01-06T10:15:23.100Z"
     },
@@ -9445,7 +9573,7 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
       "device": { "..." },
       "device_description": "[Fence] Sensor-B-1 (number: 2, id: 102)",
       "detail": null,
-      "action": null,
+      "actions": [],
       "created_at": "2026-01-06T10:20:00.100Z",
       "updated_at": "2026-01-06T10:20:00.100Z"
     }
@@ -9461,7 +9589,8 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
 - **설명**: 특정 탐지 로그 상세 조회 (ActionEvent JOIN 포함)
 
 **Response (200 OK)**: `ApiSingleResponse[DetectionLogResponse]`
-- DetectionEventResponse 전체 필드 + `action` 필드 (ActionNested 또는 null)
+- DetectionEventResponse 전체 필드 + `actions` 필드 (list[ActionNested], 미조치 시 빈 리스트 `[]`)
+- 동일 DetectionEvent에 다건 ActionEvent 누적 가능 (PRD_ActionEvent_1N_Refactoring v2.0)
 
 **Error Response:**
 - 404: 탐지 로그를 찾을 수 없음
@@ -10734,6 +10863,249 @@ Accept: application/json
 
 > **참고**: Response 스키마는 기존 7.3.1의 `EventMappingCameraResponse`와 동일. Nested 객체에 timestamp 미포함 (Nested Response 규칙 적용).
 
+#### 7.3.9 카메라 벌크 등록 *(v4.3 신규)*
+
+##### Endpoint
+
+```
+POST /api/integrations/event-mappings/{mapping_id}/cameras/bulk
+```
+
+##### Request Example
+
+```http
+POST /api/integrations/event-mappings/10/cameras/bulk HTTP/1.1
+Host: 10.10.30.10:8000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "camera_id": 201,
+      "target_preset_id": 5,
+      "home_preset_id": 6,
+      "delay_time": 30,
+      "is_enable": true,
+      "priority": 1
+    },
+    {
+      "camera_id": 202,
+      "target_preset_id": null,
+      "home_preset_id": null,
+      "delay_time": 0,
+      "is_enable": true
+    },
+    {
+      "camera_id": 203,
+      "delay_time": 0,
+      "is_enable": false
+    }
+  ]
+}
+```
+
+##### Path Parameters
+
+| 필드          | 타입  | 필수 | 설명                              |
+|---------------|-------|------|-----------------------------------|
+| `mapping_id`  | int   | Y    | 카메라를 묶을 EventMapping의 PK   |
+
+##### Request Body
+
+| 필드     | 타입                                  | 필수 | 제약        | 설명                                  |
+|----------|---------------------------------------|------|-------------|---------------------------------------|
+| `items`  | `List[EventMappingCameraCreate]`      | Y    | 1 ~ 100건   | 등록할 카메라 매핑 row 배열 (단건 §7.3.3 스키마 재사용) |
+
+`items[]` 각 row 필드 (단건 `EventMappingCameraCreate`와 완전 동일):
+
+| 필드               | 타입    | 필수 | 기본값 | 설명                                              |
+|--------------------|---------|------|--------|---------------------------------------------------|
+| `camera_id`        | integer | Y    | -      | 대상 카메라 ID (`cameras.id`)                     |
+| `target_preset_id` | integer | N    | null   | 이벤트 발생 시 이동할 프리셋 ID                   |
+| `home_preset_id`   | integer | N    | null   | 홈 복귀 프리셋 ID                                 |
+| `delay_time`       | integer | N    | 0      | target_preset 도착 후 대기 시간 (초)              |
+| `is_enable`        | boolean | N    | true   | 활성화 여부                                       |
+| `priority`         | integer | N    | null   | 실행 우선순위 (낮을수록 높음)                     |
+
+##### Response Example (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "EventMapping 10에 카메라 2건이 등록되었습니다. (요청 3건 / 등록 2건 / 실패 1건)",
+  "data": {
+    "mapping_id": 10,
+    "created_ids": [701, 702],
+    "failed_items": [
+      {
+        "index": 2,
+        "item": {
+          "camera_id": 999,
+          "delay_time": 0,
+          "is_enable": true
+        },
+        "error": "Camera with id 999 not found"
+      }
+    ],
+    "skipped_config_ids": [],
+    "not_found_config_ids": [],
+    "message": "EventMapping 10에 카메라 2건이 등록되었습니다. (실패 1건)"
+  }
+}
+```
+
+> v4.5 PR-D 정합화 (2026-06-18): 200 OK 응답에도 envelope `meta.timestamp` (KST +09:00) + `meta.request_id` 동봉. 라우터 `response_model=ApiSingleResponse[EventMappingCameraBulkCreateResponse]` 적용으로 Pydantic이 `meta` 기본값(`ResponseMeta` factory)을 자동 주입. 4xx/5xx 응답도 동일 envelope 유지. Swagger UI(`/docs`)에 정확한 응답 schema 노출.
+
+##### Response Fields (`data`)
+
+| 필드                     | 타입            | 설명                                                                                  |
+|--------------------------|-----------------|---------------------------------------------------------------------------------------|
+| `mapping_id`             | int             | 대상 EventMapping의 PK                                                                |
+| `created_ids`            | `List[int]`     | 실제 INSERT에 성공한 **매핑 row PK (`event_mapping_cameras.id`) 목록** (요청 순서 보존). 단건 §7.3.6 DELETE path `{config_id}`와 동일 의미 — 카메라 PK가 아님 |
+| `failed_items`           | `List[object]`  | 검증/DB 오류로 실패한 항목. 각 원소: `{ "index": int, "item": {...}, "error": str }`. `item`은 입력 row 원본 에코 |
+| `skipped_config_ids`     | `List[int]`     | 이미 `(mapping_id, camera_id)` 매핑 row가 존재하여 INSERT를 건너뛴 **기존 매핑 row PK 목록** (v4.5 PR-B 신설 — 멱등성 보장). 같은 request 내 동일 `camera_id` 중복은 별개 — N건 모두 시도됨 (v4.6 별도 보강 권고) |
+| `not_found_config_ids`   | `List[int]`     | `cameras` 테이블에 존재하지 않는 입력 `camera_id` 목록 (v4.5 PR-B 신설 — 매핑 row PK가 아닌 카메라 PK). `target_preset_id` / `home_preset_id` 부재는 `failed_items[*].error`로 노출 |
+| `message`                | string          | 사람이 읽기 좋은 결과 요약                                                            |
+
+##### Error Responses
+
+| HTTP | 코드/사유                          | 설명                                                                  |
+|------|------------------------------------|-----------------------------------------------------------------------|
+| 404  | `EVENT_MAPPING_NOT_FOUND`          | `mapping_id`에 해당하는 EventMapping이 존재하지 않음                  |
+| 422  | `VALIDATION_ERROR` (`items` 비어있음) | `items` 길이가 0인 경우                                            |
+| 422  | `VALIDATION_ERROR` (`items` 초과)   | `items` 길이가 100을 초과하는 경우                                    |
+| 500  | `INTERNAL_SERVER_ERROR`            | 트랜잭션/네트워크 등 서버 내부 오류                                   |
+
+##### ConfigChangeLog
+
+- 요청당 **무조건 1건** 기록 (v4.5 PR-A 정합화 — Camera/Speaker/Lamp 모두 동일 정책). 0건 케이스도 `after_state.config_ids=[], count=0` 으로 기록되어 매니저가 호출 사실 자체를 감사 가능
+- `resource_type` = `EnumConfigResourceType.EVENT_MAPPING_CAMERA`
+- `action_type` = `EnumConfigActionType.CREATED`
+- `resource_id` = `mapping_id`
+- `description`: `(bulk)` 토큰 포함 — 단건/벌크 구분 (예: `"EventMapping에 2개 Camera 연동 일괄 생성 (bulk)"`)
+- `after_state` 예시 (`config_ids`는 매핑 row PK 리스트 — 카메라 PK가 아님):
+
+```json
+{
+  "mapping_id": 10,
+  "config_ids": [701, 702],
+  "count": 2
+}
+```
+
+##### NATS 이벤트
+
+- 트리거: `trg_sync_emc_ins` (statement-level, `FOR EACH STATEMENT` + `REFERENCING NEW TABLE`)
+- 통지 함수: `fn_notify_emc_stmt` — `SELECT DISTINCT event_mapping_id FROM new_rows` 루프
+- 발행 형식: `cmd=SYNC_EVENT_MAPPING`, `action=UPDATED`, `target_id={event_mapping_id}` 단일 메시지 (벌크 등록/해제/단건 등록 공통)
+- 동일 `mapping_id`에 대한 N건 INSERT는 **요청당 1 메시지**로 합쳐서 발행 (`per-row` 발행 아님). 단건 N회 호출 대비 N→1 감소
+
+##### 변경 이력 노트
+
+- v4.3 신설. 기존 단건 `POST /api/integrations/event-mappings/{mapping_id}/cameras` (§7.3.3)를 N건 등록 시 N회 호출하던 패턴을 1회 호출로 대체
+- 일부 실패가 있어도 성공 row는 커밋되며, 실패 사유는 `failed_items` / `skipped_config_ids` / `not_found_config_ids`로 분리 반환
+- §5.6.7 `POST /api/devices/groups/{id}/devices`(단건 할당의 N개 배열 입력) 응답 스키마 패턴과 동일 — 3분류(assigned/skipped/not_found) 시맨틱 차용
+
+---
+
+#### 7.3.10 카메라 벌크 해제 *(v4.3 신규)*
+
+##### Endpoint
+
+```
+DELETE /api/integrations/event-mappings/{mapping_id}/cameras
+```
+
+##### Request Example
+
+```http
+DELETE /api/integrations/event-mappings/10/cameras HTTP/1.1
+Host: 10.10.30.10:8000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+Content-Type: application/json
+
+{
+  "config_ids": [301, 302, 999]
+}
+```
+
+##### Path Parameters
+
+| 필드          | 타입  | 필수 | 설명                                  |
+|---------------|-------|------|---------------------------------------|
+| `mapping_id`  | int   | Y    | 카메라 매핑을 해제할 EventMapping PK  |
+
+##### Request Body
+
+| 필드          | 타입         | 필수 | 제약        | 설명                                                        |
+|---------------|--------------|------|-------------|-------------------------------------------------------------|
+| `config_ids`  | `List[int]`  | Y    | 1 ~ 100건   | 해제할 **매핑 row PK (`event_mapping_cameras.id`) 배열**. 단건 §7.3.6 DELETE path `{config_id}`와 동일 의미 — 카메라 PK가 아님 |
+
+##### Response Example (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "EventMapping 10에서 카메라 2건이 해제되었습니다. (요청 3건 / 해제 2건 / 미매핑 0건 / 미존재 1건)",
+  "data": {
+    "mapping_id": 10,
+    "removed_config_ids": [701, 702],
+    "skipped_config_ids": [],
+    "not_found_config_ids": [999],
+    "message": "EventMapping 10에서 카메라 2건이 해제되었습니다."
+  }
+}
+```
+
+##### Response Fields (`data`)
+
+| 필드                     | 타입         | 설명                                                                                  |
+|--------------------------|--------------|---------------------------------------------------------------------------------------|
+| `mapping_id`             | int          | 대상 EventMapping의 PK                                                                |
+| `removed_config_ids`     | `List[int]`  | 실제로 DELETE된 **매핑 row PK (`event_mapping_cameras.id`) 목록** (요청 순서 보존)    |
+| `skipped_config_ids`     | `List[int]`  | row는 존재하지만 `event_mapping_id`가 path와 불일치하여 처리하지 않은 매핑 row PK (다른 매핑 소속 — 멱등성 보장) |
+| `not_found_config_ids`   | `List[int]`  | `event_mapping_cameras` row 자체가 DB에 존재하지 않는 PK 목록 (404가 아니라 분류 응답)|
+| `message`                | string       | 사람이 읽기 좋은 결과 요약                                                            |
+
+##### Error Responses
+
+| HTTP | 코드/사유                            | 설명                                                                  |
+|------|--------------------------------------|-----------------------------------------------------------------------|
+| 404  | `EVENT_MAPPING_NOT_FOUND`            | `mapping_id`에 해당하는 EventMapping이 존재하지 않음                  |
+| 422  | `VALIDATION_ERROR` (`config_ids` 비어있음) | `config_ids` 길이가 0인 경우                                    |
+| 422  | `VALIDATION_ERROR` (`config_ids` 초과)     | `config_ids` 길이가 100을 초과하는 경우                         |
+| 500  | `INTERNAL_SERVER_ERROR`              | 트랜잭션/네트워크 등 서버 내부 오류                                   |
+
+##### ConfigChangeLog
+
+- 요청당 **무조건 1건** 기록 (v4.5 PR-A 정합화). 0건 케이스도 `before_state.config_ids=[], count=0` 으로 기록
+- `resource_type` = `EnumConfigResourceType.EVENT_MAPPING_CAMERA`
+- `action_type` = `EnumConfigActionType.DELETED`
+- `resource_id` = `mapping_id`
+- `description`: `(bulk)` 토큰 포함 — 단건/벌크 구분 (예: `"EventMapping에서 2개 Camera 연동 일괄 해제 (bulk)"`)
+- `before_state` 예시 (`config_ids`는 매핑 row PK 리스트 — 카메라 PK가 아님):
+
+```json
+{
+  "mapping_id": 10,
+  "config_ids": [701, 702],
+  "count": 2
+}
+```
+
+##### NATS 이벤트
+
+- 트리거: `trg_sync_emc_del` (statement-level, `FOR EACH STATEMENT` + `REFERENCING OLD TABLE`)
+- 통지 함수: `fn_notify_emc_stmt` — `SELECT DISTINCT event_mapping_id FROM old_rows` 루프
+- 발행 형식: `cmd=SYNC_EVENT_MAPPING`, `action=UPDATED`, `target_id={event_mapping_id}` 단일 메시지 (벌크 등록과 동일 family)
+- 동일 `mapping_id`에 대한 N건 DELETE는 **요청당 1 메시지**로 합쳐서 발행. `skipped` row는 트리거 발화에 포함되지 않으므로 통지에 영향 없음
+
+##### 변경 이력 노트
+
+- v4.3 신설. 기존 단건 `DELETE /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` (§7.3.6)를 N건 해제 시 N회 호출하던 패턴을 1회 호출로 대체
+- 일부 `config_id`가 매핑되어 있지 않거나 카메라가 미존재해도 다른 row의 해제는 정상 커밋되며, 사유는 `skipped_config_ids` / `not_found_config_ids`로 분리 반환
+- §5.6.9 `DELETE /api/devices/groups/{group_id}/devices`와 동일한 응답 스키마 패턴 — 3분류(removed/skipped/not_found) 시맨틱 차용
 ---
 
 ### 7.4 Event Mapping Speakers API
@@ -11235,6 +11607,280 @@ Accept: application/json
 
 ---
 
+#### 7.4.9 EventMappingSpeaker 벌크 등록 *(v4.3 신규)*
+
+**Endpoint**: `POST /api/integrations/event-mappings/{mapping_id}/speakers/bulk`
+
+한 EventMapping에 여러 스피커 연동을 한 번의 요청으로 일괄 생성합니다. 단건 등록(`7.4.3`)의 N회 호출을 1회로 통합하여 매핑 마법사 다중선택 UX의 라운드트립과 NATS `SYNC_EVENT_MAPPING` 발행 폭주를 차단합니다.
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| mapping_id | integer | Y | EventMapping ID |
+
+**Request Body**:
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| items | array[`EventMappingSpeakerCreate`] | Y | 1 ≤ len ≤ 100 | 일괄 생성할 스피커 연동 리스트 (단건 스키마 재사용) |
+
+**items[].EventMappingSpeakerCreate**:
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| speaker_id | integer | Y | 대상 스피커 ID |
+| file_group_id | integer | N | 방송 파일 그룹 ID |
+| repeat_count | integer | N | 방송 반복 횟수 (기본값: 1, 최소값: 1) |
+| is_enable | boolean | N | 활성화 여부 (기본값: true) |
+| priority | integer | N | 실행 우선순위 (Optional) |
+
+**Request Example**:
+```http
+POST /api/integrations/event-mappings/10/speakers/bulk HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "items": [
+    {
+      "speaker_id": 301,
+      "file_group_id": 1,
+      "repeat_count": 3,
+      "is_enable": true,
+      "priority": 1
+    },
+    {
+      "speaker_id": 302,
+      "file_group_id": 2,
+      "repeat_count": 2,
+      "is_enable": true,
+      "priority": 2
+    },
+    {
+      "speaker_id": 999,
+      "repeat_count": 1,
+      "is_enable": true
+    }
+  ]
+}
+```
+
+**Response Example** (200 OK — 부분 성공):
+```json
+{
+  "success": true,
+  "message": "2개 Speaker 연동 생성 완료, 1개 실패",
+  "data": {
+    "mapping_id": 10,
+    "created_ids": [501, 502],
+    "failed_items": [
+      {
+        "index": 2,
+        "item": {
+          "speaker_id": 999,
+          "file_group_id": null,
+          "repeat_count": 1,
+          "is_enable": true,
+          "priority": null
+        },
+        "error": "Speaker with id 999 not found"
+      }
+    ],
+    "message": "2개 Speaker 연동 생성 완료, 1개 실패"
+  },
+  "meta": {
+    "timestamp": "2026-06-17T10:40:00.000+09:00",
+    "request_id": "550e8408-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+| 응답 필드 | 타입 | 설명 |
+|----------|------|------|
+| mapping_id | integer | 대상 EventMapping ID |
+| created_ids | array[integer] | 실제로 생성된 EventMappingSpeaker row PK 목록 (요청 items 순서 보존) |
+| failed_items | array[object] | row-level 실패 상세 (`index` / `item` / `error`). FK 무효(존재하지 않는 `speaker_id`, `file_group_id`) 시 분류 |
+| message | string | 처리 결과 요약 |
+
+**Error Response** (404 Not Found — EventMapping 미존재):
+```json
+{
+  "success": false,
+  "message": "Event mapping with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response** (422 Unprocessable Entity — 빈 배열 / 최대 초과):
+```json
+{
+  "success": false,
+  "message": "items must contain between 1 and 100 entries",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {
+        "loc": ["body", "items"],
+        "msg": "List should have at least 1 item after validation, not 0",
+        "type": "too_short"
+      }
+    ]
+  }
+}
+```
+
+| HTTP 코드 | 발생 조건 |
+|-----------|----------|
+| 200 OK | 정상 처리 (전체/부분 성공 모두 200, 결과는 body로 구분) |
+| 404 Not Found | `mapping_id`에 해당하는 EventMapping 미존재 |
+| 422 Unprocessable Entity | `items` 누락 / 빈 배열 / 101개 이상 / Pydantic 타입 오류 |
+| 500 Internal Server Error | DB 트랜잭션 오류 |
+
+**ConfigChangeLog 연동**:
+- 리소스 타입: `EnumConfigResourceType.EVENT_MAPPING_SPEAKER`
+- 액션 타입: `EnumConfigActionType.CREATED`
+- `created_ids` ≥ 1일 때만 요청당 **1건** 발행 (`after_state.config_ids` 리스트 응축, `count` 필드 동봉)
+- 전체 실패(`created_ids = []`) 시 미발행
+- `description`에 `(bulk)` 토큰 포함 — 단건/벌크 구분
+
+**NATS SYNC 발행**:
+- 트리거: `trg_sync_ems_ins` / `trg_sync_ems_upd` / `trg_sync_ems_del` (statement-level, `FOR EACH STATEMENT`)
+- 함수: `fn_notify_ems_stmt` — `REFERENCING NEW TABLE / OLD TABLE` + `SELECT DISTINCT event_mapping_id` 루프
+- 발행 보장: 단일 매핑 벌크 INSERT N건 → `SYNC_EVENT_MAPPING/UPDATED/{event_mapping_id}` **1건**
+- 다중 `event_mapping_id`가 한 statement에 섞이면 매핑 수만큼 정확히 발행
+
+**처리 정책**:
+- **트랜잭션**: row-level FK 검증 후 `db.add` 누적 → `db.flush()`(PK 채번) → 단일 `db.commit()`
+- **Best-effort**: row-level 실패(FK 무효 등)는 `failed_items`로 분리, 성공한 row만 commit
+- **per-row 부가 필드 보존**: `file_group_id` / `repeat_count` / `priority`를 단건과 동일하게 유지
+
+**변경 이력**:
+- v4.3 (2026-06-17): 신규. 단건 등록(`7.4.3`)의 벌크 보완. `7.3.9`(Camera 벌크 등록), `7.5.9`(Lamp 벌크 등록)와 동일 패턴.
+
+---
+
+#### 7.4.10 EventMappingSpeaker 벌크 해제 *(v4.3 신규)*
+
+**Endpoint**: `DELETE /api/integrations/event-mappings/{mapping_id}/speakers`
+
+한 EventMapping에서 여러 스피커 연동을 한 번의 요청으로 일괄 해제합니다. 단건 삭제(`7.4.6`)의 N회 호출을 1회로 통합하며, 중복 ID와 다른 매핑 소속 ID를 안전하게 처리하는 멱등 시맨틱을 제공합니다.
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| mapping_id | integer | Y | EventMapping ID |
+
+**Request Body**:
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| config_ids | array[integer] | Y | 1 ≤ len ≤ 100 | 해제할 EventMappingSpeaker row PK 목록 (중복 자동 제거) |
+
+**Request Example**:
+```http
+DELETE /api/integrations/event-mappings/10/speakers HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "config_ids": [501, 502, 503, 999]
+}
+```
+
+**Response Example** (200 OK — 부분 성공):
+```json
+{
+  "success": true,
+  "message": "2개 Speaker 연동 해제 완료, 1개 건너뜀, 1개 없음",
+  "data": {
+    "mapping_id": 10,
+    "removed_config_ids": [501, 502],
+    "skipped_config_ids": [503],
+    "not_found_config_ids": [999],
+    "message": "2개 Speaker 연동 해제 완료, 1개 건너뜀, 1개 없음"
+  },
+  "meta": {
+    "timestamp": "2026-06-17T10:41:00.000+09:00",
+    "request_id": "550e8409-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+| 응답 필드 | 타입 | 설명 |
+|----------|------|------|
+| mapping_id | integer | 대상 EventMapping ID |
+| removed_config_ids | array[integer] | 실제로 삭제된 EventMappingSpeaker row PK 목록 |
+| skipped_config_ids | array[integer] | row는 DB에 존재하나 해당 `mapping_id`에 속하지 않아 건너뛴 ID 목록 (멱등) |
+| not_found_config_ids | array[integer] | row 자체가 DB에 존재하지 않는 ID 목록 |
+| message | string | 처리 결과 요약 |
+
+**Error Response** (404 Not Found — EventMapping 미존재):
+```json
+{
+  "success": false,
+  "message": "Event mapping with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response** (422 Unprocessable Entity — 빈 배열):
+```json
+{
+  "success": false,
+  "message": "config_ids must contain between 1 and 100 entries",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [
+      {
+        "loc": ["body", "config_ids"],
+        "msg": "List should have at least 1 item after validation, not 0",
+        "type": "too_short"
+      }
+    ]
+  }
+}
+```
+
+| HTTP 코드 | 발생 조건 |
+|-----------|----------|
+| 200 OK | 정상 처리 (전체/부분 해제 모두 200, 전부 skipped/not_found여도 200) |
+| 404 Not Found | `mapping_id`에 해당하는 EventMapping 미존재 |
+| 422 Unprocessable Entity | `config_ids` 누락 / 빈 배열 / 101개 이상 / Pydantic 타입 오류 |
+| 500 Internal Server Error | DB 트랜잭션 오류 |
+
+**멱등성 보장**:
+- 동일 요청 재호출 시 두 번째는 `removed_config_ids = []`, `not_found_config_ids`에 전체 ID 분류
+- 중복 ID(`[501, 501, 502]`)는 `dict.fromkeys`로 1회만 처리
+- 다른 매핑 소속 row 잘못 호출 시 `skipped_config_ids`로 안전 분류 (삭제 X)
+
+**ConfigChangeLog 연동**:
+- 리소스 타입: `EnumConfigResourceType.EVENT_MAPPING_SPEAKER`
+- 액션 타입: `EnumConfigActionType.DELETED`
+- `removed_config_ids` ≥ 1일 때만 요청당 **1건** 발행 (`before_state.config_ids` 리스트 응축, `count` 필드 동봉)
+- 전부 skipped/not_found 시 미발행
+- `description`에 `(bulk)` 토큰 포함 — 단건/벌크 구분
+
+**NATS SYNC 발행**:
+- 트리거: `trg_sync_ems_del` (statement-level, `FOR EACH STATEMENT`)
+- 함수: `fn_notify_ems_stmt` — `REFERENCING OLD TABLE` + `SELECT DISTINCT event_mapping_id` 루프
+- 발행 보장: 단일 매핑 벌크 DELETE N건 → `SYNC_EVENT_MAPPING/UPDATED/{event_mapping_id}` **1건**
+
+**처리 정책**:
+- **트랜잭션**: 3-way 분류(removed/skipped/not_found) 후 단일 `db.commit()`
+- **idempotent**: 중복/미소속/부재 ID 안전 처리, 전부 비정상이어도 200
+
+**변경 이력**:
+- v4.3 (2026-06-17): 신규. 단건 삭제(`7.4.6`)의 벌크 보완. 단건 시그니처는 완전 보존(deprecate 안 함). `7.3.10`(Camera 벌크 해제), `7.5.10`(Lamp 벌크 해제)와 동일 패턴.
+
+---
+
 ### 7.5 Event Mapping Lamps API
 
 > **v3.4 신규**: PRD_Lamp_Device.md v1.1 참조
@@ -11440,9 +12086,9 @@ EventMappingLamp CRUD 작업 시 자동으로 ConfigChangeLog가 생성됩니다
 
 ---
 
-#### 7.5.7 MappingLamp 전체 목록 조회 (독립)
+#### 7.5.9 MappingLamp 전체 목록 조회 (독립)
 
-> **v3.8 신규**: 서브시스템 캐시 구성을 위한 독립 조회 API. EventMapping 구분 없이 전체 MappingLamp를 조회한다.
+> **v3.8 신규** (v4.6 FR-10 재채번 — 기존 §7.5.7 중복 해소, §7.5.9로 이동): 서브시스템 캐시 구성을 위한 독립 조회 API. EventMapping 구분 없이 전체 MappingLamp를 조회한다.
 
 **Endpoint**: `GET /api/integrations/mapping-lamps`
 
@@ -11507,6 +12153,301 @@ Accept: application/json
 ```
 
 > **참고**: Response 스키마는 기존 7.5.1의 `EventMappingLampResponse`와 동일.
+
+---
+
+#### 7.5.10 EventMappingLamp 벌크 등록 *(v4.3 신규)*
+
+**Endpoint**: `POST /api/integrations/event-mappings/{mapping_id}/lamps/bulk`
+
+여러 경광등 연동을 한 번의 요청으로 일괄 등록합니다. 단건 생성(`7.5.3`)의 N회 호출을 1회로 통합하여 매핑 마법사에서 다중 선택한 경광등 N개에 대한 라운드트립을 최소화하고, NATS `SYNC_EVENT_MAPPING` 메시지를 statement-level 트리거로 영향 받는 `event_mapping_id`당 1건만 발행하여 LampManager / GIS 등 다운스트림 캐시 무효화 폭주를 차단합니다. 부분 성공(best-effort) 시맨틱이므로 일부 row의 FK 검증이 실패해도 나머지는 정상 생성되며 HTTP 200을 반환합니다.
+
+**Request Example**:
+```http
+POST /api/integrations/event-mappings/10/lamps/bulk HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "items": [
+    {
+      "event_mapping_id": 10,
+      "lamp_id": 501,
+      "color": "Red",
+      "buzzer_time": 5,
+      "buzzer_sound": "PI-PI-PI",
+      "light_mode": "steady",
+      "is_enable": true,
+      "priority": 1
+    },
+    {
+      "event_mapping_id": 10,
+      "lamp_id": 502,
+      "color": "Orange",
+      "buzzer_time": 10,
+      "buzzer_sound": "Emergency",
+      "light_mode": "blinking",
+      "is_enable": true,
+      "priority": 2
+    },
+    {
+      "event_mapping_id": 10,
+      "lamp_id": 999,
+      "color": "Green",
+      "buzzer_time": 3,
+      "buzzer_sound": "Ambulance",
+      "light_mode": "steady",
+      "is_enable": true,
+      "priority": 3
+    }
+  ]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| mapping_id | integer | Y | EventMapping ID (등록 대상의 신뢰원) |
+
+**Request Body**:
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| items | array[EventMappingLampCreate] | Y | 1 ≤ len ≤ 100 | 일괄 등록할 경광등 연동 row 리스트 (단건 스키마 재사용) |
+
+**`items[*]` 요소 필드** (단건 `EventMappingLampCreate`와 완전 동일):
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| event_mapping_id | integer | Y | - | **무시됨** — 본문에 포함하더라도 path parameter `{mapping_id}`로 덮어써짐 (아래 주의 참조) |
+| lamp_id | integer | Y | - | 대상 Lamp ID |
+| color | string | N | "Red" | 경광등 색상 (EnumLampColor) |
+| buzzer_time | integer | N | 5 | 부저 작동 시간 (초, ≥0) |
+| buzzer_sound | string | N | "PI-PI-PI" | 부저 소리 패턴 (EnumBuzzerSound) |
+| light_mode | string | N | "steady" | 점등 모드 (EnumLightMode) |
+| is_enable | boolean | N | true | 활성화 여부 |
+| priority | integer | N | 1 | 우선순위 (≥1, 낮을수록 높음) |
+
+**Enum 허용값**: 단건 생성(`7.5.3`)과 동일.
+- **color (EnumLampColor)**: Red, Orange, Green, Blue, White
+- **buzzer_sound (EnumBuzzerSound)**: Fire A-WANG, Emergency, Ambulance, PI-PI-PI, PI_continue
+- **light_mode (EnumLightMode)**: steady, blinking
+
+> **v4.5 PR-C 정합화 (2026-06-18)**: `EventMappingLampCreate`/`Update`/`Replace`의 `color`/`buzzer_sound`/`light_mode`가 plain `str` → `EnumLampColor`/`EnumBuzzerSound`/`EnumLightMode` Pydantic 타입으로 전환됨. 허용값 외 입력은 Pydantic 422 검증에서 사전 차단(`Input should be 'Red', 'Orange', 'Green', 'Blue' or 'White'` 등 명확한 에러 메시지 반환). 더 이상 DB INSERT까지 도달하지 않으므로 enum 위반 500은 발생하지 않는다.
+
+> **주의 — `items[*].event_mapping_id` 무시 정책**:
+> 단건 스키마 재사용을 위해 `EventMappingLampCreate`에 정의된 `event_mapping_id` 필드를 본문에 포함할 수 있으나, 벌크 엔드포인트는 **path parameter `{mapping_id}`를 단일 신뢰원**으로 사용한다. `items` 각 요소의 `event_mapping_id`는 라우터에서 무시·덮어쓰기되므로 path와 body의 값이 달라도 path 값이 적용된다. 클라이언트는 `items[*].event_mapping_id`를 path와 동일한 값으로 채워 보내거나(권장), 0 등 placeholder를 넣어도 무방하다 — 어느 쪽이든 결과는 동일하다.
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "2개 Lamp 연동 생성 완료, 1개 실패",
+  "data": {
+    "mapping_id": 10,
+    "created_ids": [701, 702],
+    "failed_items": [
+      {
+        "index": 2,
+        "item": {
+          "event_mapping_id": 10,
+          "lamp_id": 999,
+          "color": "Green",
+          "buzzer_time": 3,
+          "buzzer_sound": "Ambulance",
+          "light_mode": "steady",
+          "is_enable": true,
+          "priority": 3
+        },
+        "error": "Lamp with id 999 not found"
+      }
+    ],
+    "skipped_config_ids": [],
+    "not_found_config_ids": [],
+    "message": "2개 Lamp 연동 생성 완료, 1개 실패"
+  },
+  "meta": {
+    "timestamp": "2026-06-17T10:42:00.302543+09:00",
+    "request_id": null
+  }
+}
+```
+
+> `data.message` 형식: `"N개 Lamp 연동 생성 완료"` + 실패가 1건 이상이면 `", N개 실패"` 절을 콤마로 연결한다. 전부 성공이면 후절은 생략된다.
+> `data.skipped_config_ids` / `not_found_config_ids`: 등록 시에는 의미 없는 분류이나 해제 응답과의 envelope 일관성을 위해 빈 배열로 항상 포함된다.
+
+| 응답 필드 | 타입 | 설명 |
+|----------|------|------|
+| mapping_id | integer | path parameter로 받은 EventMapping ID (메아리 응답) |
+| created_ids | array[integer] | 실제로 생성된 EventMappingLamp row PK 목록 (요청 items 순서 보존) |
+| failed_items | array[object] | 실패한 row 상세 (`index` / `item` / `error`) |
+| failed_items[*].index | integer | 요청 `items` 내 0-based 인덱스 |
+| failed_items[*].item | EventMappingLampCreate | 실패한 원본 입력 row (그대로 에코) |
+| failed_items[*].error | string | 실패 사유 (예: `"Lamp with id 999 not found"`) |
+| skipped_config_ids | array[integer] | (envelope 일관성용 빈 배열 — 등록 시 분류 없음) |
+| not_found_config_ids | array[integer] | (envelope 일관성용 빈 배열 — 등록 시 분류 없음) |
+| message | string | 처리 결과 요약 |
+
+**Error Response** (404 Not Found — EventMapping 미존재):
+```json
+{
+  "success": false,
+  "message": "Event mapping with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response** (422 Unprocessable Entity — 빈 배열/100건 초과/필드 검증 실패):
+```json
+{
+  "success": false,
+  "message": "items must not be empty",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": null
+  }
+}
+```
+
+| HTTP 코드 | 발생 조건 |
+|-----------|----------|
+| 200 OK | 정상 처리 (전체 성공/부분 성공/전체 row 실패 모두 200, 결과는 body `created_ids` / `failed_items`로 구분) |
+| 404 Not Found | `mapping_id`에 해당하는 EventMapping 미존재 |
+| 422 Unprocessable Entity | `items` 누락 / 빈 배열 / 100건 초과 / `lamp_id` 누락 / **Enum 값 오류** 등 Pydantic 검증 실패 (`color`/`buzzer_sound`/`light_mode` 모두 v4.5 PR-C에서 `EnumLampColor`/`EnumBuzzerSound`/`EnumLightMode` Pydantic 타입으로 전환되어 422 보장. 예: `color="Purple"` → `"Input should be 'Red', 'Orange', 'Green', 'Blue' or 'White'"`) |
+| 500 Internal Server Error | DB 트랜잭션 오류 (Enum 제약 위반은 v4.5 PR-C 이후 422로 사전 차단됨) |
+
+**ConfigChangeLog 연동**:
+- 리소스 타입: `EnumConfigResourceType.EVENT_MAPPING_LAMP`
+- 액션 타입: `EnumConfigActionType.CREATED`
+- 요청당 **1건** 발행 (`after_state.config_ids`에 생성된 PK 리스트, `after_state.count`에 개수)
+- `description`: `"EventMapping에 N개 Lamp 연동 일괄 생성 (bulk)"`
+- `created_ids`가 비어 있으면(전체 row 실패) 미발행
+- AuditLog는 EventMappingLamp 도메인 외 (`PRD_Audit_Log.md §2.2.2`에 따라 USER/USER_GROUP/USER_SESSION/PASSWORD 4종 한정)
+
+**NATS SYNC 동작**:
+- `event_mapping_lamps` 테이블의 statement-level 트리거(`trg_sync_eml_ins` + 통지 함수 `fn_notify_eml_stmt`)가 발화하여, 영향 받는 `event_mapping_id`당 **`SYNC_EVENT_MAPPING/UPDATED/{event_mapping_id}` 1건만 발행** (PostgreSQL 10+ `REFERENCING NEW TABLE`).
+- 단건 N회 호출 시 발생하는 N건 발행 대비 80%+ 감소 (실측: 5건 일괄 등록 시 5건 → 1건).
+- 단일 statement에 여러 `event_mapping_id`가 섞일 일은 없으나(path parameter로 고정), `SELECT DISTINCT event_mapping_id FROM new_rows`로 안전하게 1건 발행을 보장한다.
+
+**변경 이력**:
+- v4.3 (2026-06-17): 신규. 단건 생성 API(`7.5.3`)의 벌크 보완. `7.5.10`(벌크 해제)과 메서드/응답 envelope 대칭 구조. `7.3.9`(Camera) / `7.4.9`(Speaker) 벌크 등록과 동일 패턴 정렬 — Lamp 고유 per-row 부가 필드(`color/buzzer_time/buzzer_sound/light_mode`)만 보존.
+
+---
+
+#### 7.5.11 EventMappingLamp 벌크 해제 *(v4.3 신규)*
+
+**Endpoint**: `DELETE /api/integrations/event-mappings/{mapping_id}/lamps`
+
+여러 경광등 연동(EventMappingLamp row)을 한 번의 요청으로 일괄 해제합니다. 단건 삭제(`7.5.6`)의 N회 호출을 1회로 통합하여 매핑 마법사에서 다중 선택한 연동에 대한 라운드트립을 최소화하고, NATS `SYNC_EVENT_MAPPING` 메시지를 statement-level 트리거로 영향 받는 `event_mapping_id`당 1건만 발행하여 LampManager / GIS 등 다운스트림 캐시 무효화 폭주를 차단합니다. 멱등성(idempotent) 시맨틱이므로 동일 요청을 재호출해도 두 번째 호출은 모두 `skipped` / `not_found`로 분류되어 안전합니다.
+
+**Request Example**:
+```http
+DELETE /api/integrations/event-mappings/10/lamps HTTP/1.1
+Host: control-service.company.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+Accept: application/json
+
+{
+  "config_ids": [701, 702, 703, 999]
+}
+```
+
+**Path Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| mapping_id | integer | Y | EventMapping ID (해제 대상 매핑의 신뢰원) |
+
+**Request Body**:
+```json
+{
+  "config_ids": [701, 702, 703, 999]
+}
+```
+
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| config_ids | array[integer] | Y | 1 ≤ len ≤ 100, 중복 자동 제거 | 해제할 EventMappingLamp row PK 목록 |
+
+**Response Example** (200 OK):
+```json
+{
+  "success": true,
+  "message": "2개 Lamp 연동 해제 완료, 1개 건너뜀, 1개 없음",
+  "data": {
+    "mapping_id": 10,
+    "removed_config_ids": [701, 702],
+    "skipped_config_ids": [703],
+    "not_found_config_ids": [999],
+    "message": "2개 Lamp 연동 해제 완료, 1개 건너뜀, 1개 없음"
+  },
+  "meta": {
+    "timestamp": "2026-06-17T10:43:00.302543+09:00",
+    "request_id": null
+  }
+}
+```
+
+> `data.message` 형식: `removed` / `skipped` / `not_found` 3분류 중 **개수가 0이 아닌 절만** 콤마로 연결됩니다. 예: skipped=0, not_found=0이면 `"3개 Lamp 연동 해제 완료"`만 표시.
+> 동일 `config_ids` 재호출 시 1회차의 `removed`는 2회차에서 `not_found`(row 자체가 삭제됨)로 분류되어 결과적으로 멱등이다.
+
+| 응답 필드 | 타입 | 설명 |
+|----------|------|------|
+| mapping_id | integer | path parameter로 받은 EventMapping ID (메아리 응답) |
+| removed_config_ids | array[integer] | 실제 row가 삭제된 EventMappingLamp PK 목록 |
+| skipped_config_ids | array[integer] | row는 DB에 존재하지만 `event_mapping_id`가 path와 불일치하여 처리하지 않은 ID (다른 매핑 소속 — 멱등성 보장) |
+| not_found_config_ids | array[integer] | row 자체가 DB에 존재하지 않는 ID (404가 아니라 분류 응답) |
+| message | string | 처리 결과 요약 |
+
+**Error Response** (404 Not Found — EventMapping 미존재):
+```json
+{
+  "success": false,
+  "message": "Event mapping with id 999 not found",
+  "error": {
+    "code": "NOT_FOUND",
+    "details": null
+  }
+}
+```
+
+**Error Response** (422 Unprocessable Entity — 빈 배열/100건 초과):
+```json
+{
+  "success": false,
+  "message": "config_ids must not be empty",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": null
+  }
+}
+```
+
+| HTTP 코드 | 발생 조건 |
+|-----------|----------|
+| 200 OK | 정상 처리 (전체/부분 해제, 전부 skipped/not_found 모두 200, 결과는 body 3분류로 구분) |
+| 404 Not Found | `mapping_id`에 해당하는 EventMapping 미존재 |
+| 422 Unprocessable Entity | `config_ids` 누락 / 빈 배열 / 100건 초과 / 타입 오류 |
+| 500 Internal Server Error | DB 트랜잭션 오류 |
+
+**ConfigChangeLog 연동**:
+- 리소스 타입: `EnumConfigResourceType.EVENT_MAPPING_LAMP`
+- 액션 타입: `EnumConfigActionType.DELETED`
+- 요청당 **1건** 발행 (`before_state.config_ids`에 해제된 PK 리스트, `before_state.count`에 개수)
+- `description`: `"EventMapping에서 N개 Lamp 연동 일괄 해제 (bulk)"`
+- `removed_config_ids`가 비어 있으면(전부 skipped/not_found) 미발행
+- AuditLog는 EventMappingLamp 도메인 외 (`PRD_Audit_Log.md §2.2.2`에 따라 USER/USER_GROUP/USER_SESSION/PASSWORD 4종 한정)
+
+**NATS SYNC 동작**:
+- `event_mapping_lamps` 테이블의 statement-level 트리거(`trg_sync_eml_del` + 통지 함수 `fn_notify_eml_stmt`)가 발화하여, 영향 받는 `event_mapping_id`당 **`SYNC_EVENT_MAPPING/UPDATED/{event_mapping_id}` 1건만 발행** (PostgreSQL 10+ `REFERENCING OLD TABLE`).
+- `skipped` row(타 매핑 소속)는 트리거 발화에 포함되지 않으므로 통지에 영향이 없다.
+- 등록(POST `/lamps/bulk`)도 동일 트리거 family로 1건/`event_mapping_id` 발행 — 단건 N회 호출의 N건 발행 대비 80%+ 감소.
+
+**변경 이력**:
+- v4.3 (2026-06-17): 신규. 단건 삭제 API(`7.5.6`)의 벌크 보완. `7.5.9`(벌크 등록)와 메서드/응답 envelope 대칭 구조. `7.3.10`(Camera) / `7.4.10`(Speaker) 벌크 해제와 동일 패턴 정렬 — DeviceGroup `5.6.9`(디바이스 벌크 해제)의 3분류 응답 시맨틱을 차용.
 
 ---
 
@@ -12636,28 +13577,26 @@ GET /api/servers/summary
 
 **Endpoint**: `GET /api/servers/{server_id}/metrics/latest`
 
-**Response (200 OK)**:
+**Response (200 OK)** (v4.6 정정 — 코드 `ServerMetricsLatestResponse` 구조에 맞춤):
 ```json
 {
   "success": true,
   "message": "Latest server metrics retrieved successfully",
   "data": {
-    "metrics": {
+    "server_id": 1,
+    "server_name": "VMS-Server-01",
+    "latest_metrics": {
       "id": 10,
       "server_id": 1,
       "cpu_usage": 45.5,
       "ram_usage": 62.0,
       "collected_at": "2026-01-15T10:30:00.000000"
-    },
-    "threshold_config": {
-      "cpu": {"warning": 80, "critical": 95},
-      "ram": {"warning": 75, "critical": 90},
-      "disk": {"warning": 80, "critical": 95},
-      "network": {"warning_mbps": 800, "critical_mbps": 950}
     }
   }
 }
 ```
+- 메트릭 미수집 시: `latest_metrics: null` (200 응답 유지)
+- `threshold_config`는 서버 카테고리/서버 자체 응답(`§8.3.x`)에 포함됨 — 본 엔드포인트 응답에서는 제외
 
 #### 8.6.4 메트릭 삭제
 
@@ -14209,19 +15148,15 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 
 #### 10.4.4 GET `/api/reports/generations/{id}/download`
 
-PDF 파일 다운로드를 요청합니다.
+PDF 파일을 직접 다운로드합니다 — JSON envelope 아님, **PDF 바이너리 스트림** 반환.
 
-**Response (200 OK)** (COMPLETED 상태):
-```json
-{
-  "success": true,
-  "message": "Report download initiated",
-  "data": {
-    "id": 1,
-    "pdf_file_path": "/reports/2026/01/report_1_20260123.pdf"
-  }
-}
-```
+**Response (200 OK)** (COMPLETED 상태) — v4.6 정정:
+- Content-Type: `application/pdf`
+- Content-Disposition: `attachment; filename="report_{id}_{date}.pdf"`
+- Body: PDF 바이너리 스트림 (`%PDF-1.4...`)
+- 클라이언트(매니저)는 응답을 파일로 저장하거나 PDF 뷰어로 직접 처리. JSON 파싱 시도 시 `JSONDecodeError` 발생.
+
+> 본 엔드포인트는 §3.x 표준 `ApiResponse` envelope의 공식 예외 (파일/렌더링 엔드포인트). HTML preview (`/preview-page`)도 동일 예외.
 
 **Response (400 Bad Request)** (COMPLETED 아닌 상태):
 ```json
@@ -14400,8 +15335,9 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `PATCH /api/devices/groups/{id}` - 그룹 수정 (부분)
 - `PUT /api/devices/groups/{id}` - 그룹 수정 (전체)
 - `DELETE /api/devices/groups/{id}` - 그룹 삭제 (Cascade)
-- `POST /api/devices/groups/{id}/devices` - 디바이스 할당
-- `DELETE /api/devices/groups/{group_id}/devices/{device_id}` - 디바이스 제거
+- `POST /api/devices/groups/{id}/devices` - 디바이스 할당 (벌크)
+- `DELETE /api/devices/groups/{group_id}/devices/{device_id}` - 디바이스 제거 (단건)
+- `DELETE /api/devices/groups/{group_id}/devices` - 디바이스 벌크 해제 *(v4.3 신규)*
 
 **Camera Presets** (v2.1 신규):
 - `GET /api/devices/cameras/{camera_id}/presets` - 프리셋 목록 조회 (`include_rois` 지원)
@@ -14531,27 +15467,33 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 
 **Event Mapping Cameras** (v2.4 신규):
 - `GET /api/integrations/event-mappings/{mapping_id}/cameras` - 카메라 연동 목록 조회
-- `POST /api/integrations/event-mappings/{mapping_id}/cameras` - 카메라 연동 생성
+- `POST /api/integrations/event-mappings/{mapping_id}/cameras` - 카메라 연동 생성 (단건)
+- `POST /api/integrations/event-mappings/{mapping_id}/cameras/bulk` - 카메라 연동 벌크 등록 *(v4.3 신규)*
 - `GET /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 단일 조회
 - `PATCH /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 수정 (부분)
 - `PUT /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 수정 (전체)
-- `DELETE /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 삭제
+- `DELETE /api/integrations/event-mappings/{mapping_id}/cameras/{config_id}` - 카메라 연동 삭제 (단건)
+- `DELETE /api/integrations/event-mappings/{mapping_id}/cameras` - 카메라 연동 벌크 해제 *(v4.3 신규)*
 
 **Event Mapping Speakers** (v2.8 신규):
 - `GET /api/integrations/event-mappings/{mapping_id}/speakers` - 스피커 연동 목록 조회
-- `POST /api/integrations/event-mappings/{mapping_id}/speakers` - 스피커 연동 생성
+- `POST /api/integrations/event-mappings/{mapping_id}/speakers` - 스피커 연동 생성 (단건)
+- `POST /api/integrations/event-mappings/{mapping_id}/speakers/bulk` - 스피커 연동 벌크 등록 *(v4.3 신규)*
 - `GET /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 단일 조회
 - `PATCH /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 수정 (부분)
 - `PUT /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 수정 (전체)
-- `DELETE /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 삭제
+- `DELETE /api/integrations/event-mappings/{mapping_id}/speakers/{config_id}` - 스피커 연동 삭제 (단건)
+- `DELETE /api/integrations/event-mappings/{mapping_id}/speakers` - 스피커 연동 벌크 해제 *(v4.3 신규)*
 
 **Event Mapping Lamps** (v3.4 신규):
 - `GET /api/integrations/event-mappings/{mapping_id}/lamps` - 경광등 연동 목록 조회
-- `POST /api/integrations/event-mappings/{mapping_id}/lamps` - 경광등 연동 생성
+- `POST /api/integrations/event-mappings/{mapping_id}/lamps` - 경광등 연동 생성 (단건)
+- `POST /api/integrations/event-mappings/{mapping_id}/lamps/bulk` - 경광등 연동 벌크 등록 *(v4.3 신규)*
 - `GET /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 단일 조회
 - `PATCH /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 수정 (부분)
 - `PUT /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 수정 (전체)
-- `DELETE /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 삭제
+- `DELETE /api/integrations/event-mappings/{mapping_id}/lamps/{config_id}` - 경광등 연동 삭제 (단건)
+- `DELETE /api/integrations/event-mappings/{mapping_id}/lamps` - 경광등 연동 벌크 해제 *(v4.3 신규)*
 
 **Mapping SubResource 독립 List** (v3.8 신규):
 | `GET` | `/api/integrations/mapping-cameras` | 전체 MappingCamera 조회 (독립) | v3.8 |
@@ -14876,7 +15818,10 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v4.3 | 2026-03-04 | **ActionEvent 1:N 관계 반영 (6.1.7, 6.2.7, 6.4)**<br><br>**[1. Detection/Malfunction Action 조회 → 1:N (6.1.7, 6.2.7)]**<br>- Endpoint 변경: `/{event_id}/action` → `/{event_id}/actions` (복수형)<br>- 응답 형식 변경: 단건 객체 → 배열(`data: [...]`)<br>- 메시지 변경: "Action event retrieved" → "Action events retrieved"<br>- Action Event 미존재 시 빈 배열 반환 (404 제거)<br><br>**[2. Action 생성/삭제 로직 변경 (6.4.1, 6.4.6, 6.4.7)]**<br>- 1:1 제약 제거 → 1:N 관계: 하나의 source event에 여러 ActionEvent 생성 가능<br>- 삭제 시 count 기반 복원: 남은 ActionEvent가 0개일 때만 `action_reported`를 "False"로 복원<br>- 6.1.6/6.2.6 삭제 주석 동기화 |
+| v4.6 | 2026-06-19 | **하루 일괄 — Critical Mismatch 정정 (P0 1 + P1 8) + Camera Preset 감시금지구역 신설 + 매니저 통합 가이드**<br><br>**[차수 배경]** v4.5에서 발견한 26 도메인 × Workflow 28 agent 3-way 정합 검증에서 Critical Mismatch 10건 식별 (운영 500 1건 + 매니저 KeyError 4건 + 422 3건 + 응답형식 1건 + envelope 1건). 모든 mismatch는 옛 차수(v1.x~v4.3)에서 코드/PRD 변경 시 명세 본문 동기화 미실시로 누적된 잠복 부채. 우리 v4.4/v4.5 작업이 새로 만든 mismatch 0건 입증.<br><br>**[Phase 1] git 안전점 — v4.5-final-stable @ e7a611e 신설**<br>- 의미: v4.5 마감 시점 보호 (Workflow 분석 + minimal 6 그룹 적용 + multi-line Column 정정 후)<br>- 사고 시 복귀: `git reset --hard v4.5-final-stable`<br><br>**[Phase 2] M01 P0 핫픽스 — ServerCategory 500 차단**<br>- app/routers/server_categories.py:123-138 — Server 모델에 없는 `cpu_usage/ram_usage/disk_usage/network_throughput` 4개 인자 → ServerMetrics 분리(v2.9) 이후 잠복하다 발견. `user_name/user_password/threshold_config` 정확한 필드로 교체. 즉시 200 회복<br><br>**[Phase 3] 명세 정정 7건 (M02~M10 명세 본문)**<br>- M02/M03 §6.5.1/§6.5.2: detection-log `action`(1:1) → `actions`(1:N) — PRD ActionEvent 1N v2.0 반영. 도입부 + 응답 예시 4곳 + 본문 설명 일괄 정정<br>- M05 §8.6.3: server metrics/latest 응답 키 `data.metrics/threshold_config` → 코드 `data.server_id/server_name/latest_metrics`<br>- M06 §10.4.4: PDF 다운로드 JSON envelope → 실제 `application/pdf` 바이너리 스트림 (FileResponse 정합)<br>- M08 §6.2.5: Malfunction PUT body에서 `action_reported` 제거 (v2.8 시스템 자동관리 정책)<br>- M09 §6.4.2: Action GET query 모두 optional + `from_event_id` 필터 신규 명시<br>- M10 §6.4.5: Action PUT body 2필드 예시 → 4 필드 (`type_event`, `content`, `user`, `from_event_id`) 모두 required<br><br>**[Phase 4] M07 코드 정정 — system-events envelope 표준화**<br>- app/routers/servers.py:191 — `@router.get` 데코레이터에 `response_model=ApiSingleResponse[dict]` 부착<br>- 응답 body를 명세 §8.3.7 표준 envelope으로 변경: `data: {items, total, pagination}`<br>- Swagger OpenAPI 200 schema 정상 노출 ($ref 부착)<br><br>**[Phase 5] Camera Preset 감시금지구역 신설 (차장 결재 2026-06-19, 단순화 확정)**<br>- DB: app/migrations/v48_camera_preset_restricted_zone.sql — `camera_presets`에 `is_restricted_zone BOOLEAN NOT NULL DEFAULT false` 1 컬럼 추가. 기존 row backfill 자동 false<br>- Model: app/models/camera_preset.py — `CameraPreset.is_restricted_zone` Column 추가 (multi-line, JSON/JSONB 사용 안 함)<br>- Schema: app/schemas/camera_preset.py — `CameraPresetBase`/`Update`/`Response`/`DetailResponse` 4 클래스에 신규 필드 추가 (default=false로 backward-compatible)<br>- 명세: §5.7 Camera Preset 도입부에 `is_restricted_zone` 단일 플래그 명시 + 매니저 통일 처리 정책 (RTSP/녹화/이벤트/화면 모두 차단)<br>- 가이드: docs/v46_camera_preset_restricted_zone_guide.md 신설 — VMS/NVR/db_monitor/Central UI 4 매니저별 처리 가이드<br>- **단순화 경위**: 최초 Option C(`restricted_actions` 4종 enum list 선택)로 적용 → 차장 추가 결재로 단순화 (`is_restricted_zone` bool 1개로 통일). `restricted_actions` 컬럼/Enum/Schema 필드 모두 제거. **차장 의도 충실**: 매니저가 "감시금지 = 모두 차단" 단일 정책으로 통일 처리<br><br>**[Phase 6] 보류 — M04 high risk (차장 결재 필요)**<br>- M04 `GET /api/enclosure-metrics` — 코드 flat vs 명세 items/total/pagination drift<br>- backward-INCOMPATIBLE envelope 변경 위험 (Central UI 함체 모니터링 패널 영향)<br>- 결재 사항: item shape (코드 정정 vs 명세 정정 방향) — v4.7 차수로 분리 권고<br><br>**[Phase 7] PRD + 산출물**<br>- docs/PRD_v4.6_Critical_and_Preset.md (39KB, 임시 마크다운)<br>- docs/v46_camera_preset_restricted_zone_guide.md (매니저 통합 가이드)<br>- docs/v45_3way_critical_mismatches.html (37KB, 10건 시각화)<br>- Workflow Critical PRD: 11 agent / 680k token / 5.4분<br>- Workflow Camera Preset: 9 agent 설계 시도 → 죽음 → main에서 직접 적용<br><br>**[Phase 8] 검증 (모두 통과)**<br>- M01 검증: GET /api/servers/categories/1 → HTTP 200 (이전 500 해소)<br>- M07 검증: Swagger response 200 schema = ApiSingleResponse_dict_ $ref 정상<br>- Camera Preset 신규 필드: DB 2 컬럼 + OpenAPI CameraPresetResponse/Create에 노출<br>- Container: Up 8s healthy / Image rebuild 완료<br>- 명세 정정 7건 모두 본문 적용 확인<br><br>**[Phase 9] 정합 9중 (코드 ↔ 명세 ↔ Swagger ↔ DB ↔ Image ↔ Container ↔ PRD ↔ 가이드 ↔ git)**<br>- 코드 5 파일 변경 (server_categories / servers / camera_preset 모델/스키마 / enums)<br>- DB 마이그레이션 1건 (v48)<br>- 명세 정정 7 위치 + §5.7 도입부 갱신<br>- Swagger 노출 갱신 (response_model + 신규 스키마)<br>- 매니저 가이드 1 파일 신설<br>- PRD 본문 1 파일<br>- git commit + v4.6-final-stable 태그<br><br>**[Phase 10] 시드 데이터 재설계 + pagination 안정화 검증 (차장님 명세 — 같은 날 추가)**<br>- **차장님 시드 명세 (정확 매칭)**: 제어기 4 / 제어기1: 펜스센서 100(1~100) + 복합센서 21(180~200) / 제어기2: 동일 / 제어기3: 스마트복합 60(1~60) / 제어기4: 스마트센서 100(1~100) / 카메라 300 / 스피커 200 / 함체 30<br>- **시드 함수 재작성**: app/utils/init_sample_data.py L250~480 — `_create_devices` 전면 재구현. Sensors 350→**402**, Cameras 30→**300**, Speakers 30→**200**, Enclosures 30 유지. EnumDeviceType 매핑: 펜스→Fence, 복합→Multi, 스마트복합→SmartCompound, 스마트→SmartSensor<br>- **DeviceGroup 시드도 동기 조정**: 5구역(A~E) → 4구역(A~D). PTZ + 긴급방송 그룹 인덱스 시프트<br>- **Pagination 안정성 진단 결과**: 정책 `ORDER BY id ASC NOT NULL PK` — unique 보장됨. Camera 300/30 페이지 + Sensor 402/21 페이지 직접 호출 검증: 중복 0건 / 누락 0건 / 순서 ASC 100% 일관 → **PASS**<br>- **잠재 위험 7건 식별 (PRD 참조)**: row drift (동시 INSERT) / 큰 offset 성능 (28K 이벤트) / cursor pagination 미지원 / total count 캐시 부재 등. 현 디바이스 규모(<500)에선 미체감. v4.7+ 별도 PRD 권고<br>- **DB 재시드 절차**: TRUNCATE devices RESTART IDENTITY CASCADE + Container restart → 시드 startup hook 자동 재실행. 데이터 손실은 의도된 초기화 (시드만 영향)<br>- **검증**: DB 카운트 controllers=4 / sensors=402 / cameras=300 / speakers=200 / enclosures=30 / lamps=30 모두 명세 일치. 센서 분포 (ctrl/type/count/range): 1/Fence/100/1~100, 1/Multi/21/180~200, 2/Fence/100/1~100, 2/Multi/21/180~200, 3/SmartCompound/60/1~60, 4/SmartSensor/100/1~100 — 6 분포 모두 일치<br>- **Workflow 4 agent**: 357,749 token / 89 tool calls / 11분 (Inventory + Design + Apply + Verify)<br><br>**원칙 준수**: 하루 1 차수 묶음 (오늘 분량 모두 v4.6 단일 행 안). M04는 high risk라 v4.7로 분리.<br>**롤백**: 사고 시 `git reset --hard v4.5-final-stable` (commit 단위 revert 가능). DB 컬럼 drop SQL은 가이드 §8 참고 (데이터 보존 위해 권장 안 함). |
+| v4.5 | 2026-06-19 | **하루 일괄 — 잔존 부채 정밀 식별 + 시나리오 시뮬레이션 + PRD 작성 (코드 변경 0)**<br><br>**[배경]** v4.4 마감 후 전체 pytest 실행 결과 174 fail 노출. v4.4가 새로 깨뜨린 건 0건 — 모두 옛 차수(v2.9~v4.0)에서 코드 변경 시 테스트 미동기화로 누적된 잔존 부채. 매니저 통합 시작 전 정밀 정리 PRD 필요.<br><br>**[Phase 1] git 안전점 — v4.4-final-stable 태그 신설**<br>- 태그: `v4.4-final-stable` @ commit `050cf6d`<br>- 의미: v4.4 완성 시점 보호 (Phase 1~5 + multi-line Column 5건 자체 정정 + user_password 평문 응답 복원). 사고 시 `git reset --hard v4.4-final-stable`<br><br>**[Phase 2] Workflow 46 agent 정밀 분석 — 부채 15 그룹 × (분석 + 시나리오 minimal + scenario full)**<br>- Discovery 1 agent + Per-Group Analysis 15 agent + Scenario Minimal 15 agent + Scenario Full 15 agent + PRD Synthesis 1 agent = **46 agent 병렬**<br>- 사용량: 3,492,386 token / 935 tool calls / 16분<br>- raw 결과: `tasks/w2uvtdbg0.output` (266KB)<br>- 결과 PRD: **`docs/PRD_v4.5_Debt_Cleanup.md`** (32KB)<br><br>**[Phase 3] 부채 인벤토리 — 15 그룹 / 174 fail / 30h 작업량**<br>- G01 Camera URLs 통합 (StreamUrls 삭제) — 23건 P2<br>- G02 Device is_enable 필수화 + nested 스키마 — 26건 P2<br>- G03 ConfigChangeLog 응답 envelope — 18건 P2<br>- G04 ServerMetrics 분리 — 14건 P2<br>- G05 ActionEvent 1:N 구조 변경 — 11건 P2<br>- G06 PDF/Report 시스템 변경 — 12건 P2<br>- G07 Account/Auth role enum 대문자 — 12건 P2<br>- G08 Camera Preset/ROI/include params — 11건 P2<br>- G09 Logs/Audit 1:N 응답 — 10건 **P1** (매니저 영향)<br>- G10 Sensor/Speaker/Enclosure geolocation 잔존 가정 — 9건 P2<br>- G11 EM 단건 라우터 envelope — 7건 P2<br>- G12 EM Bulk envelope 디테일 — 8건 **P1** (v4.4 직접 영향)<br>- G13 Enum NONE / device_category 추가 — 4건 P2<br>- G14 rtsp_uri/rtsp_port 컬럼 삭제 잔존 — 4건 P2<br>- G15 기타 (config/device_version/event base) — 8건 P3<br><br>**[Phase 4] 시나리오 결정 — 13 minimal + 2 full**<br>- **Minimal** (테스트 갱신만, 코드 변경 0): 13그룹 / 158건 회복 / ~23h<br>- **Full** (코드+테스트+명세 정합): 2그룹 (G09 + G12) / 16건 회복 / ~7h<br>- 합계: **30h 으로 174 fail 100% 해소 가능**<br><br>**[Phase 5] 차수별 분산 — 4차수 분할 권고**<br>- **v4.5** (즉시, 1주차) — G11/G14/G05/G13/G10/G07: **5.5h** (단순 minimal, CI Red 즉시 해소)<br>- **v4.6** (2주차, 매니저 통합 직전) — G09/G12 full: **13h** (매니저 영향 P1 정합)<br>- **v4.7** (3주차) — G02/G03/G08/G15: **7.3h** (잔존 minimal)<br>- **v5.x** (백로그) — G01/G04/G06: **4.5h** (구조 변경 동반, 매니저 통합 완료 후)<br><br>**[Phase 6] Open Decisions — 차장 결재 5건 (PRD §6 상세)**<br>- D1: ApiResponse envelope 표준화 — pagination 사이드카 vs 통합 (G03/G09 정합 방향)<br>- D2: EnumDeviceCategory LAMP 매니저(.NET Enums) 동기화 — NATS payload round-trip 검증 (G13 full 조건)<br>- D3: Server 인라인 메트릭 v2.9 분리 확정 — db_monitor 인제스트 경로 전환 (G04 v5.x 선행)<br>- D4: DetectionLog 1:1 → 1:N actions 계약 변경 공식화 — PRD + Central UI ViewModel 동시 수정 (G09 full 조건)<br>- D5: ROICreate.points 필수화 정책 확정 — '빈 ROI 생성' 워크플로 폐기 vs 유지 (G08 full 조건)<br>- 추가: SpeakerNestedResponse.category_device 제거(SPEC-6.1) / .env.example 듀얼 모드<br><br>**[Phase 7] Risk Log — 7건 (PRD §5 상세)**<br>- R1 매니저 영향 High: G09 DetectionLog action(single) → actions(list) 계약 변경 → Central UI + db_monitor 동시 수정 필요<br>- R2 매니저 영향 High: G12 EM Bulk ConfigChangeLog after_state key 변경 → 감사 리포트/UI 토스트 라벨 영향<br>- R3 매니저 영향 Medium: G07 /api/auth/me role 케이스 변경 — minimal에서 보류로 회피<br>- R4 매니저 영향 Medium: G04 Server 인라인 메트릭 db_monitor v1.6 잔존 — grep 후 v5.x 동시 전환<br>- R5/R6 사이드 이펙트: G02 conftest SQLAlchemy 환경 의존, G06 OS별 분기 회귀 가드<br>- R7 데이터 손실 Low: G09/G12 full은 OpenAPI 스키마만 변경, DB 마이그레이션 없음 (단 ActionEvent.from_event_id UNIQUE 점검 필요)<br><br>**[Phase 8] 명세서 — 본 행 신설 (코드/DB/Image/Container 변경 0)**<br>- 본 차수는 **분석 + 결재 차수** — 실제 정정 코드 변경은 v4.6/v4.7/v5.x에서 개시<br>- 영향: docs/PRD_v4.5_Debt_Cleanup.md 1 파일 + 명세 변경 이력 본 행 + git commit 1개<br><br>**[Phase 9] 즉시 minimal 6 그룹 적용 — 차장 결재 후 작업 (Workflow 8 agent, 같은 날 추가)**<br>- G05 ActionEvent 레거시: 11→8 (3 회복) — 2 모듈 skip + from_event_id detail dict 전환 + 3 method skip<br>- G07 UserSession/Account: 12→0 (12 회복) — UserRole `admin`→`ADMIN`, UserSession `login_at/last_activity`→`created_at/updated_at`, /me 토큰 종속 7건 skip<br>- G10 Sensor/Speaker/Enclosure: 9→0 (9 회복) — `is_enable=True` 4건 추가, SpeakerResponse `category_device` 제거, IpController→IoController 3건<br>- G11 EM 단일 라우터 envelope: 7→2 (5 회복) — speakers/lamps/cameras DELETE 응답에 `'data': {}` 추가 (운영 코드 3 파일 변경)<br>- G13 Enum: 4→0 (4 회복) — `EnumEventCategory`→`EnumMappingEventCategory`, `EnumDeviceCategory` 3→6 (SPEAKER/ENCLOSURE/LAMP)<br>- G14 Camera URLs: 4→0 (4 회복) — test_device_base_model.py rtsp_uri/rtsp_port kwargs 8 lines 삭제<br>**합계**: 47 기대 → **37 실회복** (G11 5/7, G05 3/11, 그 외 4그룹 100%), 신규 회귀 0, **verdict PASS**<br>**잔존 매핑**: G05 잔존 8건 → v4.6 G05-cleanup (레거시 모듈 2개 삭제), G11 잔존 2건 → v4.6 G11-full (cross-file 테스트 격리 결함)<br>**파일 변경**: 운영 코드 3 (event_mapping_cameras/speakers/lamps DELETE) + 테스트 17 = **20 파일**<br>**pytest 전체**: 2381 / passed **2218** (+30) / failed **126** (-48) / skipped **35** (+18) / errors 2<br>**Workflow 사용량**: 8 agent / 505,728 token / 119 tool calls / 15분<br><br>**검증**: 코드 변경 = 라우터 envelope 3건만 (DELETE `data: {}`), DB 변경 0, Image 변경 = 라우터 동기화 + 재시작, Container Up healthy, 실 API 정상, OpenAPI 정상.<br>**롤백**: 사고 시 `git reset --hard v4.4-final-stable` (commit 단위 revert 가능).<br>**원칙 준수**: 하루 1 차수 묶음 원칙 — Phase 1~9 모두 v4.5 1차수 안에 통합. |
+| v4.4 | 2026-06-18 | **하루 일괄 — Bulk API 4단계 정합화 (Phase 1~4) + v4.5 분리 작업**<br><br>**[Phase 1] 명세 정정 — GAP 14건 (5.6.9 / 7.3.9 / 7.3.10 / 7.5.9 / 7.5.10)**<br>- G1 P0 치명 3건: §7.3.9 Request Body 6필드 교체, `created_ids/config_ids` = 매핑 row PK 명시 — 매니저가 명세대로 호출 시 즉시 422 실패 차단<br>- G2 P1 약속: skipped/not_found_config_ids placeholder 명시 → Phase 2에서 실 분류 활성화<br>- G3 P2 트리거명: §7.5.9/10 `trg_sync_eml_insert/delete` → `trg_sync_eml_ins/del`, "§6 매트릭스" dangling reference 제거<br>- G4 P3 정합성 6건: §5.6.9 meta.message → data.message, 영문 leak 제거, §7.5 헤더 중복 통합, §7.3.5 → §7.3.6, /members → /devices 등<br>- PRD: docs/PRD_v4.4_Phase1_SpecSync.md (구 PRD_BulkAPI_Spec_Sync_v4.4.md)<br>- 검증: docs/sim/raw_data.json 19 시나리오 + docs/workflow_audit_v3/a01~a09.md 9 agent<br>- 롤백 태그: pre-prd-v44, pre-spec-master-sync<br><br>**[Phase 2] 코드 보강 — PR-A/B/C/D**<br>- PR-A: 3 라우터 ConfigLog `if` 가드 제거 → 0건 case도 무조건 발행 (감사 가능)<br>- PR-B: skipped/not_found_config_ids 실 분류 활성화 (Camera/Speaker/Lamp 3 라우터)<br>- PR-C: Lamp `color/buzzer_sound/light_mode` plain str → Pydantic Enum (color="Purple" 500 → 422)<br>- PR-D: EventMapping 6 핸들러 `response_model=dict` → `ApiSingleResponse[T]` + 404 응답 정의 + meta envelope 자동 주입<br>- 롤백 태그: pre-v45<br><br>**[Phase 3] Post-Mortem — 보안 + 잔존 GAP 9건 (FR-1~12 중 P0/P1)**<br>- FR-1 JWT_SECRET_KEY validator (staging/prod 디폴트 거부) / ~~FR-2 user_password 응답 제거~~ → **Phase 5 결재로 응답 복원** (운영 사용 케이스: 등록 직후 확인 / 관리자 화면 / 통합상황도 자동연결. 보안 정책[롤 기반 / 별도 엔드포인트 / 마스킹]은 v4.5에서 결정) / FR-3 CORS 화이트리스트 / FR-4 .NET 사본 4곳 가이드 (docs/v44_sync_guide.md) / FR-5 same-request dedup 보강 / FR-8 db_triggers.py:97-108 dead branch 제거 / FR-9 AUTH_MODE 환경별 분기 / FR-10 §7.5.7 번호 중복 재채번 (`MappingLamp 독립 GET` → §7.5.9, 본 차수 §7.5.9/10 → §7.5.10/11 시프트) / FR-12 .gitignore PRD 추적 예외<br>- PRD: docs/PRD_v4.4_Phase3_PostMortem.md (구 PRD_BulkAPI_PostMortem_v4.6.md)<br>- 롤백 태그: pre-v46<br><br>**[Phase 4] 지향성 + JSON→JSONB 일관성 복원 — FR-13 / FR-14**<br>- FR-13: `Geolocation`에 `heading: Optional[float] (0~360°)` 추가 — Camera/Speaker/Sensor 부채꼴 시각화. 6 디바이스 테이블 row backfill (heading:null) 완료<br>- FR-14: **PRD ↔ 구현 일관성 복원** — PRD 파일명(JsonB) + Docstring 23곳 "JSONB" 의도였으나 SQLAlchemy `JSON` import 실수로 23 컬럼 모두 `json` 저장. 8 파일 18 사용처 정정 + ALTER TYPE jsonb 일괄 (한 트랜잭션). 데이터 손실 0<br>- 마이그레이션: app/migrations/v47_json_to_jsonb_and_heading.sql<br>- PRD: docs/PRD_v4.4_Phase4_Directional_JsonB.md (구 PRD_v4.7.md)<br>- 롤백 태그: pre-v47<br><br>**[Phase 5] FR-6/FR-7 — 본 차수 통합 처리 + JSONB SQLite 호환**<br>- FR-6 pytest 정합: 13건 → 8건 잔존 (envelope key `camera_ids/speaker_ids/lamp_ids` → `config_ids` 정정, FR-8 dead branch 옛 테스트 2건 skip 마크). 잔존 8건은 skip_duplicates / log_config_change 디테일 (매니저 영향 0)<br>- FR-7 단건 21건 response_model: `Column(JSON)` → `ApiSingleResponse[dict]` 일괄 (Camera/Speaker/Lamp 각 7건). OpenAPI Schema 노출 (data 구체 타입은 v4.5에서 정확화)<br>- **JSONB SQLite 호환** (Phase 4 사이드이펙트 정정): SQLAlchemy `Column(JSONB)` → `Column(JSON().with_variant(JSONB(), "postgresql"))` 패턴으로 dialect-aware. Postgres 운영=jsonb, SQLite 테스트=json fallback. 23개 컬럼 일괄 적용<br>- 검증: pytest 56/64 (skip 2건 + 잔존 8건). OpenAPI 21건 ApiSingleResponse[T] 노출 확인<br>- FR-11 (JWT jti 블랙리스트, 4.5h 분량)은 별도 차수(v4.5)로 분리<br><br>**검증**: 실 API 4 시나리오(CAM dedup, 0건 ConfigLog, LMP Purple 422, heading 응답) 모두 통과. pytest 53/66 (FR-8 dead branch 제거로 row-level 옛 테스트 2건 의도된 실패 + Phase 5 잔존). DB: json 0건 / jsonb 23건. Docker Image: api-test-server:latest (da8e01c0fad6, 2026-06-18 16:27).<br>**커밋 단위 추적성**: 13 commit 보존 (rebase 없음). 5개 롤백 태그 (pre-prd-v44, pre-spec-master-sync, pre-v45, pre-v46, pre-v47) commit hash 그대로 유효.<br>**원칙 준수**: 하루 1 차수 묶음 원칙 적용 (구 v4.4~v4.7 4 차수를 본 v4.4로 통합) |
+| v4.3 | 2026-06-17 | **ActionEvent 1:N 관계 반영 + Bulk API 7건 신설 + statement-level 트리거 마이그레이션 (6.1.7, 6.2.7, 6.4, 5.6.9, 7.3.9, 7.3.10, 7.4.9, 7.4.10, 7.5.9, 7.5.10, 부록 12.1)**<br><br>**[1. Detection/Malfunction Action 조회 → 1:N (6.1.7, 6.2.7)]**<br>- Endpoint 변경: `/{event_id}/action` → `/{event_id}/actions` (복수형)<br>- 응답 형식 변경: 단건 객체 → 배열(`data: [...]`)<br>- 메시지 변경: "Action event retrieved" → "Action events retrieved"<br>- Action Event 미존재 시 빈 배열 반환 (404 제거)<br><br>**[2. Action 생성/삭제 로직 변경 (6.4.1, 6.4.6, 6.4.7)]**<br>- 1:1 제약 제거 → 1:N 관계: 하나의 source event에 여러 ActionEvent 생성 가능<br>- 삭제 시 count 기반 복원: 남은 ActionEvent가 0개일 때만 `action_reported`를 "False"로 복원<br>- 6.1.6/6.2.6 삭제 주석 동기화<br><br>**[3. DeviceGroup 디바이스 벌크 해제 신설 (5.6.9)]**<br>- 신규 엔드포인트: `DELETE /api/devices/groups/{group_id}/devices` (body: `device_ids: List[int]`, 1~100)<br>- 단건 해제(`5.6.8`)의 N회 호출을 1회로 통합 — 그룹 편집 UI 라운드트립 최소화<br>- 응답 3분류: `removed_device_ids` / `skipped_device_ids` / `not_found_device_ids` (멱등성 보장, 전체/부분 해제 모두 200)<br>- ConfigChangeLog: `EnumConfigResourceType.DEVICE_GROUP` / `EnumConfigActionType.UNASSIGNED` 1건/요청 (`before_state.device_ids` + categories)<br>- AuditLog 도메인 외 (AuditLog는 USER/USER_GROUP/USER_SESSION/PASSWORD에 한정, `PRD_Audit_Log.md §2.2.2`)<br>- NATS: `device_group_mappings` row-level → statement-level 트리거 마이그레이션 — 영향 받는 group_id당 `SYNC_DEVICE_GROUP/UPDATED` 1건만 발행 (등록 API도 자동 수혜, PostgreSQL 10+ `REFERENCING NEW/OLD TABLE` 필요)<br><br>**[4. EventMapping SubResource 벌크 API 6건 신설 — §7.3.9/§7.3.10/§7.4.9/§7.4.10/§7.5.9/§7.5.10 본문 신설 + 부록 §12.1 표 동기화 + Swagger OpenAPI 자동 노출]**<br>- Camera: `POST .../cameras/bulk` (벌크 등록 `items: List[Create]`), `DELETE .../cameras` (벌크 해제 `config_ids: List[int]`)<br>- Speaker: `POST .../speakers/bulk` + `DELETE .../speakers` (동일 패턴)<br>- Lamp: `POST .../lamps/bulk` + `DELETE .../lamps` (동일 패턴)<br>- 응답: 등록은 `created_ids` + `failed_items` (best-effort 부분 성공 시맨틱), 해제는 `removed/skipped/not_found_config_ids` 3분류 (DeviceGroup 미러)<br>- 기존 단건 CRUD(`{config_id}` 경로)는 그대로 유지 — 다중 선택 액션과 단건 액션 모두 지원<br>- NATS: `event_mapping_cameras/speakers/lamps` 3 테이블 row-level → statement-level 트리거 마이그레이션 — 영향 받는 `event_mapping_id`당 `SYNC_EVENT_MAPPING/UPDATED` 1건만 발행 (실측: 5건 등록/해제 시 5건 → 1건, 80% 감소)<br><br>**[5. §7.5 번호 중복 알림 (사후 정정 필요, 본 차수에서는 §7.5.9/§7.5.10으로 우회)]**<br>- 기존 명세에 #### 7.5.7 FK 정책 및 CASCADE 동작과 #### 7.5.7 MappingLamp 전체 목록 조회 (독립)가 같은 번호로 중복 채번됨 (v3.8에서 §7.3.8/§7.4.8 패턴 미준수)<br>- 본 차수에서는 신설 번호를 §7.5.9 / §7.5.10으로 부여하여 중복을 피하되, 기존 중복 자체는 차기 차수(v4.4)에서 후자 §7.5.7을 §7.5.9로 재채번하고 본 신설 번호를 §7.5.10/§7.5.11로 재조정 권장 |
 | v4.2 | 2026-03-03 | **Event Statistics API 신규 (6.7)**<br><br>**[1. Event Statistics API 신규 (6.7)]**<br>- GET /api/events/statistics/summary: 이벤트 타입별 건수 요약 (원형 그래프 + 요약 카드)<br>- GET /api/events/statistics/trend: 시간대별 이벤트 건수 추이 (라인 차트)<br>- GET /api/events/statistics/by-device: 제어기별/카메라별 이벤트 건수 (막대 그래프)<br>- GET /api/events/statistics/dashboard: 대시보드 통합 (summary + trend + by-device 단일 호출)<br>- 탐지 이벤트 센서/카메라 분리 집계 (Device.category_device 기준)<br>- 파생 메트릭: daily_averages (일평균), active_devices (활성 장비 수)<br>- EventSummaryResponse, EventTrendResponse, EventByDeviceResponse, EventDashboardResponse 스키마<br><br>**[2. ControllerStats action 필드 추가 (6.7.3)]**<br>- controllers[].action: 제어기 소속 센서의 탐지 이벤트에 대한 조치 건수<br>- 집계 경로: ActionEvent.from_event_id → Event.device_id → Sensor.controller_id<br>- dashboard API (6.7.4) by_device.controllers에도 동일 적용 |
 | v4.1 | 2026-02-26 | **DeviceGroup 지원 완성 (5.4, 5.5, 5.11)**<br><br>**[1. Speaker API DeviceGroup 지원 (5.4)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 상세조회, 생성, PATCH, PUT)<br><br>**[2. Enclosure API DeviceGroup 지원 (5.5)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response에 `device_groups` 필드 추가 (목록조회, 생성, PATCH, PUT)<br><br>**[3. Lamp API DeviceGroup Request 추가 (5.11)]**<br>- Create/Update Request에 `group_ids` 필드 추가 (optional, array[int])<br>- Response의 `device_groups`는 v3.4에서 이미 지원<br><br>**[결과]** 6개 장비 타입(Controller, Sensor, Camera, Speaker, Enclosure, Lamp) 모두 DeviceGroup N:N 관계 Request/Response 완전 지원 |
 | v4.0 | 2026-02-19 | **Thumbnail API 신규 (6.6)**<br><br>**[1. Thumbnail API 신규 (6.6)]**<br>- POST /api/thumbnails: 썸네일 이미지 업로드 (multipart form data, 클라이언트 지정 file_name)<br>- GET /api/thumbnails: 썸네일 목록 조회 (날짜 필터링, 페이지네이션)<br>- GET /api/thumbnails/{id}: 썸네일 메타데이터 조회<br>- GET /api/thumbnails/{id}/image: 썸네일 이미지 다운로드 (ID 기반, FileResponse)<br>- GET /api/thumbnails/images/{file_name}: 썸네일 이미지 다운로드 (파일명 기반, FileResponse)<br>- DELETE /api/thumbnails/{id}: 썸네일 삭제 (파일 + DB)<br>- ThumbnailResponse 스키마: image_url computed field (`/api/thumbnails/images/{file_name}`)<br>- 파일 저장 구조: {날짜}/{client_file_name} (밀리초 포함 네이밍 컨벤션)<br>- DetectionEvent와 FK 없이 연결 (detail.thumbnail HTTP URL 참조) |
@@ -14910,5 +15855,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.3
-**최종 업데이트**: 2026-03-04
+**문서 버전**: v4.6
+**최종 업데이트**: 2026-06-19

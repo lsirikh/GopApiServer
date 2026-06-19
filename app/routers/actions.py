@@ -252,7 +252,7 @@ async def get_action_events(
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by created_at desc)
-    events = query.order_by(ActionEvent.created_at.desc()).offset(skip).limit(limit).all()
+    events = query.order_by(ActionEvent.created_at.desc(), ActionEvent.id.desc()).offset(skip).limit(limit).all()
 
     # Batch load source events to avoid N+1 query problem
     # PRD v1.5: Polymorphic relationship을 통해 단일 쿼리로 원본 이벤트 로드

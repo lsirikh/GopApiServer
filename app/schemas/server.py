@@ -131,7 +131,7 @@ class ServerUpdate(BaseModel):
 
 
 class ServerResponse(BaseModel):
-    """Schema for Server response"""
+    """Schema for Server response (v4.4 Phase 5: user_password 응답 노출 복원, 정책은 v4.5에서 결정)"""
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
@@ -178,6 +178,7 @@ class ServerNestedResponse(BaseModel):
     Server Nested Response - for use in other resources (e.g., Speaker)
     PRD: PRD_Speaker_Device.md Section 5.3
     Excludes created_at, updated_at per nested response rule
+    v4.4 Phase 5: user_password 응답 노출 복원 (정책은 v4.5에서 결정)
     """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")

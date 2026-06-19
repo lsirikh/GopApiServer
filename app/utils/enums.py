@@ -764,3 +764,8 @@ class EnumReportComponent(str, Enum):
     USER_GRID = "USER_GRID"                             # 사용자 목록
     USER_LOGIN_GRID = "USER_LOGIN_GRID"                 # 로그인 이력
     USER_SESSION_GRID = "USER_SESSION_GRID"             # 세션 목록
+
+
+# v4.6 — Camera Preset 감시금지구역은 `is_restricted_zone: bool` 단일 필드만 사용
+# (차장 결재 2026-06-19 단순화 — EnumRestrictedAction 제거)
+# 매니저 측에서 통일 처리: is_restricted_zone=true 시 RTSP/녹화/이벤트/화면 모두 차단

@@ -395,6 +395,49 @@ class DeviceRemoveResponse(BaseModel):
     )
 
 
+class DeviceUnassignRequest(BaseModel):
+    """디바이스 벌크 해제 요청 스키마 (PRD_DeviceGroup_BulkUnassign §4.2)"""
+    device_ids: List[int] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="해제할 디바이스 ID 목록 (1~100)",
+        json_schema_extra={"example": [1, 101, 201]}
+    )
+
+    @field_validator('device_ids')
+    @classmethod
+    def validate_device_ids(cls, v):
+        if not v:
+            raise ValueError('device_ids must not be empty')
+        return v
+
+
+class DeviceBulkRemoveResponse(BaseModel):
+    """디바이스 벌크 해제 응답 스키마 (PRD_DeviceGroup_BulkUnassign §4.3)"""
+    group_id: int = Field(..., description="그룹 ID", json_schema_extra={"example": 1})
+    removed_device_ids: List[int] = Field(
+        default_factory=list,
+        description="실제 매핑 삭제된 디바이스 ID 목록",
+        json_schema_extra={"example": [1, 101]}
+    )
+    skipped_device_ids: List[int] = Field(
+        default_factory=list,
+        description="device는 존재하나 그룹 멤버가 아님 (멱등)",
+        json_schema_extra={"example": [201]}
+    )
+    not_found_device_ids: List[int] = Field(
+        default_factory=list,
+        description="device 자체가 DB에 존재하지 않음",
+        json_schema_extra={"example": [999]}
+    )
+    message: str = Field(
+        ...,
+        description="결과 메시지",
+        json_schema_extra={"example": "2개 디바이스 해제 완료, 1개 건너뜀, 1개 없음"}
+    )
+
+
 # Forward reference resolution for CameraUrls
 # This must be done after all classes are defined
 from app.schemas.device import CameraUrls

@@ -3,6 +3,7 @@ Server models: ServerCategory, Server
 Based on GOP_서버모니터링_스키마.md
 """
 from sqlalchemy import Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -78,7 +79,7 @@ class Server(Base):
     user_password = Column(String(200), nullable=True)
 
     # 임계치 설정 (JSONB)
-    threshold_config = Column(JSON, nullable=True)
+    threshold_config = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 타임스탬프
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
@@ -142,7 +143,7 @@ class ServerMetrics(Base):
     process_count = Column(Integer, nullable=True)  # 프로세스 수
 
     # 추가 상세 정보 (JSONB)
-    detail = Column(JSON, nullable=True)
+    detail = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 타임스탬프
     collected_at = Column(DateTime, nullable=True)  # 수집 시간

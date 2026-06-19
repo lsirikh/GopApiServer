@@ -92,3 +92,7 @@ nul
 # OS
 .DS_Store
 Thumbs.db
+# v4.6 — CLAUDE.md 규약 산출물 예외 (session-context + INDEX)
+!docs/INDEX.md
+!docs/memory/
+!docs/memory/**

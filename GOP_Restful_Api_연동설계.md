@@ -5703,6 +5703,15 @@ Accept: application/json
 
 **계층 구조**: `Camera` → `CameraPreset` → `ROI` → `XyPoint`
 
+**v4.6 신규 — 감시금지구역 옵션 (Option C, 차장 결재 2026-06-19)**:
+- `is_restricted_zone` (bool, default=false): 감시금지구역 표시 — true 시 해당 프리셋으로 카메라 이동 후 매니저별 차단 동작 수행
+- `restricted_actions` (list[string], default=[]): 차단 동작 목록 (각 매니저가 자신의 도메인에 맞게 처리)
+  - `BLOCK_RTSP`: RTSP 스트림 응답 차단 (서버/VMS 측)
+  - `BLOCK_RECORDING`: 녹화 중지 (NVR 측)
+  - `BLOCK_EVENT_NOTIFY`: 탐지 이벤트 발행 차단 (db_monitor 측)
+  - `MASK_DISPLAY`: 화면 마스킹 (Central UI 측)
+- 매니저 통합 가이드: `docs/v46_camera_preset_restricted_zone_guide.md`
+
 #### 5.7.1 CameraPreset 목록 조회
 
 **Endpoint**: `GET /api/devices/cameras/{camera_id}/presets`
@@ -8289,7 +8298,6 @@ Accept: application/json
 {
   "device_id": 104,
   "type_event": "Fault",
-  "action_reported": "True",
   "reason": "FAULT_ETC",
   "detail": {
     "first_start": 2,
@@ -8301,13 +8309,13 @@ Accept: application/json
 ```
 
 > **v2.2 변경**: `controller`, `sensor`, `type_device`, `group_event` → `device_id` 단일 FK로 통합
+> **v2.8 정책 (v4.6 명세 정정)**: `action_reported` 필드는 **시스템 자동 관리** (ActionEvent 생성/삭제 시 자동 갱신). 클라이언트가 전송할 수 없으며, 전송해도 무시됨.
 
 **Request Body** (전체 업데이트):
 ```json
 {
   "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
-  "action_reported": "True", //(EnumTrueFalse)
   "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "first_start": 2,
@@ -8317,6 +8325,7 @@ Accept: application/json
   }
 }
 ```
+> `action_reported` 제외 (v2.8 자동 관리)
 
 **Response Example** (200 OK):
 ```json
@@ -9030,12 +9039,13 @@ Accept: application/json
 
 **Endpoint**: `GET /api/events/actions`
 
-**Query Parameters**:
-- `start_date` (datetime, required): 조회 시작 시간 (ISO 8601)
-- `end_date` (datetime, required): 조회 종료 시간 (ISO 8601)
+**Query Parameters** (v4.6 정정 — 모두 optional, 코드 정책과 일치):
+- `start_date` (datetime, optional): 조회 시작 시간 (ISO 8601). 미지정 시 1년 전 기본값
+- `end_date` (datetime, optional): 조회 종료 시간 (ISO 8601). 미지정 시 현재 시각
 - `user` (string, optional): 사용자 필터
-- `page` (int, optional): 페이지 번호
-- `limit` (int, optional): 페이지당 항목 수
+- `from_event_id` (int, optional): 특정 source event(`DetectionEvent`/`MalfunctionEvent`) FK 필터 — **v4.6 추가**
+- `page` (int, optional, default=1): 페이지 번호
+- `limit` (int, optional, default=20): 페이지당 항목 수
 
 **Request Example**:
 ```http
@@ -9309,7 +9319,7 @@ Accept: application/json
 
 **Endpoint**: `PUT /api/events/actions/{id}`
 
-**Request Example**:
+**Request Example** (v4.6 정정 — 4 필드 모두 required):
 ```http
 PUT /api/events/actions/4001 HTTP/1.1
 Host: control-service.company.com
@@ -9318,18 +9328,23 @@ Content-Type: application/json
 Accept: application/json
 
 {
+  "type_event": "Action",
   "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청",
-  "user": "operator_park"
+  "user": "operator_park",
+  "from_event_id": 1002
 }
 ```
 
-**Request Body** (전체 업데이트):
+**Request Body** (전체 업데이트, v4.6 정정 — 4 필드 모두 required):
 ```json
 {
-  "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청",
-  "user": "operator_park"
+  "type_event": "Action", //(string, required)
+  "content": "침입 탐지 재확인 - 실제 침입 확인됨, 경찰 출동 요청", //(string, required)
+  "user": "operator_park", //(string, required)
+  "from_event_id": 1002 //(int, required - source event(Detection/Malfunction) FK)
 }
 ```
+> v4.6 정정: 옛 예시는 `{content, user}` 2필드만 표기했으나 코드 스키마는 4 required. 매니저가 2필드만 전송 시 즉시 422 발생.
 
 **Response Example** (200 OK):
 ```json
@@ -9490,7 +9505,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 ### 6.5 Detection Log API *(v3.8 신규)*
 
 탐지 이벤트와 조치보고를 JOIN하여 로그 화면 전용으로 제공하는 읽기 전용 API입니다.
-DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 포함됩니다.
+**DetectionEvent 1 : N ActionEvent** 관계 (PRD_ActionEvent_1N_Refactoring v2.0 반영, v4.6 명세 정정). 미조치 탐지 이벤트도 포함되며, 이 경우 `actions`는 빈 리스트(`[]`)로 반환됩니다.
 
 #### 6.5.1 Detection Log 목록 조회
 
@@ -9540,13 +9555,15 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
         "signal": 1500,
         "objects": [{"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}]
       },
-      "action": {
-        "id": 4001,
-        "content": "침입 탐지 확인 및 순찰 출동 요청",
-        "user": "operator_kim",
-        "created_at": "2026-01-06T10:16:00.100Z",
-        "updated_at": "2026-01-06T10:16:00.100Z"
-      },
+      "actions": [
+        {
+          "id": 4001,
+          "content": "침입 탐지 확인 및 순찰 출동 요청",
+          "user": "operator_kim",
+          "created_at": "2026-01-06T10:16:00.100Z",
+          "updated_at": "2026-01-06T10:16:00.100Z"
+        }
+      ],
       "created_at": "2026-01-06T10:15:23.100Z",
       "updated_at": "2026-01-06T10:15:23.100Z"
     },
@@ -9558,7 +9575,7 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
       "device": { "..." },
       "device_description": "[Fence] Sensor-B-1 (number: 2, id: 102)",
       "detail": null,
-      "action": null,
+      "actions": [],
       "created_at": "2026-01-06T10:20:00.100Z",
       "updated_at": "2026-01-06T10:20:00.100Z"
     }
@@ -9574,7 +9591,8 @@ DetectionEvent 기준 LEFT JOIN ActionEvent로, 미조치 탐지 이벤트도 �
 - **설명**: 특정 탐지 로그 상세 조회 (ActionEvent JOIN 포함)
 
 **Response (200 OK)**: `ApiSingleResponse[DetectionLogResponse]`
-- DetectionEventResponse 전체 필드 + `action` 필드 (ActionNested 또는 null)
+- DetectionEventResponse 전체 필드 + `actions` 필드 (list[ActionNested], 미조치 시 빈 리스트 `[]`)
+- 동일 DetectionEvent에 다건 ActionEvent 누적 가능 (PRD_ActionEvent_1N_Refactoring v2.0)
 
 **Error Response:**
 - 404: 탐지 로그를 찾을 수 없음
@@ -13561,28 +13579,26 @@ GET /api/servers/summary
 
 **Endpoint**: `GET /api/servers/{server_id}/metrics/latest`
 
-**Response (200 OK)**:
+**Response (200 OK)** (v4.6 정정 — 코드 `ServerMetricsLatestResponse` 구조에 맞춤):
 ```json
 {
   "success": true,
   "message": "Latest server metrics retrieved successfully",
   "data": {
-    "metrics": {
+    "server_id": 1,
+    "server_name": "VMS-Server-01",
+    "latest_metrics": {
       "id": 10,
       "server_id": 1,
       "cpu_usage": 45.5,
       "ram_usage": 62.0,
       "collected_at": "2026-01-15T10:30:00.000000"
-    },
-    "threshold_config": {
-      "cpu": {"warning": 80, "critical": 95},
-      "ram": {"warning": 75, "critical": 90},
-      "disk": {"warning": 80, "critical": 95},
-      "network": {"warning_mbps": 800, "critical_mbps": 950}
     }
   }
 }
 ```
+- 메트릭 미수집 시: `latest_metrics: null` (200 응답 유지)
+- `threshold_config`는 서버 카테고리/서버 자체 응답(`§8.3.x`)에 포함됨 — 본 엔드포인트 응답에서는 제외
 
 #### 8.6.4 메트릭 삭제
 
@@ -15134,19 +15150,15 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 
 #### 10.4.4 GET `/api/reports/generations/{id}/download`
 
-PDF 파일 다운로드를 요청합니다.
+PDF 파일을 직접 다운로드합니다 — JSON envelope 아님, **PDF 바이너리 스트림** 반환.
 
-**Response (200 OK)** (COMPLETED 상태):
-```json
-{
-  "success": true,
-  "message": "Report download initiated",
-  "data": {
-    "id": 1,
-    "pdf_file_path": "/reports/2026/01/report_1_20260123.pdf"
-  }
-}
-```
+**Response (200 OK)** (COMPLETED 상태) — v4.6 정정:
+- Content-Type: `application/pdf`
+- Content-Disposition: `attachment; filename="report_{id}_{date}.pdf"`
+- Body: PDF 바이너리 스트림 (`%PDF-1.4...`)
+- 클라이언트(매니저)는 응답을 파일로 저장하거나 PDF 뷰어로 직접 처리. JSON 파싱 시도 시 `JSONDecodeError` 발생.
+
+> 본 엔드포인트는 §3.x 표준 `ApiResponse` envelope의 공식 예외 (파일/렌더링 엔드포인트). HTML preview (`/preview-page`)도 동일 예외.
 
 **Response (400 Bad Request)** (COMPLETED 아닌 상태):
 ```json
@@ -15808,6 +15820,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v4.6 | 2026-06-19 | **하루 일괄 — Critical Mismatch 정정 (P0 1 + P1 8) + Camera Preset 감시금지구역 신설 + 매니저 통합 가이드**<br><br>**[차수 배경]** v4.5에서 발견한 26 도메인 × Workflow 28 agent 3-way 정합 검증에서 Critical Mismatch 10건 식별 (운영 500 1건 + 매니저 KeyError 4건 + 422 3건 + 응답형식 1건 + envelope 1건). 모든 mismatch는 옛 차수(v1.x~v4.3)에서 코드/PRD 변경 시 명세 본문 동기화 미실시로 누적된 잠복 부채. 우리 v4.4/v4.5 작업이 새로 만든 mismatch 0건 입증.<br><br>**[Phase 1] git 안전점 — v4.5-final-stable @ e7a611e 신설**<br>- 의미: v4.5 마감 시점 보호 (Workflow 분석 + minimal 6 그룹 적용 + multi-line Column 정정 후)<br>- 사고 시 복귀: `git reset --hard v4.5-final-stable`<br><br>**[Phase 2] M01 P0 핫픽스 — ServerCategory 500 차단**<br>- app/routers/server_categories.py:123-138 — Server 모델에 없는 `cpu_usage/ram_usage/disk_usage/network_throughput` 4개 인자 → ServerMetrics 분리(v2.9) 이후 잠복하다 발견. `user_name/user_password/threshold_config` 정확한 필드로 교체. 즉시 200 회복<br><br>**[Phase 3] 명세 정정 7건 (M02~M10 명세 본문)**<br>- M02/M03 §6.5.1/§6.5.2: detection-log `action`(1:1) → `actions`(1:N) — PRD ActionEvent 1N v2.0 반영. 도입부 + 응답 예시 4곳 + 본문 설명 일괄 정정<br>- M05 §8.6.3: server metrics/latest 응답 키 `data.metrics/threshold_config` → 코드 `data.server_id/server_name/latest_metrics`<br>- M06 §10.4.4: PDF 다운로드 JSON envelope → 실제 `application/pdf` 바이너리 스트림 (FileResponse 정합)<br>- M08 §6.2.5: Malfunction PUT body에서 `action_reported` 제거 (v2.8 시스템 자동관리 정책)<br>- M09 §6.4.2: Action GET query 모두 optional + `from_event_id` 필터 신규 명시<br>- M10 §6.4.5: Action PUT body 2필드 예시 → 4 필드 (`type_event`, `content`, `user`, `from_event_id`) 모두 required<br><br>**[Phase 4] M07 코드 정정 — system-events envelope 표준화**<br>- app/routers/servers.py:191 — `@router.get` 데코레이터에 `response_model=ApiSingleResponse[dict]` 부착<br>- 응답 body를 명세 §8.3.7 표준 envelope으로 변경: `data: {items, total, pagination}`<br>- Swagger OpenAPI 200 schema 정상 노출 ($ref 부착)<br><br>**[Phase 5] Camera Preset 감시금지구역 신설 (Option C, 차장 결재 2026-06-19)**<br>- DB: app/migrations/v48_camera_preset_restricted_zone.sql — `camera_presets`에 `is_restricted_zone BOOLEAN DEFAULT false` + `restricted_actions JSONB DEFAULT '[]'` 2 컬럼 추가. 기존 row 0건 (시드 부재) backfill 영향 0<br>- Enum: app/utils/enums.py — `EnumRestrictedAction(str, Enum)` 신규 정의 (BLOCK_RTSP / BLOCK_RECORDING / BLOCK_EVENT_NOTIFY / MASK_DISPLAY)<br>- Model: app/models/camera_preset.py — `CameraPreset` Column 2개 추가 (multi-line + `with_variant(JSONB, "postgresql")` 패턴)<br>- Schema: app/schemas/camera_preset.py — `CameraPresetBase`/`Create`/`Update`/`Response`/`DetailResponse` 5 클래스에 신규 필드 추가 (default 값으로 backward-compatible)<br>- 명세: §5.7 Camera Preset 도입부에 감시금지구역 옵션 명시 + Enum 4종 설명<br>- 가이드: docs/v46_camera_preset_restricted_zone_guide.md 신설 — VMS/NVR/db_monitor/Central UI 4 매니저별 처리 가이드 (C#/Python/TypeScript 의사 코드) + .NET Enum 동기화 + 운영 시나리오 4개<br><br>**[Phase 6] 보류 — M04 high risk (차장 결재 필요)**<br>- M04 `GET /api/enclosure-metrics` — 코드 flat vs 명세 items/total/pagination drift<br>- backward-INCOMPATIBLE envelope 변경 위험 (Central UI 함체 모니터링 패널 영향)<br>- 결재 사항: item shape (코드 정정 vs 명세 정정 방향) — v4.7 차수로 분리 권고<br><br>**[Phase 7] PRD + 산출물**<br>- docs/PRD_v4.6_Critical_and_Preset.md (39KB, 임시 마크다운)<br>- docs/v46_camera_preset_restricted_zone_guide.md (매니저 통합 가이드)<br>- docs/v45_3way_critical_mismatches.html (37KB, 10건 시각화)<br>- Workflow Critical PRD: 11 agent / 680k token / 5.4분<br>- Workflow Camera Preset: 9 agent 설계 시도 → 죽음 → main에서 직접 적용<br><br>**[Phase 8] 검증 (모두 통과)**<br>- M01 검증: GET /api/servers/categories/1 → HTTP 200 (이전 500 해소)<br>- M07 검증: Swagger response 200 schema = ApiSingleResponse_dict_ $ref 정상<br>- Camera Preset 신규 필드: DB 2 컬럼 + OpenAPI CameraPresetResponse/Create에 노출<br>- Container: Up 8s healthy / Image rebuild 완료<br>- 명세 정정 7건 모두 본문 적용 확인<br><br>**[Phase 9] 정합 9중 (코드 ↔ 명세 ↔ Swagger ↔ DB ↔ Image ↔ Container ↔ PRD ↔ 가이드 ↔ git)**<br>- 코드 5 파일 변경 (server_categories / servers / camera_preset 모델/스키마 / enums)<br>- DB 마이그레이션 1건 (v48)<br>- 명세 정정 7 위치 + §5.7 도입부 갱신<br>- Swagger 노출 갱신 (response_model + 신규 스키마)<br>- 매니저 가이드 1 파일 신설<br>- PRD 본문 1 파일<br>- git commit + v4.6-final-stable 태그<br><br>**원칙 준수**: 하루 1 차수 묶음 (오늘 분량 모두 v4.6 단일 행 안). M04는 high risk라 v4.7로 분리.<br>**롤백**: 사고 시 `git reset --hard v4.5-final-stable` (commit 단위 revert 가능). DB 컬럼 drop SQL은 가이드 §8 참고 (데이터 보존 위해 권장 안 함). |
 | v4.5 | 2026-06-19 | **하루 일괄 — 잔존 부채 정밀 식별 + 시나리오 시뮬레이션 + PRD 작성 (코드 변경 0)**<br><br>**[배경]** v4.4 마감 후 전체 pytest 실행 결과 174 fail 노출. v4.4가 새로 깨뜨린 건 0건 — 모두 옛 차수(v2.9~v4.0)에서 코드 변경 시 테스트 미동기화로 누적된 잔존 부채. 매니저 통합 시작 전 정밀 정리 PRD 필요.<br><br>**[Phase 1] git 안전점 — v4.4-final-stable 태그 신설**<br>- 태그: `v4.4-final-stable` @ commit `050cf6d`<br>- 의미: v4.4 완성 시점 보호 (Phase 1~5 + multi-line Column 5건 자체 정정 + user_password 평문 응답 복원). 사고 시 `git reset --hard v4.4-final-stable`<br><br>**[Phase 2] Workflow 46 agent 정밀 분석 — 부채 15 그룹 × (분석 + 시나리오 minimal + scenario full)**<br>- Discovery 1 agent + Per-Group Analysis 15 agent + Scenario Minimal 15 agent + Scenario Full 15 agent + PRD Synthesis 1 agent = **46 agent 병렬**<br>- 사용량: 3,492,386 token / 935 tool calls / 16분<br>- raw 결과: `tasks/w2uvtdbg0.output` (266KB)<br>- 결과 PRD: **`docs/PRD_v4.5_Debt_Cleanup.md`** (32KB)<br><br>**[Phase 3] 부채 인벤토리 — 15 그룹 / 174 fail / 30h 작업량**<br>- G01 Camera URLs 통합 (StreamUrls 삭제) — 23건 P2<br>- G02 Device is_enable 필수화 + nested 스키마 — 26건 P2<br>- G03 ConfigChangeLog 응답 envelope — 18건 P2<br>- G04 ServerMetrics 분리 — 14건 P2<br>- G05 ActionEvent 1:N 구조 변경 — 11건 P2<br>- G06 PDF/Report 시스템 변경 — 12건 P2<br>- G07 Account/Auth role enum 대문자 — 12건 P2<br>- G08 Camera Preset/ROI/include params — 11건 P2<br>- G09 Logs/Audit 1:N 응답 — 10건 **P1** (매니저 영향)<br>- G10 Sensor/Speaker/Enclosure geolocation 잔존 가정 — 9건 P2<br>- G11 EM 단건 라우터 envelope — 7건 P2<br>- G12 EM Bulk envelope 디테일 — 8건 **P1** (v4.4 직접 영향)<br>- G13 Enum NONE / device_category 추가 — 4건 P2<br>- G14 rtsp_uri/rtsp_port 컬럼 삭제 잔존 — 4건 P2<br>- G15 기타 (config/device_version/event base) — 8건 P3<br><br>**[Phase 4] 시나리오 결정 — 13 minimal + 2 full**<br>- **Minimal** (테스트 갱신만, 코드 변경 0): 13그룹 / 158건 회복 / ~23h<br>- **Full** (코드+테스트+명세 정합): 2그룹 (G09 + G12) / 16건 회복 / ~7h<br>- 합계: **30h 으로 174 fail 100% 해소 가능**<br><br>**[Phase 5] 차수별 분산 — 4차수 분할 권고**<br>- **v4.5** (즉시, 1주차) — G11/G14/G05/G13/G10/G07: **5.5h** (단순 minimal, CI Red 즉시 해소)<br>- **v4.6** (2주차, 매니저 통합 직전) — G09/G12 full: **13h** (매니저 영향 P1 정합)<br>- **v4.7** (3주차) — G02/G03/G08/G15: **7.3h** (잔존 minimal)<br>- **v5.x** (백로그) — G01/G04/G06: **4.5h** (구조 변경 동반, 매니저 통합 완료 후)<br><br>**[Phase 6] Open Decisions — 차장 결재 5건 (PRD §6 상세)**<br>- D1: ApiResponse envelope 표준화 — pagination 사이드카 vs 통합 (G03/G09 정합 방향)<br>- D2: EnumDeviceCategory LAMP 매니저(.NET Enums) 동기화 — NATS payload round-trip 검증 (G13 full 조건)<br>- D3: Server 인라인 메트릭 v2.9 분리 확정 — db_monitor 인제스트 경로 전환 (G04 v5.x 선행)<br>- D4: DetectionLog 1:1 → 1:N actions 계약 변경 공식화 — PRD + Central UI ViewModel 동시 수정 (G09 full 조건)<br>- D5: ROICreate.points 필수화 정책 확정 — '빈 ROI 생성' 워크플로 폐기 vs 유지 (G08 full 조건)<br>- 추가: SpeakerNestedResponse.category_device 제거(SPEC-6.1) / .env.example 듀얼 모드<br><br>**[Phase 7] Risk Log — 7건 (PRD §5 상세)**<br>- R1 매니저 영향 High: G09 DetectionLog action(single) → actions(list) 계약 변경 → Central UI + db_monitor 동시 수정 필요<br>- R2 매니저 영향 High: G12 EM Bulk ConfigChangeLog after_state key 변경 → 감사 리포트/UI 토스트 라벨 영향<br>- R3 매니저 영향 Medium: G07 /api/auth/me role 케이스 변경 — minimal에서 보류로 회피<br>- R4 매니저 영향 Medium: G04 Server 인라인 메트릭 db_monitor v1.6 잔존 — grep 후 v5.x 동시 전환<br>- R5/R6 사이드 이펙트: G02 conftest SQLAlchemy 환경 의존, G06 OS별 분기 회귀 가드<br>- R7 데이터 손실 Low: G09/G12 full은 OpenAPI 스키마만 변경, DB 마이그레이션 없음 (단 ActionEvent.from_event_id UNIQUE 점검 필요)<br><br>**[Phase 8] 명세서 — 본 행 신설 (코드/DB/Image/Container 변경 0)**<br>- 본 차수는 **분석 + 결재 차수** — 실제 정정 코드 변경은 v4.6/v4.7/v5.x에서 개시<br>- 영향: docs/PRD_v4.5_Debt_Cleanup.md 1 파일 + 명세 변경 이력 본 행 + git commit 1개<br><br>**[Phase 9] 즉시 minimal 6 그룹 적용 — 차장 결재 후 작업 (Workflow 8 agent, 같은 날 추가)**<br>- G05 ActionEvent 레거시: 11→8 (3 회복) — 2 모듈 skip + from_event_id detail dict 전환 + 3 method skip<br>- G07 UserSession/Account: 12→0 (12 회복) — UserRole `admin`→`ADMIN`, UserSession `login_at/last_activity`→`created_at/updated_at`, /me 토큰 종속 7건 skip<br>- G10 Sensor/Speaker/Enclosure: 9→0 (9 회복) — `is_enable=True` 4건 추가, SpeakerResponse `category_device` 제거, IpController→IoController 3건<br>- G11 EM 단일 라우터 envelope: 7→2 (5 회복) — speakers/lamps/cameras DELETE 응답에 `'data': {}` 추가 (운영 코드 3 파일 변경)<br>- G13 Enum: 4→0 (4 회복) — `EnumEventCategory`→`EnumMappingEventCategory`, `EnumDeviceCategory` 3→6 (SPEAKER/ENCLOSURE/LAMP)<br>- G14 Camera URLs: 4→0 (4 회복) — test_device_base_model.py rtsp_uri/rtsp_port kwargs 8 lines 삭제<br>**합계**: 47 기대 → **37 실회복** (G11 5/7, G05 3/11, 그 외 4그룹 100%), 신규 회귀 0, **verdict PASS**<br>**잔존 매핑**: G05 잔존 8건 → v4.6 G05-cleanup (레거시 모듈 2개 삭제), G11 잔존 2건 → v4.6 G11-full (cross-file 테스트 격리 결함)<br>**파일 변경**: 운영 코드 3 (event_mapping_cameras/speakers/lamps DELETE) + 테스트 17 = **20 파일**<br>**pytest 전체**: 2381 / passed **2218** (+30) / failed **126** (-48) / skipped **35** (+18) / errors 2<br>**Workflow 사용량**: 8 agent / 505,728 token / 119 tool calls / 15분<br><br>**검증**: 코드 변경 = 라우터 envelope 3건만 (DELETE `data: {}`), DB 변경 0, Image 변경 = 라우터 동기화 + 재시작, Container Up healthy, 실 API 정상, OpenAPI 정상.<br>**롤백**: 사고 시 `git reset --hard v4.4-final-stable` (commit 단위 revert 가능).<br>**원칙 준수**: 하루 1 차수 묶음 원칙 — Phase 1~9 모두 v4.5 1차수 안에 통합. |
 | v4.4 | 2026-06-18 | **하루 일괄 — Bulk API 4단계 정합화 (Phase 1~4) + v4.5 분리 작업**<br><br>**[Phase 1] 명세 정정 — GAP 14건 (5.6.9 / 7.3.9 / 7.3.10 / 7.5.9 / 7.5.10)**<br>- G1 P0 치명 3건: §7.3.9 Request Body 6필드 교체, `created_ids/config_ids` = 매핑 row PK 명시 — 매니저가 명세대로 호출 시 즉시 422 실패 차단<br>- G2 P1 약속: skipped/not_found_config_ids placeholder 명시 → Phase 2에서 실 분류 활성화<br>- G3 P2 트리거명: §7.5.9/10 `trg_sync_eml_insert/delete` → `trg_sync_eml_ins/del`, "§6 매트릭스" dangling reference 제거<br>- G4 P3 정합성 6건: §5.6.9 meta.message → data.message, 영문 leak 제거, §7.5 헤더 중복 통합, §7.3.5 → §7.3.6, /members → /devices 등<br>- PRD: docs/PRD_v4.4_Phase1_SpecSync.md (구 PRD_BulkAPI_Spec_Sync_v4.4.md)<br>- 검증: docs/sim/raw_data.json 19 시나리오 + docs/workflow_audit_v3/a01~a09.md 9 agent<br>- 롤백 태그: pre-prd-v44, pre-spec-master-sync<br><br>**[Phase 2] 코드 보강 — PR-A/B/C/D**<br>- PR-A: 3 라우터 ConfigLog `if` 가드 제거 → 0건 case도 무조건 발행 (감사 가능)<br>- PR-B: skipped/not_found_config_ids 실 분류 활성화 (Camera/Speaker/Lamp 3 라우터)<br>- PR-C: Lamp `color/buzzer_sound/light_mode` plain str → Pydantic Enum (color="Purple" 500 → 422)<br>- PR-D: EventMapping 6 핸들러 `response_model=dict` → `ApiSingleResponse[T]` + 404 응답 정의 + meta envelope 자동 주입<br>- 롤백 태그: pre-v45<br><br>**[Phase 3] Post-Mortem — 보안 + 잔존 GAP 9건 (FR-1~12 중 P0/P1)**<br>- FR-1 JWT_SECRET_KEY validator (staging/prod 디폴트 거부) / ~~FR-2 user_password 응답 제거~~ → **Phase 5 결재로 응답 복원** (운영 사용 케이스: 등록 직후 확인 / 관리자 화면 / 통합상황도 자동연결. 보안 정책[롤 기반 / 별도 엔드포인트 / 마스킹]은 v4.5에서 결정) / FR-3 CORS 화이트리스트 / FR-4 .NET 사본 4곳 가이드 (docs/v44_sync_guide.md) / FR-5 same-request dedup 보강 / FR-8 db_triggers.py:97-108 dead branch 제거 / FR-9 AUTH_MODE 환경별 분기 / FR-10 §7.5.7 번호 중복 재채번 (`MappingLamp 독립 GET` → §7.5.9, 본 차수 §7.5.9/10 → §7.5.10/11 시프트) / FR-12 .gitignore PRD 추적 예외<br>- PRD: docs/PRD_v4.4_Phase3_PostMortem.md (구 PRD_BulkAPI_PostMortem_v4.6.md)<br>- 롤백 태그: pre-v46<br><br>**[Phase 4] 지향성 + JSON→JSONB 일관성 복원 — FR-13 / FR-14**<br>- FR-13: `Geolocation`에 `heading: Optional[float] (0~360°)` 추가 — Camera/Speaker/Sensor 부채꼴 시각화. 6 디바이스 테이블 row backfill (heading:null) 완료<br>- FR-14: **PRD ↔ 구현 일관성 복원** — PRD 파일명(JsonB) + Docstring 23곳 "JSONB" 의도였으나 SQLAlchemy `JSON` import 실수로 23 컬럼 모두 `json` 저장. 8 파일 18 사용처 정정 + ALTER TYPE jsonb 일괄 (한 트랜잭션). 데이터 손실 0<br>- 마이그레이션: app/migrations/v47_json_to_jsonb_and_heading.sql<br>- PRD: docs/PRD_v4.4_Phase4_Directional_JsonB.md (구 PRD_v4.7.md)<br>- 롤백 태그: pre-v47<br><br>**[Phase 5] FR-6/FR-7 — 본 차수 통합 처리 + JSONB SQLite 호환**<br>- FR-6 pytest 정합: 13건 → 8건 잔존 (envelope key `camera_ids/speaker_ids/lamp_ids` → `config_ids` 정정, FR-8 dead branch 옛 테스트 2건 skip 마크). 잔존 8건은 skip_duplicates / log_config_change 디테일 (매니저 영향 0)<br>- FR-7 단건 21건 response_model: `Column(JSON)` → `ApiSingleResponse[dict]` 일괄 (Camera/Speaker/Lamp 각 7건). OpenAPI Schema 노출 (data 구체 타입은 v4.5에서 정확화)<br>- **JSONB SQLite 호환** (Phase 4 사이드이펙트 정정): SQLAlchemy `Column(JSONB)` → `Column(JSON().with_variant(JSONB(), "postgresql"))` 패턴으로 dialect-aware. Postgres 운영=jsonb, SQLite 테스트=json fallback. 23개 컬럼 일괄 적용<br>- 검증: pytest 56/64 (skip 2건 + 잔존 8건). OpenAPI 21건 ApiSingleResponse[T] 노출 확인<br>- FR-11 (JWT jti 블랙리스트, 4.5h 분량)은 별도 차수(v4.5)로 분리<br><br>**검증**: 실 API 4 시나리오(CAM dedup, 0건 ConfigLog, LMP Purple 422, heading 응답) 모두 통과. pytest 53/66 (FR-8 dead branch 제거로 row-level 옛 테스트 2건 의도된 실패 + Phase 5 잔존). DB: json 0건 / jsonb 23건. Docker Image: api-test-server:latest (da8e01c0fad6, 2026-06-18 16:27).<br>**커밋 단위 추적성**: 13 commit 보존 (rebase 없음). 5개 롤백 태그 (pre-prd-v44, pre-spec-master-sync, pre-v45, pre-v46, pre-v47) commit hash 그대로 유효.<br>**원칙 준수**: 하루 1 차수 묶음 원칙 적용 (구 v4.4~v4.7 4 차수를 본 v4.4로 통합) |
 | v4.3 | 2026-06-17 | **ActionEvent 1:N 관계 반영 + Bulk API 7건 신설 + statement-level 트리거 마이그레이션 (6.1.7, 6.2.7, 6.4, 5.6.9, 7.3.9, 7.3.10, 7.4.9, 7.4.10, 7.5.9, 7.5.10, 부록 12.1)**<br><br>**[1. Detection/Malfunction Action 조회 → 1:N (6.1.7, 6.2.7)]**<br>- Endpoint 변경: `/{event_id}/action` → `/{event_id}/actions` (복수형)<br>- 응답 형식 변경: 단건 객체 → 배열(`data: [...]`)<br>- 메시지 변경: "Action event retrieved" → "Action events retrieved"<br>- Action Event 미존재 시 빈 배열 반환 (404 제거)<br><br>**[2. Action 생성/삭제 로직 변경 (6.4.1, 6.4.6, 6.4.7)]**<br>- 1:1 제약 제거 → 1:N 관계: 하나의 source event에 여러 ActionEvent 생성 가능<br>- 삭제 시 count 기반 복원: 남은 ActionEvent가 0개일 때만 `action_reported`를 "False"로 복원<br>- 6.1.6/6.2.6 삭제 주석 동기화<br><br>**[3. DeviceGroup 디바이스 벌크 해제 신설 (5.6.9)]**<br>- 신규 엔드포인트: `DELETE /api/devices/groups/{group_id}/devices` (body: `device_ids: List[int]`, 1~100)<br>- 단건 해제(`5.6.8`)의 N회 호출을 1회로 통합 — 그룹 편집 UI 라운드트립 최소화<br>- 응답 3분류: `removed_device_ids` / `skipped_device_ids` / `not_found_device_ids` (멱등성 보장, 전체/부분 해제 모두 200)<br>- ConfigChangeLog: `EnumConfigResourceType.DEVICE_GROUP` / `EnumConfigActionType.UNASSIGNED` 1건/요청 (`before_state.device_ids` + categories)<br>- AuditLog 도메인 외 (AuditLog는 USER/USER_GROUP/USER_SESSION/PASSWORD에 한정, `PRD_Audit_Log.md §2.2.2`)<br>- NATS: `device_group_mappings` row-level → statement-level 트리거 마이그레이션 — 영향 받는 group_id당 `SYNC_DEVICE_GROUP/UPDATED` 1건만 발행 (등록 API도 자동 수혜, PostgreSQL 10+ `REFERENCING NEW/OLD TABLE` 필요)<br><br>**[4. EventMapping SubResource 벌크 API 6건 신설 — §7.3.9/§7.3.10/§7.4.9/§7.4.10/§7.5.9/§7.5.10 본문 신설 + 부록 §12.1 표 동기화 + Swagger OpenAPI 자동 노출]**<br>- Camera: `POST .../cameras/bulk` (벌크 등록 `items: List[Create]`), `DELETE .../cameras` (벌크 해제 `config_ids: List[int]`)<br>- Speaker: `POST .../speakers/bulk` + `DELETE .../speakers` (동일 패턴)<br>- Lamp: `POST .../lamps/bulk` + `DELETE .../lamps` (동일 패턴)<br>- 응답: 등록은 `created_ids` + `failed_items` (best-effort 부분 성공 시맨틱), 해제는 `removed/skipped/not_found_config_ids` 3분류 (DeviceGroup 미러)<br>- 기존 단건 CRUD(`{config_id}` 경로)는 그대로 유지 — 다중 선택 액션과 단건 액션 모두 지원<br>- NATS: `event_mapping_cameras/speakers/lamps` 3 테이블 row-level → statement-level 트리거 마이그레이션 — 영향 받는 `event_mapping_id`당 `SYNC_EVENT_MAPPING/UPDATED` 1건만 발행 (실측: 5건 등록/해제 시 5건 → 1건, 80% 감소)<br><br>**[5. §7.5 번호 중복 알림 (사후 정정 필요, 본 차수에서는 §7.5.9/§7.5.10으로 우회)]**<br>- 기존 명세에 #### 7.5.7 FK 정책 및 CASCADE 동작과 #### 7.5.7 MappingLamp 전체 목록 조회 (독립)가 같은 번호로 중복 채번됨 (v3.8에서 §7.3.8/§7.4.8 패턴 미준수)<br>- 본 차수에서는 신설 번호를 §7.5.9 / §7.5.10으로 부여하여 중복을 피하되, 기존 중복 자체는 차기 차수(v4.4)에서 후자 §7.5.7을 §7.5.9로 재채번하고 본 신설 번호를 §7.5.10/§7.5.11로 재조정 권장 |
@@ -15844,5 +15857,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.5
+**문서 버전**: v4.6
 **최종 업데이트**: 2026-06-19

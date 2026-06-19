@@ -7,7 +7,8 @@ Hierarchical structure:
 - CameraPreset 1:N ROI (CASCADE DELETE)
 - ROI 1:N XyPoint (CASCADE DELETE)
 """
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -26,6 +27,8 @@ class CameraPreset(Base):
         preset_index: Preset index within camera (unique per camera)
         preset_name: Preset display name
         touring_time: Time to move from Home to this preset (seconds)
+        is_restricted_zone: 감시금지구역 플래그 (v4.6 신규)
+        restricted_actions: 차단 동작 list[EnumRestrictedAction] (v4.6 신규)
         created_at: Creation timestamp
         updated_at: Last update timestamp
     """
@@ -37,6 +40,14 @@ class CameraPreset(Base):
     preset_index = Column(Integer, nullable=False)
     preset_name = Column(String(100), nullable=False)
     touring_time = Column(Integer, nullable=False, default=10)
+    # v4.6 — 감시금지구역 옵션 (Option C — 차장 결재 2026-06-19)
+    is_restricted_zone = Column(Boolean, nullable=False, default=False, comment="감시금지구역 표시")
+    restricted_actions = Column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        default=list,
+        comment="차단 동작 목록: BLOCK_RTSP / BLOCK_RECORDING / BLOCK_EVENT_NOTIFY / MASK_DISPLAY"
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 

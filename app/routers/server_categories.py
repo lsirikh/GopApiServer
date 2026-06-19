@@ -129,10 +129,9 @@ async def get_server_category(
             ip_address=s.ip_address,
             port=s.port,
             hostname=s.hostname,
-            cpu_usage=s.cpu_usage,
-            ram_usage=s.ram_usage,
-            disk_usage=s.disk_usage,
-            network_throughput=s.network_throughput,
+            user_name=s.user_name,
+            user_password=s.user_password,
+            threshold_config=s.threshold_config,
             created_at=s.created_at,
             updated_at=s.updated_at
         )

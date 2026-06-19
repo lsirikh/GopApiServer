@@ -188,7 +188,11 @@ async def get_server(
     )
 
 
-@router.get("/{server_id}/system-events")
+@router.get(
+    "/{server_id}/system-events",
+    response_model=ApiSingleResponse[dict],
+    summary="서버별 시스템 이벤트 조회",
+)
 async def get_server_system_events(
     server_id: int,
     page: int = Query(1, ge=1, description="페이지 번호"),
@@ -243,10 +247,20 @@ async def get_server_system_events(
             "created_at": event.created_at
         })
 
+    # v4.6 M07 정정: data:{items, total} + pagination envelope 표준화
+    total = query.count()
     return ApiSingleResponse(
         success=True,
         message="Server system events retrieved successfully",
-        data=event_responses
+        data={
+            "items": event_responses,
+            "total": total,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total_pages": (total + limit - 1) // limit if limit else 1
+            }
+        }
     )
 
 

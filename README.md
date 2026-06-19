@@ -2,12 +2,16 @@
 
 GOP 통제시스템 연동을 위한 RESTful API 테스트 서버입니다.
 
+**현재 버전**: v4.6 (2026-06-19) — 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
+
 ## 기술 스택
 
-- **Framework**: FastAPI
-- **Database**: SQLite
-- **Container**: Docker
+- **Framework**: FastAPI + Pydantic v2
+- **Database**: PostgreSQL 16 (alpine)
+- **Container**: Docker Compose
 - **Documentation**: Swagger UI / ReDoc (한글화)
+- **Auth**: JWT (HS256, 24h access + 7d refresh)
+- **NATS**: SYNC 이벤트 발행 (statement-level 트리거, db_monitor 연동)
 
 ---
 
@@ -66,7 +70,7 @@ docker-compose restart
 | API Docs (Swagger) | 8000 | http://localhost:8000/docs | API 문서 (Swagger UI) |
 | API Docs (ReDoc) | 8000 | http://localhost:8000/redoc | API 문서 (ReDoc) |
 | Log Viewer | 8000 | http://localhost:8000/api/logs/viewer | API 로그 뷰어 |
-| DB Admin | 8080 | http://localhost:8080 | SQLite 웹 관리자 |
+| DB Admin (Adminer) | 8080 | http://localhost:8080 | PostgreSQL 웹 관리자 (server=postgres, user=gop_user, db=gop) |
 
 ---
 
@@ -200,34 +204,64 @@ api-test-server/
 │       ├── enums.py         # Enum 정의
 │       ├── init_db.py       # DB 초기화
 │       └── init_server_data.py  # 서버 Seed 데이터 (v1.9)
-├── tests/                   # 테스트 파일
-├── data/                    # SQLite DB 파일
+├── tests/                   # 테스트 파일 (pytest, SQLite in-memory fixture)
+├── data/                    # 컨테이너 데이터 mount point
+├── logs/                    # 애플리케이션 로그
+├── app/migrations/          # 수동 마이그레이션 SQL (v47 JSON→JSONB, v48 is_restricted_zone 등)
 ├── docker-compose.yml
 ├── Dockerfile
 └── requirements.txt
 ```
 
+> DB 데이터는 Docker volume (`api-test-pgdata`)에 영구 저장. `docker-compose down -v`만 데이터 초기화.
+
+---
+
+## 시드 데이터 (자동 초기화)
+
+`docker-compose up` 시 빈 DB일 때 `INIT_SAMPLE_DATA=true` 환경변수로 자동 시드 (v4.6 차장님 명세):
+
+| 디바이스 | 카운트 | 분포 |
+|---|---|---|
+| 제어기 | 4 | A/B/C/D 구역 1개씩 |
+| 센서 | 402 | 제어기1: 펜스 100(1~100) + 복합 21(180~200) / 제어기2 동일 / 제어기3: 스마트복합 60(1~60) / 제어기4: 스마트센서 100(1~100) |
+| 카메라 | 300 | 4구역 분배, PTZ 100대 × 5 프리셋 |
+| 스피커 | 200 | 4구역 분배 |
+| 함체 | 30 | 4구역 분배 |
+| 경광등 | 30 | 4구역 분배 |
+
+기존 데이터가 있으면 시드 skip. 시드 동작 비활성화: `INIT_SAMPLE_DATA=false`.
+
 ---
 
 ## 문서
 
-- [GOP RESTful API 연동설계서](Docs/GOP_Restful_Api_연동설계.md) - API 상세 설계 문서 (v1.9)
+- [GOP RESTful API 연동설계서](GOP_Restful_Api_연동설계.md) — API 상세 설계 (v4.6)
+- [GOP 통합 DB 스키마](docs/GOP_스키마_전체.md) — DB 스키마 (v2.12)
+- [v4.6 Camera Preset 감시금지구역 가이드](docs/v46_camera_preset_restricted_zone_guide.md) — 매니저 통합용 (.NET/TypeScript 의사 코드)
+- [CHANGELOG.md](CHANGELOG.md) — 전체 차수 변경 이력
 
 ---
 
-## 변경 이력
+## 변경 이력 (요약)
+
+전체 차수 + 세부 변경은 [CHANGELOG.md](CHANGELOG.md) 참조.
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|----------|
-| v1.9 | 2025-12-29 | Server Monitoring API 추가, API 문서 한글화 |
-| v1.8 | 2025-11-29 | Camera Event Mapping API 추가 |
-| v1.7 | 2025-11-29 | Event Mapping API 추가 |
-| v1.6 | 2025-11-29 | Detection/Action 연결 기능 추가 |
-| v1.5 | 2025-11-28 | Connection 이벤트 API 추가 |
-| v1.4 | 2025-11-28 | Malfunction 이벤트 API 추가 |
-| v1.3 | 2025-11-28 | Detection/Action 이벤트 API 추가 |
+| **v4.6** | 2026-06-19 | Critical Mismatch 정정 8건 + Camera Preset 감시금지구역(`is_restricted_zone`) + 시드 재설계(차장님 명세) + pagination 안정성 검증 |
+| **v4.5** | 2026-06-19 | 잔존 부채 minimal 6 그룹 적용 (37 fail 회복) + Workflow 부채 정밀 분석 PRD |
+| **v4.4** | 2026-06-18 | Bulk API 4단계 정합화 (Phase 1~5) + 지향성(`heading`) + JSON→JSONB 23 컬럼 + multi-line Column 정정 |
+| **v4.3** | 2026-06-17 | ActionEvent 1:N 관계 + Bulk API 7건 신설 (DeviceGroup + EventMapping Camera/Speaker/Lamp) + statement-level NATS 트리거 |
+| v4.2 | 2026-03-03 | Event Statistics API (6.7) |
+| v4.1 | 2026-02-15 | Camera Settings 통합 + PRD_Camera_Urls_JsonB |
+| v4.0 | 2026-02-01 | DetectionLog API + ActionEvent JOIN |
+| v3.x | 2026-01-15 | Account/Auth 시스템 + Lamp Device + ROI 정밀화 |
+| v2.x | 2025-12-15 | PostgreSQL 마이그레이션 + ServerMetrics 분리 + Enclosure Metrics |
+| v1.9 | 2025-12-29 | Server Monitoring API + 한글 Swagger |
+| v1.3~v1.8 | 2025-11-28~29 | Detection / Malfunction / Connection / EventMapping API 신설 |
 
 ---
 
-**버전**: v1.9
-**최종 업데이트**: 2025-12-29
+**버전**: v4.6
+**최종 업데이트**: 2026-06-19

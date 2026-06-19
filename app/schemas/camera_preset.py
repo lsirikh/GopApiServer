@@ -151,14 +151,10 @@ class CameraPresetBase(BaseModel):
     preset_index: int = Field(..., description="Preset index within camera")
     preset_name: str = Field(..., max_length=100, description="Preset display name")
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
-    # v4.6 — 감시금지구역 옵션 (Option C, 차장 결재 2026-06-19)
+    # v4.6 — 감시금지구역 플래그 (차장 결재 2026-06-19 단순화)
     is_restricted_zone: bool = Field(
         default=False,
-        description="감시금지구역 표시 — true 시 해당 프리셋으로 카메라 이동 후 매니저별 차단 동작 수행"
-    )
-    restricted_actions: List[str] = Field(
-        default_factory=list,
-        description="차단 동작 list[EnumRestrictedAction] — BLOCK_RTSP / BLOCK_RECORDING / BLOCK_EVENT_NOTIFY / MASK_DISPLAY"
+        description="감시금지구역 표시 — true 시 매니저 측에서 통일 처리 (RTSP/녹화/이벤트/화면 모두 차단)"
     )
 
 
@@ -173,7 +169,6 @@ class CameraPresetUpdate(BaseModel):
     preset_name: Optional[str] = Field(default=None, max_length=100)
     touring_time: Optional[int] = None
     is_restricted_zone: Optional[bool] = None
-    restricted_actions: Optional[List[str]] = None
 
 
 class CameraPresetResponse(BaseModel):
@@ -189,7 +184,6 @@ class CameraPresetResponse(BaseModel):
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
     # v4.6 감시금지구역
     is_restricted_zone: bool = Field(default=False, description="감시금지구역 표시")
-    restricted_actions: List[str] = Field(default_factory=list, description="차단 동작 목록")
     roi_count: int = Field(default=0, description="Number of ROIs in preset")
     created_at: KSTDatetime
     updated_at: KSTDatetime
@@ -237,7 +231,6 @@ class CameraPresetDetailResponse(BaseModel):
     touring_time: int = Field(default=10, description="Time to move from Home to preset (seconds)")
     # v4.6 감시금지구역
     is_restricted_zone: bool = Field(default=False, description="감시금지구역 표시")
-    restricted_actions: List[str] = Field(default_factory=list, description="차단 동작 목록")
     rois: List[ROINestedResponse] = Field(default_factory=list)
     created_at: KSTDatetime
     updated_at: KSTDatetime

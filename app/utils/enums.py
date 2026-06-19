@@ -766,16 +766,6 @@ class EnumReportComponent(str, Enum):
     USER_SESSION_GRID = "USER_SESSION_GRID"             # 세션 목록
 
 
-# ============================================================
-# v4.6 — Camera Preset 감시금지구역 (Option C, 차장 결재 2026-06-19)
-# ============================================================
-class EnumRestrictedAction(str, Enum):
-    """
-    감시금지구역 차단 동작 (Camera Preset 진입 시 매니저별 처리).
-
-    각 매니저(VMS / NVR / db_monitor / Central UI)가 자신의 도메인에 맞는 동작을 처리.
-    """
-    BLOCK_RTSP = "BLOCK_RTSP"                  # RTSP 스트림 응답 차단 (서버/VMS 측)
-    BLOCK_RECORDING = "BLOCK_RECORDING"        # 녹화 중지 (NVR 측)
-    BLOCK_EVENT_NOTIFY = "BLOCK_EVENT_NOTIFY"  # 탐지 이벤트 발행 차단 (db_monitor 측)
-    MASK_DISPLAY = "MASK_DISPLAY"              # 화면 마스킹 (Central UI 측)
+# v4.6 — Camera Preset 감시금지구역은 `is_restricted_zone: bool` 단일 필드만 사용
+# (차장 결재 2026-06-19 단순화 — EnumRestrictedAction 제거)
+# 매니저 측에서 통일 처리: is_restricted_zone=true 시 RTSP/녹화/이벤트/화면 모두 차단

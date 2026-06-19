@@ -96,3 +96,7 @@ Thumbs.db
 !docs/INDEX.md
 !docs/memory/
 !docs/memory/**
+
+# v4.6 — Analysis 보고서 예외
+!docs/Analysis/
+!docs/Analysis/**

@@ -58,6 +58,32 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 **Manager Impact**: 클라이언트팀 `<bool>` 역직렬화 JsonReaderException 위험 0
 
+### Phase 9 — device_group_mappings cascade 누락 정정 (같은 날 추가)
+
+**클라이언트팀 보고 v3**: 장비 DELETE 시 그룹 `device_count` 미갱신 (스피커 케이스 — orphaned 멤버십)
+
+**근본 원인**: `device_group_mappings.device_id`가 polymorphic FK (6개 자식 테이블) → DB FK 불가, ORM viewonly → cascade 자동 안 됨
+
+**Fixed**:
+- `app/routers/lamps.py:436` — `DeviceGroupMapping` 명시 cleanup 추가 (Camera 패턴 일관)
+- `app/routers/speakers.py:491` — 동일
+- `app/routers/enclosures.py:459` — 동일
+- 6 라우터(Camera/Controller/Sensor/Speaker/Enclosure/Lamp) 모두 동일 패턴 통일
+
+**Migration**:
+- `app/migrations/v49_device_group_cascade_cleanup.sql` — orphaned 504건 일괄 정리 (SPEAKER 262 + SENSOR 242)
+- 결과: 모든 category orphaned **0건**
+
+**Verified**:
+- DB 잔존: CONTROLLER 2 / SENSOR 160 / ENCLOSURE 30 / LAMP 60 = 252건 (모두 실 장비 대응)
+- Container Up healthy / Image rebuild
+- Workflow 3 agent (244K token / 10분)
+- 안전점 `pre-cascade-fix`
+
+**진단 정정**: 차장님 받은 가설("램프 정상 / 스피커 누락")은 코드 실측과 반대 — 실제 누락은 Lamp/Speaker/Enclosure 3종
+
+**Deferred (v5.0)**: SQLAlchemy event listener 도입 (라우터 누락 구조적 차단)
+
 ---
 
 ## [v4.7] — 2026-06-21

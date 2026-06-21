@@ -8,9 +8,9 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.8** (2026-06-22, Phase 1~8 통합) |
-| **HEAD commit** | `944d73a` (v4.8 Phase 8 — events sweep) |
-| **태그** | `v4.8-final-stable` (재이동) / `pre-events-delete-sweep` (Phase 8 안전점) |
+| **차수** | **v4.8** (2026-06-22, Phase 1~9 통합) |
+| **HEAD commit** | (v4.8 Phase 9 commit 진행 중 — device_group cascade fix) |
+| **태그** | `v4.8-final-stable` / `pre-cascade-fix` (Phase 9) / `pre-events-delete-sweep` (Phase 8) |
 | **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`~`v4.8` (v4.9 제거됨) |
 | **Container** | Up healthy / Image rebuild 완료 |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |

@@ -433,6 +433,12 @@ async def delete_lamp(
     deleted_identifier = {"id": lamp.id, "name_device": lamp.name_device}
     deleted_name = f"Lamp-{lamp.id} ({lamp.name_device})"
 
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == lamp_id,
+        DeviceGroupMapping.category_device == EnumDeviceCategory.LAMP
+    ).delete()
+
     # Delete lamp (CASCADE will delete from devices table, SET NULL for event_mapping_lamps)
     db.delete(lamp)
     db.commit()

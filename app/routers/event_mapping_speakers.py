@@ -353,7 +353,7 @@ def replace_event_mapping_speaker(
 
 @router.delete(
     "/{mapping_id}/speakers/{config_id}",
-    response_model=ApiSingleResponse[dict],
+    response_model=ApiSingleResponse[None],
     summary="Delete speaker config for event mapping",
     description="Delete a speaker configuration for an event mapping"
 )
@@ -406,7 +406,7 @@ def delete_event_mapping_speaker(
     return {
         "success": True,
         "message": "Event mapping speaker deleted successfully",
-        "data": {}
+        "data": None
     }
 
 

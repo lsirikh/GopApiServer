@@ -145,7 +145,8 @@ async def force_logout_all_user_sessions(
 
     return {
         "success": True,
-        "data": {"count": count}
+        "message": f"User {user_id} sessions force-logged-out ({count} terminated)",
+        "data": None
     }
 
 
@@ -225,7 +226,11 @@ async def delete_my_session(
         description=f"내 세션 종료: {current_user.login_id}"
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "message": f"My session {session_id} terminated successfully",
+        "data": None
+    }
 
 
 @router.get("/{session_id}")
@@ -350,4 +355,8 @@ async def force_logout_session(
         description=f"세션 강제 로그아웃: {session_user.login_id if session_user else 'unknown'}"
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "message": f"Session {session_id} force-logged-out successfully",
+        "data": None
+    }

@@ -313,7 +313,11 @@ async def delete_user_group(
         description=f"사용자 그룹 삭제: {group_name}"
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "message": f"User group {group_id} deleted successfully",
+        "data": None
+    }
 
 
 @router.get("/{group_id}/users")

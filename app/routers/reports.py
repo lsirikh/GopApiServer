@@ -313,8 +313,8 @@ def delete_template(
 
     return ApiResponse(
         success=True,
-        message="Report template deleted successfully",
-        data={"id": template_id}
+        message=f"Report template {template_id} deleted successfully",
+        data=None
     )
 
 

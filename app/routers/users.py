@@ -475,7 +475,11 @@ async def delete_user(
         description=f"사용자 삭제: {deleted_login_id}"
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "message": f"User {deleted_user_id} deleted successfully",
+        "data": None
+    }
 
 
 @router.post("/{user_id}/lock")

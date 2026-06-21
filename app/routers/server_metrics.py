@@ -338,7 +338,7 @@ async def get_server_metrics_latest(
 
 @router.delete(
     "/{server_id}/metrics",
-    response_model=ApiSingleResponse[dict]
+    response_model=ApiSingleResponse[None]
 )
 async def delete_old_server_metrics(
     server_id: int,
@@ -384,6 +384,6 @@ async def delete_old_server_metrics(
 
     return ApiSingleResponse(
         success=True,
-        message=f"Deleted {deleted_count} old metrics",
-        data={"server_id": server_id, "deleted_count": deleted_count}
+        message=f"Deleted {deleted_count} old metrics for server {server_id}",
+        data=None
     )

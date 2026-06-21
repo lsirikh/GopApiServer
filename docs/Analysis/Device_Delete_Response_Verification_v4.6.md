@@ -141,3 +141,35 @@ return ApiSingleResponse(
 - **실측 명령 (Camera/Controller/Sensor/Speaker/Enclosure)**: 각각 id 생성 후 DELETE → 모두 `"data":null` 확인
 - **OpenAPI 스키마 확인**: `ApiSingleResponse_NoneType_` (5개) vs `ApiSingleResponse_dict_` (2개) 분리 확인
 - **Git blame**: lamps DELETE는 `73d74ea`, device_groups DELETE는 `26f3125` 도입
+
+
+---
+
+## 📌 §6 P1 후속 sweep (2026-06-22 추가)
+
+클라이언트팀 보고서 v2 (`docs/API_Delete_Response_Inconsistency-report.md` §6)의 P1 명시 endpoint도 일괄 sweep:
+
+| Endpoint | Before | After |
+|---|---|---|
+| `DELETE /api/integrations/event-mappings/{id}/cameras/{config_id}` | `ApiSingleResponse[dict]` + `"data": {}` | `ApiSingleResponse[None]` + `"data": None` |
+| `DELETE /api/integrations/event-mappings/{id}/speakers/{config_id}` | 동일 | 동일 |
+| `DELETE /api/integrations/event-mappings/{id}/lamps/{config_id}` | 동일 | 동일 |
+| `DELETE /api/reports/templates/{template_id}` | `ApiResponse` + `data={"id":...}` | `data=None` |
+| `DELETE /api/servers/{server_id}/metrics` | `ApiSingleResponse[dict]` + `data={...}` | `ApiSingleResponse[None]` + `data=None` |
+| `DELETE /api/devices/enclosures/{id}/metrics` | `data={"deleted_count":...}` | `data=None` (count는 message에 보존) |
+| `DELETE /api/users/{user_id}` | `{"success": True}` (envelope 위반) | `{success, message, data:None}` |
+| `DELETE /api/user-groups/{group_id}` | `{"success": True}` | 동일 envelope 보강 |
+| `DELETE /api/user-sessions/user/{user_id}` | `data={"count":...}` | `data=None` (count는 message에) |
+| `DELETE /api/user-sessions/me/{session_id}` | `{"success": True}` | envelope 보강 |
+| `DELETE /api/user-sessions/{session_id}` | `{"success": True}` | envelope 보강 |
+
+**합계**: P0 4건 (이전 commit) + P1 11건 (본 commit) = **15 endpoint**
+
+## 최종 검증 (2026-06-22)
+
+전체 DELETE endpoint **36개** OpenAPI 응답 검증:
+- ✅ `ApiSingleResponse_NoneType_` (data: null 통일): **22개**
+- ⚠️ `$ref` 없음 (response_model 미부착, 별도 작업 영역): 14개
+- ✅ `ApiSingleResponse_dict_` (자유형 dict 잔존): **0개**
+
+→ 보고서 §6 명시된 dict 패턴 DELETE 응답 **100% 정합 완료**.

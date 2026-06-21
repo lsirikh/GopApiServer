@@ -545,7 +545,7 @@ async def replace_connection_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None])
 async def delete_connection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -593,6 +593,6 @@ async def delete_connection_event(
 
     return ApiSingleResponse(
         success=True,
-        message="Connection event deleted successfully",
+        message=f"Connection event {event_id} deleted successfully",
         data=None
     )

@@ -13,6 +13,35 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ---
 
+## [v4.9] — 2026-06-22
+
+**핵심**: Events 4건 DELETE `Union[dict,None]` → `None` sweep — v4.8 Phase 7 잔존 해소
+
+### Fixed
+- **events 4 endpoint** `response_model` 정정 (실 응답 본문은 이미 `data=None` — 타입 정합화):
+  - `app/routers/detections.py:626` — `ApiSingleResponse[Optional[dict]]` → `[None]`
+  - `app/routers/malfunctions.py:629` — 동일
+  - `app/routers/connections.py:548` — 동일
+  - `app/routers/actions.py:626` — 동일
+- 4건 모두 message에 `event_id` 보존 (v4.7/v4.8 패턴 일관)
+
+### Verified
+- OpenAPI 36 DELETE: `ApiSingleResponse_NoneType_` **26** / `Union[dict,None]` **0** / `dict` **0** / $ref 없음 14
+- 실 API: detection/connection/action DELETE → `success=True data=None message에 id 포함` PASS
+- Workflow 6 agent (337K token / 5분) — verdict `safe_to_apply`
+- Container Up healthy / Image rebuild
+
+### Manager Impact
+- 클라이언트팀 `<bool>` 역직렬화 JsonReaderException 위험 0 (응답 본문 `null` 유지)
+- autorest/openapi-generator SDK 재생성 권장 (dict→None 호환)
+- 잔존 14건 ($ref 미부착) sweep은 v5.x 별도 PRD
+
+### git tag
+- `v4.9-final-stable` (신설 예정)
+- `pre-events-delete-sweep` @ `8547742` (DELETE sweep 직전 안전점)
+
+---
+
 ## [v4.8] — 2026-06-22
 
 **핵심**: DELETE 응답 envelope P1 sweep — 11 endpoint 일관성 통일

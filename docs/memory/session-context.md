@@ -8,10 +8,10 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.8** (2026-06-22) |
-| **HEAD commit** | `5263317` |
-| **태그** | `v4.8-final-stable` (신설) / `pre-delete-sweep` (안전점) |
-| **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`/`v4.5`/`v4.6`/`v4.7`/`v4.8` |
+| **차수** | **v4.9** (2026-06-22) |
+| **HEAD commit** | (v4.9 commit 진행 중) |
+| **태그** | `v4.9-final-stable` (신설) / `pre-events-delete-sweep` (안전점) |
+| **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`~`v4.9` |
 | **Container** | Up healthy / Image rebuild 완료 |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |
 

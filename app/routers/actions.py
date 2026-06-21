@@ -623,7 +623,7 @@ async def replace_action_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None])
 async def delete_action_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -678,6 +678,6 @@ async def delete_action_event(
 
     return ApiSingleResponse(
         success=True,
-        message="Action event deleted successfully",
+        message=f"Action event {event_id} deleted successfully",
         data=None
     )

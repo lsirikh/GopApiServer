@@ -626,7 +626,7 @@ async def replace_malfunction_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None])
 async def delete_malfunction_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -682,7 +682,7 @@ async def delete_malfunction_event(
 
     return ApiSingleResponse(
         success=True,
-        message="Malfunction event deleted successfully",
+        message=f"Malfunction event {event_id} deleted successfully",
         data=None
     )
 

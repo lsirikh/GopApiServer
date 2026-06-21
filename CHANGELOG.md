@@ -13,6 +13,86 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ---
 
+## [v4.8] — 2026-06-22
+
+**핵심**: DELETE 응답 envelope P1 sweep — 11 endpoint 일관성 통일
+
+### Fixed
+- **EM 단건 DELETE 3건** (v4.5 Phase 9 `'data': {}` 정책 정정):
+  - `app/routers/event_mapping_cameras.py:442` — `ApiSingleResponse[dict]` → `[None]` + `'data': {}` → `'data': None`
+  - `app/routers/event_mapping_speakers.py:354` — 동일
+  - `app/routers/event_mapping_lamps.py:347` — 동일
+- **일반 단건 DELETE 8건** envelope 표준화:
+  - `app/routers/reports.py:293` templates/{id} — `data={"id":...}` → `data=None` (id는 message에)
+  - `app/routers/users.py:429` {user_id} — `{"success": True}` envelope 위반 정정
+  - `app/routers/user_groups.py:265` {group_id} — 동일
+  - `app/routers/user_sessions.py:75/175/267` — 3 endpoint envelope 표준화 (count는 message에 보존)
+  - `app/routers/server_metrics.py:339` {server_id}/metrics — `data=None`
+  - `app/routers/enclosure_metrics.py:275` — 동일 (deleted_count는 message에)
+
+### Verified
+- OpenAPI 36 DELETE endpoint: `ApiSingleResponse_NoneType_` 통일 **22** / dict 잔존 **0** / $ref 없음 14 (별도 작업)
+- 클라이언트팀 보고서 v2 §6 P1 11건 일괄 해소
+- Container Up healthy / Image rebuild
+
+### Deferred (v4.9+)
+- `$ref` 없음 14 DELETE — response_model 일괄 부착 별도 PRD
+- `ApiSingleResponse_Union[dict,None]` 4건 (detection/malfunction/connection/action events) — 동일 sweep 가능
+
+### git tag
+- `v4.8-final-stable` @ `5263317`
+
+---
+
+## [v4.7] — 2026-06-21
+
+**핵심**: Account/Auth/Session 도메인 전수 조사 (113 이슈, Verdict FAIL) + DELETE 응답 P0 정정 (4 endpoint)
+
+### Added
+- **Workflow 13 agent 전수 조사**: 1.15M token / 12분
+  - 30 endpoints / 10 features / 6 DB tables / 8 enums 검토
+  - 평균 완성도 62.5% / OWASP 커버리지 41점
+  - 이슈 113건: critical 13 / high 38 / medium 39 / low 23
+  - Adversarial: confirmed 105 / refuted 0 / additional 9
+- 보고서: `docs/Analysis/Account_Auth_Session_Analysis_v4.6.md` (16KB, 236 라인)
+- 보고서: `docs/Analysis/Device_Delete_Response_Verification_v4.6.md` (9KB)
+- `docs/Analysis/` 디렉터리 신설 + `.gitignore` 예외 추가
+- git tag `pre-delete-sweep` 안전점 (DELETE 작업 직전)
+
+### Fixed
+- **DELETE 응답 P0 정정 4건** (클라이언트팀 보고 — JsonReaderException):
+  - `app/routers/lamps.py:409` — `ApiSingleResponse[dict]` → `[None]` + `data=None`
+  - `app/routers/device_groups.py:608` — 동일
+  - `app/routers/servers.py:461` — sweep
+  - `app/routers/server_categories.py:370` — sweep
+- 메시지에 id 보존: `f"Lamp {id} 삭제 성공"` — 감사 추적성 유지
+
+### Top 5 Recommendations (v5.0 권고, 미적용 — 별도 결재)
+1. **[critical 6h]** `require_admin/require_role` 의존성 신설 → RBAC 부재 해결 (F06/F08/F09/F10)
+2. **[critical 6h]** `get_current_account_user`에 user_sessions 활성 검증 → JWT 무효화 우회 해결
+3. **[critical 8h]** `decode_refresh_token` 분리 + payload['type']=='refresh' 강제 + rotation/blacklist
+4. **[high 10h]** AuditLog 본문 보강 + SESSION_CREATED/REFRESH/FAILURE 누락 해소
+5. **[high 15h]** 비밀번호 정책 정비 + 변경 시 세션 무효화 + 만료/재사용 금지
+
+### Security Findings (OWASP)
+- A01 Broken Access Control: 토큰 검증 시 UserSession 활성 미확인 (logout 후 토큰 유효, 24h)
+- A04 Insecure Design: refresh 엔드포인트 `type=='refresh'` 검증 안 함 → access_token으로 refresh 가능
+- A04: logout이 JWT 자체 무효화 안 함
+- A07: Rate limiting 없음 (slowapi/Limiter 미도입) → brute force 가능
+- A07: 미존재 user 즉시 401, 존재 bcrypt verify → 타이밍 사이드 채널
+- A09: 로그인 성공 시 `AuditLog(SESSION_CREATED)` 미발행 + 실패 시 `UserLoginLog(FAILURE)` 미기록
+
+### Verified
+- OpenAPI 9 DELETE endpoint $ref = `ApiSingleResponse_NoneType_` 통일
+- 실 API: Lamp/Server/ServerCategory/DeviceGroup DELETE → `data is None`
+- Container Up healthy
+
+### git tag
+- `v4.7-final-stable` @ `0b3ea1a`
+- `pre-delete-sweep` @ `a9ef6d6`
+
+---
+
 ## [v4.6] — 2026-06-19
 
 **핵심**: Critical Mismatch 정정 + Camera Preset 감시금지구역 + 시드 재설계 + pagination 검증

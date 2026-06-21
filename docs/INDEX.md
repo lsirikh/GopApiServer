@@ -177,4 +177,13 @@
 
 ---
 
-**문서 인덱스 버전**: v4.6 / **최종 갱신**: 2026-06-19 / **총 문서**: 141 파일
+## 🔍 11. Analysis 보고서 (v4.7+ 신설)
+
+| 보고서 | 차수 | 핵심 |
+|---|---|---|
+| [Analysis/Account_Auth_Session_Analysis_v4.6.md](Analysis/Account_Auth_Session_Analysis_v4.6.md) | v4.7 | 30 endpoint × 10 feature 전수 조사 / 113 이슈 / Verdict FAIL / OWASP 41점 |
+| [Analysis/Device_Delete_Response_Verification_v4.6.md](Analysis/Device_Delete_Response_Verification_v4.6.md) | v4.7+v4.8 | DELETE 응답 envelope 검증 + P0/P1 sweep (15 endpoint 정정) |
+
+---
+
+**문서 인덱스 버전**: v4.8 / **최종 갱신**: 2026-06-22 / **총 문서**: 143 파일

@@ -2,7 +2,7 @@
 
 GOP 통제시스템 연동을 위한 RESTful API 테스트 서버입니다.
 
-**현재 버전**: v4.9 (2026-06-22) — 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
+**현재 버전**: v4.8 (2026-06-22) — 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 
 ## 기술 스택
 
@@ -249,8 +249,7 @@ api-test-server/
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|----------|
-| **v4.9** | 2026-06-22 | Events 4건 DELETE `Union[dict,None]` → `None` sweep (v4.8 Phase 7 잔존 해소) — OpenAPI NoneType 26 통일 |
-| **v4.8** | 2026-06-22 | DELETE 응답 envelope P1 sweep — 11 endpoint 일관성 통일 (EM 단건 + Reports + Users + UserGroups + UserSessions + ServerMetrics + EnclosureMetrics) |
+| **v4.8** | 2026-06-22 | DELETE 응답 envelope sweep — Phase 1~8 통합 (P1 11 + Events 4 = 15 endpoint, 하루 1차수 묶음) |
 | **v4.7** | 2026-06-21 | Account/Auth/Session 도메인 전수 조사 (113 이슈, Verdict FAIL) + DELETE 응답 P0 정정 (4 endpoint) |
 | **v4.6** | 2026-06-19 | Critical Mismatch 정정 8건 + Camera Preset 감시금지구역(`is_restricted_zone`) + 시드 재설계(차장님 명세) + pagination 안정성 검증 |
 | **v4.5** | 2026-06-19 | 잔존 부채 minimal 6 그룹 적용 (37 fail 회복) + Workflow 부채 정밀 분석 PRD |
@@ -266,5 +265,5 @@ api-test-server/
 
 ---
 
-**버전**: v4.9
+**버전**: v4.8
 **최종 업데이트**: 2026-06-22

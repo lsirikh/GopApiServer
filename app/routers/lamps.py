@@ -406,7 +406,7 @@ async def put_lamp(
     )
 
 
-@router.delete("/{lamp_id}", response_model=ApiSingleResponse[dict])
+@router.delete("/{lamp_id}", response_model=ApiSingleResponse[None])
 async def delete_lamp(
     lamp_id: int,
     current_user=Depends(get_current_user_optional),
@@ -450,6 +450,6 @@ async def delete_lamp(
 
     return ApiSingleResponse(
         success=True,
-        message="Lamp 삭제 성공",
-        data={"id": lamp_id, "deleted": True}
+        message=f"Lamp {lamp_id} 삭제 성공",
+        data=None
     )

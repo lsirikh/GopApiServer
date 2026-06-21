@@ -458,7 +458,7 @@ async def replace_server(
     )
 
 
-@router.delete("/{server_id}", response_model=ApiSingleResponse[dict])
+@router.delete("/{server_id}", response_model=ApiSingleResponse[None])
 async def delete_server(
     server_id: int,
     current_user=Depends(get_current_user_optional),
@@ -489,6 +489,6 @@ async def delete_server(
 
     return ApiSingleResponse(
         success=True,
-        message="Server deleted successfully",
-        data={"id": server_id}
+        message=f"Server {server_id} deleted successfully",
+        data=None
     )

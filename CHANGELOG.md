@@ -84,6 +84,34 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 **Deferred (v5.0)**: SQLAlchemy event listener 도입 (라우터 누락 구조적 차단)
 
+### Phase 10 — Controller→Sensor cascade 우회 정정 (같은 날 추가)
+
+**배경**: Phase 9 회신 후 차장님 의문 "Controller 삭제 시 자식 Sensor도 사라졌는데 왜 활성 버그?" → 실측 검증으로 활성 버그 확정 (Sensor row는 ORM cascade로 자동 삭제되지만 device_group_mappings는 잔존)
+
+**근본 원인**: `Controller.sensors = relationship(cascade='all, delete-orphan')`이 ORM cascade로 자식 Sensor row 자동 삭제 → `delete_sensor` 핸들러는 호출 안 됨 → category=SENSOR 매핑 cleanup 우회 → polymorphic device_id에 FK 없어 DB cascade도 동작 불가
+
+**SENSOR 242 orphan 실체**: 시드 후 controller 2개 삭제 시 자식 sensor 242개 row만 자동 삭제되고 매핑은 잔존 (Phase 9에서 정리한 242건의 진짜 원인)
+
+**Fixed**:
+- `app/routers/controllers.py:560` — `db.delete(controller)` 직전에 자식 sensor.id 조회 + category=SENSOR 매핑 명시 정리
+
+**Verified**:
+- 실 시나리오: 임시 Controller + Sensor 3개 + 매핑 4건 → DELETE → orphan 0 (PASS)
+- 전체 DB orphan: 4 category 모두 0 유지
+
+**안전점**: `pre-controller-cascade-fix`
+
+### Phase 11 — controllers.py 문자열 리터럴 → Enum 통일
+
+**Fixed**:
+- `app/routers/controllers.py:320,422,516` — `_update_device_group_mappings(db, ..., "controller")` → `EnumDeviceCategory.CONTROLLER`
+- DELETE 핸들러 cleanup 코드와 동일 타입 흐름 회복 (잠재 422/500 차단)
+
+### Deferred (v5.0)
+
+- 구조적 해결: `device_group_mappings.device_id`에 `devices.id` FK + ON DELETE CASCADE 또는 SQLAlchemy `before_delete` 이벤트 리스너
+- Phase 12 보류 (ConfigChangeLog commit 전 이동) — 트랜잭션 일관성, 회귀 위험으로 v5.0 권고
+
 ---
 
 ## [v4.7] — 2026-06-21

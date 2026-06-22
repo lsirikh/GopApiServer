@@ -9,7 +9,7 @@ from app.dependencies import get_db
 from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
-from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, PasswordResetRequest, PasswordChangeRequest
+from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
 from app.routers.auth import get_current_account_user
 from app.utils.auth import hash_password, verify_password
 from app.services.audit_service import log_action, get_changes
@@ -79,23 +79,26 @@ async def get_my_info(
 
 @router.put("/me")
 async def update_my_info(
-    user_data: AccountUserUpdate,
+    user_data: AccountUserSelfUpdate,
     db: Session = Depends(get_db),
     current_user: AccountUser = Depends(get_current_account_user)
 ):
     """
-    내 정보 수정
+    내 정보 수정 (PRD v4.8 Phase 12-7c)
 
-    현재 로그인한 사용자의 정보를 수정합니다.
+    현재 로그인한 사용자의 본인 정보만 수정합니다.
+    권한 필드(role/group_id/is_active)는 본 경로로 변경 불가 — 전용 admin 경로 /users/{user_id} 사용.
 
-    **Request Body**:
+    **Request Body** (권한 필드 전송 시 422):
     - **name**: 이름 (선택)
     - **email**: 이메일 (선택)
     - **department**: 부서 (선택)
     - **position**: 직책 (선택)
+    - **photo_url**: 프로필 사진 URL (선택)
     - **phone**: 전화번호 (선택)
 
-    **Response**: success, data (수정된 사용자 정보)
+    **Error**:
+    - 422: role/group_id/is_active 등 권한 필드 전송 시
     """
     # Capture before state for audit log
     before_state = {

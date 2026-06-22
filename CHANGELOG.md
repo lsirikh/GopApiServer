@@ -101,6 +101,31 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 **안전점**: `pre-controller-cascade-fix`
 
+### Phase 12-7 — 불변성 강화 6 sub-phase 통합 (근간 흔드는 변경 차단)
+
+**배경**: Workflow 6 agent로 "근간 흔드는 변경" 전수 식별 (P0 1건 + P1 5건). PRD `docs/PRD_v4.8_Phase12-7_Immutability.md` 작성 후 진행.
+
+**결재 4건 적용**: 명세 §6.3.4 = 코드 차단 / ActionEvent.created_at = 차단 / audit_logs DB TRIGGER = 적용 / Bulk atomicity = v4.9 분리
+
+**Fixed (6 sub-phase)**:
+- **7a** UserGroup.permissions P0 — `app/schemas/user.py` UserGroupUpdate에서 permissions 제거 + `extra="forbid"`
+- **7b** Event 3종 PUT device_id/device_description 차단 — DetectionEventReplace/MalfunctionEventReplace/ConnectionEventReplace 신규 + 3 라우터 PUT 시그니처 변경
+- **7c** /users/me AccountUserSelfUpdate 신설 — role/group_id/is_active 미노출 + `extra="forbid"`. AccountUserUpdate는 admin 경로 유지
+- **7d** ActionEvent.created_at 차단 — Replace/Update에서 created_at 제거 (POST Create는 유지)
+- **7e** EnclosureUpdate.door_status 일반 PATCH 우회 봉쇄 — 필드 제거 + `extra="forbid"`. 전용 /status 엔드포인트만 허용
+- **7f** audit_logs / config_change_logs / user_login_logs DB-level TRIGGER — `app/migrations/v51_audit_immutability_triggers.sql` (BEFORE UPDATE/DELETE/TRUNCATE = RAISE EXCEPTION, append-only)
+
+**Verified** (10/10 PASS):
+- 7a/7b/7c/7d/7e: 6 시나리오 422 거부 PASS
+- 7f: audit_logs UPDATE/DELETE EXCEPTION + INSERT 정상 PASS
+- 정상 시나리오 보호: PUT /me {name:X} → 200 + name 변경
+
+**안전점**: `pre-immutability-phase12-7` @ a9d4655
+
+**Deferred (v4.9 / v5.0)**:
+- v5.0: type_device sensor_type 분리 (외부 매니저 호환성) / ActionEvent batch-import endpoint / UserGroup permissions 전용 admin endpoint
+- v4.9: Bulk atomicity (SAVEPOINT/dry-run)
+
 ### Phase 11 — controllers.py 문자열 리터럴 → Enum 통일
 
 **Fixed**:

@@ -17,7 +17,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_user_optional
 from app.models.event import MalfunctionEvent, ActionEvent, EnumTrueFalse, EnumFaultType
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
-from app.schemas.event import MalfunctionEventCreate, MalfunctionEventResponse, MalfunctionEventUpdate, ActionEventResponse
+from app.schemas.event import MalfunctionEventCreate, MalfunctionEventReplace, MalfunctionEventResponse, MalfunctionEventUpdate, ActionEventResponse
 from app.schemas.device import (
     DeviceGroupNestedResponse,
     DeviceNestedResponse,
@@ -534,36 +534,38 @@ async def update_malfunction_event(
 @router.put("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse])
 async def replace_malfunction_event(
     event_id: int,
-    event_data: MalfunctionEventCreate,
+    event_data: MalfunctionEventReplace,
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
     장애 이벤트 전체 수정 (PUT)
 
-    PRD v2.1: device_id 기반으로 변경됨, device_description 자동 갱신
+    PRD v4.8 Phase 12-7b: device_id / device_description 변경 원천 차단
+    - device_id: PUT으로 수정 불가 (v2.1 불변식 — device 바인딩은 생성 시점에 확정)
+    - device_description: Device 스냅샷 보존 (생성 시점 값 유지)
+    - device 재지정이 필요하면 DELETE 후 POST로 재생성
     PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
 
-    장애 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
+    장애 이벤트의 필드를 교체합니다. (device 바인딩 제외)
 
     **파라미터**:
     - **event_id**: 장애 이벤트 ID (Path Parameter)
 
-    **Request Body** (모든 필드 필수):
+    **Request Body** (모든 필드 필수, device_id/device_description 전송 시 422):
     - **type_event**: 이벤트 유형
-    - **device_id**: 장치 ID
     - **reason**: 장애 원인
     - **detail**: 케이블 위치 정보 (first_start, first_end, second_start, second_end)
 
-    **자동 관리 (PRD v2.8)**:
-    - **action_reported**: PUT 시에도 기존 값 유지 (시스템 자동 관리)
+    **자동 관리**:
+    - **action_reported**: PUT 시에도 기존 값 유지 (시스템 자동 관리, PRD v2.8)
+    - **device / device_description**: 생성 시 바인딩된 값 유지 (Phase 12-7b)
 
     **Response**: 수정된 장애 이벤트 정보
 
     **Error**:
-    - 400: Device를 찾을 수 없음
     - 404: 장애 이벤트를 찾을 수 없음
-    - 422: 유효하지 않은 enum 값
+    - 422: 유효하지 않은 enum 값 / device_id/device_description 등 금지 필드 전송
     """
     event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
 
@@ -571,14 +573,6 @@ async def replace_malfunction_event(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Malfunction event with id {event_id} not found"
-        )
-
-    # PRD v2.1: Validate device_id exists
-    device = db.query(Device).filter(Device.id == event_data.device_id).first()
-    if not device:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Device with id {event_data.device_id} not found"
         )
 
     # Convert string enum values to enum types
@@ -590,16 +584,12 @@ async def replace_malfunction_event(
             detail=f"Invalid enum value: {str(e)}"
         )
 
-    # PRD v2.1: Generate device_description automatically
-    device_description = _generate_device_description(device)
-
-    # Replace all fields (PUT = full replacement)
-    # PRD v2.1: device_id 기반, group_event/sequence 필드 제거됨
+    # Replace allowed fields only (PUT = full replacement, device 바인딩 제외)
+    # PRD v4.8 Phase 12-7b: device_id / device_description는 변경 불가 (스냅샷 보존)
     # PRD v2.8: action_reported는 시스템 자동 관리 (기존 값 유지)
     # PRD_Event_Field_Normalization.md v1.0: first_start/end, second_start/end → detail JSONB
     event.type_event = event_data.type_event
-    event.device_id = event_data.device_id
-    event.device_description = device_description
+    # event.device_id / event.device_description는 변경하지 않음 (Phase 12-7b)
     # event.action_reported는 변경하지 않음 (시스템 자동 관리)
     event.reason = fault_reason
     event.detail = event_data.detail  # 케이블 위치 정보 포함
@@ -612,7 +602,7 @@ async def replace_malfunction_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        device=_build_device_nested_response(device),
+        device=_build_device_nested_response(event.device),
         device_description=event.device_description,
         detail=event.detail,
         created_at=event.created_at,

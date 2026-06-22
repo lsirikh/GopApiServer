@@ -2,7 +2,7 @@
 User Pydantic schemas
 PRD: PRD_Account_Design.md Section 4
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.schemas.common import KSTDatetime
@@ -52,10 +52,17 @@ class UserGroupCreate(BaseModel):
 
 
 class UserGroupUpdate(BaseModel):
-    """Schema for updating a user group (all fields optional)"""
+    """Schema for updating a user group (all fields optional)
+
+    PRD v4.8 Phase 12-7a (RBAC permissions immutability — P0):
+    - permissions 필드 제거 — 일반 PATCH로 권한 변경 차단 (권한 상승 공격 차단)
+    - extra="forbid": permissions 전송 시 422 자동 거부
+    - 권한 변경은 향후 전용 admin 엔드포인트(POST /user-groups/{id}/permissions)로만 허용 권고 (v5.0)
+    """
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
-    permissions: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
 
 
@@ -124,6 +131,41 @@ class AccountUserCreate(BaseModel):
     group_id: Optional[int] = Field(
         None, description="소속 그룹 ID",
         json_schema_extra={"example": 1}
+    )
+
+
+class AccountUserSelfUpdate(BaseModel):
+    """Schema for self-update via PUT /users/me (PRD v4.8 Phase 12-7c)
+
+    - role/group_id/is_active/is_locked 등 권한 상승 가능 필드 제거
+    - extra="forbid": 권한 필드 전송 시 422 자동 거부
+    - 본 스키마는 /me 경로 전용. /users/{id} (admin 경로)는 AccountUserUpdate 사용
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(
+        None, min_length=1, max_length=100,
+        description="사용자 이름",
+        json_schema_extra={"example": "홍길동"}
+    )
+    email: Optional[str] = Field(
+        None, description="이메일",
+        json_schema_extra={"example": "operator01@gop.mil.kr"}
+    )
+    department: Optional[str] = Field(
+        None, description="부서",
+        json_schema_extra={"example": "경계부대 1중대"}
+    )
+    position: Optional[str] = Field(
+        None, description="직책",
+        json_schema_extra={"example": "병장"}
+    )
+    photo_url: Optional[str] = Field(
+        None, description="프로필 사진 URL"
+    )
+    phone: Optional[str] = Field(
+        None, description="전화번호",
+        json_schema_extra={"example": "010-1234-5678"}
     )
 
 

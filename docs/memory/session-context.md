@@ -8,9 +8,9 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.8** (2026-06-22, Phase 1~12 통합) |
-| **HEAD commit** | `2600abb` (Phase 12 — Event invariant 가드 + 시드 1999건 정합 회복) |
-| **태그** | `v4.8-final-stable` / `pre-action-invariant-fix` (Phase 12) / `pre-event-audit` (Phase 12 audit) / `pre-controller-cascade-fix` (Phase 10~11) / `pre-cascade-fix` (Phase 9) / `pre-events-delete-sweep` (Phase 8) |
+| **차수** | **v4.8** (2026-06-22, Phase 1~12-7 통합) |
+| **HEAD commit** | (Phase 12-7 commit 진행 중 — 불변성 6 sub-phase) |
+| **태그** | `v4.8-final-stable` / `pre-immutability-phase12-7` (Phase 12-7) / `pre-action-invariant-fix` (Phase 12) / `pre-controller-cascade-fix` (Phase 10~11) / `pre-cascade-fix` (Phase 9) / `pre-events-delete-sweep` (Phase 8) |
 | **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`~`v4.8` (v4.9 제거됨) |
 | **Container** | Up healthy / Image rebuild 완료 |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |

@@ -817,11 +817,8 @@ class EnclosureUpdate(BaseModel):
     )
     is_enable: Optional[bool] = Field(None, description="장비 활성화 여부")
 
-    # Enclosure 전용 필드 (선택적)
-    door_status: Optional[EnumDoorStatus] = Field(
-        None,
-        description="도어 물리적 상태: CLOSED/OPEN"
-    )
+    # PRD v4.8 Phase 12-7e: door_status는 본 일반 PATCH 경로로 변경 불가
+    # → 전용 엔드포인트 PATCH /enclosures/{id}/status (EnclosureStatusUpdate) 사용
     # detail_info 제거됨 → enclosure_metrics API 사용 (PRD_Enclosure_Metrics_Separation.md v1.0)
     geolocation: Optional[Geolocation] = Field(None, description="위치 정보")
     threshold_config: Optional[EnclosureThresholdConfig] = Field(None, description="알람 임계값")
@@ -830,7 +827,7 @@ class EnclosureUpdate(BaseModel):
     # PRD_DeviceGroup_Support_Completion.md: N:N 관계
     group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class EnclosureResponse(BaseModel):

@@ -8794,7 +8794,7 @@ Accept: application/json
 |--------|------|------|------|
 | type_event | String | N | 이벤트 유형 (EnumEventType: Connection) |
 
-> **참고**: `device_id`는 PATCH로 수정 불가 (PUT 전체 교체만 가능)
+> **참고 (v4.8 Phase 12-7b)**: `device_id` / `device_description`는 **PATCH/PUT 모두 수정 불가** (스냅샷 보존 — v2.1 불변식). device 재지정이 필요하면 DELETE 후 POST로 재생성한다. 클라이언트가 해당 필드를 전송하면 422가 반환된다.
 
 **Response Example** (200 OK):
 ```json

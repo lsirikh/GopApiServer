@@ -100,3 +100,5 @@ Thumbs.db
 # v4.6 — Analysis 보고서 예외
 !docs/Analysis/
 !docs/Analysis/**
+!docs/v48_phase12_immutability_report.html
+!docs/v45_3way_critical_mismatches.html

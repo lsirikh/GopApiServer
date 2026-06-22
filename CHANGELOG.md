@@ -107,10 +107,53 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - `app/routers/controllers.py:320,422,516` — `_update_device_group_mappings(db, ..., "controller")` → `EnumDeviceCategory.CONTROLLER`
 - DELETE 핸들러 cleanup 코드와 동일 타입 흐름 회복 (잠재 422/500 차단)
 
+### Phase 12 — Event 도메인 전수 정밀 분석 + Action invariant 가드 + Det/Mal PATCH 가드 + 시드 정합 회복
+
+**배경**: 차장님 추가 요청 "Event 4종 (Connection/Detection/Malfunction/Action) 추가/삭제/수정 응답 + DELETE cascade 무조건 다 확인"
+
+**Workflow 11 agent 정밀 분석** (993K token / 20분): Discovery + Per-event audit 4 + Live API 실측 4 + Adversarial verify + Synthesize → 4 event × 6 dimension = 24 셀 검증
+- **결론**: CASCADE 정책 4종 모두 ✅ MATCH (DB CASCADE/SET NULL 의도 == 실측)
+- PARTIAL_GAP — 5 항목 즉시 정정
+
+**Fixed (Phase 12-1: from_event_id 변경 원천 차단 — 차장님 결재)**:
+- `app/schemas/event.py` ActionEventUpdate — `from_event_id` 필드 제거 + `model_config = ConfigDict(extra="forbid")`
+- `app/schemas/event.py` ActionEventReplace 신규 클래스 — PUT 전용, `from_event_id` 없음, `extra="forbid"`
+- `app/routers/actions.py:34` ActionEventReplace import 추가
+- `app/routers/actions.py` PATCH `from_event_id` 검증 블록 제거 (dead code)
+- `app/routers/actions.py:553` PUT 시그니처 `ActionEventCreate` → `ActionEventReplace`, `event.source_event` 폴리모픽 관계 재사용, `event.from_event_id`는 절대 수정 안 함
+- 결과: PATCH/PUT 모두 `from_event_id` 전송 시 422 "Extra inputs are not permitted" 자동 거부
+
+**Fixed (Phase 12-2: Detection/Malfunction PATCH `action_reported` 제거)**:
+- `app/schemas/event.py:147` DetectionEventUpdate — `action_reported` 필드 제거
+- `app/schemas/event.py:260` MalfunctionEventUpdate — `action_reported` 필드 제거
+- 핸들러 무변경 (Pydantic `extra=ignore` 기본값으로 클라이언트 입력 자동 폐기)
+- 결과: PATCH로 `action_reported='False'` 강제 후 DELETE → 409 가드 우회 위험 차단
+
+**Migration (Phase 12-3: 시드 1:N invariant 정리)**:
+- `app/migrations/v50_action_reported_invariant_fix.sql` 신설 — BEGIN/검증/UPDATE/검증/COMMIT 단일 트랜잭션
+- 진단: detection 743 + malfunction 1256 = **1999건 invariant 위배** (`action_reported='True'`인데 actions_count=0)
+- 결과: 1999건 True→False 정정, 잔여 위배 0
+- 회복 후: `True` 5000건 (모두 ActionEvent 보유) / `False` 2997건 (모두 ActionEvent 0건) — 100% invariant 정합
+
+**Fixed (Phase 12-4: 시드 코드 재발 방지)**:
+- `app/utils/init_sample_data.py:876` _create_action_events 함수
+- 제거: 무작위 ~2000건에 `action_reported='True'` 추가 박아넣기 (PRD v2.0 위배)
+- 정정: 5000 targets만 `action_reported="True"` 설정 (= ActionEvent 매칭)
+- docstring에 INVARIANT 명시 — "무작위 True 배정 금지"
+
+**Verified**:
+- 실측 4 시나리오: PATCH 422 / PUT 422 / Detection PATCH action_reported 폐기 / PUT 정상 — 모두 PASS
+- DB invariant 100% 회복 (detection 0 위배 / malfunction 0 위배)
+- POST/DELETE 기존 로직 (`update_source_action_reported` / `reset_source_action_reported`) 그대로 정상 — 6단계 시퀀스 검증 PASS
+- Container Up healthy / Image rebuild
+
+**안전점**: `pre-action-invariant-fix`
+
 ### Deferred (v5.0)
 
 - 구조적 해결: `device_group_mappings.device_id`에 `devices.id` FK + ON DELETE CASCADE 또는 SQLAlchemy `before_delete` 이벤트 리스너
-- Phase 12 보류 (ConfigChangeLog commit 전 이동) — 트랜잭션 일관성, 회귀 위험으로 v5.0 권고
+- P1 잔존: GET list `start_date/end_date` required vs Optional (차장 결재), Event 4종 PUT ConfigChangeLog 누락, Action POST device.status 광역화, Detection PUT detail 누락
+- P2 6건 + P3 일괄: Workflow 11 agent 보고서 §recommended_phase_grouping 참조
 
 ---
 

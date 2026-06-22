@@ -150,9 +150,13 @@ class DetectionEventUpdate(BaseModel):
 
     PRD v2.1: group_event, controller, sensor, type_device, sequence 필드 제거됨
     - device_id는 수정 불가 (이벤트 생성 시에만 설정)
+
+    PRD v2.8 + v4.8 Phase 12 (1:N invariant 가드):
+    - action_reported 필드 제거. ActionEvent count helper(update_source/reset_source)가
+      단독 관리하는 종속 필드이며, PATCH로 강제 시 DELETE 409 가드를 우회해
+      action_events.from_event_id NULL 고아를 만들 수 있어 입력 표면에서 차단.
     """
     type_event: Optional[str] = Field(None, example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    action_reported: Optional[str] = Field(None, example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
     result: Optional[str] = Field(None, example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
     detail: Optional[Dict[str, Any]] = Field(
@@ -264,12 +268,15 @@ class MalfunctionEventUpdate(BaseModel):
     PRD v2.1: group_event, controller, sensor, type_device, sequence 필드 제거됨
     - device_id는 수정 불가 (이벤트 생성 시에만 설정)
 
+    PRD v2.8 + v4.8 Phase 12 (1:N invariant 가드):
+    - action_reported 필드 제거. ActionEvent count helper가 단독 관리하는 종속 필드.
+    - PATCH로 강제 시 DELETE 409 가드 우회 위험 → 입력 표면에서 차단.
+
     PRD_Event_Field_Normalization.md v1.0:
     - reason: 별도 필드 유지
     - first_start/end, second_start/end: detail JSONB로 이동
     """
     type_event: Optional[str] = Field(None, example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    action_reported: Optional[str] = Field(None, example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
     reason: Optional[str] = Field(None, example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
@@ -355,6 +362,24 @@ class ActionEventCreate(BaseModel):
     created_at: Optional[KSTDatetime] = Field(None, description="생성 일시 (미입력시 자동 생성)")
 
 
+class ActionEventReplace(BaseModel):
+    """
+    Schema for replacing an ActionEvent (PUT, full replacement)
+
+    PRD v1.6 + v4.8 Phase 12: from_event_id 변경 원천 차단 (차장님 결재)
+    - from_event_id 필드 제거: PUT으로도 원본 이벤트 전환 불가
+    - extra="forbid": 클라이언트가 from_event_id를 전송하면 422 자동 거부
+    - PUT은 type_event/content/user 전체 교체만 허용
+    - 원본 이벤트 재지정이 필요하면 DELETE 후 POST로 재생성
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: str = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
+    user: str = Field(..., example="operator1", description="조치자")
+    created_at: Optional[KSTDatetime] = Field(None, description="생성 일시 (미입력시 기존 값 유지)")
+
+
 class ActionEventResponse(BaseModel):
     """Schema for ActionEvent response"""
     id: int = Field(..., example=1, description="이벤트 ID")
@@ -372,14 +397,16 @@ class ActionEventUpdate(BaseModel):
     """
     Schema for updating an ActionEvent (all fields optional for PATCH)
 
-    PRD v1.5: from_type_event 필드 제거
-    - from_event_id만으로 원본 이벤트 참조
-    - from_event_id 변경 시 polymorphic relationship으로 타입 자동 확인
+    PRD v1.6 + v4.8 Phase 12: from_event_id 변경 원천 차단 (차장님 결재)
+    - from_event_id 필드 제거: PATCH로 원본 이벤트 전환 불가
+    - extra="forbid": 클라이언트가 from_event_id를 전송하면 422 자동 거부
+    - 원본 이벤트 재지정이 필요하면 DELETE 후 POST로 재생성
     """
+    model_config = ConfigDict(extra="forbid")
+
     type_event: Optional[str] = Field(None, example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     content: Optional[str] = Field(None, example="침입 확인 및 경비 출동", description="조치 내용")
     user: Optional[str] = Field(None, example="operator1", description="조치자")
-    from_event_id: Optional[int] = Field(None, example=1, description="원본 이벤트 ID (events.id FK)")
     created_at: Optional[KSTDatetime] = Field(None, description="생성 일시")
 
 

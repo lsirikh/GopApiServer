@@ -85,7 +85,44 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 - thumbnails.py 업로드 가드 / 정적 자원 인증 정책 / AuditChange.rejected 메타
 
-### 3중 정합 (명세 ↔ Swagger ↔ 코드) — Phase 0~4 적용 후
+### Phase 5 — SEC-1 user_password 응답 마스킹 (.NET v4.9 Review 회신, P0 보안)
+
+**배경**: `docs/GOP_Server_API_v4.9_Review_Issues.md` SEC-1 (P0 보안) — Camera/Lamp/Server 응답에 user_password 평문 노출 지적.
+
+**차장님 결재 (2026-06-24)**: "계정 비번 다 보호, 삭제가 아니라 마스킹"
+
+**PRD**: `docs/PRD_v4.10_SEC1_password_masking.md` (16.5KB, Track C 4 agent Workflow)
+
+**Added**:
+- `app/schemas/_password_mask.py` — `PASSWORD_MASK = "********"` + `mask_password_serializer` 헬퍼
+- 4 Response 클래스에 `@field_serializer("user_password")` 적용:
+  - CameraResponse (`device.py:480`) / LampResponse (`device.py:1037`)
+  - ServerResponse (`server.py:135`) / ServerNestedResponse (`server.py:178`)
+- 안전점 `pre-v4.9-phase5` @ 8afcc45
+
+**Fixed**:
+- ServerResponse / ServerNestedResponse json_schema_extra example: `"password123"` → `"********"`
+- LampResponse example: `"lamp1234"` → `"********"`
+- ServerCreate / LampCreate / LampUpdate example: `<your_password>` 자리표시자
+- 명세 §9.2.2 로그인 예시 (L14111-14114): `admin/admin123` → `<your_login_id>/<your_password>`
+- 명세 §5.3.x Camera 응답 예시 (L5103): `"admin1234"` → `"********"`
+
+**Verified** (8/8 PASS):
+- Camera 목록/단일/POST 응답 마스킹
+- Lamp 단일 응답 마스킹
+- Server 단일 응답 마스킹
+- DB 평문 유지 (`cameras.user_password='sensorway1'`, `servers.user_password='testpwd123'`)
+- OpenAPI example `"********"` 노출
+- DTO shape 변경 0 → .NET 호환성 100%
+
+**Deferred (v4.10 .NET v4.9 Review 잔존)**:
+- ENV-1 (Response envelope 5종 표준화, P0)
+- AUTH-1 (expires_in/TTL 응답)
+- AUTH-2 (PUT /me/password 본문 스키마)
+- FMT-1 / ENUM-1~2 / DEV-1~2 / EVT-1 / INT-1 / SVR-1 / AUTH-3~4 (P1)
+- DOC-1~3 (P2)
+
+### 3중 정합 (명세 ↔ Swagger ↔ 코드) — Phase 0~5 적용 후
 
 - ✅ 코드: 17/17 PASS
 - ✅ Swagger (`/openapi.json`): `ModulePermission`/`PermissionsSchema`/`EnumPermissionModule`/`EnumPermissionVerb` 신규 schema 노출 / 401 응답에 `WWW-Authenticate: Bearer` 헤더 / 422 응답 보강

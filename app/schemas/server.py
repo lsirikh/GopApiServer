@@ -2,7 +2,9 @@
 Server schemas: ServerCategory, Server
 Based on PRD_Server_Monitoring.md
 """
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+
+from app.schemas._password_mask import mask_password_serializer
 from datetime import datetime
 from app.schemas.common import KSTDatetime
 from typing import Optional, List, Dict, Any
@@ -91,7 +93,7 @@ class ServerCreate(BaseModel):
                 "port": 8080,
                 "hostname": "vms-server-01",
                 "user_name": "admin",
-                "user_password": "password123",
+                "user_password": "<your_password>",
                 "threshold_config": THRESHOLD_CONFIG_EXAMPLE
             }
         }
@@ -131,7 +133,10 @@ class ServerUpdate(BaseModel):
 
 
 class ServerResponse(BaseModel):
-    """Schema for Server response (v4.4 Phase 5: user_password 응답 노출 복원, 정책은 v4.5에서 결정)"""
+    """Schema for Server response
+
+    PRD v4.9 Phase 5 (SEC-1): user_password 응답 마스킹 — DB는 평문, 응답은 "********"
+    """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
@@ -140,13 +145,17 @@ class ServerResponse(BaseModel):
     port: int = Field(..., description="서버 포트")
     hostname: Optional[str] = Field(None, description="호스트명")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
-    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)")
     threshold_config: Optional[Dict[str, Any]] = Field(
         None,
         description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
     )
     created_at: KSTDatetime = Field(..., description="생성 일시")
     updated_at: KSTDatetime = Field(..., description="수정 일시")
+
+    @field_serializer("user_password")
+    def _mask_user_password(self, v: Optional[str]) -> Optional[str]:
+        return mask_password_serializer(v)
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -160,7 +169,7 @@ class ServerResponse(BaseModel):
                 "port": 8080,
                 "hostname": "vms-server-01",
                 "user_name": "admin",
-                "user_password": "password123",
+                "user_password": "********",
                 "threshold_config": THRESHOLD_CONFIG_EXAMPLE,
                 "created_at": "2026-01-26T10:00:00.000000",
                 "updated_at": "2026-01-26T10:00:00.000000"
@@ -178,7 +187,8 @@ class ServerNestedResponse(BaseModel):
     Server Nested Response - for use in other resources (e.g., Speaker)
     PRD: PRD_Speaker_Device.md Section 5.3
     Excludes created_at, updated_at per nested response rule
-    v4.4 Phase 5: user_password 응답 노출 복원 (정책은 v4.5에서 결정)
+
+    PRD v4.9 Phase 5 (SEC-1): user_password 응답 마스킹 — DB는 평문, 응답은 "********"
     """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
@@ -188,11 +198,15 @@ class ServerNestedResponse(BaseModel):
     port: int = Field(..., description="서버 포트")
     hostname: Optional[str] = Field(None, description="호스트명")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
-    user_password: Optional[str] = Field(None, description="접속 비밀번호")
+    user_password: Optional[str] = Field(None, description="접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)")
     threshold_config: Optional[Dict[str, Any]] = Field(
         None,
         description="임계치 설정 JSONB (v2.9 신규). cpu/ram/disk/network 각각 warning, critical 값 설정"
     )
+
+    @field_serializer("user_password")
+    def _mask_user_password(self, v: Optional[str]) -> Optional[str]:
+        return mask_password_serializer(v)
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -206,7 +220,7 @@ class ServerNestedResponse(BaseModel):
                 "port": 9000,
                 "hostname": "bcast-srv-01",
                 "user_name": "admin",
-                "user_password": "password123",
+                "user_password": "********",
                 "threshold_config": THRESHOLD_CONFIG_EXAMPLE
             }
         }
@@ -259,7 +273,7 @@ class ServerCategorySummary(BaseModel):
                         "port": 8080,
                         "hostname": "vms-server-01",
                         "user_name": "admin",
-                        "user_password": "password123",
+                        "user_password": "********",
                         "threshold_config": THRESHOLD_CONFIG_EXAMPLE,
                         "created_at": "2026-01-26T10:00:00.000000",
                         "updated_at": "2026-01-26T10:00:00.000000"

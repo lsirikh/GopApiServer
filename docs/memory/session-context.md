@@ -121,7 +121,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
             v4.6 마감 — Critical 8건 + Camera Preset + 시드 + pagination
 2026-06-21  v4.7 마감 — Account 분석 (FAIL) + DELETE P0 4건
 2026-06-22  v4.8 마감 — DELETE P1 sweep 11건 + Phase 8~12-7 (Event 정밀 + 불변성)
-2026-06-24  v4.9 진행 — Phase 0 .NET 31건 회신 → Phase 1 Followup PRD → Phase 2~4 Auth/RBAC/Photo (17/17 PASS)
+2026-06-24  v4.9 진행 — Phase 0 .NET 31건 회신 → Phase 1 Followup PRD → Phase 2~4 Auth/RBAC/Photo (17/17 PASS) → Phase 5 SEC-1 user_password 마스킹 (.NET v4.9 Review 회신, 8/8 PASS)
 ```
 
 ---

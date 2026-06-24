@@ -4,25 +4,92 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [v4.9] — 2026-06-24
 
-**배경**: .NET 통합 UI 팀 후속 요청 `docs/GOP_Server_API_FollowupRequests.md` (12 항목 P0 4 + P1 8). Workflow 39 agent로 50 시나리오 + 시뮬레이션 2회 + PRD 작성. R1 1/45 PASS → R2 41/4 PASS.
+**배경**: 2026-06-24 오전 .NET 팀에 v4.8 마감 후속 회신(31건) 작성 → 클라가 동일 일자 `docs/GOP_Server_API_FollowupRequests.md` (12 항목 P0 4 + P1 8) 제출 → Workflow 39 agent로 50 시나리오 + 시뮬레이션 2회 + PRD 작성. R1 1/45 PASS → R2 41/4 PASS. **하루 1차수 묶음 원칙 — Phase 0~4 모두 v4.9 단일 차수**.
 
 **PRD**: `docs/PRD_v4.9_Followup_AccountIntegration.md` (20.6KB / 536 라인)
 
-**Phase Grouping** (분량 ~20h):
-- Phase 1: 안전점 + 명세 3 위치 초기화 (1.5h) ← 진행 중
-- Phase 2: Auth 정합 — B-1 + A-3 + A-4 (4h)
-- Phase 3: Permission 모델 — A-2 전건 (6h)
-- Phase 4: Account Photo — A-1 전건 (7h)
-- Phase 5: 9중 정합 + 회귀 + 마감 (2h)
-
 **결재 3건 (PRD 권고 적용)**:
-- D1 jti 블랙리스트 저장소 = **잠정 DB** (IBlacklistStore 추상화로 v5.0 Redis 전환 가능)
+- D1 jti 블랙리스트 저장소 = **잠정 DB** (`IBlacklistStore` 추상화로 v5.0 Redis 전환 가능)
 - D2 정적 자원 인증 정책 = **익명 + noindex** (단기, v4.10에서 토큰 필수 분기)
-- D3 v52 시드 마이그레이션 = **운영팀 사전 승인 가정** (dry-run + alembic downgrade 검증)
+- D3 v52/v53 시드 마이그레이션 = **운영팀 사전 승인 가정** (dry-run + alembic downgrade 검증)
 
 **안전점**:
-- `pre-followup-prd` @ 64fa905 (PRD 진입 직전)
-- `pre-v4.9-phase1` @ 8b28c9c (Phase 1 진입)
+- `pre-followup-prd` @ 64fa905 (Phase 0 회신 직후 PRD 진입 직전)
+- `pre-v4.9-phase1` @ 8b28c9c (Phase 2~4 구현 진입 직전)
+
+### Phase 0 — .NET 31건 질의 회신 (commit 5274dbb @ 2026-06-24 오전)
+
+- Workflow 8 agent (653K token / 14분): A 인증 5 + B 권한 7 + C 사용자 8 + D 세션 3 + E 감사 3 + F NATS 1
+- 산출: `docs/GOP_Server_API_OpenQuestions_RESPONSE.md` (14.5KB / 418줄, P0 3건 사전공지 + 명세 보강 권고 11건)
+- 결과: .NET 팀이 본 회신 기반으로 12항목 Followup 제출 → Phase 1 진입
+
+### Phase 1 — 안전점 + 명세 3 위치 초기화 (commit 4544d7c)
+
+- 명세 헤더(L4-5) + 푸터(L15861-62) + 변경 이력 v4.9 / 2026-06-24 동시 갱신
+- PRD `docs/PRD_v4.9_Followup_AccountIntegration.md` 신설
+
+### Phase 2 — Auth 정합 (B-1 + A-3 + A-4) — 6/6 PASS (commit 9068e46)
+
+**Fixed (B-1: 글로벌 핸들러 WWW-Authenticate 헤더 보존)**:
+- `app/main.py:470-489` http_exception_handler — `getattr(exc, 'headers', None)` → JSONResponse `headers=` 전달 (RFC 6750/7235)
+
+**Fixed (A-3: refresh_token TTL settings 분리)**:
+- `app/config.py:30` `JWT_REFRESH_EXPIRATION_DAYS: int = 7` 신설
+- `app/utils/auth.py:85` 하드코딩 7일 → `settings.JWT_REFRESH_EXPIRATION_DAYS`
+
+**Added (A-4: jti 블랙리스트 + refresh type 가드)**:
+- `app/utils/auth.py:93` `decode_token(token, expected_type=None)` — refresh type 가드 + jti/token_type 추출
+- `app/schemas/user.py:331-336` `TokenData.jti` + `TokenData.token_type` 필드
+- `app/models/token_blacklist.py` 신설 — TokenBlacklist 모델
+- `app/services/token_blacklist_service.py` 신설 — `is_blacklisted/add_to_blacklist/cleanup_expired` + TTLCache 60s
+- `app/routers/auth.py:97-119` `get_current_account_user` — jti 블랙리스트 검증
+- `app/routers/auth.py:356-372` logout — `add_to_blacklist(reason=LOGOUT)`
+- `app/routers/auth.py:392-432` refresh — `expected_type='refresh'` + 옛 jti rotation 등록
+- `app/migrations/v52_token_blacklist.sql` 신설
+
+**Verified (6/6 PASS)**: WWW-Authenticate header / refresh type 가드 401 / 정상 refresh 200 / 옛 refresh rotation 차단 / 로그아웃 전후 me 200→401
+
+### Phase 3 — RBAC Permission 모델 (A-2 전건) — 5/5 PASS (commit 9068e46)
+
+**Added (A-2.1~A-2.5)**:
+- `app/utils/enums.py` `EnumPermissionModule` (8종: devices/events/reports/cameras/users/user_groups/audit_logs/servers) + `EnumPermissionVerb` (4종: view/edit/delete/control) Static 시드
+- `app/schemas/user.py:32` `ModulePermission` (`extra="forbid"` + `StrictBool` 4종)
+- `app/schemas/user.py:47` `PermissionsSchema` (modules Dict + `extra="forbid"`)
+- `app/schemas/user.py:62-90` `UserGroupCreate` — `permissions: Optional[PermissionsSchema]` 강타입
+- `app/routers/user_groups.py:121-128` `model_dump(mode="json", exclude_none=True)` JSONB 직렬화 호환
+
+**Fixed (A-2.4: 시드 정규화)**:
+- `app/utils/init_sample_data.py:126-138` flat `"rw"/"r"` 폐기, nested dict `{view,edit,delete,control}` 적용
+- `app/migrations/v53_permissions_normalization.sql` 신설 — `pg_temp.fn_normalize_permission_value` + 시드 3개 그룹 in-place 변환
+
+**Verified (5/5 PASS)**: 미정의 모듈(super_admin) 422 / 미정의 verb(destroy) 422 / StrictBool "yes" 422 / StrictBool 1(int) 422 / 정상 nested 201
+
+### Phase 4 — Account Photo XSS Validator (A-1.2) — 6/6 PASS (commit 9068e46)
+
+**Added**:
+- `app/schemas/user.py:212-230` `AccountUserSelfUpdate.validate_photo_url_scheme` `@field_validator`
+- 차단: `javascript:`/`data:`/`vbscript:`/`file:`/`about:` 스킴 → 422
+- 허용: `http://`/`https://`/`/static/profiles/` 시작만
+
+**Verified (6/6 PASS)**: 위험 스킴 4종 모두 422 / https & /static/profiles 200
+
+### v4.9 잔존 (오늘 추가 처리 가능)
+
+- A-1.3 + A-1.4: POST /me/photo multipart + 업로드 가드 7종 (~5h)
+- A-3: ROLE_CHANGED/GROUP_ASSIGNED 트리거 분리 (1h)
+- B-2: NATS SESSION_FORCED_LOGOUT push (4h)
+- B-3: require_admin 의존성 + lock/unlock/delete/reset-password 적용 (5h)
+- B-4~B-8: 5건 (~6.5h)
+
+### Deferred (v4.10 cross-item)
+
+- thumbnails.py 업로드 가드 / 정적 자원 인증 정책 / AuditChange.rejected 메타
+
+### 3중 정합 (명세 ↔ Swagger ↔ 코드) — Phase 0~4 적용 후
+
+- ✅ 코드: 17/17 PASS
+- ✅ Swagger (`/openapi.json`): `ModulePermission`/`PermissionsSchema`/`EnumPermissionModule`/`EnumPermissionVerb` 신규 schema 노출 / 401 응답에 `WWW-Authenticate: Bearer` 헤더 / 422 응답 보강
+- ✅ 명세 GOP_Restful_Api_연동설계.md v4.9 행 본문 — Phase 0~4 각 코드 라인 매핑 명시
 
 ---
 

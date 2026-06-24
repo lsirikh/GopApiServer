@@ -101,9 +101,9 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 
 | 정보 | 위치 |
 |---|---|
-| 빠른 개요 + 시드 명세 | [README.md](../../README.md) (v4.8) |
+| 빠른 개요 + 시드 명세 | [README.md](../../README.md) (v4.9) |
 | 전체 차수 이력 | [CHANGELOG.md](../../CHANGELOG.md) |
-| API 명세 | [GOP_Restful_Api_연동설계.md](../../GOP_Restful_Api_연동설계.md) (v4.8) |
+| API 명세 | [GOP_Restful_Api_연동설계.md](../../GOP_Restful_Api_연동설계.md) (v4.9) |
 | DB 스키마 | [GOP_스키마_전체.md](../GOP_스키마_전체.md) (v2.12) |
 | Camera Preset 감시금지구역 | [v46_camera_preset_restricted_zone_guide.md](../v46_camera_preset_restricted_zone_guide.md) |
 | **Account/Auth/Session 분석** | [Account_Auth_Session_Analysis_v4.6.md](../Analysis/Account_Auth_Session_Analysis_v4.6.md) |
@@ -120,7 +120,8 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 2026-06-19  v4.5 마감 — minimal 6 그룹
             v4.6 마감 — Critical 8건 + Camera Preset + 시드 + pagination
 2026-06-21  v4.7 마감 — Account 분석 (FAIL) + DELETE P0 4건
-2026-06-22  v4.8 마감 — DELETE P1 sweep 11건
+2026-06-22  v4.8 마감 — DELETE P1 sweep 11건 + Phase 8~12-7 (Event 정밀 + 불변성)
+2026-06-24  v4.9 진행 — Phase 0 .NET 31건 회신 → Phase 1 Followup PRD → Phase 2~4 Auth/RBAC/Photo (17/17 PASS)
 ```
 
 ---
@@ -129,9 +130,9 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 
 1. 이 파일(`session-context.md`) 읽고 현재 상태 파악
 2. `git log --oneline -10` — 최근 commit 확인
-3. v4.9 진입 결재 받기 (보안 강화 ~45h)
+3. v4.9 잔존 작업 진행 (A-1.3/A-1.4 Photo multipart + A-3 audit trigger + B-2~B-8, ~21h)
 4. CLAUDE.md 매 응답 전 복잡도 판단 (Track A/B/C)
 
 ---
 
-**문서 버전**: v4.8 / **최종 업데이트**: 2026-06-22 / **다음 차수**: v4.9 (보안 강화)
+**문서 버전**: v4.9 / **최종 업데이트**: 2026-06-24 / **다음 차수**: v4.10 (cross-item: thumbnails 업로드 + 정적 자원 인증 + AuditChange.rejected 메타)

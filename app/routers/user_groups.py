@@ -118,10 +118,13 @@ async def create_user_group(
             detail=f"User group with name '{group_data.name}' already exists"
         )
 
+    # PRD v4.9 Phase 3 (A-2.1): PermissionsSchema → JSON dict 직렬화 (JSONB 컬럼 호환)
+    perms_dict = group_data.permissions.model_dump(mode="json", exclude_none=True) if group_data.permissions else None
+
     new_group = UserGroup(
         name=group_data.name,
         description=group_data.description,
-        permissions=group_data.permissions,
+        permissions=perms_dict,
         is_active=group_data.is_active if group_data.is_active is not None else True
     )
     db.add(new_group)
@@ -174,13 +177,18 @@ async def update_user_group(
     **Request Body**:
     - **name**: 그룹 이름 (선택)
     - **description**: 설명 (선택)
-    - **permissions**: 권한 설정 (선택)
     - **is_active**: 활성화 상태 (선택)
+
+    **Note (PRD v4.8 Phase 12-7a — P0)**:
+    - `permissions` 필드는 일반 수정 API에서 차단됨 (권한 상승 공격 방지).
+    - 권한 변경은 향후 전용 admin 엔드포인트(POST /user-groups/{id}/permissions)로만 허용 예정 (v5.0).
+    - `extra="forbid"`로 인해 `permissions` 또는 기타 알 수 없는 필드 전송 시 422 반환.
 
     **Response**: success, data (수정된 그룹 정보)
 
     **Error**:
     - 404: 그룹을 찾을 수 없음
+    - 422: `permissions` 또는 알 수 없는 필드 전송 시
     """
     group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
 
@@ -190,11 +198,10 @@ async def update_user_group(
             detail="User group not found"
         )
 
-    # 변경 전 상태 저장
+    # 변경 전 상태 저장 (permissions은 일반 수정 경로에서 변경 불가 — PRD v4.8 Phase 12-7a)
     before_state = {
         "name": group.name,
         "description": group.description,
-        "permissions": group.permissions,
         "is_active": group.is_active
     }
 
@@ -210,13 +217,11 @@ async def update_user_group(
                 detail=f"User group with name '{group_data.name}' already exists"
             )
 
-    # Update fields if provided
+    # Update fields if provided (permissions은 스키마에서 제거됨 — 권한 변경 차단)
     if group_data.name is not None:
         group.name = group_data.name
     if group_data.description is not None:
         group.description = group_data.description
-    if group_data.permissions is not None:
-        group.permissions = group_data.permissions
     if group_data.is_active is not None:
         group.is_active = group_data.is_active
 
@@ -234,7 +239,6 @@ async def update_user_group(
     after_state = {
         "name": group.name,
         "description": group.description,
-        "permissions": group.permissions,
         "is_active": group.is_active
     }
 

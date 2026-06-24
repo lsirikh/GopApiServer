@@ -2,6 +2,32 @@
 
 GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachangelog.com/) 형식 따름.
 
+## [v4.9] — 2026-06-24
+
+**배경**: .NET 통합 UI 팀 후속 요청 `docs/GOP_Server_API_FollowupRequests.md` (12 항목 P0 4 + P1 8). Workflow 39 agent로 50 시나리오 + 시뮬레이션 2회 + PRD 작성. R1 1/45 PASS → R2 41/4 PASS.
+
+**PRD**: `docs/PRD_v4.9_Followup_AccountIntegration.md` (20.6KB / 536 라인)
+
+**Phase Grouping** (분량 ~20h):
+- Phase 1: 안전점 + 명세 3 위치 초기화 (1.5h) ← 진행 중
+- Phase 2: Auth 정합 — B-1 + A-3 + A-4 (4h)
+- Phase 3: Permission 모델 — A-2 전건 (6h)
+- Phase 4: Account Photo — A-1 전건 (7h)
+- Phase 5: 9중 정합 + 회귀 + 마감 (2h)
+
+**결재 3건 (PRD 권고 적용)**:
+- D1 jti 블랙리스트 저장소 = **잠정 DB** (IBlacklistStore 추상화로 v5.0 Redis 전환 가능)
+- D2 정적 자원 인증 정책 = **익명 + noindex** (단기, v4.10에서 토큰 필수 분기)
+- D3 v52 시드 마이그레이션 = **운영팀 사전 승인 가정** (dry-run + alembic downgrade 검증)
+
+**안전점**:
+- `pre-followup-prd` @ 64fa905 (PRD 진입 직전)
+- `pre-v4.9-phase1` @ 8b28c9c (Phase 1 진입)
+
+---
+
+
+
 | 형식 | 의미 |
 |---|---|
 | **Added** | 신규 기능 |

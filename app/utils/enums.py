@@ -769,3 +769,28 @@ class EnumReportComponent(str, Enum):
 # v4.6 — Camera Preset 감시금지구역은 `is_restricted_zone: bool` 단일 필드만 사용
 # (차장 결재 2026-06-19 단순화 — EnumRestrictedAction 제거)
 # 매니저 측에서 통일 처리: is_restricted_zone=true 시 RTSP/녹화/이벤트/화면 모두 차단
+
+
+# ============================================================
+# v4.9 Phase 3 — Permission Module + Verb Enum (Static 시드)
+# PRD: docs/PRD_v4.9_Followup_AccountIntegration.md §A-2
+# ============================================================
+
+class EnumPermissionModule(str, Enum):
+    """RBAC 권한 모듈 — Static 시드 (확장 시 v5.0+)"""
+    DEVICES = "devices"           # 장비 (controllers/sensors/cameras/speakers/enclosures/lamps)
+    EVENTS = "events"             # 이벤트 (detection/malfunction/connection/action)
+    REPORTS = "reports"           # 보고서
+    CAMERAS = "cameras"           # 카메라 (control 동사 사용)
+    USERS = "users"               # 사용자 관리 (admin)
+    USER_GROUPS = "user_groups"   # 그룹/권한 관리 (admin)
+    AUDIT_LOGS = "audit_logs"     # 감사 로그 (view only)
+    SERVERS = "servers"           # 서버 모니터링
+
+
+class EnumPermissionVerb(str, Enum):
+    """RBAC 권한 동사 — Static 시드"""
+    VIEW = "view"         # 조회
+    EDIT = "edit"         # 생성/수정
+    DELETE = "delete"     # 삭제
+    CONTROL = "control"   # cameras 전용 PTZ/녹화 등 제어

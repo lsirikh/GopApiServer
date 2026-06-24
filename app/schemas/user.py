@@ -2,7 +2,7 @@
 User Pydantic schemas
 PRD: PRD_Account_Design.md Section 4
 """
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.schemas.common import KSTDatetime
@@ -10,6 +10,7 @@ from app.schemas.common import KSTDatetime
 from app.utils.enums import (
     EnumUserRole, EnumLogoutReason,
     EnumLoginAction, EnumLoginResult, EnumLoginFailureReason,
+    EnumPermissionModule, EnumPermissionVerb,
 )
 
 
@@ -27,8 +28,47 @@ class PermissionsSchema(BaseModel):
     time_restriction: Optional[Dict[str, Any]] = None
 
 
+class ModulePermission(BaseModel):
+    """RBAC 모듈 권한 — PRD v4.9 Phase 3 (A-2.2/A-2.3/A-2.5)
+
+    - extra="forbid": 미정의 verb (destroy/admin/... ) 전송 시 422 자동 거부
+    - StrictBool: "yes"/1/"true" 문자열 truthy 차단 — 명시적 true/false만 허용
+    - control: CAMERAS 모듈 전용 (PTZ/녹화 등)
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    view: Optional[StrictBool] = Field(None, description="조회 권한")
+    edit: Optional[StrictBool] = Field(None, description="생성/수정 권한")
+    delete: Optional[StrictBool] = Field(None, description="삭제 권한")
+    control: Optional[StrictBool] = Field(None, description="제어 권한 (cameras 전용)")
+
+
+class PermissionsSchema(BaseModel):
+    """RBAC 권한 전체 구조 — PRD v4.9 Phase 3 (A-2.1)
+
+    - modules: Dict[EnumPermissionModule, ModulePermission] — 미정의 모듈 키 422 차단
+    - device_groups: 접근 가능 그룹 ID
+    - time_restriction: 시간대 제한 (v5.0 권고)
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    modules: Optional[Dict[EnumPermissionModule, ModulePermission]] = Field(
+        None, description="모듈별 권한 (devices/events/reports/cameras/users/user_groups/audit_logs/servers)"
+    )
+    device_groups: Optional[List[int]] = Field(None, description="접근 가능한 디바이스 그룹 ID 목록")
+    time_restriction: Optional[Dict[str, Any]] = Field(None, description="시간대 제한 (v5.0)")
+
+
 class UserGroupCreate(BaseModel):
-    """Schema for creating a new user group"""
+    """Schema for creating a new user group
+
+    PRD v4.9 Phase 3 (A-2): permissions 강타입 PermissionsSchema 적용
+    - 미정의 모듈 키 (super_admin/system 등) → 422
+    - 미정의 verb (destroy/admin) → 422
+    - StrictBool 강제 → "yes"/1 등 truthy 차단
+    """
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(
         ..., min_length=1, max_length=100,
         description="그룹 이름",
@@ -38,8 +78,8 @@ class UserGroupCreate(BaseModel):
         None, description="그룹 설명",
         json_schema_extra={"example": "1중대 경계 시스템 운영 담당"}
     )
-    permissions: Optional[Dict[str, Any]] = Field(
-        None, description="권한 설정",
+    permissions: Optional[PermissionsSchema] = Field(
+        None, description="권한 설정 (PermissionsSchema 강타입)",
         json_schema_extra={"example": {
             "modules": {"events": {"view": True, "edit": True}, "cameras": {"view": True, "control": True}},
             "device_groups": [1, 2, 3]
@@ -167,6 +207,26 @@ class AccountUserSelfUpdate(BaseModel):
         None, description="전화번호",
         json_schema_extra={"example": "010-1234-5678"}
     )
+
+    @field_validator("photo_url")
+    @classmethod
+    def validate_photo_url_scheme(cls, v):
+        """PRD v4.9 Phase 4 (A-1.2): photo_url XSS validator
+
+        허용: http:// / https:// / /static/profiles/* (서버 자체 static 경로) / None
+        차단: javascript: / data: / vbscript: / file: / 기타 스킴 → 422
+        """
+        if v is None or v == "":
+            return v
+        v_lower = v.strip().lower()
+        # 명시적 차단 스킴
+        for forbidden in ("javascript:", "data:", "vbscript:", "file:", "about:"):
+            if v_lower.startswith(forbidden):
+                raise ValueError(f"photo_url scheme '{forbidden[:-1]}' is not allowed (XSS prevention)")
+        # 허용 패턴: http(s):// 또는 /static/profiles/ 시작
+        if not (v_lower.startswith("http://") or v_lower.startswith("https://") or v_lower.startswith("/static/profiles/")):
+            raise ValueError("photo_url must start with http://, https://, or /static/profiles/")
+        return v
 
 
 class AccountUserUpdate(BaseModel):
@@ -327,8 +387,13 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    """[LEGACY] Schema for token payload data (Legacy User의 username 기반)"""
+    """Schema for token payload data
+
+    PRD v4.9 Phase 2-A4: jti + token_type 추가 (블랙리스트 + refresh 가드)
+    """
     username: Optional[str] = None
+    jti: Optional[str] = None  # JWT ID (블랙리스트 키)
+    token_type: Optional[str] = None  # "refresh" or None (access)
 
 
 # ============================================================

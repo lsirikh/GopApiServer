@@ -123,13 +123,18 @@ def _create_user_groups(db: Session) -> dict:
         print(f"  [OK] User groups already exist: {len(groups)}")
         return {g.name: g.id for g in groups}
 
+    # PRD v4.9 Phase 3 (A-2.4): nested dict 정규화 — flat 'rw'/'r' 폐기
+    # 시드 재실행 시에도 PermissionsSchema 통과 보장
+    _RW = {"view": True, "edit": True, "delete": False, "control": False}
+    _R = {"view": True, "edit": False, "delete": False, "control": False}
+    _CTRL = {"view": True, "edit": True, "delete": False, "control": True}
     data = [
         {"name": "운영팀", "description": "시스템 운영 담당",
-         "permissions": {"devices": "rw", "events": "rw", "reports": "rw"}, "is_active": True},
+         "permissions": {"modules": {"devices": _RW, "events": _RW, "reports": _RW, "cameras": _CTRL}}, "is_active": True},
         {"name": "관제팀", "description": "관제 모니터링 담당",
-         "permissions": {"devices": "r", "events": "r", "reports": "r"}, "is_active": True},
+         "permissions": {"modules": {"devices": _R, "events": _R, "reports": _R, "cameras": _R}}, "is_active": True},
         {"name": "유지보수팀", "description": "장비 유지보수 담당",
-         "permissions": {"devices": "rw", "events": "r", "reports": "r"}, "is_active": True},
+         "permissions": {"modules": {"devices": _RW, "events": _R, "reports": _R}}, "is_active": True},
     ]
     result = {}
     for d in data:

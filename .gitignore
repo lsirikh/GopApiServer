@@ -102,3 +102,5 @@ Thumbs.db
 !docs/Analysis/**
 !docs/v48_phase12_immutability_report.html
 !docs/v45_3way_critical_mismatches.html
+!docs/GOP_Server_API_OpenQuestions.md
+!docs/GOP_Server_API_OpenQuestions_RESPONSE.md

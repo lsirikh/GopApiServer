@@ -134,3 +134,27 @@
 ---
 
 문의: 본 문서 댓글 또는 PR 채널 — API Server 팀 (lsirikh@gmail.com)
+
+---
+
+## POLICY UPDATE 2026-06-25 — v4.10 Phase 1 회귀 (SEC-1 마스킹 → 평문 응답)
+
+**상태**: v4.9 Phase 5 (SEC-1 응답 마스킹)는 적용 24시간 만에 **정책 회귀**.
+
+**결재 (2026-06-25)**: 이기호 차장 — *"야 그냥 평문으로 보내. 복호화방법도 없는거 같은데"*
+
+**회귀 사유**:
+- 마스킹된 `"********"` 응답을 평문으로 되돌릴 **복호화 경로 미정**
+- .NET이 NVR / Speaker / Lamp / 외부 서버에 RTSP/SSH/HTTP 접속할 때 평문 자격증명 필요
+- 별도 secret API / AES / RSA / 보안 프록시 등 대안은 모두 분량 큼 (4~20h+, .NET 측 변경 동반) → 본 차수 범위 외
+
+**적용 결과 (v4.10 Phase 1, 6/6 PASS)**:
+- Camera/Lamp/Server 4 Response 클래스에서 `@field_serializer("user_password")` 제거
+- 응답 `user_password` = **DB 평문 그대로** (예: `"sensorway1"`, `"lamp123"`, `"password123"`)
+- **DTO shape 변경 0** — `.NET` 클라이언트 역직렬화 코드 변경 불필요
+- OpenAPI example도 평문 회귀 (`"password123"` 등)
+- `app/schemas/_password_mask.py` 파일은 **heritage 보존** (사용처 0, v5.x secret API 재활용 가능)
+
+**보안 트랙 예고**: 별도 차수(v5.x)에서 secret API + 복호화 경로 + .NET 측 사용 시점 호출 패턴까지 종합 재설계 예정. 본 차수에서는 단순 회귀만 적용.
+
+**P1/P2 항목**: 별도 차수 일정은 위 §3 권고 유지 (v4.10 ~38-50h).

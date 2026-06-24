@@ -8,9 +8,9 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.9** (2026-06-24, Followup PRD 적용 진행) |
-| **HEAD commit** | (Phase 2 진행 중 — Auth 정합) |
-| **태그** | `pre-v4.9-phase1` (Phase 1) / `pre-followup-prd` (PRD 진입) / `v4.8-final-stable` / `pre-immutability-phase12-7` / `pre-action-invariant-fix` / `pre-controller-cascade-fix` / `pre-cascade-fix` / `pre-events-delete-sweep` |
+| **차수** | **v4.10** (2026-06-25, Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀) |
+| **HEAD commit** | (v4.10 Phase 1 commit 진행 중) |
+| **태그** | `pre-v4.10-phase1` (v4.10 Phase 1) / `pre-v4.9-phase5` (v4.9 Phase 5 SEC-1 마스킹) / `pre-v4.9-phase1` / `pre-followup-prd` / `v4.8-final-stable` / `pre-immutability-phase12-7` / `pre-action-invariant-fix` |
 | **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`~`v4.8` (v4.9 제거됨) |
 | **Container** | Up healthy / Image rebuild 완료 |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |
@@ -101,9 +101,9 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 
 | 정보 | 위치 |
 |---|---|
-| 빠른 개요 + 시드 명세 | [README.md](../../README.md) (v4.9) |
+| 빠른 개요 + 시드 명세 | [README.md](../../README.md) (v4.10) |
 | 전체 차수 이력 | [CHANGELOG.md](../../CHANGELOG.md) |
-| API 명세 | [GOP_Restful_Api_연동설계.md](../../GOP_Restful_Api_연동설계.md) (v4.9) |
+| API 명세 | [GOP_Restful_Api_연동설계.md](../../GOP_Restful_Api_연동설계.md) (v4.10) |
 | DB 스키마 | [GOP_스키마_전체.md](../GOP_스키마_전체.md) (v2.12) |
 | Camera Preset 감시금지구역 | [v46_camera_preset_restricted_zone_guide.md](../v46_camera_preset_restricted_zone_guide.md) |
 | **Account/Auth/Session 분석** | [Account_Auth_Session_Analysis_v4.6.md](../Analysis/Account_Auth_Session_Analysis_v4.6.md) |
@@ -122,6 +122,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 2026-06-21  v4.7 마감 — Account 분석 (FAIL) + DELETE P0 4건
 2026-06-22  v4.8 마감 — DELETE P1 sweep 11건 + Phase 8~12-7 (Event 정밀 + 불변성)
 2026-06-24  v4.9 진행 — Phase 0 .NET 31건 회신 → Phase 1 Followup PRD → Phase 2~4 Auth/RBAC/Photo (17/17 PASS) → Phase 5 SEC-1 user_password 마스킹 (.NET v4.9 Review 회신, 8/8 PASS)
+2026-06-25  v4.10 Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀 (복호화 경로 부재, 차장님 결재 "그냥 평문으로 보내", 6/6 PASS)
 ```
 
 ---
@@ -135,4 +136,4 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 
 ---
 
-**문서 버전**: v4.9 / **최종 업데이트**: 2026-06-24 / **다음 차수**: v4.10 (cross-item: thumbnails 업로드 + 정적 자원 인증 + AuditChange.rejected 메타)
+**문서 버전**: v4.10 / **최종 업데이트**: 2026-06-25 / **다음 차수**: v4.10 잔존 (ENV-1 / AUTH-1 / AUTH-2 + P1 10건 + B-4/5/7/8 잔존, ~38-50h)

@@ -2,6 +2,54 @@
 
 GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachangelog.com/) 형식 따름.
 
+## [v4.10] — 2026-06-25
+
+**배경**: v4.9 Phase 5 SEC-1 마스킹 정책이 적용 24시간 만에 운영 한계 노출 — 마스킹된 `"********"`를 복원하는 **복호화 경로 미정** + .NET이 NVR/Speaker/Lamp/외부 서버에 평문 자격증명 필요. 차장님 결재 (2026-06-25): *"야 그냥 평문으로 보내. 복호화방법도 없는거 같은데"* → 평문 응답 회귀.
+
+**PRD**: `docs/PRD_v4.10_Phase1_mask_rollback.md` (6.4KB, Workflow 1 agent, Track B)
+
+**안전점**: `pre-v4.10-phase1` @ 31bb478
+
+### Phase 1 — SEC-1 마스킹 정책 폐기 / 평문 응답 복원 (6/6 PASS)
+
+**Reverted (v4.9 Phase 5 마스킹 제거)**:
+- `app/schemas/device.py` `from app.schemas._password_mask import` 제거 + `CameraResponse._mask_user_password` + `LampResponse._mask_user_password` `@field_serializer` 블록 제거
+- `app/schemas/server.py` 동일 import 제거 + `ServerResponse._mask_user_password` + `ServerNestedResponse._mask_user_password` 블록 제거
+- Field 설명 4건 회귀: `"접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)"` → `"접속 비밀번호"`
+
+**Reverted (OpenAPI example)**:
+- `ServerResponse` / `ServerNestedResponse` / `ServerCategorySummary` nested example: `"********"` → `"password123"`
+- `LampResponse` example: `"********"` → `"lamp1234"`
+
+**Reverted (명세)**:
+- `GOP_Restful_Api_연동설계.md` §5.3.x Camera 응답 예시 (L5103): `"********"` → `"admin1234"`
+
+**Retained (heritage 보존)**:
+- `app/schemas/_password_mask.py` 파일 유지 (사용처 0, v5.x secret API 재활용 가능)
+- 명세 §9.2.2 로그인 자리표시자 `<your_login_id>/<your_password>` 유지 (로그인 자격증명 도메인 다름)
+- DB 평문 / Create·Update 요청 schema / 백엔드 / 시드 / `SENSITIVE_FIELDS` Audit 마스킹 모두 변경 없음
+
+**Verified (6/6 PASS)**:
+- Camera/Lamp/Server 단일 응답 평문 (`sensorway1` / `lamp123` / `testpwd123`)
+- Camera POST 3중 흐름: 요청 평문(`plain_v410`) → DB 저장 평문 → 응답 평문 일치
+- OpenAPI ServerResponse example `"password123"` 평문 노출
+- `grep mask_password_serializer app/schemas/*.py` → 0건
+- Container Up healthy / Image rebuild
+
+**메모리 정책 재전환**:
+- `feedback_password_masking_policy` (v4.9 Phase 5) → **DEPRECATED**
+- `feedback_password_plaintext_policy` → **RESTORED** (현행)
+- `MEMORY.md` 인덱스 갱신 (의사결정 이력 동시 노출)
+
+**.NET 회신 보강**:
+- `docs/GOP_Server_API_v4.9_Review_RESPONSE.md`에 `## POLICY UPDATE 2026-06-25 — v4.10 Phase 1 회귀` 섹션 append
+
+**Deferred (v4.10 잔존 + v5.x)**:
+- v4.10: ENV-1 / AUTH-1 / AUTH-2 (P0) + FMT-1 / ENUM-1~2 / DEV-1~2 / EVT-1 / INT-1 / SVR-1 / AUTH-3~4 (P1) + B-4/5/7/8 잔존 + DOC-1~3 (~38-50h)
+- v5.x 보안 차수: secret API + 복호화 경로 + .NET 측 사용 시점 패턴 종합 재설계
+
+---
+
 ## [v4.9] — 2026-06-24
 
 **배경**: 2026-06-24 오전 .NET 팀에 v4.8 마감 후속 회신(31건) 작성 → 클라가 동일 일자 `docs/GOP_Server_API_FollowupRequests.md` (12 항목 P0 4 + P1 8) 제출 → Workflow 39 agent로 50 시나리오 + 시뮬레이션 2회 + PRD 작성. R1 1/45 PASS → R2 41/4 PASS. **하루 1차수 묶음 원칙 — Phase 0~4 모두 v4.9 단일 차수**.

@@ -7,9 +7,7 @@ PRD: PRD_Device_Structure_Refactoring.md
 PRD: PRD_Speaker_Device.md - Section 5.1
 PRD: PRD_Lamp_Device.md v1.1 - Lamp Device (경광등)
 """
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
-
-from app.schemas._password_mask import mask_password_serializer
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from app.schemas.common import KSTDatetime
 from typing import Optional, List, TYPE_CHECKING
@@ -500,8 +498,8 @@ class CameraResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
-    # PRD v4.9 Phase 5 (SEC-1): user_password 응답 마스킹 — DB는 평문, 응답은 "********"
-    user_password: Optional[str] = Field(None, description="접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)")
+    # v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원 (.NET 장비 접속 자격증명)
+    user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
     mode: EnumCameraMode = Field(..., description="카메라 모드")
     category: EnumCameraType = Field(..., description="카메라 카테고리")
     # Phase 3: Camera 확장 필드 (PRD Section 3.2)
@@ -514,10 +512,6 @@ class CameraResponse(BaseModel):
     updated_at: KSTDatetime = Field(..., description="수정 일시")
     # v2.4: Nested Response 규칙 적용 - DeviceGroupNestedResponse 사용 (timestamp 제외)
     device_groups: List[DeviceGroupNestedResponse] = Field(default=[], description="소속 디바이스 그룹 목록 (N:N 관계)")
-
-    @field_serializer("user_password")
-    def _mask_user_password(self, v: Optional[str]) -> Optional[str]:
-        return mask_password_serializer(v)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1055,8 +1049,8 @@ class LampResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
     user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
-    # PRD v4.9 Phase 5 (SEC-1): user_password 응답 마스킹 — DB는 평문, 응답은 "********"
-    user_password: Optional[str] = Field(None, description="접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)", json_schema_extra={"example": "********"})
+    # v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원
+    user_password: Optional[str] = Field(None, description="접속 비밀번호", json_schema_extra={"example": "lamp1234"})
     description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
     geolocation: Optional[Geolocation] = Field(
         None,
@@ -1069,10 +1063,6 @@ class LampResponse(BaseModel):
         default=[],
         description="소속 디바이스 그룹 목록 (N:N 관계)"
     )
-
-    @field_serializer("user_password")
-    def _mask_user_password(self, v: Optional[str]) -> Optional[str]:
-        return mask_password_serializer(v)
 
     model_config = ConfigDict(from_attributes=True)
 

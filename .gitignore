@@ -123,3 +123,6 @@ certs/*.pem
 certs/installer/build/*.exe
 certs/installer/build/*.txt
 certs/installer/payload/rootCA.pem
+
+# v4.10 Phase 2: PS2EXE 인스톨러 - 외부 도구 빌드 시 자동 다운로드
+certs/installer_ps2exe/ps2exe.ps1

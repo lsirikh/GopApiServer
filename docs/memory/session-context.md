@@ -124,6 +124,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 2026-06-24  v4.9 진행 — Phase 0 .NET 31건 회신 → Phase 1 Followup PRD → Phase 2~4 Auth/RBAC/Photo (17/17 PASS) → Phase 5 SEC-1 user_password 마스킹 (.NET v4.9 Review 회신, 8/8 PASS)
 2026-06-25  v4.10 Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀 (복호화 경로 부재, 차장님 결재 "그냥 평문으로 보내", 6/6 PASS)
             v4.10 Phase 2 — HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS, 차장님 결재 "가장 간단·신뢰·폐쇄망")
+            v4.10 Phase 2-add — PS2EXE Lite 인스톨러 2종 (certs/server_install.exe + client_install.exe, 차장님 결재 "두 개로 패키지해서 쉽게 쓸 수 있게")
 ```
 
 ---

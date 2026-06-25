@@ -14528,6 +14528,12 @@ Accept: application/json
 }
 ```
 
+> **NOTE (v51 hardening)**: 응답의 `action_type` / `resource_type` 는 **문자열(str)** 이다.
+> 권장 값은 각각 `EnumAuditActionType` / `EnumAuditResourceType` 멤버이나, `audit_logs` 는
+> append-only(UPDATE/DELETE 차단 — §7 Phase 12-7f)라 과거 비-enum 값(예: 테스트 `TEST_INS`/`TEST`)이
+> 영구 잔존할 수 있다. strict enum 이면 목록 직렬화가 500 되므로 응답 스키마를 str(tolerant)로 완화했다.
+> 생성 측 `AuditLogCreate` 도 동일하게 str — 응답/생성 정합.
+
 #### 9.6.3 GET `/api/audit-logs/{id}`
 
 **Path Parameters**:

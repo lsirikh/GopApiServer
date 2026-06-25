@@ -100,11 +100,14 @@ class AuditLogResponse(BaseModel):
     id: int = Field(..., description="로그 ID", json_schema_extra={"example": 1})
 
     # 행위 정보
-    action_type: EnumAuditActionType = Field(..., description="행위 유형", json_schema_extra={"example": "USER_CREATED"})
+    # NOTE(v51 hardening): action_type/resource_type 는 응답에서 str(tolerant).
+    #   audit_logs 는 append-only(DELETE 불가)라 과거 비-enum 값(예: 테스트 'TEST_INS'/'TEST')이
+    #   영구 잔존 → strict enum 이면 목록 직렬화가 500. create 측(AuditLogCreate)도 str 이므로 정합.
+    action_type: str = Field(..., description="행위 유형 (EnumAuditActionType)", json_schema_extra={"example": "USER_CREATED"})
     action_status: EnumAuditStatus = Field(..., description="행위 결과", json_schema_extra={"example": "SUCCESS"})
 
     # 대상 리소스 정보
-    resource_type: EnumAuditResourceType = Field(..., description="대상 리소스 유형", json_schema_extra={"example": "USER"})
+    resource_type: str = Field(..., description="대상 리소스 유형 (EnumAuditResourceType)", json_schema_extra={"example": "USER"})
     resource_id: Optional[int] = Field(None, description="대상 리소스 ID", json_schema_extra={"example": 5})
     resource_name: Optional[str] = Field(None, description="대상 리소스 이름", json_schema_extra={"example": "홍길동 (operator01)"})
 

@@ -2,6 +2,11 @@
 
 GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachangelog.com/) 형식 따름.
 
+## [Unreleased]
+
+### Fixed
+- **audit-logs 500 (append-only 데이터 하드닝)**: `AuditLogResponse.action_type` / `resource_type` 를 strict enum → **str(tolerant)**. `audit_logs` 는 append-only(§7 Phase 12-7f, UPDATE/DELETE 차단)라 과거 비-enum 값(테스트 잔재 `TEST_INS`/`TEST`)이 영구 잔존 → 전체 목록 직렬화 시 Pydantic 500. 데이터 삭제 불가(불변 트리거 = 설계)이므로 응답 스키마 완화로 해결. 생성 측 `AuditLogCreate` 도 str 이라 정합. (`app/schemas/audit_log.py`, 명세서 §9.6.2 NOTE)
+
 ## [v4.10] — 2026-06-25
 
 **배경**: v4.9 Phase 5 SEC-1 마스킹 정책이 적용 24시간 만에 운영 한계 노출 — 마스킹된 `"********"`를 복원하는 **복호화 경로 미정** + .NET이 NVR/Speaker/Lamp/외부 서버에 평문 자격증명 필요. 차장님 결재 (2026-06-25): *"야 그냥 평문으로 보내. 복호화방법도 없는거 같은데"* → 평문 응답 회귀.

@@ -10,6 +10,55 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 **안전점**: `pre-v4.10-phase1` @ 31bb478
 
+### Phase 2 — HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS)
+
+**배경**: Phase 1 평문 응답 정책 회복 직후, 통신 구간 암호화 필요 (JWT Bearer + user_password 평문 보호). 차장님 결재 (2026-06-25): "가장 간단·신뢰·폐쇄망 호환" + "서버 1대 + 여러 클라 PC" + "EXE 1클릭 자동 등록".
+
+**선정**: mkcert (외부 인터넷 불필요) + Inno Setup (.iss 정식 GUI 인스톨러)
+
+**PRD**: `docs/PRD_v4.10_Phase2_HTTPS_mkcert_Inno.md` (11.2KB, Workflow 2 agent / 옵션 A/B/C 비교)
+
+**안전점**: `pre-v4.10-phase2` @ 8089877
+
+**Added (mkcert 인증서 발급)**:
+- `mkcert v1.4.4` 다운로드 (`~/bin/mkcert.exe`)
+- `mkcert -install` — Windows 신뢰 저장소 local CA 자동 등록
+- `mkcert -cert-file certs/server.crt -key-file certs/server.key localhost 127.0.0.1 host.docker.internal 192.168.202.160 ...` (만료 2028-09-25)
+- `certs/installer/payload/rootCA.pem` (mkcert CAROOT에서 복사)
+
+**Added (Docker HTTPS)**:
+- `Dockerfile` CMD: `sh -c "if certs/server.crt exists then uvicorn --ssl-keyfile else HTTP fallback"`
+- `docker-compose.yml`: `volumes: ./certs:/app/certs:ro` + healthcheck `curl -fk https://localhost:8000/docs`
+- Uvicorn `https://0.0.0.0:8000` 시작 확인
+
+**Added (Inno Setup 인스톨러 소스 — 8 파일)**:
+- `certs/installer/src/install_gop_rootca.iss` (Inno Setup 메인 스크립트, PrivilegesRequired=admin)
+- `certs/installer/src/post_install.ps1` (certutil -addstore -f Root + 한국어 로그)
+- `certs/installer/src/pre_uninstall.ps1` (certutil -delstore, 제어판 제거 시 자동)
+- `certs/installer/src/LICENSE_KO.txt` (한국어 Welcome 페이지)
+- `certs/installer/scripts/build.ps1` (ISCC.exe 자동 탐색 + 컴파일)
+- `certs/installer/scripts/verify.ps1` (등록 검증)
+- `certs/installer/.gitignore` + `README.md`
+
+**Verified (6/6 PASS)**:
+- Uvicorn `https://0.0.0.0:8000` 시작
+- `curl -k https://localhost:8000/docs` → 200
+- HTTP (http://) → 000 (차단)
+- 인증서 mkcert CA 발급 확인 (notAfter 2028-09-25)
+- Bearer 토큰 발급 + `/api/auth/me` HTTPS 200
+- Container Up healthy
+
+**Security (.gitignore)**:
+- `certs/*.crt` / `*.key` / `*.pem` commit 차단 (절대 금지)
+- `!certs/installer/` 예외 (소스는 commit)
+- `certs/installer/build/*.exe` / `payload/rootCA.pem` 차단
+
+**Deferred**:
+- Inno Setup Compiler 실 빌드 (차장님 PC에서 별도, `scripts/build.ps1` 실행)
+- HSTS / Secure 쿠키 / CSP 헤더 (v5.x)
+- adminer(8080) / NATS(4222) HTTPS (별도 차수)
+- 외부 IP / 내부 IP 환경 SAN 재발급 (필요 시 mkcert 재실행)
+
 ### Phase 1 — SEC-1 마스킹 정책 폐기 / 평문 응답 복원 (6/6 PASS)
 
 **Reverted (v4.9 Phase 5 마스킹 제거)**:

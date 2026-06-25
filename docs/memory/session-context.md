@@ -8,9 +8,9 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.10** (2026-06-25, Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀) |
-| **HEAD commit** | (v4.10 Phase 1 commit 진행 중) |
-| **태그** | `pre-v4.10-phase1` (v4.10 Phase 1) / `pre-v4.9-phase5` (v4.9 Phase 5 SEC-1 마스킹) / `pre-v4.9-phase1` / `pre-followup-prd` / `v4.8-final-stable` / `pre-immutability-phase12-7` / `pre-action-invariant-fix` |
+| **차수** | **v4.10** (2026-06-25, Phase 1~2 통합 — 평문 회귀 + HTTPS 도입) |
+| **HEAD commit** | (v4.10 Phase 2 commit 진행 중 — HTTPS + Inno Setup 인스톨러) |
+| **태그** | `pre-v4.10-phase2` (HTTPS 직전) / `pre-v4.10-phase1` (Phase 1 마스킹 폐기 직전) / `pre-v4.9-phase5` / `pre-v4.9-phase1` / `pre-followup-prd` / `v4.8-final-stable` |
 | **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`~`v4.8` (v4.9 제거됨) |
 | **Container** | Up healthy / Image rebuild 완료 |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |
@@ -123,6 +123,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 2026-06-22  v4.8 마감 — DELETE P1 sweep 11건 + Phase 8~12-7 (Event 정밀 + 불변성)
 2026-06-24  v4.9 진행 — Phase 0 .NET 31건 회신 → Phase 1 Followup PRD → Phase 2~4 Auth/RBAC/Photo (17/17 PASS) → Phase 5 SEC-1 user_password 마스킹 (.NET v4.9 Review 회신, 8/8 PASS)
 2026-06-25  v4.10 Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀 (복호화 경로 부재, 차장님 결재 "그냥 평문으로 보내", 6/6 PASS)
+            v4.10 Phase 2 — HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS, 차장님 결재 "가장 간단·신뢰·폐쇄망")
 ```
 
 ---

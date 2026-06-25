@@ -158,3 +158,35 @@
 **보안 트랙 예고**: 별도 차수(v5.x)에서 secret API + 복호화 경로 + .NET 측 사용 시점 호출 패턴까지 종합 재설계 예정. 본 차수에서는 단순 회귀만 적용.
 
 **P1/P2 항목**: 별도 차수 일정은 위 §3 권고 유지 (v4.10 ~38-50h).
+
+---
+
+## SECURITY UPDATE 2026-06-25 — v4.10 Phase 2: HTTPS 도입 (mkcert 폐쇄망)
+
+**상태**: Phase 1 평문 응답 정책 회복 직후 통신 구간 보안 강화 — **GOP API 서버는 HTTPS만 노출**.
+
+**결재 (2026-06-25)**: 이기호 차장 — *"가장 간단하고 쉬운거 신뢰되고. 우리 폐쇄망이야"* + *"서버 1대 + 여러 클라 PC"* + *"EXE 1클릭 자동 등록"*
+
+**적용 결과**:
+- 서버 인증서 = `mkcert` (외부 인터넷 불필요, OS 신뢰 저장소 자동 등록, 만료 2028-09-25)
+- Docker `Uvicorn https://0.0.0.0:8000` 시작 + 평문 HTTP 차단
+- 6/6 실측 PASS
+
+**클라이언트 PC 배포 도구** (`Ironwall.Dotnet.Libraries` UI 팀 + 다른 사용자 PC):
+- `GOP-RootCA-Installer-v1.0.0.exe` (Inno Setup 정식 GUI 인스톨러, 1.5~2.5MB)
+- 사용법: USB 받기 → 더블클릭 → UAC "예" → "다음/다음/완료" → 완료 (5초)
+- 인스톨러 동작: `certutil -addstore -f Root rootCA.pem` (Windows `신뢰할 수 있는 루트 인증 기관`에 등록)
+- 제어판 → 프로그램 추가/제거에서 깔끔 제거 가능 (자동 등록)
+- 가이드: `docs/GOP_RootCA_Installer_Guide.md`
+
+**.NET HttpClient 영향**:
+- 인스톨러 실행한 PC에서는 `https://192.168.x.x:8000` 자동 신뢰 (별도 코드 변경 없음)
+- `ServerCertificateCustomValidationCallback` 우회 코드 **불필요** (제거 권고)
+- `BaseAddress`만 `http://` → `https://` 변경
+
+**클라 측 변경 요청**:
+1. .NET 통합 UI 빌드의 `BaseAddress` HTTPS로 변경
+2. 모든 .NET 팀 PC에 `GOP-RootCA-Installer-v1.0.0.exe` 1회 실행 (USB 전달 예정)
+3. 인증서 신뢰 우회 코드 (`SSLValidation = false` 등) 있으면 제거
+
+**P0 ENV-1 우선순위 영향**: HTTPS 적용으로 envelope 표준화 작업의 우선순위는 유지하되, 평문 노출 위험은 즉시 완화됨.

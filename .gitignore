@@ -108,5 +108,18 @@ Thumbs.db
 !docs/PRD_v4.9_Followup_AccountIntegration.md
 !docs/PRD_v4.10_SEC1_password_masking.md
 !docs/PRD_v4.10_Phase1_mask_rollback.md
+!docs/PRD_v4.10_Phase2_HTTPS_mkcert_Inno.md
+!docs/GOP_RootCA_Installer_Guide.md
 !docs/GOP_Server_API_v4.9_Review_Issues.md
 !docs/GOP_Server_API_v4.9_Review_RESPONSE.md
+
+# v4.10 Phase 2: mkcert 인증서 (절대 commit 금지)
+certs/*.crt
+certs/*.key
+certs/*.pem
+!certs/installer/
+
+# Inno Setup 빌드 산출물
+certs/installer/build/*.exe
+certs/installer/build/*.txt
+certs/installer/payload/rootCA.pem

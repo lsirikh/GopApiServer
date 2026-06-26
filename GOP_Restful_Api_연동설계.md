@@ -14534,6 +14534,11 @@ Accept: application/json
 > 영구 잔존할 수 있다. strict enum 이면 목록 직렬화가 500 되므로 응답 스키마를 str(tolerant)로 완화했다.
 > 생성 측 `AuditLogCreate` 도 동일하게 str — 응답/생성 정합.
 
+> **NOTE (v51.1, 2026-06-26)**: 사용자 hard-delete(`DELETE /api/users/{id}`) 시 `audit_logs.actor_id` /
+> `user_login_logs.user_id` / `config_change_logs.actor_id` FK가 `ON DELETE SET NULL`(=UPDATE)로 익명화된다.
+> append-only 트리거(`fn_block_audit_modification`)는 **이 FK 익명화 UPDATE(링크 컬럼만 NULL, 그 외 불변)만 허용**하고
+> 내용 변경·행 삭제는 계속 차단한다. (이전엔 이 UPDATE까지 막아 이력 있는 사용자 삭제가 500이던 버그 수정.)
+
 #### 9.6.3 GET `/api/audit-logs/{id}`
 
 **Path Parameters**:

@@ -14237,6 +14237,10 @@ Authorization: Bearer {access_token}
 | GET | `/api/users/me` | 내 정보 조회 |
 | PUT | `/api/users/me` | 내 정보 수정 |
 | PUT | `/api/users/me/password` | 내 비밀번호 변경 |
+| POST | `/api/users/me/photo` | 본인 프로필 사진 업로드 (multipart) |
+| GET | `/api/users/photo/{file_name}` | 프로필 사진 다운로드 (인증 불필요) |
+
+> **프로필 사진 (v4.x, 2026-06-26)**: `POST /api/users/me/photo` 는 `multipart/form-data`(field `file`, image/jpeg·png·webp·gif, ≤5MB)를 받아 **호스트 바인드 마운트 `./data/profiles/`**(`PROFILE_STORAGE_PATH`)에 `{user_id}_{uuid8}.{ext}`로 저장하고, `account_users.photo_url`을 **절대 API URL**(`{base}/api/users/photo/{name}`)로 갱신한 뒤 갱신된 사용자를 반환한다. 이미지 바이트는 **DB가 아니라 파일시스템**(썸네일과 동일 패턴), DB에는 photo_url(VARCHAR500)만. `GET /api/users/photo/{file_name}` 는 `FileResponse`로 바이너리 반환(인증 불필요 — 파일명이 uuid라 비공개성 확보, 경로 traversal 차단). 컨테이너 재빌드/재생성에도 `./data`라 **영속**.
 
 #### 9.3.2 GET `/api/users`
 

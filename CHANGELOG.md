@@ -4,6 +4,9 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added
+- **프로필 사진 업로드/서빙**: `POST /api/users/me/photo`(multipart, field `file`, image/jpeg·png·webp·gif, ≤5MB) → 호스트 바인드 마운트 `./data/profiles/`에 `{user_id}_{uuid8}.{ext}` 저장 + `account_users.photo_url`을 절대 API URL로 갱신. `GET /api/users/photo/{file_name}`(FileResponse, 인증 불필요, 경로 traversal 차단). 이미지는 **파일시스템**(썸네일 패턴), DB엔 photo_url(URL)만 — `./data` 바인드 마운트라 컨테이너 재빌드/재생성에도 **영속**. 검증: 업로드 200 / 서빙 200 / bad-type 400 / 강제재생성 후 GET 200. (`app/routers/users.py`, `app/config.py` PROFILE_STORAGE_PATH, 명세서 §9.3.1)
+
 ### Fixed
 - **사용자 hard-delete 불가 (append-only ↔ FK SET NULL 충돌)**: `DELETE /api/users/{id}` 시 `user_login_logs.user_id` / `audit_logs.actor_id` / `config_change_logs.actor_id` FK 가 `ON DELETE SET NULL`(UPDATE)을 시도하는데 해당 테이블이 append-only 트리거로 UPDATE 차단 → 이력 있는 사용자 삭제가 500. `fn_block_audit_modification` 을 수정해 **FK 익명화(user_id/actor_id→NULL, 그 외 컬럼 불변) UPDATE 만 허용**(내용 변경·행 삭제는 계속 차단 = append-only 유지). (`app/migrations/v51_audit_immutability_triggers.sql` v51.1, 라이브 DB CREATE OR REPLACE 적용, 안전점 `pre-audit-fk-anon-fix`)
 - **audit-logs 500 (append-only 데이터 하드닝)**: `AuditLogResponse.action_type` / `resource_type` 를 strict enum → **str(tolerant)**. `audit_logs` 는 append-only(§7 Phase 12-7f, UPDATE/DELETE 차단)라 과거 비-enum 값(테스트 잔재 `TEST_INS`/`TEST`)이 영구 잔존 → 전체 목록 직렬화 시 Pydantic 500. 데이터 삭제 불가(불변 트리거 = 설계)이므로 응답 스키마 완화로 해결. 생성 측 `AuditLogCreate` 도 str 이라 정합. (`app/schemas/audit_log.py`, 명세서 §9.6.2 NOTE)

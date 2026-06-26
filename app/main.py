@@ -33,7 +33,7 @@ from app.database import engine
 from app.db_triggers import apply_triggers
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -61,6 +61,10 @@ tags_metadata = [
     {
         "name": "Audit Logs",
         "description": "감사 로그 조회 API. 사용자 활동 감사 로그를 조회합니다. PRD: PRD_Audit_Log.md v1.0",
+    },
+    {
+        "name": "Tracking",
+        "description": "추적 이력(Tracking) 조회 API. NATS gis.tracking-status 로 수집된 추적점을 기간/세션으로 조회합니다(read-only). PRD: PRD_Tracking_History_API.md v1.0",
     },
     {
         "name": "Config Change Logs",
@@ -616,6 +620,7 @@ app.include_router(xypoints.router, prefix="/api/rois", tags=["XyPoints"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(thumbnails.router, prefix="/api/thumbnails", tags=["Thumbnails"])
 app.include_router(event_statistics.router, prefix="/api/events/statistics", tags=["Event Statistics"])
+app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

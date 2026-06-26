@@ -4,7 +4,12 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v4.11] — 2026-06-26
+
+> 하루 1차수 묶음 원칙 — 2026-06-26 작업(추적 이력 API + 프로필 사진 + audit 하드닝)을 단일 차수 v4.11로 통합. 명세서 §11(추적 이력 API) 신설 + 변경 이력 동기화.
+
 ### Added
+- **추적 이력(Tracking) REST API 신설**: GIS 추적(`TRACKING_STATUS` 신버전 `targets[]`) 영속·조회. `track_points` 테이블(`UNIQUE(track_id, observed_at)` 멱등 + `observed_at`/`(camera_id, observed_at)` 인덱스, 마이그레이션 `app/migrations/v54_tracking_points.sql`, startup `create_all` 자동 생성). 읽기전용 GET 3종: `GET /api/tracking/points`(기간 `from`~`to` + **keyset cursor** 청크, 정렬 `observed_at ASC, id ASC` — Playback 핵심) · `GET /api/tracking/sessions`(`track_id`(+`camera_id`) 단위 `MIN/MAX(observed_at)`·`COUNT(*)` 파생 집계) · `GET /api/tracking/health`(가용성 게이팅, 무인증). 응답 envelope에 cursor 슬롯이 없어 `/points` 전용 `cursor`(`next_cursor`/`limit`/`has_more`) 래퍼 도입. 인증=`get_current_user_optional`(`/health` 제외). 저장은 별도 독립 워커 `gis-ingest`(NATS 구독→`INSERT ... ON CONFLICT DO NOTHING`) — 클라 POST 배제. (`app/models/tracking.py`, `app/schemas/tracking.py`, `app/routers/tracking.py`, `app/main.py` 등록, 명세서 §11 신설 / 기존 §11 에러처리→§12·§12 부록→§13 재번호, 안전점 `before-tracking-api`, 브랜치 `feature/tracking-history-api`)
 - **프로필 사진 업로드/서빙**: `POST /api/users/me/photo`(multipart, field `file`, image/jpeg·png·webp·gif, ≤5MB) → 호스트 바인드 마운트 `./data/profiles/`에 `{user_id}_{uuid8}.{ext}` 저장 + `account_users.photo_url`을 절대 API URL로 갱신. `GET /api/users/photo/{file_name}`(FileResponse, 인증 불필요, 경로 traversal 차단). 이미지는 **파일시스템**(썸네일 패턴), DB엔 photo_url(URL)만 — `./data` 바인드 마운트라 컨테이너 재빌드/재생성에도 **영속**. 검증: 업로드 200 / 서빙 200 / bad-type 400 / 강제재생성 후 GET 200. (`app/routers/users.py`, `app/config.py` PROFILE_STORAGE_PATH, 명세서 §9.3.1)
 
 ### Fixed

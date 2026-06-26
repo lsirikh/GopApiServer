@@ -6,7 +6,10 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [v4.12] — 2026-06-27
 
-> 하루 1차수 묶음 원칙 — 2026-06-27 작업을 단일 차수 v4.12로 관리.
+> 하루 1차수 묶음 원칙 — 2026-06-27 작업(계정 RBAC + 추적 인제스트 워커)을 단일 차수 v4.12로 관리.
+
+### Added
+- **추적 이력 인제스트 워커(gis-ingest) 신설**: NATS `TRACKING_STATUS`(신버전 `targets[]`)를 구독해 `track_points`에 영속하는 독립 워커. §11(v4.11)에서 "후속"으로 둔 서버측 저장 경로를 실현(읽기 API ↔ 인제스트 분리 완성). `db_monitor`(pg_notify→NATS) **역방향 미러**: NATS 구독→asyncpg INSERT. 독립 compose 서비스 `api-test-gis-ingest`(asyncpg+nats-py, `nats_external` 망, postgres healthy 의존). `sensorway.*.gis.tracking-status` 구독 → `tracking=="active"` targets[]만 `INSERT ... ON CONFLICT (track_id, observed_at) DO NOTHING`(멱등). 순수 파서 `parse_tracking_status()` 분리(8 단위테스트), `observed_at`(UTC)→naive KST 변환, 구버전 단일 `target` 방어 정규화. **mock E2E**(NATS 발행→인제스트→멱등 검증→`/points`·`/sessions` 조회) 통과 + 테스트 데이터 정리. 발행 시 `created_at` NOT-NULL(raw asyncpg는 ORM Python default 미적용) 명시 지정 버그 E2E로 발견·수정. ⚠ 실 `AiAnalysis` 신 `targets[]` 발행 합의 미결(방어 파싱으로 호환). (`gis_ingest/main.py`·`Dockerfile`·`requirements.txt`, `docker-compose.yml`, 명세서 §11.1 구현 반영, 브랜치 `feature/tracking-gis-ingest`)
 
 ### Security
 - **계정 관리 RBAC — ADMIN 전용 게이트 + 권한상승(T1) 차단**: 계정 CRUD/lock/unlock/reset-password 8개 엔드포인트(`/api/users` 목록·상세·생성·수정·삭제·lock·unlock·reset-password)에 `require_admin`(=`require_role("ADMIN")`, `app/routers/auth.py` 신설) 의존성 추가. 이전엔 인증(Bearer)만 검증하고 `role`을 인가에 미사용 → **임의 인증사용자가 `PUT /api/users/{id}` 본문 `role=ADMIN`으로 자기/타인을 ADMIN 격상(권한상승 T1)** 가능했음(users.py:445-446 무가드). role 미달 시 **403**. 본인 자원(`/me`·`/me/password`·`/me/photo`) self-service 유지, `GET /api/users/photo/{file_name}` 인증불요 유지. E2E: VIEWER GET/PUT/DELETE→403, T1 격상→403, admin→200, /me→200. **서버 RBAC가 권위 집행**(클라 UI 게이팅은 보조). ⚠ 장비/이벤트/맵 쓰기 RBAC는 후속 차수(AUTH_MODE token·인증 의존성 통일·.NET 클라 Bearer 부착 선결, 미선결 시 앱 쓰기 전면 401). PRD-GOP-01 v2.0 §7(V-PG-01 서버 RBAC 실태감사) 근거. (`app/routers/auth.py`, `app/routers/users.py`, 명세서 §9.3.1, 안전점 `before-account-rbac`, 브랜치 `feature/server-account-rbac`)

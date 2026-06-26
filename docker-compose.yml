@@ -72,6 +72,27 @@ services:
       - default
       - nats_external
 
+  gis-ingest:
+    # 추적 이력 인제스트 워커: NATS sensorway.*.gis.tracking-status 구독 → track_points INSERT
+    # PRD_Tracking_History_API.md §7 (db-monitor 역방향 미러)
+    build:
+      context: ./gis_ingest
+      dockerfile: Dockerfile
+    container_name: api-test-gis-ingest
+    image: api-test-gis-ingest:latest
+    environment:
+      - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
+      - UNIT_ID=${UNIT_ID:-unit001}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+      - nats_external
+
   db-admin:
     container_name: api-test-db-admin
     image: adminer

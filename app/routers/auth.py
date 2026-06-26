@@ -127,6 +127,25 @@ async def get_current_account_user(
     return user
 
 
+def require_role(*allowed_roles: str):
+    """역할(role) 기반 인가 의존성 팩토리 — PRD-GOP-01 V-PG-01 §7.
+    인증된 AccountUser 의 role 이 allowed_roles 에 없으면 403. 기존 인증 의존성(get_current_account_user 등)은
+    토큰만 검증하고 role 을 인가에 미사용했음 → 권한상승(T1): 아무 인증사용자가 PUT /users/{id} 로 임의 계정을
+    ADMIN 격상 가능. 본 의존성이 서버측 RBAC 집행 지점. (FastAPI use_cache 로 get_current_account_user 1회 평가)"""
+    async def _role_checker(current_user: AccountUser = Depends(get_current_account_user)) -> AccountUser:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient role: requires one of {list(allowed_roles)} (current role: {current_user.role})",
+            )
+        return current_user
+    return _role_checker
+
+
+# 계정 관리(사용자 CRUD/lock/reset)는 ADMIN 전용 (account:admin)
+require_admin = require_role("ADMIN")
+
+
 async def get_current_user_optional(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)

@@ -14,14 +14,14 @@ from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
-from app.routers.auth import get_current_account_user
+from app.routers.auth import get_current_account_user, require_admin
 from app.utils.auth import hash_password, verify_password
 from app.services.audit_service import log_action, get_changes
 
 router = APIRouter(tags=["Users"])
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_admin)])
 async def get_users(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -262,7 +262,7 @@ async def get_profile_photo(file_name: str):
     return FileResponse(path=file_path)
 
 
-@router.get("/{user_id}")
+@router.get("/{user_id}", dependencies=[Depends(require_admin)])
 async def get_user_by_id(
     user_id: int,
     db: Session = Depends(get_db),
@@ -295,7 +295,7 @@ async def get_user_by_id(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_user(
     user_data: AccountUserCreate,
     db: Session = Depends(get_db),
@@ -377,7 +377,7 @@ async def create_user(
     }
 
 
-@router.put("/{user_id}")
+@router.put("/{user_id}", dependencies=[Depends(require_admin)])
 async def update_user(
     user_id: int,
     user_data: AccountUserUpdate,
@@ -488,7 +488,7 @@ async def update_user(
     }
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", dependencies=[Depends(require_admin)])
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -544,7 +544,7 @@ async def delete_user(
     }
 
 
-@router.post("/{user_id}/lock")
+@router.post("/{user_id}/lock", dependencies=[Depends(require_admin)])
 async def lock_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -608,7 +608,7 @@ async def lock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/unlock")
+@router.post("/{user_id}/unlock", dependencies=[Depends(require_admin)])
 async def unlock_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -666,7 +666,7 @@ async def unlock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/reset-password")
+@router.post("/{user_id}/reset-password", dependencies=[Depends(require_admin)])
 async def reset_user_password(
     user_id: int,
     password_data: PasswordResetRequest,

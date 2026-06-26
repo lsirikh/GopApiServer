@@ -4,6 +4,13 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v4.12] — 2026-06-27
+
+> 하루 1차수 묶음 원칙 — 2026-06-27 작업을 단일 차수 v4.12로 관리.
+
+### Security
+- **계정 관리 RBAC — ADMIN 전용 게이트 + 권한상승(T1) 차단**: 계정 CRUD/lock/unlock/reset-password 8개 엔드포인트(`/api/users` 목록·상세·생성·수정·삭제·lock·unlock·reset-password)에 `require_admin`(=`require_role("ADMIN")`, `app/routers/auth.py` 신설) 의존성 추가. 이전엔 인증(Bearer)만 검증하고 `role`을 인가에 미사용 → **임의 인증사용자가 `PUT /api/users/{id}` 본문 `role=ADMIN`으로 자기/타인을 ADMIN 격상(권한상승 T1)** 가능했음(users.py:445-446 무가드). role 미달 시 **403**. 본인 자원(`/me`·`/me/password`·`/me/photo`) self-service 유지, `GET /api/users/photo/{file_name}` 인증불요 유지. E2E: VIEWER GET/PUT/DELETE→403, T1 격상→403, admin→200, /me→200. **서버 RBAC가 권위 집행**(클라 UI 게이팅은 보조). ⚠ 장비/이벤트/맵 쓰기 RBAC는 후속 차수(AUTH_MODE token·인증 의존성 통일·.NET 클라 Bearer 부착 선결, 미선결 시 앱 쓰기 전면 401). PRD-GOP-01 v2.0 §7(V-PG-01 서버 RBAC 실태감사) 근거. (`app/routers/auth.py`, `app/routers/users.py`, 명세서 §9.3.1, 안전점 `before-account-rbac`, 브랜치 `feature/server-account-rbac`)
+
 ## [v4.11] — 2026-06-26
 
 > 하루 1차수 묶음 원칙 — 2026-06-26 작업(추적 이력 API + 프로필 사진 + audit 하드닝)을 단일 차수 v4.11로 통합. 명세서 §11(추적 이력 API) 신설 + 변경 이력 동기화.

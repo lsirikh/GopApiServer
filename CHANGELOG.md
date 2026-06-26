@@ -5,6 +5,7 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 ## [Unreleased]
 
 ### Fixed
+- **사용자 hard-delete 불가 (append-only ↔ FK SET NULL 충돌)**: `DELETE /api/users/{id}` 시 `user_login_logs.user_id` / `audit_logs.actor_id` / `config_change_logs.actor_id` FK 가 `ON DELETE SET NULL`(UPDATE)을 시도하는데 해당 테이블이 append-only 트리거로 UPDATE 차단 → 이력 있는 사용자 삭제가 500. `fn_block_audit_modification` 을 수정해 **FK 익명화(user_id/actor_id→NULL, 그 외 컬럼 불변) UPDATE 만 허용**(내용 변경·행 삭제는 계속 차단 = append-only 유지). (`app/migrations/v51_audit_immutability_triggers.sql` v51.1, 라이브 DB CREATE OR REPLACE 적용, 안전점 `pre-audit-fk-anon-fix`)
 - **audit-logs 500 (append-only 데이터 하드닝)**: `AuditLogResponse.action_type` / `resource_type` 를 strict enum → **str(tolerant)**. `audit_logs` 는 append-only(§7 Phase 12-7f, UPDATE/DELETE 차단)라 과거 비-enum 값(테스트 잔재 `TEST_INS`/`TEST`)이 영구 잔존 → 전체 목록 직렬화 시 Pydantic 500. 데이터 삭제 불가(불변 트리거 = 설계)이므로 응답 스키마 완화로 해결. 생성 측 `AuditLogCreate` 도 str 이라 정합. (`app/schemas/audit_log.py`, 명세서 §9.6.2 NOTE)
 
 ## [v4.10] — 2026-06-25

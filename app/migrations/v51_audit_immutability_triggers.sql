@@ -39,6 +39,13 @@ BEGIN;
 CREATE OR REPLACE FUNCTION fn_block_audit_modification()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- v51.1 (2026-06-26): 계정 hard-delete 시 FK ON DELETE SET NULL 이 user_id/actor_id 를 NULL 로
+    --   바꾸는 UPDATE 는 허용한다(나머지 컬럼은 불변 = 익명화). 이전 버전은 이 UPDATE 까지 막아
+    --   "이력 있는 사용자 삭제 불가" 버그가 있었음. append-only 의미는 유지(내용 변경·행 삭제는 계속 차단).
+    IF TG_OP = 'UPDATE'
+       AND (to_jsonb(OLD) - 'user_id' - 'actor_id') = (to_jsonb(NEW) - 'user_id' - 'actor_id') THEN
+        RETURN NEW;
+    END IF;
     RAISE EXCEPTION 'audit table (%) is append-only — UPDATE/DELETE blocked', TG_TABLE_NAME
         USING ERRCODE = 'P0001';
 END;

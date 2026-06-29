@@ -8,11 +8,11 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.10** (2026-06-25, Phase 1~2 통합 — 평문 회귀 + HTTPS 도입) |
-| **HEAD commit** | (v4.10 Phase 2 commit 진행 중 — HTTPS + Inno Setup 인스톨러) |
-| **태그** | `pre-v4.10-phase2` (HTTPS 직전) / `pre-v4.10-phase1` (Phase 1 마스킹 폐기 직전) / `pre-v4.9-phase5` / `pre-v4.9-phase1` / `pre-followup-prd` / `v4.8-final-stable` |
-| **branch** | `feature/device-group-bulk-unassign` (local), Gitea `v4.4`~`v4.8` (v4.9 제거됨) |
-| **Container** | Up healthy / Image rebuild 완료 |
+| **차수** | **v4.12** (2026-06-27, RBAC ADMIN 게이트 + GIS ingest 워커) / v4.11 (2026-06-26, 추적 REST + 프로필 사진 + audit FK 익명화) / v4.10 (2026-06-25, 평문 회귀 + HTTPS) |
+| **HEAD commit** | `15365d5` (feat(gis-ingest) v4.12) — 외부 세션 진행, 2026-06-29 9중 정합 정리 후 commit 예정 |
+| **태그** | `pre-v412-sync-cleanup` (9중 정합 정리 직전) / `before-account-rbac` / `before-tracking-api` / `before-profile-photo-upload` / `pre-audit-fk-anon-fix` / `pre-audit-500-fix` / `pre-v4.10-phase2` / `pre-v4.10-phase1` / `pre-v4.9-phase5` / `v4.8-final-stable` |
+| **branch** | `feature/tracking-gis-ingest` (local), Gitea `v4.8`=`af8a836` 정체 → 2026-06-29 push로 동기화 예정 |
+| **Container** | Up healthy / Image rebuild 2026-06-29 (Created `2026-06-29T00:59:01`, v4.11/v4.12 코드 반영) / Swagger version=`4.12.0` |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |
 
 ---

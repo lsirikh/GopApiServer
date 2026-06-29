@@ -126,3 +126,10 @@ certs/installer/payload/rootCA.pem
 
 # v4.10 Phase 2: PS2EXE 인스톨러 - 외부 도구 빌드 시 자동 다운로드
 certs/installer_ps2exe/ps2exe.ps1
+
+# v4.12 정합 정리 (2026-06-29)
+# 사용자 프로필 사진 (PII, 절대 commit 금지)
+data/profiles/
+!data/profiles/.gitkeep
+# 외부 세션 backslash escape 사고 산출물 차단
+c:workspace_python*

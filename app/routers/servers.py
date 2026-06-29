@@ -8,7 +8,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_user_optional, require_admin
 from app.models.server import ServerCategory, Server
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumServerStatus
@@ -325,7 +325,7 @@ async def create_server(
     )
 
 
-@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
+@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_admin)])
 async def update_server(
     server_id: int,
     server_data: ServerUpdate,

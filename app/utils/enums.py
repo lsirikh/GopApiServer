@@ -777,15 +777,19 @@ class EnumReportComponent(str, Enum):
 # ============================================================
 
 class EnumPermissionModule(str, Enum):
-    """RBAC 권한 모듈 — Static 시드 (확장 시 v5.0+)"""
-    DEVICES = "devices"           # 장비 (controllers/sensors/cameras/speakers/enclosures/lamps)
-    EVENTS = "events"             # 이벤트 (detection/malfunction/connection/action)
-    REPORTS = "reports"           # 보고서
-    CAMERAS = "cameras"           # 카메라 (control 동사 사용)
-    USERS = "users"               # 사용자 관리 (admin)
-    USER_GROUPS = "user_groups"   # 그룹/권한 관리 (admin)
-    AUDIT_LOGS = "audit_logs"     # 감사 로그 (view only)
-    SERVERS = "servers"           # 서버 모니터링
+    """RBAC 권한 모듈 — Static 시드 (v5.1 FR-SV-05 확장: Map/Broadcast/SetupSystem/SetupFeature 추가, cameras 표기 통일)"""
+    DEVICES = "devices"                  # 장비 (controllers/sensors/cameras/speakers/enclosures/lamps)
+    EVENTS = "events"                    # 이벤트 (detection/malfunction/connection/action)
+    REPORTS = "reports"                  # 보고서
+    CAMERAS = "cameras"                  # 카메라 (control 동사 사용, 클라 'cam' 오기 방지 — cameras 통일)
+    USERS = "users"                      # 사용자 관리 (admin)
+    USER_GROUPS = "user_groups"          # 그룹/권한 관리 (admin)
+    AUDIT_LOGS = "audit_logs"            # 감사 로그 (view only)
+    SERVERS = "servers"                  # 서버 모니터링
+    MAP = "map"                          # v5.1 GIS Map (GMaps.Ui) — view/edit
+    BROADCAST = "broadcast"              # v5.1 방송 (Speaker 송출, NATS subject ACL 보조) — view/edit/control
+    SETUP_SYSTEM = "setup_system"        # v5.1 시스템 설정 (servers.proxy_settings 등 인프라) — view/edit
+    SETUP_FEATURE = "setup_feature"      # v5.1 기능 설정 (event_mapping/preset 등 운영 정책) — view/edit
 
 
 class EnumPermissionVerb(str, Enum):

@@ -405,13 +405,31 @@ async def update_user(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    # v5.1 FR-SV-06: 마지막 ADMIN 원자 가드 — ADMIN 강등 또는 비활성화 시 잔여 ADMIN >=1 보장.
+    user = db.query(AccountUser).filter(AccountUser.id == user_id).with_for_update().first()
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # ADMIN 강등(role 변경) 또는 비활성화 시도 검사 (자기 자신 포함)
+    is_admin_demotion = (
+        user.role == "ADMIN" and
+        ((user_data.role is not None and user_data.role != "ADMIN") or
+         (user_data.is_active is not None and user_data.is_active == False))
+    )
+    if is_admin_demotion:
+        active_admins = db.query(AccountUser).filter(
+            AccountUser.role == "ADMIN",
+            AccountUser.is_active == True
+        ).with_for_update().all()
+        if len(active_admins) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot demote/deactivate the last ADMIN user (at least one active ADMIN must remain)"
+            )
 
     # Capture before state for audit log
     before_state = {
@@ -507,13 +525,28 @@ async def delete_user(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    # v5.1 FR-SV-06 (PRD_GOP_Server_RBAC_Enforcement): 마지막 ADMIN 원자 가드.
+    # FOR UPDATE 행 잠금으로 TOCTOU 차단 — 동시에 두 ADMIN을 삭제해도 마지막 1명은 보존.
+    # PostgreSQL: FOR UPDATE + count()는 비호환 → .all() + len() 패턴 사용.
+    user = db.query(AccountUser).filter(AccountUser.id == user_id).with_for_update().first()
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # 삭제 대상이 ADMIN이면 잔여 ADMIN 수 확인 (자기 자신 포함된 잠금 상태에서 fetch)
+    if user.role == "ADMIN":
+        active_admins = db.query(AccountUser).filter(
+            AccountUser.role == "ADMIN",
+            AccountUser.is_active == True
+        ).with_for_update().all()
+        if len(active_admins) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete the last ADMIN user (at least one ADMIN must remain)"
+            )
 
     # Capture user info before deletion (snapshot)
     deleted_user_id = user.id

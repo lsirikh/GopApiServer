@@ -308,6 +308,33 @@ async def force_logout_session(
     session.forced_by = current_user.id
     session.logged_out_at = datetime.now(settings.tz)
 
+    # ★ 토큰 즉시 무효화 — is_active=False 만으로는 이미 발급된 JWT가 exp(24h)까지 통과하여
+    #    강제 로그아웃이 실효 없음. access + refresh jti 를 블랙리스트에 등록해야:
+    #    (1) 그 토큰으로의 모든 요청 → 401 "Token has been revoked"
+    #    (2) refresh 도 거부(refresh 가 is_blacklisted 검사) → 클라가 재발급 못 받고 SessionExpired → 로그아웃.
+    from jose import JWTError
+    from app.utils.auth import decode_token as _decode
+    from app.services.token_blacklist_service import add_to_blacklist
+    from datetime import timedelta as _td
+    if session.token:
+        try:
+            _at = _decode(session.token)
+            if _at.jti:
+                add_to_blacklist(db=db, jti=_at.jti,
+                                 expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
+                                 reason="FORCED", user_id=session.user_id, token_type="access")
+        except JWTError:
+            pass
+    if session.refresh_token:
+        try:
+            _rt = _decode(session.refresh_token, expected_type="refresh")
+            if _rt.jti:
+                add_to_blacklist(db=db, jti=_rt.jti,
+                                 expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                                 reason="FORCED", user_id=session.user_id, token_type="refresh")
+        except JWTError:
+            pass
+
     # Create a login log entry for the force logout
     log_entry = UserLoginLog(
         user_id=session.user_id,

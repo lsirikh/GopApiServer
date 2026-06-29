@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from app.dependencies import get_db
 # NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
-from app.models.user import User, AccountUser, UserSession, UserLoginLog
+from app.models.user import User, AccountUser, UserSession, UserLoginLog, UserGroup
 from app.schemas.user import Token, UserResponse, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
 from app.utils.auth import verify_password, create_access_token, create_refresh_token, decode_token
 
@@ -295,9 +295,13 @@ async def login(
     db.add(login_log)
     db.commit()
 
-    # Get permissions from user's group
+    # 권한 = 역할(등급) 단위 (PRD-GOP-01 OQ-PG-01 = Option A): user.role 명의 등급 그룹 매트릭스를 사용.
+    # 등급 그룹이 없으면 레거시 group_id 그룹으로 폴백.
     permissions = None
-    if user.group and user.group.permissions:
+    role_group = db.query(UserGroup).filter(UserGroup.name == user.role).first()
+    if role_group and role_group.permissions:
+        permissions = role_group.permissions
+    elif user.group and user.group.permissions:
         permissions = user.group.permissions
 
     return {

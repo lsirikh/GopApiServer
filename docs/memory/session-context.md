@@ -8,11 +8,11 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v4.12** (2026-06-27, RBAC ADMIN 게이트 + GIS ingest 워커) / v4.11 (2026-06-26, 추적 REST + 프로필 사진 + audit FK 익명화) / v4.10 (2026-06-25, 평문 회귀 + HTTPS) |
-| **HEAD commit** | `15365d5` (feat(gis-ingest) v4.12) — 외부 세션 진행, 2026-06-29 9중 정합 정리 후 commit 예정 |
-| **태그** | `pre-v412-sync-cleanup` (9중 정합 정리 직전) / `before-account-rbac` / `before-tracking-api` / `before-profile-photo-upload` / `pre-audit-fk-anon-fix` / `pre-audit-500-fix` / `pre-v4.10-phase2` / `pre-v4.10-phase1` / `pre-v4.9-phase5` / `v4.8-final-stable` |
-| **branch** | `feature/tracking-gis-ingest` (local), Gitea `v4.8`=`af8a836` 정체 → 2026-06-29 push로 동기화 예정 |
-| **Container** | Up healthy / Image rebuild 2026-06-29 (Created `2026-06-29T00:59:01`, v4.11/v4.12 코드 반영) / Swagger version=`4.12.0` |
+| **차수** | **v5.0** (2026-06-29, 그룹 권한 관리 endpoint + 9중 정합 정리) / v4.12 (2026-06-27, RBAC ADMIN + GIS ingest) / v4.11 (2026-06-26, 추적 REST + 프로필 사진 + audit FK) / v4.10 (2026-06-25, 평문 회귀 + HTTPS) |
+| **HEAD commit** | `6d7ec50` (feat(v5.0): 그룹 권한 endpoint + 9중 정합 정리) — 명세/CHANGELOG/PRD/Swagger 5.0 정합화 |
+| **태그** | `v5.0-final-stable` @ `6d7ec50` / `pre-v5-spec-sync` @ `c71c8ce` (외부 세션 권한 endpoint 직후) / `v4.12-final-stable` / `v4.11-final-stable` / `v4.10-final-stable` / `v4.9-final-stable` / `pre-v412-sync-cleanup` / `pre-v4.10-phase2/1` / `pre-v4.9-phase5` / `v4.8-final-stable` |
+| **branch** | `feature/tracking-gis-ingest` (local), Gitea `v4.8`=`6d7ec50` (v5.0 마감 동기화 완료) |
+| **Container** | Up healthy / Image rebuild 2026-06-29 / Swagger version=`5.0.0` (v5.0 갱신) |
 | **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |
 
 ---

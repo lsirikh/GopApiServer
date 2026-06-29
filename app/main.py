@@ -284,11 +284,11 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- API Version: 4.12 (2026-06-27)
-- 명세: GOP_Restful_Api_연동설계.md v4.12
-- 주요 PRD: PRD_Tracking_History_API.md (v4.11), PRD_v4.9_Followup_AccountIntegration.md (v4.12 RBAC), PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
+- API Version: 5.0 (2026-06-29)
+- 명세: GOP_Restful_Api_연동설계.md v5.0
+- 주요 PRD: PRD_v5.0_Permission_Management.md (v5.0 그룹 권한 관리), PRD_Tracking_History_API.md (v4.11), PRD_v4.9_Followup_AccountIntegration.md (v4.12 RBAC), PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="4.12.0",
+    version="5.0.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",

@@ -2533,7 +2533,8 @@ Accept: application/json
       "firmware": "2.41.01",
       "device_id": "HWV-XNP-001",
       "mac_address": "00:09:18:AB:CD:EF",
-      "onvif_version": "2.4.2"
+      "onvif_version": "2.4.2",
+      "max_detection_range": 120.0
     },
     "geolocation": {
       "location": "GOP 1구역 전방 초소",
@@ -2663,7 +2664,7 @@ Accept: application/json
 | category | string | Y | - | 카메라 타입 (EnumCameraType) |
 | is_record | boolean | N | false | 녹화 여부 |
 | urls | object | N | null | 카메라 URL 정보 (JSONB) |
-| hardware_spec | object | N | null | 하드웨어 사양 정보 |
+| hardware_spec | object | N | null | 하드웨어 사양 정보. 하위필드 `max_detection_range`(number, m) = 카메라 최대 탐지거리(GIS "특정 위치 확인" aim 반경/FOV 산출용) |
 | geolocation | object | N | null | 위치 정보 |
 | group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
@@ -3009,7 +3010,7 @@ Accept: application/json
 | category | string | Y | - | 카메라 타입 (EnumCameraType: NONE, FIXED, PTZ) |
 | is_record | boolean | N | false | 녹화 여부 |
 | urls | object | N | null | 카메라 URL 정보 (JSONB) |
-| hardware_spec | object | N | null | 하드웨어 사양 정보 |
+| hardware_spec | object | N | null | 하드웨어 사양 정보. 하위필드 `max_detection_range`(number, m) = 카메라 최대 탐지거리(GIS "특정 위치 확인" aim 반경/FOV 산출용) |
 | geolocation | object | N | null | 위치 정보 |
 | group_ids | array[int] | N | null | 소속 디바이스 그룹 ID 배열 (N:N 관계) |
 
@@ -3050,7 +3051,8 @@ Accept: application/json
       "firmware": "2.42.00",
       "device_id": "HWV-XNP-001",
       "mac_address": "00:09:18:AB:CD:EF",
-      "onvif_version": "2.4.2"
+      "onvif_version": "2.4.2",
+      "max_detection_range": 120.0
     },
     "geolocation": {
       "location": "GOP 1구역 전방 초소",

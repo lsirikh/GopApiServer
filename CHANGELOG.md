@@ -4,6 +4,74 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.0] — 2026-06-29
+
+> 하루 1차수 묶음 원칙 — 2026-06-29 작업(외부 세션 그룹 권한 endpoint 신설 + 9중 정합 정리 + 외부 세션 미반영 항목 마감)을 단일 차수 v5.0으로 묶음. 외부 세션이 신규 권한 관리 endpoint를 `# PRD v5.0` 주석으로 마킹 → "권한 관리(Permission Management) 도메인" 본격 분리의 새 보안 핵심으로 보아 v4.12 후속 정합 정리와 함께 v5.0으로 승격 (차장님 결재 동의). v4.12 RBAC가 *endpoint-level 인가*(ADMIN 게이트)였다면, v5.0은 *group-level 권한 정책*(modules × verb 매트릭스) 관리.
+
+**안전점**: `pre-v5-spec-sync` / `pre-v412-sync-cleanup`
+
+### Added (Permission Management Endpoint)
+
+- **그룹 권한 관리 endpoint 신설 — `POST /api/user-groups/{group_id}/permissions` (ADMIN 전용)**: 외부 세션(2026-06-29 오전)이 본 차수 핵심으로 신규 도입. `dependencies=[Depends(require_admin)]`로 RBAC 강제 (v4.12 ADMIN 게이트 정책 계승). 일반 `PUT /api/user-groups/{group_id}`는 v4.8 Phase 12-7a "permissions 차단" **영구 정책** 유지 — 그룹 메타(name/description) 와 권한 정책의 변경 경로를 endpoint 단위로 분리. **PermissionsSchema strict input**(`app/schemas/user.py:46`):
+  - `modules: Dict[EnumPermissionModule, ModulePermission]` — `EnumPermissionModule` 8종(`devices`/`events`/`reports`/`cameras`/`users`/`user_groups`/`audit_logs`/`servers`) × `ModulePermission` 4 verb `StrictBool`(`view`/`edit`/`delete`/`control`) 매트릭스.
+  - `extra='forbid'` — 미정의 모듈/verb 422.
+  - `device_groups: Optional[List[int]]` — 접근 가능한 디바이스 그룹 ID 목록.
+- **JSONB 컬럼 호환 직렬화**: `permissions = schema.model_dump(mode='json', exclude_none=True)` → `account_user_groups.permissions` (JSONB) 에 안전 영속.
+- **감사 로그 자동**: `log_action(action_type="PERMISSION_CHANGED", resource_type="USER_GROUP", actor_*, resource_id, resource_name, changes={before, after}, description=f"그룹 권한 변경: {group.name}")` — 변경 전/후 스냅샷 자동 캡처.
+- **Error 매트릭스**: 403 (RBAC, 일반 사용자) / 404 (그룹 없음) / 422 (스키마 위반).
+- **Swagger 노출**: `operationId=update_user_group_permissions`, `requestBody`에 `PermissionsSchema` `$ref=#/components/schemas/PermissionsSchema` 노출.
+- **실측 검증**: 감사 로그 `PERMISSION_CHANGED` 1건 (`2026-06-29 10:23:29`) + Swagger `$ref` 노출 + ADMIN 외 사용자 403 확인.
+- (`app/routers/user_groups.py:270`, `app/schemas/user.py:46`, 코드 주석 `# PRD v5.0` 마킹)
+
+### Security (외부 세션 9중 정합 정리, Critical 7건 해소)
+
+- **PII data/profiles/ 차단 (P0)**: v4.11 프로필 사진 업로드 도입 후 호스트 바인드 마운트 `./data/profiles/` 가 `.gitignore` 미등재 → 사용자 사진 3건이 git untracked로 commit 가능 노출. `.gitignore`에 `data/profiles/` 추가 + git rm --cached로 추적 해제 + 사용자 사진 commit 차단 확정.
+- **사고 파일 정리**: 비정상 경로명 파일 `'c\357\200\272workspace_pythonapi-test-serverendpoints_spec.txt'` (백슬래시 누락 사고로 root에 생성) 삭제.
+- **admin 계정 복구**: admin 계정 락업 상태 확인 → unlock + bcrypt(`admin123`) 재발급 + `failed_login_count=0` 리셋 (실 운영 환경 회복).
+- **token_blacklist 17 row cleanup**: 만료 토큰 17건 잔존 → 일괄 정리 (자동 청소 cron은 v5.1+ 이연).
+- (v4.12 정합 정리 commits `7756ec9` / `4afaed6` 본 v5.0 섹션에서 인용 — 하루 1차수 묶음 원칙 적용)
+
+### Fixed (외부 세션 종료 미반영 항목)
+
+- **Swagger version (FastAPI app metadata) 회귀 정정**: `app/main.py` `version="1.6.0"` (v4.5 이전 값) → `"4.12.0"` 동기화. 외부 세션이 코드 본문은 v4.12까지 진행했으나 app metadata 갱신 미반영 → 본 세션에서 commit.
+- **API Version 응답 헤더 갱신**: `2.10` → `4.12` (`/api/system/version` 표시값).
+- **PRD 목록 동기화**: 명세 PRD 목록(§서두 개요)에 `PRD_v4.11_Tracking_History` + `PRD_v4.12_Followup_AccountIntegration` 2건 누락 → 추가.
+- **Image rebuild + Container force-recreate**: `docker compose build --no-cache api-test-server` + `docker compose up -d --force-recreate` → `Created 2026-06-29T00:59:01` 확정. 이전 컨테이너가 v4.10 이미지 유지 상태였음.
+- **session-context.md 차수 표기 갱신**: 메모리 마지막 차수 `v4.10` → `v4.12` 정정 (v4.11/v4.12 작업 본문은 본 차수 이전부터 진행).
+
+### Spec sync (`GOP_Restful_Api_연동설계.md`)
+
+- **헤더/푸터 갱신** (L4-7 / L16045-46): 버전 `v4.12` → `v5.0`, 최종 수정일 `2026-06-27` → `2026-06-29`.
+- **변경 이력 표 신설** (L16002 직전): `v5.0 — 2026-06-29 — 그룹 권한 endpoint 신설(ADMIN 전용, PermissionsSchema strict) + 9중 정합 정리 + 외부 세션 미반영 항목 마감` 행 추가.
+- **§9.4 UserGroup API endpoint 표 1행 추가** (L14340): 기존 6행(GET 목록/단일, POST 생성, PUT 수정, DELETE 삭제, GET /users)에 7번째 행 추가:
+  - `POST /api/user-groups/{group_id}/permissions` — 그룹 권한 정책 변경 (ADMIN 전용, PermissionsSchema).
+- **§9.4.7 본문 신설**: PermissionsSchema 매트릭스(modules 8 × verb 4) + JSONB 직렬화 + 감사 로그 자동 + Error 403/404/422 + curl 예시 + 응답 예시.
+- **§13.1 부록 UserGroups 블록 동기화**: v5.0 endpoint 추가 + PermissionsSchema 스키마 정의(EnumPermissionModule/ModulePermission/extra='forbid' NOTE).
+- **§13.1 부록 Users 블록**: v4.11 신설 endpoint(`POST /api/users/me/photo`, `GET /api/users/photo/{file_name}`) 동기화 누락분 보강.
+
+### Tags
+
+- `v4.9-final-stable` — v4.9 마지막 안정점 (Phase 0~5 통합 + 3중 정합)
+- `v4.10-final-stable` — v4.10 마지막 안정점 (Phase 1 평문 회귀 + Phase 2 HTTPS mkcert)
+- `v4.11-final-stable` — v4.11 마지막 안정점 (Tracking API + 프로필 사진 + audit FK 익명화)
+- `v4.12-final-stable` — v4.12 마지막 안정점 (계정 RBAC ADMIN 게이트 + gis-ingest 워커)
+- 안전점: `pre-v5-spec-sync`, `pre-v412-sync-cleanup`
+
+### Memory (4건 신설 + MEMORY.md 인덱스 갱신)
+
+- `feedback_rbac_admin_gate_policy.md` — v4.12 계정 8 endpoint ADMIN 게이트 + 권한상승(T1) 차단 정책 (서버 RBAC가 권위 집행, 클라 UI 게이팅은 보조).
+- `feedback_tracking_keyset_cursor.md` — v4.11 `/api/tracking/points` cursor envelope (`next_cursor`/`limit`/`has_more`) 패턴 (Playback 기간 청크 정렬 핵심).
+- `feedback_profile_photo_storage.md` — v4.11 프로필 사진 PII 정책 (파일시스템 영속, DB엔 photo_url(URL)만, `./data/profiles/` 바인드 마운트, `data/profiles/` `.gitignore` 차단 v5.0).
+- `feedback_audit_append_only_fk_anonymize.md` — v51.1 `fn_block_audit_modification` 트리거 예외 (FK 익명화 UPDATE만 허용, 행 삭제·내용 변경은 계속 차단 = append-only 유지).
+
+### Deferred (v5.1+)
+
+- **장비/이벤트/맵 쓰기 RBAC**: AUTH_MODE token 승격 + 인증 의존성 통일 + .NET 클라 Bearer 부착 선결 (미선결 시 앱 쓰기 전면 401 위험). PRD-GOP-01 v2.0 §7 V-PG-01 후속.
+- **token_blacklist 자동 청소 cron**: 만료 jti 일괄 정리 워커 (현재는 수동 정리, v5.0에서 17 row 정리 인용).
+- **태그 컨벤션 재명명**: `before-account-rbac` / `before-tracking-api` / `before-*` 신규 3 태그 → `pre-*` 컨벤션으로 재명명 (안전점 표기 일관화).
+- **67 untracked PRD 정리**: `docs/PRD_*.md` 67건 → `docs/archive/legacy_prd/`로 이동 (현행 활성 PRD만 root 유지).
+- **명세 §11.1 워커 차수 라벨 보강**: §11.1 추적 워커 본문에 "v4.11 신규 API / v4.12 인제스트 워커 분리" 차수 라벨 명시 (현재는 v4.11 본문에 인제스트 후속 NOTE만 존재).
+
 ## [v4.12] — 2026-06-27
 
 > 하루 1차수 묶음 원칙 — 2026-06-27 작업(계정 RBAC + 추적 인제스트 워커)을 단일 차수 v4.12로 관리.

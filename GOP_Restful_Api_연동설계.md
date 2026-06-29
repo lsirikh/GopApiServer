@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-06-27  
-**버전**: v4.12  
+**최종 수정일**: 2026-06-29  
+**버전**: v5.0  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -14349,6 +14349,7 @@ Authorization: Bearer {access_token}
 | PUT | `/api/user-groups/{id}` | 그룹 수정 |
 | DELETE | `/api/user-groups/{id}` | 그룹 삭제 |
 | GET | `/api/user-groups/{id}/users` | 그룹 소속 사용자 목록 |
+| POST | `/api/user-groups/{id}/permissions` | 그룹 권한 변경 (ADMIN 전용, v5.0 신규) |
 
 #### 9.4.2 POST `/api/user-groups`
 
@@ -14379,6 +14380,95 @@ Authorization: Bearer {access_token}
   }
 }
 ```
+
+#### 9.4.7 POST `/api/user-groups/{group_id}/permissions` — 그룹 권한 변경 (ADMIN 전용, v5.0 신규)
+
+일반 `PUT /api/user-groups/{id}`는 v4.8 Phase 12-7a 정책에 따라 `permissions` 필드 수정을 영구 차단한다(요청에 포함되면 무시 또는 422). 권한 변경은 보안 핵심 작업이므로 **전용 endpoint로 분리**하고, FastAPI 의존성 `Depends(require_admin)`을 endpoint 레벨에 강제하여 **ADMIN 역할만 호출 가능**하도록 인가를 일관 적용한다.
+
+요청 본문은 `PermissionsSchema`(strict input)로 검증한다. `modules` 딕셔너리는 8종 모듈 키와 4 verb(StrictBool) 매트릭스로 구성되며, `extra='forbid'`가 적용되어 미정의 모듈/verb는 자동으로 422를 반환한다. 권한은 **전체 교체** 방식으로 적용되고(부분 병합 아님), JSONB 컬럼 호환을 위해 `model_dump(mode="json", exclude_none=True)`로 직렬화한 뒤 저장한다.
+
+**Path Parameters**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `group_id` | integer | 권한을 변경할 그룹 ID (PK) |
+
+**Request Body** (`PermissionsSchema`)
+
+```json
+{
+  "modules": {
+    "devices":  { "view": true, "edit": true,  "delete": false, "control": false },
+    "events":   { "view": true, "edit": false, "delete": false, "control": false },
+    "cameras":  { "view": true, "edit": true,  "delete": false, "control": true  }
+  },
+  "device_groups": [1, 5, 7]
+}
+```
+
+- `modules`: `Dict[EnumPermissionModule, ModulePermission]`
+  - **EnumPermissionModule (8종)**: `devices`, `events`, `reports`, `cameras`, `users`, `user_groups`, `audit_logs`, `servers`
+  - **ModulePermission (4 verb, StrictBool)**: `view`, `edit`, `delete`, `control`
+  - `extra='forbid'` — 미정의 모듈 키(예: `"foo"`) 또는 미정의 verb(예: `"manage"`)는 422 반환
+  - **StrictBool** — `"yes"`, `1`, `"true"` 같은 truthy 값은 모두 422 (불리언 외 타입 거부)
+- `device_groups`: `List[int]` (선택) — 그룹이 접근 가능한 디바이스 그룹 ID 목록
+
+**Response (200 OK)**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "운영팀",
+    "description": "기지 운영팀",
+    "permissions": {
+      "modules": {
+        "devices":  { "view": true, "edit": true,  "delete": false, "control": false },
+        "events":   { "view": true, "edit": false, "delete": false, "control": false },
+        "cameras":  { "view": true, "edit": true,  "delete": false, "control": true  }
+      },
+      "device_groups": [1, 5, 7]
+    },
+    "user_count": 3,
+    "created_at": "2026-06-19T10:03:44+09:00",
+    "updated_at": "2026-06-29T10:23:29+09:00"
+  }
+}
+```
+
+**Error Responses**
+
+| HTTP | 사유 |
+|------|------|
+| 403 | ADMIN 아님 (`require_admin` 실패) — `{"code":"FORBIDDEN","message":"Insufficient role"}` |
+| 404 | 그룹 없음 — `{"code":"NOT_FOUND","message":"User group not found"}` |
+| 422 | 스키마 위반 — 미정의 모듈/verb, StrictBool truthy 값, 누락 필드 등 |
+
+**감사 로그**
+
+- `action_type`: `PERMISSION_CHANGED`
+- `resource_type`: `USER_GROUP`
+- `resource_id`: `group.id`
+- 변경 전/후 스냅샷(`before_perms`, `after_perms`)을 비교하여 `changes` 필드에 diff 저장
+- append-only 트리거 적용 (UPDATE/DELETE 차단, v51.1 FK 익명화 예외만 허용)
+
+> **NOTE** — JSONB 직렬화는 `permissions = permissions.model_dump(mode="json", exclude_none=True)`로 수행하며 **전체 교체** 방식이다. 부분 병합(merge)은 지원하지 않으므로, 클라이언트는 항상 완전한 권한 매트릭스를 송신해야 한다.
+
+**구현 위치**
+
+- `app/routers/user_groups.py:270` — POST endpoint (`dependencies=[Depends(require_admin)]`)
+- `app/schemas/user.py:46` — `PermissionsSchema` (`modules` + `device_groups`, `extra='forbid'`)
+- `app/schemas/user.py:31` — `ModulePermission` (4 verb StrictBool)
+- `app/utils/enums.py:779` — `EnumPermissionModule` (8종)
+- `app/utils/enums.py:791` — `EnumPermissionVerb` (4 verb)
+- `app/routers/auth.py` — `require_admin = require_role(['ADMIN'])`
+
+**Swagger 노출**
+
+- `operationId`: `update_user_group_permissions`
+- Request schema: `#/components/schemas/PermissionsSchema`
+- Tag: `user-groups`
 
 ### 9.5 UserSession API
 
@@ -15735,6 +15825,8 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 - `GET /api/users/me` - 내 정보 조회
 - `PUT /api/users/me` - 내 정보 수정
 - `PUT /api/users/me/password` - 내 비밀번호 변경
+- `POST /api/users/me/photo` - 본인 프로필 사진 업로드 (multipart, v4.11 신규)
+- `GET /api/users/photo/{file_name}` - 프로필 사진 다운로드 (무인증, v4.11 신규)
 
 **UserGroups**:
 - `GET /api/user-groups` - 그룹 목록 조회
@@ -15743,6 +15835,7 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 - `PUT /api/user-groups/{id}` - 그룹 수정
 - `DELETE /api/user-groups/{id}` - 그룹 삭제
 - `GET /api/user-groups/{id}/users` - 그룹 소속 사용자 목록
+- `POST /api/user-groups/{group_id}/permissions` - 그룹 권한 변경 (ADMIN 전용, v5.0 신규)
 
 **UserSessions**:
 - `GET /api/user-sessions` - 활성 세션 목록
@@ -15999,6 +16092,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v5.0 | 2026-06-29 | **하루 일괄 — 그룹 권한 관리 endpoint 신설(POST /api/user-groups/{id}/permissions, ADMIN 전용) + v4.12 후속 정합 정리 일괄 sweep**<br><br>**[권한 관리 §9.4.7]** `POST /api/user-groups/{group_id}/permissions` 신설(ADMIN 전용). 일반 `PUT /api/user-groups/{id}`은 v4.8 Phase 12-7a 영구 정책에 따라 `permissions` 필드 쓰기를 **차단**(메타만 갱신) — 일반 수정 경로로 권한 변경을 허용하면 **권한 상승 공격면**이 노출되므로, 권한 정책 갱신을 **별도 ADMIN endpoint로 분리**해 인가 집중·감사 일원화. `dependencies=[Depends(require_admin)]`(v4.12 §9.3.1 동일 패턴) 강제 — 비-ADMIN 호출은 라우팅 단계에서 **403**(`Insufficient role`).<br>- **Request**: `PermissionsSchema`(v4.9 Phase 3 도입, strict input) — `modules: Dict[EnumPermissionModule, ModulePermission]` + `device_groups: List[int]`(선택). `EnumPermissionModule` 8종(`devices`/`events`/`reports`/`cameras`/`users`/`user_groups`/`audit_logs`/`servers`), `ModulePermission` 4 verb `StrictBool`(`view`/`edit`/`delete`/`control`), `model_config = ConfigDict(extra='forbid')` → **미정의 모듈/verb는 422 자동 차단**(오탈자·신규 권한 누락 컴파일타임급 검출).<br>- **Response**: `UserGroupResponse`(갱신된 그룹, `permissions` 반영). **Error**: 403(RBAC) / 404(그룹 없음) / 422(스키마 위반).<br>- **JSONB 직렬화**: `permissions = schema.model_dump(mode='json', exclude_none=True)` — `user_groups.permissions` JSONB 컬럼 호환(EnumPermissionModule→string key 정규화, `None`은 누락 보존).<br>- **감사 로그 자동 기록**: `action_type='PERMISSION_CHANGED'`, `resource_type='USER_GROUP'`, `resource_id=group_id`, `resource_name=group.name`, `changes={'before': old_permissions, 'after': new_permissions}`(전/후 스냅샷), `actor_*`(login_id/id/name/role) 채움. **append-only 트리거**(v51.1, FK 익명화 예외 유지) 적용 — UPDATE/DELETE 차단, ACTOR_DELETED/RESOURCE_DELETED 익명화만 허용.<br>- **실측 검증**: admin POST → **200**(group.permissions 갱신, audit_logs 1행 `PERMISSION_CHANGED at 2026-06-29 10:23:29`), 비-ADMIN(VIEWER/USER) POST → **403**, 정의되지 않은 verb(`{"devices":{"view":true,"hack":true}}`) → **422**, 존재하지 않는 그룹 → **404**, Swagger `/docs` `operationId=update_user_group_permissions` + `schema=#/components/schemas/PermissionsSchema` `$ref` 노출 확인.<br>- 코드: `app/routers/user_groups.py:270` `@router.post("/{group_id}/permissions", dependencies=[Depends(require_admin)])`, 주석 `# PRD v5.0`. ⚠ 장비/이벤트/맵 쓰기 RBAC는 **v5.x 후속**(AUTH_MODE token 승격·.NET 클라 Bearer 부착 선결).<br><br>**[v4.12 후속 정합 정리 §부록]** 본 세션 2026-06-29 일괄 sweep — v4.12 차수 마감 후 누적된 운영·정합·보안 항목을 동일 차수에 묶어 처리(하루 1차수 묶음 원칙).<br>- **PII 차단**: `data/profiles/` `.gitignore` 등록(사용자 사진 3건 commit 방지) + `.gitkeep` 유지(디렉터리 영속). `c:workspace_python...txt`(경로 슬래시 누락으로 워크트리 루트에 생성된 사고 파일) 삭제 + 패턴 차단.<br>- **admin 계정 복구**: `failed_login_count=0` 리셋 + bcrypt `admin123` 재발급(평문 미저장, v4.10 user_password 평문 정책은 Camera/Lamp/Server 디바이스 자격증명에만 적용 — User 비밀번호는 bcrypt 해시 유지).<br>- **Swagger/PRD 정합**: Swagger `version` `1.6.0→4.12.0`, API Version `2.10→4.12`, PRD 목록 갱신(미반영 PRD 67건은 archive 후속).<br>- **이미지·컨테이너 재배포**: Image rebuild + Container force-recreate(`Created 2026-06-29T00:59:01`, v4.11 추적 이력 영속·v4.12 RBAC 코드 반영 확인).<br>- **token_blacklist 정리**: 17 row cleanup(외부 세션 잔재 jti 누적, collision/오탐 위험 제거). ⚠ 자동 청소 cron은 **v5.x 후속**.<br>- **메모리/세션 컨텍스트 갱신**: `session-context.md` 차수 `v4.10→v4.12`, HEAD/branch/안전점 표 갱신, `final-stable` 태그 4건 신설(v4.9/v4.10/v4.11/v4.12), 메모리 4건 신설(RBAC ADMIN 게이트·Tracking cursor·프로필 사진 정책·audit FK 익명화).<br>- **잔존 후속**: 장비/이벤트/맵 쓰기 RBAC(v5.x, AUTH_MODE token 승격 선결), `token_blacklist` 자동 청소 cron(v5.x), `before-*` 신규 3 태그 → `pre-*` 컨벤션 재명명, 67건 untracked PRD archive 정리.<br>- **안전점/롤백**: 본 차수 진입 직전 `pre-v5-spec-sync` 태그. 롤백 — 본 명세 commit 회귀 `git reset --hard pre-v5-spec-sync`(명세 v4.12 상태), 외부 세션 endpoint 자체 회귀 `git reset --hard v4.12-final-stable`, v4.12 정합 정리 회귀 `git reset --hard pre-v412-sync-cleanup`. |
 | v4.12 | 2026-06-27 | **하루 일괄 — 계정 관리 RBAC(ADMIN 게이트·권한상승 T1 차단) + 추적 이력 인제스트 워커(gis-ingest) 구축**<br><br>**[User API §9.3.1]** 계정 CRUD/lock/unlock/reset-password 8개 엔드포인트에 `require_admin`(=`require_role("ADMIN")`, `app/routers/auth.py` 신설) 의존성 추가. 이전엔 인증(Bearer)만 검증하고 `role`을 인가에 미사용 → **임의 인증사용자가 `PUT /api/users/{id}` 본문에 `role=ADMIN`을 실어 자기/타인을 ADMIN으로 격상(권한상승 T1)** 가능했음. role 미달 시 **403**(`Insufficient role`). 본인 자원(`/me`·`/me/password`·`/me/photo`) self-service 유지, `GET /api/users/photo/{file_name}` 인증불요 유지.<br>- `require_role` 의존성 팩토리 신설(auth.py) + users.py 8개 데코레이터 `dependencies=[Depends(require_admin)]`<br>- E2E 검증: VIEWER GET/PUT/DELETE → 403, T1 격상 → 403, admin → 200, /me → 200, 테스트계정 정리<br>- 서버측 RBAC가 권위 집행 지점(클라 UI 게이팅은 보조·우회 가능). ⚠ 장비/이벤트/맵 쓰기 RBAC는 **후속 차수** — AUTH_MODE token 승격·인증 의존성 통일·.NET 클라 Bearer 부착이 선결(미선결 시 앱 쓰기 전면 401)<br>- 안전점 `before-account-rbac`, 브랜치 `feature/server-account-rbac`<br><br>**[② 추적 이력 인제스트 워커 §11 / gis-ingest]** TRACKING_STATUS(신 `targets[]`)를 NATS 구독→`track_points` 영속하는 워커 신설 — §11(v4.11)에서 "후속"으로 둔 저장 경로 실현. 독립 compose 서비스 `api-test-gis-ingest`(`db_monitor` 역방향 미러, asyncpg+nats-py, `nats_external` 망 연결). `sensorway.*.gis.tracking-status` 구독 → `tracking=="active"` targets[]만 행으로 `INSERT ... ON CONFLICT (track_id, observed_at) DO NOTHING`(멱등). `observed_at`(UTC)→naive KST 변환(읽기 API KSTDatetime 정합), 구버전 단일 `target` 방어 파싱 포함. **mock E2E 검증**: NATS 발행→인제스트→멱등(중복 발행 2회=1행)→`/points`·`/sessions` 조회 정상, 테스트 데이터 정리. 발행 시 `created_at` NOT-NULL(raw asyncpg는 ORM Python default 미적용) 명시 지정 버그 E2E로 발견·수정. ⚠ 실 `AiAnalysis`가 신 `targets[]` 포맷 발행하도록 **합의 미결**(방어 파싱으로 구버전 호환). (`gis_ingest/main.py`·`Dockerfile`·`requirements.txt`, `docker-compose.yml` gis-ingest 서비스, 브랜치 `feature/tracking-gis-ingest`) |
 | v4.11 | 2026-06-26 | **하루 일괄 — 추적 이력(Tracking) REST API 신설 + 프로필 사진 업로드 + audit append-only 하드닝**<br><br>**[추적 이력 API 신설 §11]** GIS 추적(TRACKING_STATUS `targets[]`) 영속·조회 — `track_points` 테이블(`UNIQUE(track_id, observed_at)` 멱등 + `observed_at`/`(camera_id,observed_at)` 인덱스, 마이그레이션 v54) + **읽기전용 GET 3종**: `GET /api/tracking/points`(기간+keyset cursor 청크, Playback 핵심) · `GET /api/tracking/sessions`(track_id 단위 MIN/MAX/COUNT 파생집계) · `GET /api/tracking/health`(가용성 게이팅, 무인증). 저장은 **서버측 NATS 인제스트**(독립 `gis-ingest` 워커, `INSERT ... ON CONFLICT DO NOTHING`) — 클라 POST 배제(다중 스테이션 N배 중복 회피). 계약=신버전 `targets[]`(`docs/Gop_Message_Broker_연동설계.md §8.3.7`). §11 신설에 따라 기존 **§11 에러 처리→§12, §12 부록→§13 재번호**(TOC·부록 엔드포인트 목록 동기화).<br>**[프로필 사진 §9.3.1]** `POST /api/users/me/photo`(multipart, ≤5MB) → `./data/profiles/` 영속 + `account_users.photo_url` 갱신, `GET /api/users/photo/{file}`(무인증·경로 traversal 차단).<br>**[audit append-only 하드닝 §9.6.2]** 이력 있는 사용자 hard-delete 가능 — `fn_block_audit_modification`이 **FK 익명화(actor_id/user_id→NULL) UPDATE만 허용**(내용 변경·행 삭제는 계속 차단, v51.1). + audit-logs 500 수정: `AuditLogResponse.action_type/resource_type` strict enum→str(tolerant, append-only 비-enum 잔재 대응). |
 | v4.10 | 2026-06-25 | **하루 일괄 — SEC-1 마스킹 정책 폐기 / 평문 응답 복원 (v4.9 Phase 5 회귀)**<br><br>**[차수 배경]** 2026-06-24 v4.9 Phase 5에서 `.NET v4.9 Review Issues` SEC-1 (P0 보안) 적용으로 Camera/Lamp/Server 응답 `user_password` 마스킹(`"********"`) 도입. 단 1일 만에 운영 한계 노출: (1) 마스킹된 응답을 평문으로 복원하는 **복호화 경로 미정**, (2) .NET 통합 UI가 NVR/VMS/Speaker/Lamp/외부 서버에 RTSP/SSH/HTTP 접속 시 평문 자격증명 필요, (3) 대안(별도 secret API / AES / RSA / 백엔드 프록시)은 모두 분량 큼(4~20h+) 및 .NET 측 변경 동반. **차장님 결재 (2026-06-25)**: *"야 그냥 평문으로 보내. 복호화방법도 없는거 같은데"* → 단순 평문 회귀 + 보안은 v5.x 별도 차수.<br><br>**[Phase 1] SEC-1 마스킹 정책 폐기 / 평문 응답 복원 (6/6 PASS)**<br>- **안전점**: `pre-v4.10-phase1` @ 31bb478<br>- **PRD**: `docs/PRD_v4.10_Phase1_mask_rollback.md` (6.4KB, Workflow 1 agent, Track B)<br>**Schema 회귀 (5건)**:<br>- `app/schemas/device.py:12` `from app.schemas._password_mask import mask_password_serializer` 제거<br>- `app/schemas/device.py:518-520` `CameraResponse._mask_user_password` `@field_serializer` 블록 제거<br>- `app/schemas/device.py:1073-1075` `LampResponse._mask_user_password` 블록 제거<br>- `app/schemas/server.py:7` import 제거<br>- `app/schemas/server.py:156-158` `ServerResponse._mask_user_password` 블록 제거<br>- `app/schemas/server.py:207-209` `ServerNestedResponse._mask_user_password` 블록 제거<br>- Field 설명 정정: `"접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)"` → `"접속 비밀번호"` (4건)<br>**OpenAPI example 회귀 (4건)**:<br>- ServerResponse / ServerNestedResponse / ServerCategorySummary nested `"********"` → `"password123"`<br>- LampResponse example `"********"` → `"lamp1234"`<br>**명세 §5.3.x Camera 응답 예시 (L5103)**: `"user_password": "********"` → `"user_password": "admin1234"`<br>**유지**:<br>- `app/schemas/_password_mask.py` 파일 **heritage 보존** (사용처 0, v5.x secret API 재활용 가능)<br>- 명세 §9.2.2 로그인 자리표시자 `<your_login_id>/<your_password>` **유지** (로그인 자격증명 도메인, 마스킹 대상 아님)<br>- DB 평문 / Create/Update 요청 schema / 백엔드 내부 서비스 / 시드 / Audit Log `SENSITIVE_FIELDS` 모두 변경 없음 (변경 0)<br>**실측 검증 (6/6 PASS)**:<br>- ① Camera 단일 응답 `user_password = "sensorway1"` (DB 평문 그대로) ✅<br>- ② Lamp 단일 응답 `"lamp123"` ✅<br>- ③ Server 단일 응답 `"testpwd123"` ✅<br>- ④ Camera POST 응답 평문 `"plain_v410"` ✅<br>- ⑤ Camera POST DB 평문 `"plain_v410"` (3중 흐름 일치) ✅<br>- ⑥ OpenAPI ServerResponse example `"password123"` ✅<br>- Container Up healthy / Image rebuild / `grep mask_password_serializer` 0건 확인<br>**메모리 정책 재전환**:<br>- `feedback_password_masking_policy.md` (v4.9 Phase 5 정책) → **DEPRECATED** + `superseded_by: feedback_password_plaintext_policy`<br>- `feedback_password_plaintext_policy.md` → **RESTORED** (현행 정책 재명시)<br>- `MEMORY.md` 인덱스 한 줄 설명 갱신 (plaintext 현행 + masking DEPRECATED 동시 노출, 의사결정 이력 보존)<br>**.NET 회신 보강**:<br>- `docs/GOP_Server_API_v4.9_Review_RESPONSE.md` 하단에 `## POLICY UPDATE 2026-06-25 — v4.10 Phase 1 회귀` 섹션 append<br>- 24시간 만의 정책 회귀 인정 + 차장님 결재 인용 + 복호화 경로 부재 근거 + DTO shape 변경 0 재명시 + 보안 v5.x 예고<br>**Track B 적용** (5축 점수 3점: 파일 3 / 아키텍처 0 / 모듈 0 / 테스트 1 / 공수 1)<br><br>**[v4.10 잔존 (.NET v4.9 Review 다른 항목)]**<br>- P0: ENV-1 (Response envelope 5종 표준화) / AUTH-1 (`expires_in`/TTL) / AUTH-2 (PUT /me/password 본문)<br>- P1: FMT-1 / ENUM-1~2 / DEV-1~2 / EVT-1 / INT-1 / SVR-1 / AUTH-3~4 (10건)<br>- 잔존: B-4 / B-5 / B-7 / B-8 (4건, FollowupRequests 미적용)<br>- P2: DOC-1~3 (3건)<br>- 기존 v4.9 후속: A-1.3 Photo multipart / A-1.4 가드 7종 / A-3 audit trigger / B-2 NATS / B-3 RBAC / B-6 lock 메타 (~17h)<br>- 합계 ~38-50h (3~5일 작업)<br><br>**원칙 준수**: 하루 1 차수 묶음 (Phase 1 단일 작업, 2026-06-25 = v4.10 단일 차수). v4.9 Phase 5와 별도 차수 분리 — 다른 일자 작업이므로 정합.<br>**[Phase 2] HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS)**<br>- **배경**: v4.10 Phase 1 평문 응답 정책 회복 직후, 폐쇄망 환경에서도 통신 구간 암호화 필요 (JWT Bearer 토큰 + user_password 평문 전송 위험 완화). 차장님 결재 (2026-06-25): *"가장 간단하고 쉬운거 신뢰되고. 우리 폐쇄망이야"* + *"GOP 운영 시나리오 (서버 1대 + 여러 클라 PC)"* + *"인증서 등록을 EXE 1클릭으로 일원화"*.<br>- **선정**: mkcert (외부 인터넷 불필요, OS 신뢰 저장소 자동 등록) + Inno Setup (.iss 정식 GUI 인스톨러).<br>- **안전점**: `pre-v4.10-phase2` @ 8089877<br>- **PRD**: `docs/PRD_v4.10_Phase2_HTTPS_mkcert_Inno.md` (11.2KB, Workflow 2 agent 옵션 비교 A/B/C → A 선정)<br>- **사용자 가이드**: `docs/GOP_RootCA_Installer_Guide.md` (.NET 팀 배포용 1페이지)<br>**[Phase 2-1] mkcert 인증서 발급**:<br>- mkcert v1.4.4 다운로드 (`~/bin/mkcert.exe` ~5MB)<br>- `mkcert -install` → Windows 신뢰 저장소에 local CA 자동 등록 (Java keytool 경고 무시)<br>- `mkcert -cert-file certs/server.crt -key-file certs/server.key localhost 127.0.0.1 ::1 host.docker.internal 192.168.202.160 192.168.1.1 10.0.0.1` (SAN 다중 + 만료 2028-09-25)<br>- `rootCA.pem` 위치: `C:\Users\gh\AppData\Local\mkcert\rootCA.pem` (CAROOT) → `certs/installer/payload/rootCA.pem` 복사<br>**[Phase 2-2] Docker HTTPS 적용**:<br>- `Dockerfile` (L37-41) CMD 정정 — `sh -c "if [ -f /app/certs/server.crt ] ... uvicorn --ssl-keyfile ... else uvicorn (HTTP fallback) fi"` (개발 환경 호환)<br>- `docker-compose.yml` api-server 서비스:<br>  - `volumes: ./certs:/app/certs:ro` 추가<br>  - `healthcheck: curl -fk https://localhost:8000/docs` (자체 서명이라 -k)<br>- Image rebuild + force-recreate → Container Up healthy + `Uvicorn running on https://0.0.0.0:8000` 확인<br>**[Phase 2-3] Inno Setup 인스톨러 (옵션 A 선정, 옵션 B PowerShell/C# 제외 사유: 차장님 UX + 폐쇄망 USB 운반 + 제어판 제거 자동)**:<br>- `certs/installer/` 디렉터리 신설 (8 소스 파일):<br>  - `src/install_gop_rootca.iss` (3.7KB) — Inno Setup 메인 스크립트 (PrivilegesRequired=admin + rootCA 임베드 + certutil 호출)<br>  - `src/post_install.ps1` (3.5KB) — certutil -addstore -f Root + 한국어 로그 (`%TEMP%\GOP-RootCA-Install.log`)<br>  - `src/pre_uninstall.ps1` (1.8KB) — certutil -delstore 신뢰 제거 (제어판 제거 시 자동 호출)<br>  - `src/LICENSE_KO.txt` (0.6KB) — 한국어 Welcome 페이지<br>  - `scripts/build.ps1` (2.9KB) — ISCC.exe 자동 탐색 + 컴파일<br>  - `scripts/verify.ps1` (1.1KB) — 등록 검증<br>  - `.gitignore` + `README.md` (빌드/사용 안내)<br>- payload: `certs/installer/payload/rootCA.pem` (mkcert root CA 임베드, 1.6KB)<br>- 빌드 산출물: `GOP-RootCA-Installer-v1.0.0.exe` (~1.5~2.5MB 예상, Inno Setup Compiler 빌드 시 생성)<br>- **빌드는 차장님 PC에서 별도 수행** (Inno Setup 6 사전 설치 필요, 빌드 가이드는 README.md 참조)<br>**[Phase 2-4] .gitignore 보안**:<br>- `certs/*.crt` / `certs/*.key` / `certs/*.pem` 차단 (commit 금지)<br>- `!certs/installer/` 예외 (소스는 commit OK)<br>- `certs/installer/build/*.exe` + `payload/rootCA.pem` 차단 (산출물 제외)<br>**[Phase 2-5] 실측 검증 (6/6 PASS)**:<br>- ① Uvicorn 시작 로그 `Uvicorn running on https://0.0.0.0:8000` ✅<br>- ② `curl -k https://localhost:8000/docs` → 200 + `ssl_verify_result=0` ✅<br>- ③ `http://localhost:8000/docs` → 000 (HTTP 차단됨, Uvicorn SSL 강제) ✅<br>- ④ 인증서 정보: `subject=mkcert development certificate, issuer=mkcert development CA, notAfter=2028-09-25` ✅<br>- ⑤ Bearer 토큰 발급 + `https://localhost:8000/api/auth/me` 200 ✅<br>- ⑥ Container `Up healthy` + healthcheck `curl -fk` 정상 ✅<br>**[Phase 2 잔존]**:<br>- Inno Setup Compiler 빌드는 차장님 PC에서 별도 (소스만 commit, build/*.exe는 .gitignore)<br>- HSTS 헤더 / Secure 쿠키 / CSP 등 추가 보안 헤더는 v5.x 권고<br>- adminer(8080) / NATS(4222) 등 다른 서비스 HTTPS는 별도 차수 권고<br>- 외부 IP / 내부 IP 환경 (메모리 project_environments)에서 SAN 추가 발급 필요 시 mkcert 재실행<br><br>**원칙 준수**: 하루 1 차수 묶음 (Phase 1+2 모두 v4.10 단일 행, 2026-06-25).<br>**롤백**: `git reset --hard pre-v4.10-phase2` (Phase 2만 회귀 → HTTPS 제거, 평문 응답 정책 유지). `git reset --hard pre-v4.10-phase1` (Phase 1+2 회귀 → v4.9 Phase 5 마스킹 정책 복원). `git reset --hard pre-v4.9-phase5` (v4.9 Phase 5 자체 회귀, 마스킹 도입 직전). `git reset --hard v4.8-final-stable` (v4.9 + v4.10 전체 회귀). |
@@ -16042,5 +16136,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.12
-**최종 업데이트**: 2026-06-27
+**문서 버전**: v5.0
+**최종 업데이트**: 2026-06-29

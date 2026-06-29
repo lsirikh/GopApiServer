@@ -31,7 +31,7 @@ from sqlalchemy.orm import selectin_polymorphic
 from app.models.event import ActionEvent, Event, DetectionEvent, MalfunctionEvent, ConnectionEvent
 from app.models.device import Device
 from app.schemas.event import (
-    ActionEventCreate, ActionEventResponse, ActionEventUpdate,
+    ActionEventCreate, ActionEventReplace, ActionEventResponse, ActionEventUpdate,
     DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse
 )
 from app.schemas.device import DeviceNestedResponse, DeviceGroupNestedResponse
@@ -473,12 +473,15 @@ async def update_action_event(
     - **type_event**: 이벤트 유형
     - **content**: 조치 내용 설명
     - **user**: 조치를 수행한 사용자
-    - **from_event_id**: 원본 이벤트 ID
+
+    **주의**: from_event_id는 PATCH로 변경 불가 (PRD v1.6 + v4.8 Phase 12). 전송 시 422 거부.
+    원본 이벤트 재지정이 필요하면 DELETE 후 POST로 재생성하세요.
 
     **Response**: 수정된 조치 이벤트 정보
 
     **Error**:
     - 404: 조치 이벤트를 찾을 수 없음
+    - 422: from_event_id 포함 시 (extra="forbid")
     """
     event = db.query(ActionEvent).filter(ActionEvent.id == event_id).first()
 
@@ -492,16 +495,8 @@ async def update_action_event(
     before_state = model_to_dict(event)
 
     # Update fields if provided
+    # PRD v1.6 + v4.8 Phase 12: from_event_id 차단 — ActionEventUpdate 스키마에서 제거됨 (Pydantic 422 자동)
     update_data = event_data.model_dump(exclude_unset=True)
-
-    # If from_event_id is being updated, verify the new source event exists
-    if 'from_event_id' in update_data:
-        new_source = db.query(Event).filter(Event.id == update_data['from_event_id']).first()
-        if not new_source:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Source event with id {update_data['from_event_id']} not found"
-            )
 
     for field, value in update_data.items():
         setattr(event, field, value)
@@ -553,16 +548,16 @@ async def update_action_event(
 @router.put("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
 async def replace_action_event(
     event_id: int,
-    event_data: ActionEventCreate,
+    event_data: ActionEventReplace,
     current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
     조치 이벤트 전체 수정 (PUT)
 
-    PRD v1.5: from_type_event 필드 제거 - polymorphic relationship 사용
+    PRD v1.6 + v4.8 Phase 12: from_event_id 변경 원천 차단 (차장님 결재)
 
-    조치 이벤트의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
+    조치 이벤트의 type_event/content/user 필드를 교체합니다.
 
     **파라미터**:
     - **event_id**: 조치 이벤트 ID (Path Parameter)
@@ -571,12 +566,15 @@ async def replace_action_event(
     - **type_event**: 이벤트 유형
     - **content**: 조치 내용 설명
     - **user**: 조치를 수행한 사용자
-    - **from_event_id**: 원본 이벤트 ID
+
+    **주의**: from_event_id는 PUT으로 변경 불가 (PRD v1.6). 전송 시 422 거부.
+    원본 이벤트 재지정이 필요하면 DELETE 후 POST로 재생성하세요.
 
     **Response**: 수정된 조치 이벤트 정보
 
     **Error**:
     - 404: 조치 이벤트를 찾을 수 없음
+    - 422: from_event_id 포함 시 (extra="forbid")
     """
     event = db.query(ActionEvent).filter(ActionEvent.id == event_id).first()
 
@@ -586,19 +584,20 @@ async def replace_action_event(
             detail=f"Action event with id {event_id} not found"
         )
 
-    # Verify new source event exists
-    source_event = db.query(Event).filter(Event.id == event_data.from_event_id).first()
-    if not source_event:
+    # PRD v1.6 + v4.8 Phase 12: from_event_id 차단 — ActionEventReplace 스키마에서 제거됨
+    # 기존 event.from_event_id 보존, source_event는 폴리모픽 관계 재사용
+    source_event = event.source_event
+    if source_event is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Source event with id {event_data.from_event_id} not found"
+            detail=f"Source event with id {event.from_event_id} not found"
         )
 
-    # Replace all fields (PUT = full replacement)
+    # Replace fields (PUT = full replacement, from_event_id 제외)
     event.type_event = event_data.type_event
     event.content = event_data.content
     event.user = event_data.user
-    event.from_event_id = event_data.from_event_id
+    # event.from_event_id 는 절대 수정하지 않음 (PRD v1.6)
 
     db.commit()
     db.refresh(event)
@@ -623,7 +622,7 @@ async def replace_action_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None])
 async def delete_action_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),
@@ -678,6 +677,6 @@ async def delete_action_event(
 
     return ApiSingleResponse(
         success=True,
-        message="Action event deleted successfully",
+        message=f"Action event {event_id} deleted successfully",
         data=None
     )

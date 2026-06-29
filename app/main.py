@@ -33,7 +33,7 @@ from app.database import engine
 from app.db_triggers import apply_triggers
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -61,6 +61,10 @@ tags_metadata = [
     {
         "name": "Audit Logs",
         "description": "감사 로그 조회 API. 사용자 활동 감사 로그를 조회합니다. PRD: PRD_Audit_Log.md v1.0",
+    },
+    {
+        "name": "Tracking",
+        "description": "추적 이력(Tracking) 조회 API. NATS gis.tracking-status 로 수집된 추적점을 기간/세션으로 조회합니다(read-only). PRD: PRD_Tracking_History_API.md v1.0",
     },
     {
         "name": "Config Change Logs",
@@ -280,10 +284,11 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- API Version: 2.10
-- PRD: PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
+- API Version: 5.0 (2026-06-29)
+- 명세: GOP_Restful_Api_연동설계.md v5.0
+- 주요 PRD: PRD_v5.0_Permission_Management.md (v5.0 그룹 권한 관리), PRD_Tracking_History_API.md (v4.11), PRD_v4.9_Followup_AccountIntegration.md (v4.12 RBAC), PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="1.6.0",
+    version="5.0.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -467,6 +472,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     """
     error_code = HTTP_ERROR_CODES.get(exc.status_code, "UNKNOWN_ERROR")
 
+    # PRD v4.9 Phase 2-B1: WWW-Authenticate 등 라우터에서 설정한 헤더 보존 (RFC 6750/7235)
+    # 라우터의 HTTPException(headers={"WWW-Authenticate": "Bearer"}) 이 envelope 직렬화 시 손실되지 않도록 전달
+    response_headers = getattr(exc, 'headers', None)
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -477,7 +486,8 @@ async def http_exception_handler(request: Request, exc: HTTPException):
                 "details": None
             },
             "meta": create_error_meta(request)
-        }
+        },
+        headers=response_headers
     )
 
 
@@ -611,6 +621,7 @@ app.include_router(xypoints.router, prefix="/api/rois", tags=["XyPoints"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(thumbnails.router, prefix="/api/thumbnails", tags=["Thumbnails"])
 app.include_router(event_statistics.router, prefix="/api/events/statistics", tags=["Event Statistics"])
+app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

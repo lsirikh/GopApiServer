@@ -123,13 +123,18 @@ def _create_user_groups(db: Session) -> dict:
         print(f"  [OK] User groups already exist: {len(groups)}")
         return {g.name: g.id for g in groups}
 
+    # PRD v4.9 Phase 3 (A-2.4): nested dict 정규화 — flat 'rw'/'r' 폐기
+    # 시드 재실행 시에도 PermissionsSchema 통과 보장
+    _RW = {"view": True, "edit": True, "delete": False, "control": False}
+    _R = {"view": True, "edit": False, "delete": False, "control": False}
+    _CTRL = {"view": True, "edit": True, "delete": False, "control": True}
     data = [
         {"name": "운영팀", "description": "시스템 운영 담당",
-         "permissions": {"devices": "rw", "events": "rw", "reports": "rw"}, "is_active": True},
+         "permissions": {"modules": {"devices": _RW, "events": _RW, "reports": _RW, "cameras": _CTRL}}, "is_active": True},
         {"name": "관제팀", "description": "관제 모니터링 담당",
-         "permissions": {"devices": "r", "events": "r", "reports": "r"}, "is_active": True},
+         "permissions": {"modules": {"devices": _R, "events": _R, "reports": _R, "cameras": _R}}, "is_active": True},
         {"name": "유지보수팀", "description": "장비 유지보수 담당",
-         "permissions": {"devices": "rw", "events": "r", "reports": "r"}, "is_active": True},
+         "permissions": {"modules": {"devices": _RW, "events": _R, "reports": _R}}, "is_active": True},
     ]
     result = {}
     for d in data:
@@ -875,7 +880,15 @@ ACTION_CONTENTS = [
 
 
 def _create_action_events(db: Session, event_ids: dict, user_names: list[str]):
-    """Create 5000 action events. ~1000 detection+malfunction events remain without action (action_reported=False)."""
+    """Create 5000 action events. Remaining ~3000 detection+malfunction events stay action_reported=False.
+
+    INVARIANT (PRD_ActionEvent_1N_Refactoring v2.0 + v4.8 Phase 12):
+        action_reported == "True"  iff  COUNT(ActionEvent WHERE from_event_id = event.id) >= 1
+        action_reported == "False" iff  no ActionEvent references this event
+
+        시드에서 ActionEvent 없이 action_reported="True" 박아넣기 금지.
+        무작위 True 배정 금지 — 재발 시 1:N 데이터 무결성 위배.
+    """
     existing = db.query(ActionEvent).count()
     if existing > 0:
         print(f"  [OK] Action events already exist: {existing}")
@@ -887,24 +900,16 @@ def _create_action_events(db: Session, event_ids: dict, user_names: list[str]):
     all_event_ids = det_ids + mal_ids  # 3000 + 5000 = 8000
     random.shuffle(all_event_ids)
 
-    # 5000건 조치보고 대상 선택 (나머지 3000건 중 ~1000건은 action_reported=False 유지)
+    # 5000건만 조치 대상 (= ActionEvent 1건 이상 매칭 → action_reported=True)
+    # 나머지 ~3000건은 action_reported=False 유지 (초기값)
     targets = all_event_ids[:5000]
-    # 나머지 3000건 중 ~2000건은 action_reported=True로 변경 (보고는 했지만 조치 미등록)
-    remaining = all_event_ids[5000:]
-    reported_no_action = remaining[:2000]
-    # 나머지 ~1000건은 action_reported=False 그대로 유지
 
-    # 조치보고 대상 이벤트의 action_reported = "True" 일괄 업데이트
-    print("    Updating action_reported for target events...", flush=True)
-    target_set = set(targets)
-    reported_set = set(reported_no_action)
-    update_true_ids = list(target_set | reported_set)  # 5000 + 2000 = 7000건 True
-
-    # DetectionEvent, MalfunctionEvent 각각 분리 업데이트 (action_reported는 child 테이블에 있음)
+    # invariant 유지: ActionEvent 매칭될 5000건만 action_reported="True" 일괄 설정
+    print("    Updating action_reported for target events (ActionEvent-backed only)...", flush=True)
     det_id_set = set(det_ids)
     mal_id_set = set(mal_ids)
-    det_update = [eid for eid in update_true_ids if eid in det_id_set]
-    mal_update = [eid for eid in update_true_ids if eid in mal_id_set]
+    det_update = [eid for eid in targets if eid in det_id_set]
+    mal_update = [eid for eid in targets if eid in mal_id_set]
 
     for batch_start in range(0, len(det_update), 1000):
         batch = det_update[batch_start:batch_start + 1000]
@@ -941,9 +946,9 @@ def _create_action_events(db: Session, event_ids: dict, user_names: list[str]):
             db.flush()
 
     db.commit()
-    unreported = len(all_event_ids) - len(update_true_ids)
+    unreported = len(all_event_ids) - len(targets)
     print(f"  [OK] Action events created: {len(targets)} "
-          f"(reported: {len(update_true_ids)}, unreported: ~{unreported})")
+          f"(reported: {len(targets)}, unreported: ~{unreported})")
 
 
 # ── System Events ────────────────────────────────────────

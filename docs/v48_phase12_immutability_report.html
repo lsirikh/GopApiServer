@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>v4.8 Phase 12 — 근간 불변성 보고서 (2026-06-22)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #f5f7fa;
+    margin: 0;
+    padding: 0;
+  }
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+  header {
+    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+    color: white;
+    padding: 32px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  }
+  header h1 { margin: 0 0 8px; font-size: 28px; }
+  header .subtitle { font-size: 16px; opacity: 0.9; }
+  header .meta { font-size: 13px; opacity: 0.75; margin-top: 12px; }
+  section {
+    background: white;
+    padding: 24px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  section h2 {
+    margin-top: 0;
+    color: #1e3a8a;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 12px;
+    font-size: 22px;
+  }
+  section h3 { color: #374151; font-size: 18px; margin-top: 24px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  th { background: #f3f4f6; padding: 10px 12px; text-align: left; border-bottom: 2px solid #d1d5db; font-weight: 600; color: #374151; }
+  td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  tr:hover td { background: #f9fafb; }
+  .pass { color: #059669; font-weight: 600; }
+  .fail { color: #dc2626; font-weight: 600; }
+  .warn { color: #d97706; font-weight: 600; }
+  .info { color: #2563eb; font-weight: 600; }
+  .mute { color: #6b7280; }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+  }
+  .pill-p0 { background: #fee2e2; color: #991b1b; }
+  .pill-p1 { background: #fed7aa; color: #9a3412; }
+  .pill-p2 { background: #fef3c7; color: #92400e; }
+  .pill-p3 { background: #d1fae5; color: #065f46; }
+  .pill-ok { background: #d1fae5; color: #065f46; }
+  .pill-blocked { background: #c7d2fe; color: #3730a3; }
+  .pill-deferred { background: #e5e7eb; color: #374151; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .stat {
+    background: #f9fafb;
+    padding: 16px;
+    border-radius: 8px;
+    border-left: 4px solid #3b82f6;
+  }
+  .stat .label { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat .value { font-size: 24px; font-weight: 700; color: #1e3a8a; margin-top: 4px; }
+  .stat .sub { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+  .stat-ok { border-left-color: #10b981; }
+  .stat-ok .value { color: #047857; }
+  .stat-warn { border-left-color: #f59e0b; }
+  .stat-warn .value { color: #b45309; }
+  .stat-bad { border-left-color: #ef4444; }
+  .stat-bad .value { color: #b91c1c; }
+  code {
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 13px;
+    color: #be185d;
+  }
+  pre {
+    background: #1f2937;
+    color: #e5e7eb;
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .mermaid { text-align: center; margin: 20px 0; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; padding: 12px;
+    background: #f9fafb; border-radius: 6px; font-size: 13px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-box { width: 16px; height: 16px; border-radius: 3px; }
+  .principle-card {
+    background: #fef3c7;
+    border-left: 4px solid #f59e0b;
+    padding: 14px;
+    border-radius: 6px;
+    margin: 10px 0;
+  }
+  .principle-card.ok { background: #d1fae5; border-left-color: #10b981; }
+  .principle-card .num { font-weight: 700; font-size: 18px; color: #92400e; }
+  .principle-card.ok .num { color: #065f46; }
+  .progress-bar {
+    width: 100%; height: 24px; background: #e5e7eb; border-radius: 12px; overflow: hidden;
+    position: relative; margin: 8px 0;
+  }
+  .progress-fill { height: 100%; transition: width 0.3s ease; }
+  .progress-label {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: white; font-size: 12px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .grid-2col {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  @media (max-width: 768px) { .grid-2col { grid-template-columns: 1fr; } }
+  .toc {
+    background: #eff6ff;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  .toc ul { margin: 4px 0; padding-left: 20px; }
+  .toc a { color: #2563eb; text-decoration: none; font-size: 14px; }
+  .toc a:hover { text-decoration: underline; }
+  footer {
+    text-align: center; padding: 24px; color: #6b7280; font-size: 13px; margin-top: 20px;
+  }
+  .callout {
+    background: #fef9c3; border-left: 4px solid #eab308; padding: 14px 18px;
+    border-radius: 6px; margin: 16px 0; font-size: 14px;
+  }
+  .callout strong { color: #854d0e; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>GOP API v4.8 Phase 12 — 근간 불변성 보고서</h1>
+  <div class="subtitle">"근간을 흔드는 변경" 전수 식별 + Phase 12-7 완료 (10/10 PASS) ✅</div>
+  <div class="meta">
+    작성일: 2026-06-22 · 차수: v4.8 (Phase 1~12-7 통합) · HEAD: 43d0c609 · final-stable: a76cb4b2
+  </div>
+</header>
+
+<div class="toc">
+  <strong>목차</strong>
+  <ul>
+    <li><a href="#summary">1. 한눈에 보기 (Dashboard)</a></li>
+    <li><a href="#completed">2. v4.8 Phase 1~12 완료 (지금까지)</a></li>
+    <li><a href="#principles">3. 불변성 원칙 6대 (명문화)</a></li>
+    <li><a href="#identified">4. 근간 흔드는 변경 식별 (20개)</a></li>
+    <li><a href="#cascade">5. Event 도메인 cascade 다이어그램</a></li>
+    <li><a href="#put-vs-block">6. 변경 가능 vs 차단됨 비교</a></li>
+    <li><a href="#git-rollback">7. git 안전점 5단 회귀 계층</a></li>
+    <li><a href="#options">8. 결재 옵션 비교</a></li>
+    <li><a href="#timeline">9. v4.4 → v5.0 타임라인</a></li>
+    <li><a href="#long-term-sensor-type">10. 장기 설계 — sensor_type 분리 (v5.0 권고)</a></li>
+  </ul>
+</div>
+
+<!-- ============================================ -->
+<!-- 1. SUMMARY -->
+<!-- ============================================ -->
+<section id="summary">
+  <h2>1. 한눈에 보기 (Dashboard)</h2>
+
+  <div class="stat-grid">
+    <div class="stat stat-ok">
+      <div class="label">현재 차수</div>
+      <div class="value">v4.8</div>
+      <div class="sub">Phase 1~12 통합 (2026-06-22)</div>
+    </div>
+    <div class="stat stat-ok">
+      <div class="label">DB orphan</div>
+      <div class="value">0건</div>
+      <div class="sub">device_group_mappings 완전 정합</div>
+    </div>
+    <div class="stat stat-ok">
+      <div class="label">invariant 위배</div>
+      <div class="value">0건</div>
+      <div class="sub">action_reported (시드 1999건 정정 후)</div>
+    </div>
+    <div class="stat stat-ok">
+      <div class="label">DELETE envelope</div>
+      <div class="value">22 / 0 / 0</div>
+      <div class="sub">NoneType 통일 / dict 잔존 / Union 잔존</div>
+    </div>
+    <div class="stat stat-ok">
+      <div class="label">Cascade 정책</div>
+      <div class="value">4 / 4 MATCH</div>
+      <div class="sub">Detection · Malfunction · Connection · Action</div>
+    </div>
+    <div class="stat stat-warn">
+      <div class="label">근간 흔드는 변경 식별</div>
+      <div class="value">20건 → 6 적용</div>
+      <div class="sub">Phase 12-7 적용 6 sub-phase ✅ / 잔존 P2 6 · P3 9 / v5.0 type_device</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>핵심:</strong> v4.8 Phase 12-7 완료 — 근간 흔드는 변경 6 sub-phase 원천 차단 + 10/10 실측 PASS. 평문 암호 정책은 v5.0 분리.
+  </div>
+
+  <div class="callout" style="background:#d1fae5;border-left-color:#10b981;">
+    <strong>✅ Phase 12-7 적용 완료 (2026-06-22 16:08):</strong>
+    <br>① UserGroup.permissions 422 차단 · ② Event 3종 PUT device_id/device_description 422 · ③ /me role 422 · ④ Action.created_at 422 · ⑤ Enclosure door_status 422 · ⑥ audit_logs DB TRIGGER (UPDATE/DELETE EXCEPTION + INSERT 정상)
+    <br>PRD: <code>docs/PRD_v4.8_Phase12-7_Immutability.md</code> · 안전점: <code>pre-immutability-phase12-7</code> @ a9d4655
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- 2. COMPLETED -->
+<!-- ============================================ -->
+<section id="completed">
+  <h2>2. v4.8 Phase 1~12 완료 매트릭스</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Phase</th>
+        <th>도메인</th>
+        <th>핵심 작업</th>
+        <th>안전점</th>
+        <th>결과</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="pill pill-ok">1</span></td>
+        <td>git</td>
+        <td>안전점 <code>pre-delete-sweep</code> 신설</td>
+        <td>pre-delete-sweep</td>
+        <td class="pass">✅ 차수 진입 보호</td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-ok">2~7</span></td>
+        <td>DELETE response</td>
+        <td>EM 단건 3 + 일반 8 = <strong>11 endpoint</strong> envelope 통일 (P1 sweep)</td>
+        <td>—</td>
+        <td class="pass">✅ <code>NoneType</code> 통일, JsonReaderException 해소</td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-ok">8</span></td>
+        <td>Events DELETE</td>
+        <td>4건 <code>Union[dict,None]</code> → <code>None</code> sweep</td>
+        <td>pre-events-delete-sweep</td>
+        <td class="pass">✅ Events 4종 sweep 완료</td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-ok">9</span></td>
+        <td>Device mappings</td>
+        <td>polymorphic cascade <strong>504 orphan</strong> 정리 + 3 라우터 cleanup</td>
+        <td>pre-cascade-fix</td>
+        <td class="pass">✅ Lamp/Speaker/Enclosure 라우터 통일</td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-ok">10~11</span></td>
+        <td>Controller cascade</td>
+        <td>Controller→Sensor cascade 우회 정정 + Enum 통일</td>
+        <td>pre-controller-cascade-fix</td>
+        <td class="pass">✅ 자식 Sensor 매핑 자동 정리</td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-ok">12</span></td>
+        <td>Event 도메인 전체</td>
+        <td>Workflow 11 agent + <code>from_event_id</code> 차단 + invariant <strong>1999건 회복</strong></td>
+        <td>pre-action-invariant-fix · pre-event-audit</td>
+        <td class="pass">✅ 4 시나리오 PASS, 시드 정합 100%</td>
+      </tr>
+      <tr style="background:#ecfdf5">
+        <td><span class="pill pill-ok">12-7</span></td>
+        <td>불변성 강화 6 sub-phase</td>
+        <td>UserGroup.permissions / Event 3종 PUT device_id / /me self-update / ActionEvent.created_at / Enclosure door_status / audit_logs DB TRIGGER</td>
+        <td>pre-immutability-phase12-7</td>
+        <td class="pass">✅ 10/10 실측 PASS</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>9중 정합 (코드 ↔ DB ↔ 명세 ↔ Swagger ↔ Image ↔ Container ↔ CHANGELOG ↔ session-context ↔ Gitea):</strong>
+    모두 ✅. 명세 헤더/푸터 v4.8 / 2026-06-22, 변경 이력 v4.8 행 Phase 1~12 본문 포함, Gitea v4.8 branch + v4.8-final-stable 동기화 완료.
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- 3. PRINCIPLES -->
+<!-- ============================================ -->
+<section id="principles">
+  <h2>3. 불변성 원칙 6대 (명문화)</h2>
+  <p>Workflow 6 agent 분석 결과로 명문화. 이 원칙들이 v4.8+의 모든 PUT/PATCH 설계 기준이 됨.</p>
+
+  <div class="principle-card ok">
+    <div class="num">원칙 1. 영구 귀속 (Identity Permanence)</div>
+    이벤트 발생 후 1:N invariant로 종속되는 FK는 PUT/PATCH로 변경 불가. <code>*Replace</code> 전용 스키마로 시그니처 분리하고 <code>extra="forbid"</code>로 422 회귀 차단.
+    <br><strong>예시:</strong> <code>action_events.from_event_id</code> (Phase 12-1 차단 완료 ✅)
+  </div>
+
+  <div class="principle-card">
+    <div class="num">원칙 2. 스냅샷 불가침 (Snapshot Immutability)</div>
+    부모 삭제 후 추적성 보존용 스냅샷 필드는 사용자 입력으로 덮어쓸 수 없음. 입력 스키마 미노출 + extra="forbid" + 핸들러에서 강제 재계산.
+    <br><strong>예시:</strong> <code>events.device_description</code> (PATCH ✅ / PUT은 GAP)
+  </div>
+
+  <div class="principle-card">
+    <div class="num">원칙 3. 시스템 자동관리 (System-Managed Fields)</div>
+    카운터/플래그/타임스탬프는 헬퍼 또는 시스템 default만 변경. 일반 *Update 경로 차단.
+    <br><strong>예시:</strong> <code>action_reported</code> (Phase 12-2 ✅), <code>is_locked</code>, <code>failed_login_count</code>, <code>locked_at</code>
+  </div>
+
+  <div class="principle-card ok">
+      <div class="num">원칙 4. Polymorphic Discriminator는 이미 안전 — <code>type_device</code>는 별개 (Sensor 예외)</div>
+      <p style="margin:6px 0;">실측 결과 SQLAlchemy Joined Table Inheritance의 polymorphic discriminator는 <code>category_device</code>이며, <code>type_device</code>가 아니다.</p>
+      <pre style="margin:8px 0;">app/models/device.py:65-66
+  __mapper_args__ = {
+      "polymorphic_on": category_device,   # 진짜 discriminator (이미 안전)
+  }</pre>
+      <p style="margin:6px 0;"><strong>(a) <code>category_device</code></strong> — ORM 다형성을 결정하는 진짜 discriminator. Phase 9에서 이미 불변 처리되어 안전. <strong>추가 차단 불필요.</strong></p>
+      <p style="margin:6px 0;"><strong>(b) <code>type_device</code></strong> — <code>EnumDeviceType</code> 19종을 담는 <em>보조 필드</em>. ORM 무결성과 무관하므로 polymorphic 관점의 "절대 불변" 논리가 적용되지 않음.</p>
+      <p style="margin:6px 0;"><strong>(c) 1종 고정 카테고리 — 변경 의미 자체가 없음 → 차단 권고:</strong> Controller / Camera / Speaker / Enclosure / Lamp 5종은 카테고리당 <code>type_device</code>가 1개로 고정되어 있어, 변경하면 비즈니스적으로 무효 상태가 됨.</p>
+      <p style="margin:6px 0;"><strong>(d) Sensor 예외 — 변경 허용 유지:</strong> Sensor는 <code>Fence / Multi / SmartCompound / SmartSensor</code> 등 14종이 같은 카테고리 내에 공존하며, 운영 중 센서 모듈 교체·재구성 시 <code>type_device</code> 변경이 <em>정상 운영 케이스</em>. 차단하면 현장 업무가 막힘.</p>
+      <p style="margin:8px 0 4px;"><strong>실측 <code>type_device</code> 분포 (DB 기준):</strong></p>
+      <table style="width:100%; border-collapse:collapse; font-size:13px; margin:4px 0 2px;">
+        <thead>
+          <tr style="background:#a7f3d0; color:#065f46;">
+            <th style="padding:6px 8px; border:1px solid #6ee7b7; text-align:left;">category_device</th>
+            <th style="padding:6px 8px; border:1px solid #6ee7b7; text-align:left;">type_device</th>
+            <th style="padding:6px 8px; border:1px solid #6ee7b7; text-align:right;">건수</th>
+            <th style="padding:6px 8px; border:1px solid #6ee7b7; text-align:left;">정책</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>CONTROLLER</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>Controller</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">2</td><td style="padding:6px 8px; border:1px solid #d1fae5;"><span class="pill pill-blocked">차단 권고 (1종 고정)</span></td></tr>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>SENSOR</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>SmartSensor</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">100</td><td style="padding:6px 8px; border:1px solid #d1fae5;" rowspan="2"><span class="pill pill-ok">허용 유지 (운영 케이스)</span></td></tr>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>SENSOR</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>SmartCompound</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">60</td></tr>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>CAMERA</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>IpCamera</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">1</td><td style="padding:6px 8px; border:1px solid #d1fae5;"><span class="pill pill-blocked">차단 권고 (1종 고정)</span></td></tr>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>SPEAKER</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>IpSpeaker</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">1</td><td style="padding:6px 8px; border:1px solid #d1fae5;"><span class="pill pill-blocked">차단 권고 (1종 고정)</span></td></tr>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>ENCLOSURE</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>Enclosure</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">30</td><td style="padding:6px 8px; border:1px solid #d1fae5;"><span class="pill pill-blocked">차단 권고 (1종 고정)</span></td></tr>
+          <tr><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>LAMP</code></td><td style="padding:6px 8px; border:1px solid #d1fae5;"><code>Lamp</code></td><td style="padding:6px 8px; border:1px solid #d1fae5; text-align:right;">30</td><td style="padding:6px 8px; border:1px solid #d1fae5;"><span class="pill pill-blocked">차단 권고 (1종 고정)</span></td></tr>
+        </tbody>
+      </table>
+      <p style="margin:8px 0 2px; font-size:12px; color:#065f46;"><strong>결론:</strong> ORM 무결성 측면의 polymorphic discriminator 불변 원칙은 <code>category_device</code>로 <em>이미 충족</em>. <code>type_device</code>는 카테고리별 정책으로 분리 — Controller/Camera/Speaker/Enclosure/Lamp는 1종 고정으로 차단, Sensor는 운영 케이스로 허용.</p>
+    </div>
+
+  <div class="principle-card">
+    <div class="num">원칙 5. 권한 분리 (RBAC Separation)</div>
+    role/group_id/permissions 등 권한 상승 가능 필드는 일반 *Update 스키마에서 제거. 전용 admin 엔드포인트 + audit log 강제 + before/after JSONB 스냅샷.
+    <br><strong>예시:</strong> <code>user_groups.permissions</code> (P0, 차단 필요), <code>users.role</code> via PUT /me
+  </div>
+
+  <div class="principle-card">
+    <div class="num">원칙 6. 감사 로그 부인방지 (Non-Repudiation)</div>
+    audit_logs / config_change_logs / user_login_logs는 router-level GET-only를 넘어 <strong>DB-level UPDATE/DELETE 차단 필수</strong>. PostgreSQL TRIGGER 또는 REVOKE 권한. router 차단만으로 불충분.
+    <br><strong>예시:</strong> 3 테이블 모두 router GET-only ✅ / DB-level은 차단 부재 ❌
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- 4. IDENTIFIED -->
+<!-- ============================================ -->
+<section id="identified">
+  <h2>4. 근간 흔드는 변경 식별 — 20개 후보</h2>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-box" style="background:#fee2e2"></div>P0 즉시 차단 (1건)</div>
+    <div class="legend-item"><div class="legend-box" style="background:#fed7aa"></div>P1 결재 동반 (9건)</div>
+    <div class="legend-item"><div class="legend-box" style="background:#fef3c7"></div>P2 spec 정정 (6건)</div>
+    <div class="legend-item"><div class="legend-box" style="background:#d1fae5"></div>P3 종결/이미 차단 (10건)</div>
+  </div>
+
+  <h3>🔴 P0 — 즉시 차단 권고 (현행 1건)</h3>
+  <p style="margin:6px 0 10px 0;color:#555;font-size:13px;">
+    <strong>변경 이력:</strong> 기존 P0 #1 <code>type_device PUT/PATCH 변경 가능</code> 항목은
+    재진단 결과 <strong>P1으로 재분류</strong>되었다. polymorphic discriminator는
+    <code>category_device</code>이며, <code>type_device</code> 변경은 ORM 무결성 위협이 아니다.
+    단 Controller/Camera/Speaker/Enclosure/Lamp 5종은 1종 고정이므로 변경 의미가 없어
+    스키마 차원에서 차단(아래 P1 §11 신규 행 참조). Sensor는 변경 허용 유지.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:42px;">#</th>
+        <th>위치</th>
+        <th>증상</th>
+        <th>근거 (코드/스펙)</th>
+        <th>권고 수정</th>
+        <th style="width:80px;">공수</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1</strong></td>
+        <td><code>app/schemas/user_group.py</code><br><code>UserGroupCreate</code> / <code>UserGroupUpdate</code></td>
+        <td><code>permissions</code> 필드가 <code>list[str]</code>로 정의되어
+            임의 문자열을 그대로 허용. 권한 enum 검증 부재로
+            오타·미정의 권한이 DB에 저장될 수 있음.</td>
+        <td>스펙 §<em>RBAC</em> — 권한은 사전 정의된 enum 집합에 한정.
+            현행 코드: <code>permissions: list[str]</code> (validator 없음).</td>
+        <td><code>PermissionEnum</code> 정의 후
+            <code>permissions: list[PermissionEnum]</code>로 교체,
+            <code>extra=forbid</code> 적용.</td>
+        <td>1.5h</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!--
+    ─────────────────────────────────────────────────────────────
+    ▼ P1 표에 아래 행을 §11(마지막 행)로 추가하라.
+      기존 P1 §10 다음 자리에 그대로 삽입.
+      P0에서 강등된 type_device 5종 차단 항목.
+    ─────────────────────────────────────────────────────────────
+  -->
+  <tr>
+    <td><strong>11</strong></td>
+    <td><code>app/schemas/device/*Update.py</code><br>(Controller / Camera / Speaker / Enclosure / Lamp)</td>
+    <td>5종 디바이스 UpdateSchema에서 <code>type_device</code>가 변경 가능.
+        해당 카테고리는 <em>1종 고정</em>이므로 변경 의미가 없고,
+        운영 일관성 차원에서 차단 필요. (Sensor는 Fence→Multi 등 정상 시나리오 존재 → 허용 유지)</td>
+    <td>polymorphic discriminator는 <code>category_device</code>이므로
+        ORM 무결성 위협은 아님(원래 P0 #1에서 강등).
+        단 5종 고정 카테고리 스키마에 <code>type_device</code>가 노출되어
+        클라이언트 오작동·운영 혼선 유발.</td>
+    <td>Controller/Camera/Speaker/Enclosure/Lamp의
+        <code>UpdateSchema</code>에서 <code>type_device</code> 필드 제거 +
+        <code>model_config = ConfigDict(extra="forbid")</code> 적용.
+        <strong>Sensor는 유지</strong>.</td>
+    <td>30m</td>
+  </tr>
+
+  <h3>🟠 P1 — 결재 동반 (시스템 무결성 보호)</h3>
+  <table>
+    <thead>
+      <tr><th>#</th><th>도메인</th><th>필드</th><th>현재</th><th>결재 필요</th><th>분량</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="pill pill-p1">P1 #3</span></td><td>Event Traceability</td><td>Det/Mal/Conn PUT <code>device_id</code></td><td class="warn">PATCH 차단 / PUT은 변경 가능</td><td>명세 §6.3.4 정정 방향</td><td>90분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #4</span></td><td>RBAC Self-Update</td><td>/users/me의 <code>role/group_id/is_active</code></td><td class="warn">핸들러 드롭 / 스키마 노출 (계약 불일치)</td><td>AccountUserSelfUpdate 신설</td><td>75분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #5</span></td><td>ActionEvent</td><td><code>action_events.created_at</code></td><td class="fail">Create/Replace/Update 모두 노출</td><td>알리바이 조작 vs 사후 무전 정상 케이스</td><td>45분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #6</span></td><td>Enclosure</td><td><code>door_status</code> 일반 PATCH 우회</td><td class="warn">전용 /status 존재하나 EnclosureUpdate에도 노출</td><td>없음 (즉시)</td><td>30분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #7</span></td><td>Audit Log DB</td><td>3 테이블 전체</td><td class="warn">router GET-only / DB UPDATE·DELETE 차단 부재</td><td>PostgreSQL TRIGGER 결재</td><td>90분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #8</span></td><td>Bulk Atomicity</td><td>device_groups assign/unassign</td><td class="fail">partial failure 멱등성 부재</td><td>SAVEPOINT/dry-run 정책</td><td>90분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #9</span></td><td>Polymorphic FK Drift</td><td><code>device_group_mappings.category_device</code> 스냅샷</td><td class="fail">device 사후 변경 시 drift</td><td>동기화 정책</td><td>60분</td></tr>
+      <tr><td><span class="pill pill-p1">P1 #10</span></td><td>Schema-Handler Mismatch</td><td>AccountUserUpdate vs PUT /me</td><td class="warn">OpenAPI 계약 불일치</td><td>#4와 동시</td><td>0분 (#4에 흡수)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>🟡 P2 / 🟢 P3 — 요약</h3>
+  <table>
+    <thead>
+      <tr><th>분류</th><th>건수</th><th>대표 항목</th><th>판정</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="pill pill-p2">P2</span></td><td>6</td><td>number_device 영구성 (NATS 통합 시점) · ROI xypoints audit · EventMapping sub-resource mapping_id · enclosures /status audit 누락 · AccountUser extra="forbid" 위생 · password POST 응답 검증</td><td>v4.9 spec 정정 동반</td></tr>
+      <tr><td><span class="pill pill-p3">P3 종결</span></td><td>9</td><td>Sensor.controller_id (Controller 교체 정상) · Speaker.server_id · Server.category_id · EventMapping.device_group_id · login_id · CameraPreset.preset_index · Server credentials (이미 SENSITIVE 마스킹)</td><td>정상 사용 케이스 — 작업 없음</td></tr>
+      <tr><td><span class="pill pill-blocked">이미 차단</span></td><td>1</td><td><code>action_events.from_event_id</code> (Phase 12-1)</td><td>회귀 방지 테스트 유지</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================ -->
+<!-- 5. CASCADE DIAGRAM -->
+<!-- ============================================ -->
+<section id="cascade">
+  <h2>5. Event 도메인 DELETE Cascade 흐름 (현재 정합 ✅)</h2>
+
+  <div class="mermaid">
+graph LR
+    User[사용자] -->|DELETE /api/events/detections/X| API[FastAPI]
+    API -->|409 if action_reported='True'| Guard{action_reported<br/>가드}
+    Guard -->|False/Skip| DEL[DELETE events row]
+    DEL -->|FK CASCADE| DET[detection_events row<br/>자동 삭제 ✅]
+    DEL -->|FK SET NULL| ACT[action_events.from_event_id=NULL<br/>row 보존 ✅]
+    DEL -->|FK SET NULL| DEV[events.device_id=NULL<br/>이벤트 보존 ✅]
+
+    style DET fill:#d1fae5,stroke:#10b981
+    style ACT fill:#d1fae5,stroke:#10b981
+    style DEV fill:#d1fae5,stroke:#10b981
+    style Guard fill:#fed7aa,stroke:#f59e0b
+  </div>
+
+  <h3>Action Event 카운트 기반 invariant (1:N)</h3>
+
+  <div class="mermaid">
+graph TD
+    A[Detection 생성<br/>action_reported='False'] -->|Action 1개 추가| B[update_source<br/>자동 True]
+    B -->|Action 2개 추가| C[True 유지<br/>actions_count=3]
+    C -->|Action 1개 삭제| D[reset_source<br/>count=2 → True 유지]
+    D -->|Action 1개 더 삭제| E[count=1 → True 유지]
+    E -->|마지막 Action 삭제| F[reset_source<br/>count=0 → False 자동 복원]
+
+    style A fill:#fef3c7
+    style B fill:#d1fae5
+    style C fill:#d1fae5
+    style D fill:#d1fae5
+    style E fill:#d1fae5
+    style F fill:#fef3c7
+  </div>
+
+  <div class="callout">
+    <strong>실측 검증 (Phase 12-5):</strong> 위 6단계 시퀀스 모두 PASS ✅. POST/DELETE 로직은 완벽 동작.
+    <br>다만 <code>from_event_id</code> 전환 PATCH/PUT은 1:N invariant를 깰 위험이 있어 <strong>Phase 12-1에서 원천 차단 (422)</strong>.
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- 6. PUT vs Block -->
+<!-- ============================================ -->
+<section id="put-vs-block">
+  <h2>6. 변경 가능 vs 차단됨 비교</h2>
+
+  <div class="grid-2col">
+    <div>
+      <h3 style="color:#dc2626">❌ 현재 변경 가능 (위험)</h3>
+      <table>
+        <thead><tr><th>필드</th><th>방법</th></tr></thead>
+        <tbody>
+          <tr><td><code>type_device</code></td><td>PUT/PATCH 모두</td></tr>
+          <tr><td><code>permissions</code></td><td>일반 PATCH</td></tr>
+          <tr><td>Event PUT <code>device_id</code></td><td>PUT Create 재사용</td></tr>
+          <tr><td>Event PUT <code>device_description</code></td><td>PUT 핸들러 재생성</td></tr>
+          <tr><td><code>created_at</code> (ActionEvent)</td><td>Create/Replace/Update</td></tr>
+          <tr><td><code>door_status</code> 일반 PATCH</td><td>EnclosureUpdate 우회</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3 style="color:#059669">✅ 차단됨 (Phase 12에서 회복)</h3>
+      <table>
+        <thead><tr><th>필드</th><th>차단 방식</th></tr></thead>
+        <tbody>
+          <tr><td><code>from_event_id</code></td><td><span class="pill pill-blocked">Phase 12-1</span> 스키마 제거 + extra=forbid</td></tr>
+          <tr><td><code>action_reported</code> (Det/Mal PATCH)</td><td><span class="pill pill-blocked">Phase 12-2</span> 스키마 제거</td></tr>
+          <tr><td>Event PATCH <code>device_id</code></td><td><span class="pill pill-blocked">이전 차수</span> Update 스키마 미노출</td></tr>
+          <tr><td>Event PATCH <code>device_description</code></td><td><span class="pill pill-blocked">이전 차수</span> Pydantic ignore</td></tr>
+          <tr><td><code>password</code> 응답 마스킹</td><td><span class="pill pill-blocked">audit_service</span> SENSITIVE_FIELDS</td></tr>
+          <tr><td><code>device_group_mappings</code> orphan</td><td><span class="pill pill-blocked">Phase 9~11</span> 6 라우터 cleanup</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+<section class="subsection" id="sensor-type-exception-policy">
+  <h3>Sensor 예외 정책 (type_device 변경 허용)</h3>
+  <p>
+    원칙적으로 <code>type_device</code>는 디바이스 정체성을 결정하는 고정 식별자이므로
+    PUT/PATCH 시 변경이 차단된다. 단, <strong>Sensor</strong> 한 종에 한해
+    물리 센서 모듈 교체·재배선·용도 변경이 빈번한 운영 특성을 반영하여
+    <code>type_device</code> 변경을 허용한다. 다른 모든 디바이스(Controller / Camera / Speaker / Enclosure / Lamp)는
+    기존과 동일하게 차단된다.
+  </p>
+
+  <table class="policy-matrix">
+    <caption>디바이스별 <code>type_device</code> 변경 정책 매트릭스</caption>
+    <thead>
+      <tr>
+        <th>Device</th>
+        <th>type_device 변경 정책</th>
+        <th>DB 실측 type_device 종류 수</th>
+        <th>운영 시나리오 예시</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Controller</strong></td>
+        <td><span class="badge badge-block">차단</span></td>
+        <td>1종 (controller 단일)</td>
+        <td>컨트롤러는 1:1 고정 매핑이므로 종류 변경 자체가 발생하지 않음.</td>
+      </tr>
+      <tr class="row-exception">
+        <td><strong>Sensor</strong></td>
+        <td><span class="badge badge-allow">허용 (예외)</span></td>
+        <td>enum 정의 14종 / 시드 2종 등록</td>
+        <td>현장 센서 모듈을 PIR → 마이크로웨이브로 교체, 또는 미사용 채널을 신규 센서 타입으로 재할당하는 경우.</td>
+      </tr>
+      <tr>
+        <td><strong>Camera</strong></td>
+        <td><span class="badge badge-block">차단</span></td>
+        <td>1종 (camera 단일)</td>
+        <td>NVR/IP 카메라는 모델 교체 시 신규 디바이스로 재등록해야 하며, 종류 변경 불가.</td>
+      </tr>
+      <tr>
+        <td><strong>Speaker</strong></td>
+        <td><span class="badge badge-block">차단</span></td>
+        <td>1종 (speaker 단일)</td>
+        <td>방송용 스피커는 단일 종류로 운영되며 타 디바이스로의 전환이 없음.</td>
+      </tr>
+      <tr>
+        <td><strong>Enclosure</strong></td>
+        <td><span class="badge badge-block">차단</span></td>
+        <td>1종 (enclosure 단일)</td>
+        <td>함체는 물리적 외함 단위이며 타 타입으로 변경되는 운영 케이스 없음.</td>
+      </tr>
+      <tr>
+        <td><strong>Lamp</strong></td>
+        <td><span class="badge badge-block">차단</span></td>
+        <td>1종 (lamp 단일)</td>
+        <td>경광등은 단일 타입으로 고정 운영되며 종류 변경 발생하지 않음.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="note">
+    <strong>주의:</strong> Sensor의 <code>type_device</code> 변경은
+    <code>ConfigChangeLog</code>에 <em>before/after</em>로 자동 기록되며,
+    매핑된 EventMapping·CategoryEvent의 호환성 검증을 통과해야만 커밋된다.
+  </p>
+</section>
+
+</section>
+
+<!-- ============================================ -->
+<!-- 7. GIT ROLLBACK -->
+<!-- ============================================ -->
+<section id="git-rollback">
+  <h2>7. git 안전점 5단 회귀 계층 (현재 v4.8)</h2>
+
+  <div class="mermaid">
+graph TD
+    HEAD[HEAD: 43d0c609<br/>v4.8-final-stable a76cb4b2] --> P127[pre-immutability-phase12-7<br/>a9d4655]
+    P127 --> P12[pre-action-invariant-fix<br/>120f00f]
+    HEAD --> PA[pre-event-audit<br/>b2b105e]
+    P12 --> P10[pre-controller-cascade-fix<br/>84ca1ea]
+    PA --> P10
+    P10 --> P9[pre-cascade-fix<br/>efbe8b1]
+    P9 --> P8[pre-events-delete-sweep<br/>c2d092a]
+    P8 --> P1[pre-delete-sweep<br/>b60c6e9<br/>v4.8 전체 회귀점]
+    P1 --> V47[v4.7-final-stable<br/>736589f]
+
+    style HEAD fill:#d1fae5,stroke:#10b981,stroke-width:3px
+    style P127 fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    style P12 fill:#dbeafe
+    style PA fill:#dbeafe
+    style P10 fill:#dbeafe
+    style P9 fill:#dbeafe
+    style P8 fill:#dbeafe
+    style P1 fill:#fed7aa
+    style V47 fill:#e5e7eb
+  </div>
+
+  <pre>git reset --hard pre-immutability-phase12-7  # Phase 12-7만 회귀
+git reset --hard pre-action-invariant-fix    # Phase 12~12-7 회귀
+git reset --hard pre-controller-cascade-fix  # Phase 10~12-7 회귀
+git reset --hard pre-cascade-fix             # Phase 9~12-7 회귀
+git reset --hard pre-events-delete-sweep     # Phase 8~12-7 회귀
+git reset --hard pre-delete-sweep            # v4.8 전체 회귀
+git reset --hard v4.7-final-stable           # 차수 자체 회귀</pre>
+</section>
+
+<!-- ============================================ -->
+<!-- 8. OPTIONS -->
+<!-- ============================================ -->
+<section id="options">
+  <h2>8. 결재 옵션 비교 — Phase 12-7~9 진입</h2>
+
+  <table>
+    <thead>
+      <tr><th>옵션</th><th>범위</th><th>분량</th><th>결재 동반</th><th>권장</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>A</strong></td>
+        <td>Phase 12-7만 (P0 2건: type_device + permissions)</td>
+        <td>3.25h</td>
+        <td>0건</td>
+        <td class="info">가장 빠름</td>
+      </tr>
+      <tr>
+        <td><strong>B</strong></td>
+        <td>Phase 12-7 + 12-8 (P0 + P1 5건)</td>
+        <td>8.25h</td>
+        <td class="warn">4건</td>
+        <td>결재 부담</td>
+      </tr>
+      <tr style="background:#eff6ff">
+        <td><strong>C</strong></td>
+        <td><strong>Phase 12-7 + 12-8 + 12-9 (전체 P0+P1+추가발견)</strong></td>
+        <td>11.75h</td>
+        <td class="warn">4건+α</td>
+        <td class="pass">✅ 권장 — 하루 1차수 묶음</td>
+      </tr>
+      <tr>
+        <td><strong>D</strong></td>
+        <td>v4.9 분리 (P0/P1만 v4.8, 추가발견은 v4.9)</td>
+        <td>8.25h + α</td>
+        <td>분산</td>
+        <td>회피</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>결재 필요 4건 (Phase 12-8 진입 시)</h3>
+  <ol>
+    <li><strong>명세 §6.3.4 line 8797 정정 방향</strong>: PUT으로 <code>device_id</code> 변경 명시 허용 → 차단으로 변경?</li>
+    <li><strong>ActionEvent <code>created_at</code> 변경 정책</strong>: 사후 무전 조치 기록 등 정상 케이스 있음 → batch-import 전용 엔드포인트 분리?</li>
+    <li><strong>audit_logs DB-level TRIGGER 적용</strong>: PostgreSQL <code>BEFORE UPDATE/DELETE → RAISE EXCEPTION</code></li>
+    <li><strong>Bulk operation atomicity</strong>: SAVEPOINT or dry-run 옵션 도입?</li>
+  </ol>
+</section>
+
+<!-- ============================================ -->
+<!-- 9. TIMELINE -->
+<!-- ============================================ -->
+<section id="timeline">
+  <h2>9. 차수 타임라인 (v4.3 → v5.0)</h2>
+
+  <div class="mermaid">
+gantt
+    title GOP API 차수 진행
+    dateFormat YYYY-MM-DD
+    axisFormat %m-%d
+
+    section 완료
+    v4.3 Bulk API     :done, v43, 2026-06-17, 1d
+    v4.4 Phase 1~5    :done, v44, 2026-06-18, 1d
+    v4.5 minimal 6 그룹 :done, v45, 2026-06-19, 1d
+    v4.6 Critical 8건  :done, v46, 2026-06-19, 1d
+    v4.7 Account 분석 + DELETE P0 :done, v47, 2026-06-21, 1d
+    v4.8 Phase 1~12   :done, v48, 2026-06-22, 1d
+
+    section 권고
+    v4.8 Phase 12-7~9 (Today) :active, p12, 2026-06-22, 1d
+    v4.9 Event P1+P2+P3 잔존 + number_device  :v49, 2026-06-23, 2d
+    v5.0 보안 강화 Top 5 (~45h)  :v50, 2026-06-25, 7d
+  </div>
+
+  <h3>v4.9 + v5.0 잔존 작업</h3>
+  <table>
+    <thead><tr><th>차수</th><th>핵심</th><th>분량</th></tr></thead>
+    <tbody>
+      <tr><td><strong>v4.9</strong></td><td>Event 잔존 (start_date/end_date required, PUT ConfigChangeLog, Action POST device.status, Detection PUT detail) + Device 부수 (number_device renumber endpoint)</td><td>~6h</td></tr>
+      <tr><td><strong>v5.0</strong></td><td>보안 강화 Top 5 (RBAC, 세션 검증, refresh, AuditLog, 비밀번호 정책) + 구조적 cascade FK + 평문 암호 정책</td><td>~45h+</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="long-term-sensor-type">
+  <h2>10. 장기 설계 안 — sensor_type 분리 (v5.0 권고)</h2>
+
+  <div class="callout callout-warning">
+    <strong>본 섹션은 v4.9 차수 범위 밖입니다.</strong>
+    차장님 제안 구조는 외부 매니저(VMS/NVR/Central UI/Ironwall.Dotnet) 호환성에 직접 영향을 미치므로,
+    별도 차수(v5.0 또는 v4.10) 분리 + 결재 후 착수를 권고합니다.
+    <br>
+    <em>v4.9 = type_device 명세 정합화(현 구조 유지) / v5.0 = 구조 자체 재설계(category + sensor_type 이원화)</em>
+  </div>
+
+  <h3>10.1 차장님 제안 — 두 축 분리 구조</h3>
+
+  <p>
+    현행 명세는 <code>category_device</code>(7종: Controller/Sensor/Camera/Speaker/Enclosure/Lamp/기타)와
+    <code>type_device</code>(19종 EnumDeviceType, Sensor 14종 + 기타 5종 혼재)가
+    동일 평면에서 충돌하고 있습니다.
+    <br>
+    차장님 제안은 두 축을 명확히 분리합니다.
+  </p>
+
+  <table class="comparison-table">
+    <thead>
+      <tr>
+        <th>축</th>
+        <th>역할</th>
+        <th>값 (개수)</th>
+        <th>적용 대상</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>category_device</code></td>
+        <td>장비 대분류 (polymorphic discriminator)</td>
+        <td>Controller, Sensor, Camera, Speaker, Enclosure, Lamp, 기타 (7종)</td>
+        <td>devices 공통 필드 (그대로 유지)</td>
+      </tr>
+      <tr>
+        <td><code>sensor_type</code> <span class="badge badge-new">신설</span></td>
+        <td>Sensor 한정 세부 타입</td>
+        <td>Fence, Multi, SmartCompound, SmartSensor 등 (14종)</td>
+        <td>sensors 테이블에만 추가</td>
+      </tr>
+      <tr>
+        <td><code>type_device</code> <span class="badge badge-deprecated">폐기</span></td>
+        <td>(혼재된 EnumDeviceType)</td>
+        <td>19종 → 폐기 또는 deprecated</td>
+        <td>devices에서 제거 또는 nullable</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>10.2 Before / After 비교</h3>
+
+  <h4>Before — 현행 (v4.9까지 유지)</h4>
+  <pre><code class="lang-python">class Device(Base):
+    __tablename__ = "devices"
+    id_device       = Column(BigInteger, primary_key=True)
+    category_device = Column(Enum(EnumCategoryDevice))  # 7종
+    type_device     = Column(Enum(EnumDeviceType))      # 19종 (Sensor 14 + 기타 5 혼재)
+    # ...
+
+class Sensor(Device):
+    __tablename__ = "sensors"
+    id_sensor = Column(BigInteger, primary_key=True)
+    # sensor_type 없음 — devices.type_device 사용</code></pre>
+
+  <h4>After — 차장님 제안 (v5.0)</h4>
+  <pre><code class="lang-python">class EnumSensorType(str, Enum):
+    Fence          = "Fence"
+    Multi          = "Multi"
+    SmartCompound  = "SmartCompound"
+    SmartSensor    = "SmartSensor"
+    # ... 총 14종
+
+class Device(Base):
+    __tablename__ = "devices"
+    id_device       = Column(BigInteger, primary_key=True)
+    category_device = Column(Enum(EnumCategoryDevice))  # 7종 — discriminator
+    # type_device 제거 (또는 nullable + deprecated)
+
+class Sensor(Device):
+    __tablename__ = "sensors"
+    id_sensor   = Column(BigInteger, primary_key=True)
+    sensor_type = Column(Enum(EnumSensorType), nullable=False)  # 신설 14종</code></pre>
+
+  <h3>10.3 Side Effect 영향도 분석</h3>
+
+  <table class="impact-table">
+    <thead>
+      <tr>
+        <th>영역</th>
+        <th>변경 내용</th>
+        <th>위험도</th>
+        <th>예상 공수</th>
+        <th>비고</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DB 마이그레이션</td>
+        <td><code>sensors.sensor_type</code> 컬럼 신설 + <code>devices.type_device</code> 제거(또는 nullable)</td>
+        <td><span class="risk risk-mid">중간</span></td>
+        <td>1.5h</td>
+        <td>Alembic 마이그레이션 + 기존 데이터 백필 (type_device -> sensor_type 매핑)</td>
+      </tr>
+      <tr>
+        <td>SQLAlchemy 모델</td>
+        <td>Sensor에 <code>sensor_type</code> Column 추가, Device에서 type_device 제거</td>
+        <td><span class="risk risk-mid">중간</span></td>
+        <td>0.5h</td>
+        <td>polymorphic_identity는 category_device 유지</td>
+      </tr>
+      <tr>
+        <td>Pydantic 스키마</td>
+        <td>6 device 스키마(Controller/Sensor/Camera/Speaker/Enclosure/Lamp) 정정</td>
+        <td><span class="risk risk-mid">중간</span></td>
+        <td>1h</td>
+        <td>SensorCreate/Update/Response 에 sensor_type 추가</td>
+      </tr>
+      <tr>
+        <td>명세서</td>
+        <td>§5.1~§5.7 본문/요청·응답 예시/필터 파라미터 모두 정정</td>
+        <td><span class="risk risk-high">큼</span></td>
+        <td>2h</td>
+        <td>약 40개 위치 — 본 v4.9 분석에서 발견된 모든 type_device 언급 재정정</td>
+      </tr>
+      <tr>
+        <td>시드 코드</td>
+        <td><code>seed_sensors.py</code> 등에서 sensor_type 명시</td>
+        <td><span class="risk risk-low">작음</span></td>
+        <td>0.5h</td>
+        <td>14종 분포 시드 재설계 (차장님 명세 반영)</td>
+      </tr>
+      <tr>
+        <td>NATS sync</td>
+        <td>db_monitor 트리거 SQL에 sensor_type 포함 여부 확인</td>
+        <td><span class="risk risk-check">확인 필요</span></td>
+        <td>0.5h</td>
+        <td>2026-05-20 완료된 SYNC E2E 회귀 테스트 필수</td>
+      </tr>
+      <tr>
+        <td>외부 매니저</td>
+        <td>VMS/NVR/Central UI(Ironwall.Dotnet) 호환성 영향</td>
+        <td><span class="risk risk-high">큼 (외부)</span></td>
+        <td>미정</td>
+        <td><strong>본 분석에서 가장 큰 변수</strong> — 외부 클라이언트가 type_device를 참조 중인지 grep 필요</td>
+      </tr>
+      <tr>
+        <td>EnumDeviceType 폐기</td>
+        <td>19종 사용처 전체 grep 후 정리</td>
+        <td><span class="risk risk-mid">중간</span></td>
+        <td>1h</td>
+        <td>Repository/Service/Filter 레이어 광범위 검색</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="summary-box">
+    <strong>예상 총 공수: 6~8시간</strong>
+    (외부 매니저 호환성 처리 시간 별도)
+    <br>
+    <strong>권고 차수: v5.0 (또는 v4.10) — 하루 1차수 원칙에 따라 단일 차수로 묶음</strong>
+  </div>
+
+  <h3>10.4 권고 사항</h3>
+
+  <ol>
+    <li>
+      <strong>v4.9는 현행 구조 유지</strong> — type_device 19종 명세 정합화만 수행 (외부 영향 없음).
+    </li>
+    <li>
+      <strong>v5.0(별도 차수)에서 구조 재설계</strong> —
+      차장님 제안의 category + sensor_type 이원화를 단일 차수에서 일괄 수행.
+    </li>
+    <li>
+      <strong>v5.0 착수 전 결재 항목 (필수)</strong>
+      <ul>
+        <li>EnumDeviceType 19종 -> EnumSensorType 14종 + 기타 5종 매핑 표 확정</li>
+        <li>외부 매니저(VMS/NVR/Central UI) 호환성 영향 사전 조사 — type_device 필드 참조처</li>
+        <li>NATS sync 트리거(db_monitor) 회귀 테스트 범위 합의</li>
+        <li>마이그레이션 다운타임 허용 여부 / 백필 전략</li>
+      </ul>
+    </li>
+    <li>
+      <strong>롤백 시나리오 사전 준비</strong> —
+      외부 매니저에서 호환성 문제 발생 시 type_device를 nullable로 남겨 단계적 전환 가능.
+    </li>
+  </ol>
+
+  <div class="callout callout-critical">
+    <strong>결재 필수</strong> — 외부 매니저 호환성은 우리 책임 컴포넌트 외부 영향이므로,
+    v5.0 착수 전 차장님 결재 + 외부 매니저 담당자 확인 없이는 진행 불가.
+  </div>
+</section>
+
+<footer>
+  GOP RESTful API Test Server · v4.8-final-stable · 작성일 2026-06-22 · Workflow 32 agent 분석 (+ HTML 갱신 4 agent) (Phase 12 11 agent + Immutability 6 agent + 기타 11 agent)
+</footer>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    gantt: { useMaxWidth: true }
+  });
+</script>
+</body>
+</html>

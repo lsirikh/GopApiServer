@@ -317,7 +317,7 @@ async def create_controller(
 
     # Handle group_ids if provided (N:N relationship)
     if controller_data.group_ids is not None:
-        _update_device_group_mappings(db, new_controller.id, controller_data.group_ids, "controller")
+        _update_device_group_mappings(db, new_controller.id, controller_data.group_ids, EnumDeviceCategory.CONTROLLER)
         db.commit()
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2 Section 7)
@@ -419,7 +419,7 @@ async def update_controller(
 
     # Update group mappings if group_ids was provided
     if group_ids is not None:
-        _update_device_group_mappings(db, controller.id, group_ids, "controller")
+        _update_device_group_mappings(db, controller.id, group_ids, EnumDeviceCategory.CONTROLLER)
 
     db.commit()
     db.refresh(controller)
@@ -513,7 +513,7 @@ async def replace_controller(
 
     # Handle group_ids if provided (N:N relationship)
     if controller_data.group_ids is not None:
-        _update_device_group_mappings(db, controller.id, controller_data.group_ids, "controller")
+        _update_device_group_mappings(db, controller.id, controller_data.group_ids, EnumDeviceCategory.CONTROLLER)
 
     db.commit()
     db.refresh(controller)
@@ -562,6 +562,16 @@ async def delete_controller(
         DeviceGroupMapping.device_id == controller_id,
         DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER
     ).delete()
+
+    # ORM cascade(all, delete-orphan) removes child Sensor rows when controller is deleted,
+    # but device_group_mappings.device_id is a polymorphic column (no FK) so SENSOR
+    # mappings would orphan. Clean them up explicitly before the cascade fires.
+    child_sensor_ids = [sid for (sid,) in db.query(Sensor.id).filter(Sensor.controller_id == controller_id).all()]
+    if child_sensor_ids:
+        db.query(DeviceGroupMapping).filter(
+            DeviceGroupMapping.device_id.in_(child_sensor_ids),
+            DeviceGroupMapping.category_device == EnumDeviceCategory.SENSOR
+        ).delete(synchronize_session=False)
 
     db.delete(controller)
     db.commit()

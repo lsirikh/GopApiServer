@@ -605,7 +605,7 @@ async def put_device_group(
     )
 
 
-@router.delete("/{group_id}", response_model=ApiSingleResponse[dict])
+@router.delete("/{group_id}", response_model=ApiSingleResponse[None])
 async def delete_device_group(
     group_id: int,
     current_user=Depends(get_current_user_optional),
@@ -649,8 +649,8 @@ async def delete_device_group(
 
     return ApiSingleResponse(
         success=True,
-        data={"id": group_id},
-        message="디바이스 그룹 삭제 성공"
+        data=None,
+        message=f"디바이스 그룹 {group_id} 삭제 성공"
     )
 
 

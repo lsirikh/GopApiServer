@@ -84,17 +84,10 @@ async def get_current_account_user(
     """
     JWT 토큰에서 현재 인증된 AccountUser를 가져오는 의존성
 
-    Swagger UI에서 "Authorize" 버튼으로 Bearer 토큰 입력 가능
-
-    Args:
-        credentials: HTTPBearer 인증 정보
-        db: 데이터베이스 세션
-
-    Returns:
-        인증된 사용자의 AccountUser 객체
+    PRD v4.9 Phase 2-A4: jti 블랙리스트 검증 추가 (logout/lock/password-change 토큰 즉시 무효화)
 
     Raises:
-        HTTPException 401: 토큰이 유효하지 않거나 사용자가 존재하지 않음
+        HTTPException 401: 토큰 무효 / 사용자 부재 / jti 블랙리스트 등재
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -114,6 +107,15 @@ async def get_current_account_user(
         if login_id is None:
             raise credentials_exception
 
+        # PRD v4.9 Phase 2-A4: jti 블랙리스트 검증
+        from app.services.token_blacklist_service import is_blacklisted
+        if is_blacklisted(db, token_data.jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     except JWTError:
         raise credentials_exception
 
@@ -123,6 +125,25 @@ async def get_current_account_user(
         raise credentials_exception
 
     return user
+
+
+def require_role(*allowed_roles: str):
+    """역할(role) 기반 인가 의존성 팩토리 — PRD-GOP-01 V-PG-01 §7.
+    인증된 AccountUser 의 role 이 allowed_roles 에 없으면 403. 기존 인증 의존성(get_current_account_user 등)은
+    토큰만 검증하고 role 을 인가에 미사용했음 → 권한상승(T1): 아무 인증사용자가 PUT /users/{id} 로 임의 계정을
+    ADMIN 격상 가능. 본 의존성이 서버측 RBAC 집행 지점. (FastAPI use_cache 로 get_current_account_user 1회 평가)"""
+    async def _role_checker(current_user: AccountUser = Depends(get_current_account_user)) -> AccountUser:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient role: requires one of {list(allowed_roles)} (current role: {current_user.role})",
+            )
+        return current_user
+    return _role_checker
+
+
+# 계정 관리(사용자 CRUD/lock/reset)는 ADMIN 전용 (account:admin)
+require_admin = require_role("ADMIN")
 
 
 async def get_current_user_optional(
@@ -361,6 +382,22 @@ async def logout(
         db.add(logout_log)
         db.commit()
 
+    # PRD v4.9 Phase 2-A4: jti 블랙리스트 등록 — logout 후 access_token 즉시 무효화
+    if token_data.jti:
+        from app.services.token_blacklist_service import add_to_blacklist
+        from datetime import timedelta as _td
+        # access_token TTL = JWT_EXPIRATION_HOURS (block 기간은 토큰 원래 exp까지)
+        expires_at = datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)
+        user_id = session.user_id if session else None
+        add_to_blacklist(
+            db=db,
+            jti=token_data.jti,
+            expires_at=expires_at,
+            reason="LOGOUT",
+            user_id=user_id,
+            token_type="access",
+        )
+
     return {"success": True}
 
 
@@ -386,13 +423,22 @@ async def refresh(
     from app.config import settings
 
     try:
-        # Decode refresh token
-        token_data = decode_token(refresh_data.refresh_token)
+        # PRD v4.9 Phase 2-A4: expected_type='refresh' 가드 — access_token으로 refresh 호출 차단
+        token_data = decode_token(refresh_data.refresh_token, expected_type="refresh")
         login_id = token_data.username
-    except JWTError:
+    except JWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+            detail=f"Invalid refresh token: {str(e)}",
+        )
+
+    # PRD v4.9 Phase 2-A4: jti 블랙리스트 확인 (이미 폐기된 refresh 차단)
+    from app.services.token_blacklist_service import is_blacklisted, add_to_blacklist
+    from datetime import timedelta as _td
+    if is_blacklisted(db, token_data.jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
         )
 
     # Verify user exists
@@ -401,6 +447,18 @@ async def refresh(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+
+    # PRD v4.9 Phase 2-A4: rotation — 옛 refresh jti 블랙리스트 등록 (replay 차단)
+    if token_data.jti:
+        old_refresh_expires = datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
+        add_to_blacklist(
+            db=db,
+            jti=token_data.jti,
+            expires_at=old_refresh_expires,
+            reason="REFRESH_ROTATION",
+            user_id=user.id,
+            token_type="refresh",
         )
 
     # Create new tokens

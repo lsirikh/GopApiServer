@@ -29,6 +29,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      # PRD v4.10 Phase 2: HTTPS 인증서 (mkcert 발급, certs/ 미존재 시 HTTP fallback)
+      - ./certs:/app/certs:ro
     environment:
       - AUTH_MODE=${AUTH_MODE:-public}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
@@ -44,7 +46,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      # PRD v4.10 Phase 2: HTTPS healthcheck (자체 서명이므로 -k 옵션 — 컨테이너 내부엔 mkcert CA 미신뢰)
+      test: ["CMD", "curl", "-fk", "https://localhost:8000/docs"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -56,6 +59,27 @@ services:
       dockerfile: Dockerfile
     container_name: api-test-db-monitor
     image: api-test-db-monitor:latest
+    environment:
+      - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
+      - UNIT_ID=${UNIT_ID:-unit001}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+      - nats_external
+
+  gis-ingest:
+    # 추적 이력 인제스트 워커: NATS sensorway.*.gis.tracking-status 구독 → track_points INSERT
+    # PRD_Tracking_History_API.md §7 (db-monitor 역방향 미러)
+    build:
+      context: ./gis_ingest
+      dockerfile: Dockerfile
+    container_name: api-test-gis-ingest
+    image: api-test-gis-ingest:latest
     environment:
       - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
       - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}

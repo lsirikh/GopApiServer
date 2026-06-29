@@ -441,7 +441,7 @@ def put_event_mapping_camera(
 
 @router.delete(
     "/{mapping_id}/cameras/{config_id}",
-    response_model=ApiSingleResponse[dict],
+    response_model=ApiSingleResponse[None],
     summary="Delete camera config",
     description="Delete a camera configuration"
 )
@@ -494,7 +494,7 @@ def delete_event_mapping_camera(
     return {
         "success": True,
         "message": "Event mapping camera deleted successfully",
-        "data": {}
+        "data": None
     }
 
 

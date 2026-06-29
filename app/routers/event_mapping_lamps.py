@@ -346,7 +346,7 @@ def replace_event_mapping_lamp(
 
 @router.delete(
     "/{mapping_id}/lamps/{config_id}",
-    response_model=ApiSingleResponse[dict],
+    response_model=ApiSingleResponse[None],
     summary="Delete lamp config for event mapping",
     description="Delete a lamp configuration for an event mapping"
 )
@@ -399,7 +399,7 @@ def delete_event_mapping_lamp(
     return {
         "success": True,
         "message": "Event mapping lamp deleted successfully",
-        "data": {}
+        "data": None
     }
 
 

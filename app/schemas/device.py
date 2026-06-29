@@ -498,8 +498,7 @@ class CameraResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소")
     ip_port: int = Field(..., description="HTTP 포트")
     user_name: Optional[str] = Field(None, description="접속 사용자명 (PRD v1.2: nullable)")
-    # v4.4 Phase 5: user_password 응답 노출 복원 — 운영 사용 케이스 (등록 직후 확인 / 관리자 화면 / 통합상황도 자동연결)
-    # 보안 정책(롤 기반 / 별도 엔드포인트 / 마스킹)은 v4.5에서 결정 예정
+    # v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원 (.NET 장비 접속 자격증명)
     user_password: Optional[str] = Field(None, description="접속 비밀번호 (PRD v1.2: nullable)")
     mode: EnumCameraMode = Field(..., description="카메라 모드")
     category: EnumCameraType = Field(..., description="카메라 카테고리")
@@ -817,11 +816,8 @@ class EnclosureUpdate(BaseModel):
     )
     is_enable: Optional[bool] = Field(None, description="장비 활성화 여부")
 
-    # Enclosure 전용 필드 (선택적)
-    door_status: Optional[EnumDoorStatus] = Field(
-        None,
-        description="도어 물리적 상태: CLOSED/OPEN"
-    )
+    # PRD v4.8 Phase 12-7e: door_status는 본 일반 PATCH 경로로 변경 불가
+    # → 전용 엔드포인트 PATCH /enclosures/{id}/status (EnclosureStatusUpdate) 사용
     # detail_info 제거됨 → enclosure_metrics API 사용 (PRD_Enclosure_Metrics_Separation.md v1.0)
     geolocation: Optional[Geolocation] = Field(None, description="위치 정보")
     threshold_config: Optional[EnclosureThresholdConfig] = Field(None, description="알람 임계값")
@@ -830,7 +826,7 @@ class EnclosureUpdate(BaseModel):
     # PRD_DeviceGroup_Support_Completion.md: N:N 관계
     group_ids: Optional[List[int]] = Field(None, description="소속 디바이스 그룹 ID 배열 (N:N 관계)")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class EnclosureResponse(BaseModel):
@@ -986,7 +982,7 @@ class LampCreate(BaseModel):
     ip_address: str = Field(..., description="IP 주소 (IPv4/IPv6)", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(80, ge=1, le=65535, description="포트 번호", json_schema_extra={"example": 80})
     user_name: Optional[str] = Field(None, max_length=100, description="접속 사용자명", json_schema_extra={"example": "admin"})
-    user_password: Optional[str] = Field(None, max_length=255, description="접속 비밀번호", json_schema_extra={"example": "lamp1234"})
+    user_password: Optional[str] = Field(None, max_length=255, description="접속 비밀번호", json_schema_extra={"example": "<your_password>"})
     description: Optional[str] = Field(None, max_length=500, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
     geolocation: Optional[Geolocation] = Field(
         None,
@@ -1019,7 +1015,7 @@ class LampUpdate(BaseModel):
     ip_address: Optional[str] = Field(None, description="IP 주소", json_schema_extra={"example": "192.168.1.110"})
     ip_port: Optional[int] = Field(None, ge=1, le=65535, description="포트 번호", json_schema_extra={"example": 8080})
     user_name: Optional[str] = Field(None, max_length=100, description="접속 사용자명", json_schema_extra={"example": "admin"})
-    user_password: Optional[str] = Field(None, max_length=255, description="접속 비밀번호", json_schema_extra={"example": "newpassword"})
+    user_password: Optional[str] = Field(None, max_length=255, description="접속 비밀번호", json_schema_extra={"example": "<your_password>"})
     description: Optional[str] = Field(None, max_length=500, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등 - 업데이트됨"})
     geolocation: Optional[Geolocation] = Field(
         None,
@@ -1053,7 +1049,7 @@ class LampResponse(BaseModel):
     ip_address: str = Field(..., description="IP 주소", json_schema_extra={"example": "192.168.1.109"})
     ip_port: int = Field(..., description="포트 번호", json_schema_extra={"example": 80})
     user_name: Optional[str] = Field(None, description="접속 사용자명", json_schema_extra={"example": "admin"})
-    # v4.4 Phase 5: user_password 응답 노출 복원 — 운영 사용 케이스 (보안 정책은 v4.5에서 결정)
+    # v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원
     user_password: Optional[str] = Field(None, description="접속 비밀번호", json_schema_extra={"example": "lamp1234"})
     description: Optional[str] = Field(None, description="설명", json_schema_extra={"example": "GOP 1구역 전방 경광등"})
     geolocation: Optional[Geolocation] = Field(

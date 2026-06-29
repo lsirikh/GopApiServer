@@ -456,6 +456,12 @@ async def delete_enclosure(
     deleted_identifier = get_identifier(enclosure)
     deleted_name = f"Enclosure-{enclosure.id} ({enclosure.name_device})"
 
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == enclosure_id,
+        DeviceGroupMapping.category_device == EnumDeviceCategory.ENCLOSURE
+    ).delete()
+
     db.delete(enclosure)
     db.commit()
 

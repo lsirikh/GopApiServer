@@ -406,7 +406,7 @@ async def put_lamp(
     )
 
 
-@router.delete("/{lamp_id}", response_model=ApiSingleResponse[dict])
+@router.delete("/{lamp_id}", response_model=ApiSingleResponse[None])
 async def delete_lamp(
     lamp_id: int,
     current_user=Depends(get_current_user_optional),
@@ -433,6 +433,12 @@ async def delete_lamp(
     deleted_identifier = {"id": lamp.id, "name_device": lamp.name_device}
     deleted_name = f"Lamp-{lamp.id} ({lamp.name_device})"
 
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == lamp_id,
+        DeviceGroupMapping.category_device == EnumDeviceCategory.LAMP
+    ).delete()
+
     # Delete lamp (CASCADE will delete from devices table, SET NULL for event_mapping_lamps)
     db.delete(lamp)
     db.commit()
@@ -450,6 +456,6 @@ async def delete_lamp(
 
     return ApiSingleResponse(
         success=True,
-        message="Lamp 삭제 성공",
-        data={"id": lamp_id, "deleted": True}
+        message=f"Lamp {lamp_id} 삭제 성공",
+        data=None
     )

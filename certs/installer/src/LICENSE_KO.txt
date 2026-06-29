@@ -1,0 +1,22 @@
+GOP rootCA 신뢰 인증서 등록 안내
+────────────────────────────────────────────────────────────
+
+본 인스톨러는 GOP API Server 가 사용하는 자체 서명 루트 인증서(rootCA)를
+현재 PC 의 "신뢰할 수 있는 루트 인증 기관" 저장소(LocalMachine\Root)에
+등록합니다.
+
+[설치 동작]
+  1. 관리자 권한 확인 (UAC 프롬프트)
+  2. 동봉된 rootCA.pem 의 Thumbprint 비교
+  3. 이미 등록되어 있으면 SKIP
+  4. 등록되어 있지 않으면 certutil -addstore -f Root 로 등록
+  5. 결과 로그를 %TEMP%\GOP-RootCA-Install.log 에 저장
+
+[보안 영향]
+  - 본 인증서는 GOP 내부 통제 시스템(api.gop.local, ws.gop.local 등)
+    에 대해서만 신뢰됩니다.
+  - 외부 임의 도메인 서명에는 사용되지 않습니다.
+  - 제거가 필요하면 "제어판 → 프로그램 추가/제거 → GOP rootCA Installer"
+    에서 언제든지 제거 가능합니다.
+
+계속하려면 "동의" 를 선택해 주세요.

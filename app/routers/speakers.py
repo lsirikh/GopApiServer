@@ -488,6 +488,12 @@ async def delete_speaker(
     deleted_identifier = get_identifier(speaker)
     deleted_name = f"Speaker-{speaker.id} ({speaker.name_device})"
 
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == speaker_id,
+        DeviceGroupMapping.category_device == EnumDeviceCategory.SPEAKER
+    ).delete()
+
     db.delete(speaker)
     db.commit()
 

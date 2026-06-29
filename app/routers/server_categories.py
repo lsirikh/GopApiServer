@@ -367,7 +367,7 @@ async def replace_server_category(
     )
 
 
-@router.delete("/{category_id}", response_model=ApiSingleResponse[dict])
+@router.delete("/{category_id}", response_model=ApiSingleResponse[None])
 async def delete_server_category(
     category_id: int,
     current_user=Depends(get_current_user_optional),
@@ -399,6 +399,6 @@ async def delete_server_category(
 
     return ApiSingleResponse(
         success=True,
-        message="Server category deleted successfully",
-        data={"id": category_id}
+        message=f"Server category {category_id} deleted successfully",
+        data=None
     )

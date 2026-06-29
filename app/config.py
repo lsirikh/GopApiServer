@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "your-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
+    # PRD v4.9 Phase 2-A3: refresh_token TTL settings 분리 (이전 하드코딩 7일)
+    JWT_REFRESH_EXPIRATION_DAYS: int = 7
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod
@@ -79,6 +81,9 @@ class Settings(BaseSettings):
 
     # Thumbnail Storage
     THUMBNAIL_STORAGE_PATH: str = "data/thumbnails"
+
+    # Profile Photo Storage — 호스트 ./data 바인드 마운트라 컨테이너 재생성/재빌드에도 영속
+    PROFILE_STORAGE_PATH: str = "data/profiles"
 
     # CORS
     CORS_ORIGINS: str = '["*"]'

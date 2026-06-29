@@ -81,8 +81,8 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        # Refresh tokens expire after 7 days by default
-        expire = datetime.utcnow() + timedelta(days=7)
+        # PRD v4.9 Phase 2-A3: settings.JWT_REFRESH_EXPIRATION_DAYS (이전 하드코딩 7일)
+        expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
 
     to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
@@ -90,27 +90,34 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     return encoded_jwt
 
 
-def decode_token(token: str) -> TokenData:
+def decode_token(token: str, expected_type: Optional[str] = None) -> TokenData:
     """
     Decode and validate JWT token
 
     Args:
         token: JWT token string
+        expected_type: PRD v4.9 Phase 2-A4 — 'refresh' 또는 None (access). 'refresh'면 payload.type='refresh' 강제
 
     Returns:
-        TokenData with username extracted from token
+        TokenData with username + jti + token_type extracted from token
 
     Raises:
-        JWTError: If token is invalid or expired
+        JWTError: If token is invalid or expired or type mismatch
     """
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         username: str = payload.get("sub")
+        token_jti: str = payload.get("jti")
+        token_type: str = payload.get("type")  # access: None / refresh: "refresh"
 
         if username is None:
             raise JWTError("Username not found in token")
 
-        return TokenData(username=username)
+        # PRD v4.9 Phase 2-A4: refresh 전용 가드 — access_token으로 refresh 호출 차단
+        if expected_type == "refresh" and token_type != "refresh":
+            raise JWTError("Token type mismatch — refresh token required")
+
+        return TokenData(username=username, jti=token_jti, token_type=token_type)
 
     except JWTError:
         raise

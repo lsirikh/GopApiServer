@@ -91,7 +91,7 @@ class ServerCreate(BaseModel):
                 "port": 8080,
                 "hostname": "vms-server-01",
                 "user_name": "admin",
-                "user_password": "password123",
+                "user_password": "<your_password>",
                 "threshold_config": THRESHOLD_CONFIG_EXAMPLE
             }
         }
@@ -131,7 +131,10 @@ class ServerUpdate(BaseModel):
 
 
 class ServerResponse(BaseModel):
-    """Schema for Server response (v4.4 Phase 5: user_password 응답 노출 복원, 정책은 v4.5에서 결정)"""
+    """Schema for Server response
+
+    v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원 (.NET 장비 접속 자격증명)
+    """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
@@ -178,7 +181,8 @@ class ServerNestedResponse(BaseModel):
     Server Nested Response - for use in other resources (e.g., Speaker)
     PRD: PRD_Speaker_Device.md Section 5.3
     Excludes created_at, updated_at per nested response rule
-    v4.4 Phase 5: user_password 응답 노출 복원 (정책은 v4.5에서 결정)
+
+    v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원
     """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")

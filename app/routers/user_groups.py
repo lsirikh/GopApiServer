@@ -9,8 +9,9 @@ from typing import Optional
 from app.dependencies import get_db
 from app.models.user import UserGroup, AccountUser
 from app.schemas.user import UserGroupResponse, UserGroupCreate, UserGroupUpdate, AccountUserResponse
-from app.routers.auth import get_current_account_user
+from app.routers.auth import get_current_account_user, require_admin
 from app.services.audit_service import log_action, get_changes
+from app.schemas.user import PermissionsSchema
 
 router = APIRouter(tags=["User Groups"])
 
@@ -118,10 +119,13 @@ async def create_user_group(
             detail=f"User group with name '{group_data.name}' already exists"
         )
 
+    # PRD v4.9 Phase 3 (A-2.1): PermissionsSchema → JSON dict 직렬화 (JSONB 컬럼 호환)
+    perms_dict = group_data.permissions.model_dump(mode="json", exclude_none=True) if group_data.permissions else None
+
     new_group = UserGroup(
         name=group_data.name,
         description=group_data.description,
-        permissions=group_data.permissions,
+        permissions=perms_dict,
         is_active=group_data.is_active if group_data.is_active is not None else True
     )
     db.add(new_group)
@@ -174,13 +178,18 @@ async def update_user_group(
     **Request Body**:
     - **name**: 그룹 이름 (선택)
     - **description**: 설명 (선택)
-    - **permissions**: 권한 설정 (선택)
     - **is_active**: 활성화 상태 (선택)
+
+    **Note (PRD v4.8 Phase 12-7a — P0)**:
+    - `permissions` 필드는 일반 수정 API에서 차단됨 (권한 상승 공격 방지).
+    - 권한 변경은 향후 전용 admin 엔드포인트(POST /user-groups/{id}/permissions)로만 허용 예정 (v5.0).
+    - `extra="forbid"`로 인해 `permissions` 또는 기타 알 수 없는 필드 전송 시 422 반환.
 
     **Response**: success, data (수정된 그룹 정보)
 
     **Error**:
     - 404: 그룹을 찾을 수 없음
+    - 422: `permissions` 또는 알 수 없는 필드 전송 시
     """
     group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
 
@@ -190,11 +199,10 @@ async def update_user_group(
             detail="User group not found"
         )
 
-    # 변경 전 상태 저장
+    # 변경 전 상태 저장 (permissions은 일반 수정 경로에서 변경 불가 — PRD v4.8 Phase 12-7a)
     before_state = {
         "name": group.name,
         "description": group.description,
-        "permissions": group.permissions,
         "is_active": group.is_active
     }
 
@@ -210,13 +218,11 @@ async def update_user_group(
                 detail=f"User group with name '{group_data.name}' already exists"
             )
 
-    # Update fields if provided
+    # Update fields if provided (permissions은 스키마에서 제거됨 — 권한 변경 차단)
     if group_data.name is not None:
         group.name = group_data.name
     if group_data.description is not None:
         group.description = group_data.description
-    if group_data.permissions is not None:
-        group.permissions = group_data.permissions
     if group_data.is_active is not None:
         group.is_active = group_data.is_active
 
@@ -234,7 +240,6 @@ async def update_user_group(
     after_state = {
         "name": group.name,
         "description": group.description,
-        "permissions": group.permissions,
         "is_active": group.is_active
     }
 
@@ -254,6 +259,77 @@ async def update_user_group(
         resource_name=group.name,
         changes=changes,
         description=f"사용자 그룹 수정: {group.name}"
+    )
+
+    return {
+        "success": True,
+        "data": UserGroupResponse.model_validate(group)
+    }
+
+
+@router.post("/{group_id}/permissions", dependencies=[Depends(require_admin)])
+async def update_user_group_permissions(
+    group_id: int,
+    permissions: PermissionsSchema,
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user)
+):
+    """
+    사용자 그룹 권한 수정 (ADMIN 전용) — PRD v5.0
+
+    일반 수정(PUT)은 `permissions`를 차단(권한 상승 공격 방지, PRD v4.8 Phase 12-7a)하므로,
+    그룹 권한(모듈 × 동작) 변경은 이 ADMIN 전용 전용 엔드포인트로만 수행한다.
+
+    **Path Parameters**:
+    - **group_id**: 그룹 ID
+
+    **Request Body** (`PermissionsSchema`, strict):
+    - **modules**: `{모듈: {view, edit, delete, control}}` — 모듈 키는 EnumPermissionModule
+      (devices/events/reports/cameras/users/user_groups/audit_logs/servers).
+      미정의 모듈 키 또는 미정의 verb → 422 자동 거부. `view/edit/delete/control` 는 StrictBool.
+    - **device_groups**: 접근 가능한 디바이스 그룹 ID 목록 (선택)
+
+    **Response**: success, data (갱신된 그룹 — permissions 반영)
+
+    **Error**:
+    - 403: ADMIN 이 아님 (require_admin)
+    - 404: 그룹을 찾을 수 없음
+    - 422: 잘못된 권한 구조 (미정의 모듈/verb, truthy 문자열 등)
+    """
+    group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
+
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User group not found"
+        )
+
+    # 변경 전/후 스냅샷 (감사 추적)
+    before_perms = group.permissions
+
+    # PermissionsSchema → JSON dict 직렬화 (JSONB 컬럼 호환). 전체 교체(부분 병합 아님).
+    group.permissions = permissions.model_dump(mode="json", exclude_none=True)
+    db.commit()
+    db.refresh(group)
+
+    changes = get_changes(
+        {"permissions": before_perms},
+        {"permissions": group.permissions}
+    )
+
+    # 감사 로그 기록: PERMISSION_CHANGED (append-only)
+    await log_action(
+        db=db,
+        action_type="PERMISSION_CHANGED",
+        resource_type="USER_GROUP",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=group.id,
+        resource_name=group.name,
+        changes=changes,
+        description=f"그룹 권한 변경: {group.name}"
     )
 
     return {
@@ -313,7 +389,11 @@ async def delete_user_group(
         description=f"사용자 그룹 삭제: {group_name}"
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "message": f"User group {group_id} deleted successfully",
+        "data": None
+    }
 
 
 @router.get("/{group_id}/users")

@@ -1,23 +1,27 @@
 """
 User API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import os
+import uuid
 
+from app.config import settings
 from app.dependencies import get_db
 from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
-from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, PasswordResetRequest, PasswordChangeRequest
-from app.routers.auth import get_current_account_user
+from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
+from app.routers.auth import get_current_account_user, require_admin
 from app.utils.auth import hash_password, verify_password
 from app.services.audit_service import log_action, get_changes
 
 router = APIRouter(tags=["Users"])
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_admin)])
 async def get_users(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -79,23 +83,26 @@ async def get_my_info(
 
 @router.put("/me")
 async def update_my_info(
-    user_data: AccountUserUpdate,
+    user_data: AccountUserSelfUpdate,
     db: Session = Depends(get_db),
     current_user: AccountUser = Depends(get_current_account_user)
 ):
     """
-    내 정보 수정
+    내 정보 수정 (PRD v4.8 Phase 12-7c)
 
-    현재 로그인한 사용자의 정보를 수정합니다.
+    현재 로그인한 사용자의 본인 정보만 수정합니다.
+    권한 필드(role/group_id/is_active)는 본 경로로 변경 불가 — 전용 admin 경로 /users/{user_id} 사용.
 
-    **Request Body**:
+    **Request Body** (권한 필드 전송 시 422):
     - **name**: 이름 (선택)
     - **email**: 이메일 (선택)
     - **department**: 부서 (선택)
     - **position**: 직책 (선택)
+    - **photo_url**: 프로필 사진 URL (선택)
     - **phone**: 전화번호 (선택)
 
-    **Response**: success, data (수정된 사용자 정보)
+    **Error**:
+    - 422: role/group_id/is_active 등 권한 필드 전송 시
     """
     # Capture before state for audit log
     before_state = {
@@ -200,7 +207,62 @@ async def change_my_password(
     return {"success": True}
 
 
-@router.get("/{user_id}")
+# ──────────────── Profile Photo (프로필 사진 업로드/서빙) ────────────────
+# 파일은 settings.PROFILE_STORAGE_PATH(=data/profiles, 호스트 ./data 바인드 마운트 → 영속)에 저장.
+# photo_url(DB)에는 절대 API URL 저장 → 클라가 그대로 표시(GET /api/users/photo/{name}).
+ALLOWED_PHOTO_MIME = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+MAX_PHOTO_BYTES = 5 * 1024 * 1024  # 5MB
+
+
+async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Request, db: Session):
+    """업로드 파일 검증 → data/profiles 저장 → user.photo_url(절대 URL) 갱신. (본인/admin 공통)"""
+    ext = ALLOWED_PHOTO_MIME.get(file.content_type or "")
+    if ext is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type: {file.content_type}. Allowed: {', '.join(ALLOWED_PHOTO_MIME)}",
+        )
+    content = await file.read()
+    if len(content) > MAX_PHOTO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large: {len(content)} bytes (max {MAX_PHOTO_BYTES})",
+        )
+    os.makedirs(settings.PROFILE_STORAGE_PATH, exist_ok=True)
+    file_name = f"{user.id}_{uuid.uuid4().hex[:8]}.{ext}"   # uuid 파일명 — traversal/충돌 방지
+    file_path = os.path.join(settings.PROFILE_STORAGE_PATH, file_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+    # 절대 URL — photo_url 검증기(http(s) 허용) 통과 + 클라 ImageConverter(C1) 직접 렌더
+    user.photo_url = f"{str(request.base_url).rstrip('/')}/api/users/photo/{file_name}"
+    db.commit()
+    db.refresh(user)
+    return {"success": True, "message": "Profile photo uploaded", "data": AccountUserResponse.model_validate(user)}
+
+
+@router.post("/me/photo", summary="본인 프로필 사진 업로드")
+async def upload_my_photo(
+    request: Request,
+    file: UploadFile = File(..., description="이미지 파일 (jpeg/png/webp/gif, ≤5MB)"),
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
+):
+    """본인 프로필 사진 업로드 → data/profiles/ 저장 + photo_url(DB) 갱신."""
+    return await _save_profile_photo(current_user, file, request, db)
+
+
+@router.get("/photo/{file_name}", summary="프로필 사진 다운로드(파일명 기반)")
+async def get_profile_photo(file_name: str):
+    """data/profiles/{file_name} 이미지 바이너리 반환. 인증 불필요(파일명 uuid라 비공개성 확보)."""
+    if "/" in file_name or "\\" in file_name or ".." in file_name:   # 경로 traversal 차단
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file name")
+    file_path = os.path.join(settings.PROFILE_STORAGE_PATH, file_name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile photo not found")
+    return FileResponse(path=file_path)
+
+
+@router.get("/{user_id}", dependencies=[Depends(require_admin)])
 async def get_user_by_id(
     user_id: int,
     db: Session = Depends(get_db),
@@ -233,7 +295,7 @@ async def get_user_by_id(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_user(
     user_data: AccountUserCreate,
     db: Session = Depends(get_db),
@@ -315,7 +377,7 @@ async def create_user(
     }
 
 
-@router.put("/{user_id}")
+@router.put("/{user_id}", dependencies=[Depends(require_admin)])
 async def update_user(
     user_id: int,
     user_data: AccountUserUpdate,
@@ -426,7 +488,7 @@ async def update_user(
     }
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", dependencies=[Depends(require_admin)])
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -475,10 +537,14 @@ async def delete_user(
         description=f"사용자 삭제: {deleted_login_id}"
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "message": f"User {deleted_user_id} deleted successfully",
+        "data": None
+    }
 
 
-@router.post("/{user_id}/lock")
+@router.post("/{user_id}/lock", dependencies=[Depends(require_admin)])
 async def lock_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -542,7 +608,7 @@ async def lock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/unlock")
+@router.post("/{user_id}/unlock", dependencies=[Depends(require_admin)])
 async def unlock_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -600,7 +666,7 @@ async def unlock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/reset-password")
+@router.post("/{user_id}/reset-password", dependencies=[Depends(require_admin)])
 async def reset_user_password(
     user_id: int,
     password_data: PasswordResetRequest,

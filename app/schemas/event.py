@@ -144,15 +144,52 @@ class DetectionEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DetectionEventReplace(BaseModel):
+    """
+    Schema for replacing a DetectionEvent (PUT, full replacement)
+
+    PRD v4.8 Phase 12-7b: device_id / device_description 변경 원천 차단 (차장님 결재)
+    - device_id 필드 제거: PUT으로도 이벤트의 device 전환 불가
+      (이벤트는 생성 시 device에 영구 바인딩 — v2.1 불변식)
+    - device_description 필드 제거: Device 스냅샷은 생성 시점 값을 보존
+    - extra="forbid": 클라이언트가 device_id / device_description을 전송하면 422 자동 거부
+    - PUT은 type_event / result / detail 전체 교체만 허용
+    - device 재지정이 필요하면 DELETE 후 POST로 재생성
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: str = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
+    detail: Optional[Dict[str, Any]] = Field(
+        None,
+        description="탐지 상세 정보 (썸네일, AI 객체 등)",
+        json_schema_extra={
+            "example": {
+                "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
+                "signal": 1500,
+                "objects": [
+                    {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
+                ],
+                "model": "yolov8n",
+                "inference_ms": 45
+            }
+        }
+    )
+
+
 class DetectionEventUpdate(BaseModel):
     """
     Schema for updating a DetectionEvent (all fields optional for PATCH)
 
     PRD v2.1: group_event, controller, sensor, type_device, sequence 필드 제거됨
     - device_id는 수정 불가 (이벤트 생성 시에만 설정)
+
+    PRD v2.8 + v4.8 Phase 12 (1:N invariant 가드):
+    - action_reported 필드 제거. ActionEvent count helper(update_source/reset_source)가
+      단독 관리하는 종속 필드이며, PATCH로 강제 시 DELETE 409 가드를 우회해
+      action_events.from_event_id NULL 고아를 만들 수 있어 입력 표면에서 차단.
     """
     type_event: Optional[str] = Field(None, example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    action_reported: Optional[str] = Field(None, example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
     result: Optional[str] = Field(None, example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
     detail: Optional[Dict[str, Any]] = Field(
@@ -257,6 +294,39 @@ class MalfunctionEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MalfunctionEventReplace(BaseModel):
+    """
+    Schema for replacing a MalfunctionEvent (PUT, full replacement)
+
+    PRD v4.8 Phase 12-7b: device_id / device_description 변경 원천 차단 (차장님 결재)
+    - device_id 필드 제거: PUT으로도 이벤트의 device 전환 불가 (v2.1 불변식)
+    - device_description 필드 제거: Device 스냅샷은 생성 시점 값을 보존
+    - extra="forbid": 클라이언트가 device_id / device_description을 전송하면 422 자동 거부
+    - PUT은 type_event / reason / detail 전체 교체만 허용
+    - device 재지정이 필요하면 DELETE 후 POST로 재생성
+
+    PRD_Event_Field_Normalization.md v1.0:
+    - reason: 별도 필드 유지
+    - first_start/end, second_start/end: detail JSONB로 이동
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: str = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
+    detail: Optional[Dict[str, Any]] = Field(
+        None,
+        description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)",
+        json_schema_extra={
+            "example": {
+                "first_start": 5,
+                "first_end": 5,
+                "second_start": 0,
+                "second_end": 0
+            }
+        }
+    )
+
+
 class MalfunctionEventUpdate(BaseModel):
     """
     Schema for updating a MalfunctionEvent (all fields optional for PATCH)
@@ -264,12 +334,15 @@ class MalfunctionEventUpdate(BaseModel):
     PRD v2.1: group_event, controller, sensor, type_device, sequence 필드 제거됨
     - device_id는 수정 불가 (이벤트 생성 시에만 설정)
 
+    PRD v2.8 + v4.8 Phase 12 (1:N invariant 가드):
+    - action_reported 필드 제거. ActionEvent count helper가 단독 관리하는 종속 필드.
+    - PATCH로 강제 시 DELETE 409 가드 우회 위험 → 입력 표면에서 차단.
+
     PRD_Event_Field_Normalization.md v1.0:
     - reason: 별도 필드 유지
     - first_start/end, second_start/end: detail JSONB로 이동
     """
     type_event: Optional[str] = Field(None, example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    action_reported: Optional[str] = Field(None, example="False", description=f"조치 보고 여부 [{TRUE_FALSE_VALUES}]")
     reason: Optional[str] = Field(None, example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
@@ -330,6 +403,22 @@ class ConnectionEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ConnectionEventReplace(BaseModel):
+    """
+    Schema for replacing a ConnectionEvent (PUT, full replacement)
+
+    PRD v4.8 Phase 12-7b: device_id / device_description 변경 원천 차단 (차장님 결재)
+    - device_id 필드 제거: PUT으로도 이벤트의 device 전환 불가 (v2.1 불변식)
+    - device_description 필드 제거: Device 스냅샷은 생성 시점 값을 보존
+    - extra="forbid": 클라이언트가 device_id / device_description을 전송하면 422 자동 거부
+    - PUT은 type_event 전체 교체만 허용
+    - device 재지정이 필요하면 DELETE 후 POST로 재생성
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: str = Field(..., example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+
+
 class ConnectionEventUpdate(BaseModel):
     """
     Schema for updating a ConnectionEvent (all fields optional for PATCH)
@@ -355,6 +444,23 @@ class ActionEventCreate(BaseModel):
     created_at: Optional[KSTDatetime] = Field(None, description="생성 일시 (미입력시 자동 생성)")
 
 
+class ActionEventReplace(BaseModel):
+    """
+    Schema for replacing an ActionEvent (PUT, full replacement)
+
+    PRD v1.6 + v4.8 Phase 12-1/12-7d (차장님 결재):
+    - from_event_id 필드 제거 (Phase 12-1): PUT으로도 원본 이벤트 전환 불가
+    - created_at 필드 제거 (Phase 12-7d): 알리바이 조작 차단, 시각 영구 보존
+    - extra="forbid": 두 필드 전송 시 422
+    - 과거 조치 batch-import는 admin-only 전용 엔드포인트로 분리 (v5.0)
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: str = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
+    user: str = Field(..., example="operator1", description="조치자")
+
+
 class ActionEventResponse(BaseModel):
     """Schema for ActionEvent response"""
     id: int = Field(..., example=1, description="이벤트 ID")
@@ -372,15 +478,16 @@ class ActionEventUpdate(BaseModel):
     """
     Schema for updating an ActionEvent (all fields optional for PATCH)
 
-    PRD v1.5: from_type_event 필드 제거
-    - from_event_id만으로 원본 이벤트 참조
-    - from_event_id 변경 시 polymorphic relationship으로 타입 자동 확인
+    PRD v1.6 + v4.8 Phase 12-1/12-7d (차장님 결재):
+    - from_event_id 필드 제거 (Phase 12-1): PATCH로 원본 이벤트 전환 불가
+    - created_at 필드 제거 (Phase 12-7d): 알리바이 조작 차단, 시각 영구 보존
+    - extra="forbid": 두 필드 전송 시 422 자동 거부
     """
+    model_config = ConfigDict(extra="forbid")
+
     type_event: Optional[str] = Field(None, example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     content: Optional[str] = Field(None, example="침입 확인 및 경비 출동", description="조치 내용")
     user: Optional[str] = Field(None, example="operator1", description="조치자")
-    from_event_id: Optional[int] = Field(None, example=1, description="원본 이벤트 ID (events.id FK)")
-    created_at: Optional[KSTDatetime] = Field(None, description="생성 일시")
 
 
 class ActionNested(BaseModel):

@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-06-19  
-**버전**: v4.6  
+**최종 수정일**: 2026-06-29  
+**버전**: v5.0  
 **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -72,11 +72,16 @@
     - 10.3 [Report Templates API](#103-report-templates-api)
     - 10.4 [Report Generations API](#104-report-generations-api)
     - 10.5 [Report Preview Page](#105-report-preview-page)
-11. [에러 처리](#11-에러-처리)
-12. [부록](#12-부록)
-    - 12.1 [전체 Endpoint 목록](#121-전체-endpoint-목록)
-    - 12.2 [Event-Device 리팩토링 변경사항 (v2.3)](#122-event-device-리팩토링-변경사항-v23)
-    - 12.3 [EventMapping 리팩토링 변경사항 (v2.3)](#123-eventmapping-리팩토링-변경사항-v23)
+11. [추적 이력 API 설계](#11-추적-이력-api-설계-v411-신규) *(v4.11 신규)*
+    - 11.1 [개요](#111-개요)
+    - 11.2 [추적점 구간 조회](#112-추적점-구간-조회)
+    - 11.3 [추적 세션 목록](#113-추적-세션-목록)
+    - 11.4 [추적 가용성 체크](#114-추적-가용성-체크)
+12. [에러 처리](#12-에러-처리)
+13. [부록](#13-부록)
+    - 13.1 [전체 Endpoint 목록](#131-전체-endpoint-목록)
+    - 13.2 [Event-Device 리팩토링 변경사항 (v2.3)](#132-event-device-리팩토링-변경사항-v23)
+    - 13.3 [EventMapping 리팩토링 변경사항 (v2.3)](#133-eventmapping-리팩토링-변경사항-v23)
 
 ---
 
@@ -8794,7 +8799,7 @@ Accept: application/json
 |--------|------|------|------|
 | type_event | String | N | 이벤트 유형 (EnumEventType: Connection) |
 
-> **참고**: `device_id`는 PATCH로 수정 불가 (PUT 전체 교체만 가능)
+> **참고 (v4.8 Phase 12-7b)**: `device_id` / `device_description`는 **PATCH/PUT 모두 수정 불가** (스냅샷 보존 — v2.1 불변식). device 재지정이 필요하면 DELETE 후 POST로 재생성한다. 클라이언트가 해당 필드를 전송하면 422가 반환된다.
 
 **Response Example** (200 OK):
 ```json
@@ -14109,8 +14114,8 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 **Request Body**:
 ```json
 {
-  "login_id": "admin", //현재 기본 아이디
-  "password": "admin123" //현재 기본 비번
+  "login_id": "<your_login_id>",
+  "password": "<your_password>"
 }
 ```
 
@@ -14224,19 +14229,25 @@ Authorization: Bearer {access_token}
 
 #### 9.3.1 Endpoint 목록
 
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/api/users` | 사용자 목록 조회 |
-| GET | `/api/users/{id}` | 사용자 상세 조회 |
-| POST | `/api/users` | 사용자 생성 |
-| PUT | `/api/users/{id}` | 사용자 수정 |
-| DELETE | `/api/users/{id}` | 사용자 삭제 |
-| POST | `/api/users/{id}/lock` | 계정 잠금 |
-| POST | `/api/users/{id}/unlock` | 계정 잠금 해제 |
-| POST | `/api/users/{id}/reset-password` | 비밀번호 초기화 |
-| GET | `/api/users/me` | 내 정보 조회 |
-| PUT | `/api/users/me` | 내 정보 수정 |
-| PUT | `/api/users/me/password` | 내 비밀번호 변경 |
+| Method | Endpoint | 설명 | 권한 |
+|--------|----------|------|------|
+| GET | `/api/users` | 사용자 목록 조회 | **ADMIN** |
+| GET | `/api/users/{id}` | 사용자 상세 조회 | **ADMIN** |
+| POST | `/api/users` | 사용자 생성 | **ADMIN** |
+| PUT | `/api/users/{id}` | 사용자 수정 | **ADMIN** |
+| DELETE | `/api/users/{id}` | 사용자 삭제 | **ADMIN** |
+| POST | `/api/users/{id}/lock` | 계정 잠금 | **ADMIN** |
+| POST | `/api/users/{id}/unlock` | 계정 잠금 해제 | **ADMIN** |
+| POST | `/api/users/{id}/reset-password` | 비밀번호 초기화 | **ADMIN** |
+| GET | `/api/users/me` | 내 정보 조회 | 본인(인증) |
+| PUT | `/api/users/me` | 내 정보 수정 | 본인(인증) |
+| PUT | `/api/users/me/password` | 내 비밀번호 변경 | 본인(인증) |
+| POST | `/api/users/me/photo` | 본인 프로필 사진 업로드 (multipart) | 본인(인증) |
+| GET | `/api/users/photo/{file_name}` | 프로필 사진 다운로드 | 인증 불필요 |
+
+> **권한(RBAC) (v4.12, 2026-06-27)**: 계정 관리 엔드포인트(목록/상세/생성/수정/삭제/lock/unlock/reset-password)는 **ADMIN 전용**(`require_admin` = `require_role("ADMIN")` 의존성, `app/routers/auth.py`). 이전엔 인증(Bearer)만 요구하고 `role`을 인가에 미사용 → **임의 인증 사용자가 `PUT /api/users/{id}` 본문에 `role=ADMIN`을 실어 자기/타인을 ADMIN으로 격상(권한상승 T1)** 가능했음. role 미달 시 **403**(`Insufficient role`). 본인 자원(`/me`·`/me/password`·`/me/photo`)은 인증된 본인 누구나(self-service), `GET /api/users/photo/{file_name}`은 인증 불필요(파일명 uuid). **서버측 RBAC가 권위 집행 지점**(클라 UI 게이팅은 보조·우회 가능). ⚠ 장비/이벤트/맵 쓰기 RBAC는 후속 차수 — AUTH_MODE token 승격·인증 의존성 통일·.NET 클라 Bearer 부착이 선결(미선결 시 앱 쓰기 전면 401).
+
+> **프로필 사진 (v4.x, 2026-06-26)**: `POST /api/users/me/photo` 는 `multipart/form-data`(field `file`, image/jpeg·png·webp·gif, ≤5MB)를 받아 **호스트 바인드 마운트 `./data/profiles/`**(`PROFILE_STORAGE_PATH`)에 `{user_id}_{uuid8}.{ext}`로 저장하고, `account_users.photo_url`을 **절대 API URL**(`{base}/api/users/photo/{name}`)로 갱신한 뒤 갱신된 사용자를 반환한다. 이미지 바이트는 **DB가 아니라 파일시스템**(썸네일과 동일 패턴), DB에는 photo_url(VARCHAR500)만. `GET /api/users/photo/{file_name}` 는 `FileResponse`로 바이너리 반환(인증 불필요 — 파일명이 uuid라 비공개성 확보, 경로 traversal 차단). 컨테이너 재빌드/재생성에도 `./data`라 **영속**.
 
 #### 9.3.2 GET `/api/users`
 
@@ -14338,6 +14349,7 @@ Authorization: Bearer {access_token}
 | PUT | `/api/user-groups/{id}` | 그룹 수정 |
 | DELETE | `/api/user-groups/{id}` | 그룹 삭제 |
 | GET | `/api/user-groups/{id}/users` | 그룹 소속 사용자 목록 |
+| POST | `/api/user-groups/{id}/permissions` | 그룹 권한 변경 (ADMIN 전용, v5.0 신규) |
 
 #### 9.4.2 POST `/api/user-groups`
 
@@ -14368,6 +14380,95 @@ Authorization: Bearer {access_token}
   }
 }
 ```
+
+#### 9.4.7 POST `/api/user-groups/{group_id}/permissions` — 그룹 권한 변경 (ADMIN 전용, v5.0 신규)
+
+일반 `PUT /api/user-groups/{id}`는 v4.8 Phase 12-7a 정책에 따라 `permissions` 필드 수정을 영구 차단한다(요청에 포함되면 무시 또는 422). 권한 변경은 보안 핵심 작업이므로 **전용 endpoint로 분리**하고, FastAPI 의존성 `Depends(require_admin)`을 endpoint 레벨에 강제하여 **ADMIN 역할만 호출 가능**하도록 인가를 일관 적용한다.
+
+요청 본문은 `PermissionsSchema`(strict input)로 검증한다. `modules` 딕셔너리는 8종 모듈 키와 4 verb(StrictBool) 매트릭스로 구성되며, `extra='forbid'`가 적용되어 미정의 모듈/verb는 자동으로 422를 반환한다. 권한은 **전체 교체** 방식으로 적용되고(부분 병합 아님), JSONB 컬럼 호환을 위해 `model_dump(mode="json", exclude_none=True)`로 직렬화한 뒤 저장한다.
+
+**Path Parameters**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `group_id` | integer | 권한을 변경할 그룹 ID (PK) |
+
+**Request Body** (`PermissionsSchema`)
+
+```json
+{
+  "modules": {
+    "devices":  { "view": true, "edit": true,  "delete": false, "control": false },
+    "events":   { "view": true, "edit": false, "delete": false, "control": false },
+    "cameras":  { "view": true, "edit": true,  "delete": false, "control": true  }
+  },
+  "device_groups": [1, 5, 7]
+}
+```
+
+- `modules`: `Dict[EnumPermissionModule, ModulePermission]`
+  - **EnumPermissionModule (8종)**: `devices`, `events`, `reports`, `cameras`, `users`, `user_groups`, `audit_logs`, `servers`
+  - **ModulePermission (4 verb, StrictBool)**: `view`, `edit`, `delete`, `control`
+  - `extra='forbid'` — 미정의 모듈 키(예: `"foo"`) 또는 미정의 verb(예: `"manage"`)는 422 반환
+  - **StrictBool** — `"yes"`, `1`, `"true"` 같은 truthy 값은 모두 422 (불리언 외 타입 거부)
+- `device_groups`: `List[int]` (선택) — 그룹이 접근 가능한 디바이스 그룹 ID 목록
+
+**Response (200 OK)**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "운영팀",
+    "description": "기지 운영팀",
+    "permissions": {
+      "modules": {
+        "devices":  { "view": true, "edit": true,  "delete": false, "control": false },
+        "events":   { "view": true, "edit": false, "delete": false, "control": false },
+        "cameras":  { "view": true, "edit": true,  "delete": false, "control": true  }
+      },
+      "device_groups": [1, 5, 7]
+    },
+    "user_count": 3,
+    "created_at": "2026-06-19T10:03:44+09:00",
+    "updated_at": "2026-06-29T10:23:29+09:00"
+  }
+}
+```
+
+**Error Responses**
+
+| HTTP | 사유 |
+|------|------|
+| 403 | ADMIN 아님 (`require_admin` 실패) — `{"code":"FORBIDDEN","message":"Insufficient role"}` |
+| 404 | 그룹 없음 — `{"code":"NOT_FOUND","message":"User group not found"}` |
+| 422 | 스키마 위반 — 미정의 모듈/verb, StrictBool truthy 값, 누락 필드 등 |
+
+**감사 로그**
+
+- `action_type`: `PERMISSION_CHANGED`
+- `resource_type`: `USER_GROUP`
+- `resource_id`: `group.id`
+- 변경 전/후 스냅샷(`before_perms`, `after_perms`)을 비교하여 `changes` 필드에 diff 저장
+- append-only 트리거 적용 (UPDATE/DELETE 차단, v51.1 FK 익명화 예외만 허용)
+
+> **NOTE** — JSONB 직렬화는 `permissions = permissions.model_dump(mode="json", exclude_none=True)`로 수행하며 **전체 교체** 방식이다. 부분 병합(merge)은 지원하지 않으므로, 클라이언트는 항상 완전한 권한 매트릭스를 송신해야 한다.
+
+**구현 위치**
+
+- `app/routers/user_groups.py:270` — POST endpoint (`dependencies=[Depends(require_admin)]`)
+- `app/schemas/user.py:46` — `PermissionsSchema` (`modules` + `device_groups`, `extra='forbid'`)
+- `app/schemas/user.py:31` — `ModulePermission` (4 verb StrictBool)
+- `app/utils/enums.py:779` — `EnumPermissionModule` (8종)
+- `app/utils/enums.py:791` — `EnumPermissionVerb` (4 verb)
+- `app/routers/auth.py` — `require_admin = require_role(['ADMIN'])`
+
+**Swagger 노출**
+
+- `operationId`: `update_user_group_permissions`
+- Request schema: `#/components/schemas/PermissionsSchema`
+- Tag: `user-groups`
 
 ### 9.5 UserSession API
 
@@ -14527,6 +14628,17 @@ Accept: application/json
   }
 }
 ```
+
+> **NOTE (v51 hardening)**: 응답의 `action_type` / `resource_type` 는 **문자열(str)** 이다.
+> 권장 값은 각각 `EnumAuditActionType` / `EnumAuditResourceType` 멤버이나, `audit_logs` 는
+> append-only(UPDATE/DELETE 차단 — §7 Phase 12-7f)라 과거 비-enum 값(예: 테스트 `TEST_INS`/`TEST`)이
+> 영구 잔존할 수 있다. strict enum 이면 목록 직렬화가 500 되므로 응답 스키마를 str(tolerant)로 완화했다.
+> 생성 측 `AuditLogCreate` 도 동일하게 str — 응답/생성 정합.
+
+> **NOTE (v51.1, 2026-06-26)**: 사용자 hard-delete(`DELETE /api/users/{id}`) 시 `audit_logs.actor_id` /
+> `user_login_logs.user_id` / `config_change_logs.actor_id` FK가 `ON DELETE SET NULL`(=UPDATE)로 익명화된다.
+> append-only 트리거(`fn_block_audit_modification`)는 **이 FK 익명화 UPDATE(링크 컬럼만 NULL, 그 외 불변)만 허용**하고
+> 내용 변경·행 삭제는 계속 차단한다. (이전엔 이 UPDATE까지 막아 이력 있는 사용자 삭제가 500이던 버그 수정.)
 
 #### 9.6.3 GET `/api/audit-logs/{id}`
 
@@ -15222,9 +15334,162 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 
 ---
 
-## 11. 에러 처리
+## 11. 추적 이력 API 설계 *(v4.11 신규)*
 
-### 11.1 에러 응답 형식
+### 11.1 개요
+
+GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.tracking-status`(TRACKING_STATUS, `targets[]`)로 브로드캐스트되는 추적 타겟을 **서버가 단일 구독·저장**(독립 워커 `gis-ingest`)하고, 클라이언트는 **read-only GET**으로 기간별 청크를 조회해 Playback 한다.
+
+- **저장 주체**: 서버측 NATS 인제스트(`gis-ingest` 워커 — **구현됨**: docker-compose 서비스 `api-test-gis-ingest`, `db_monitor` 역방향 미러). **클라이언트는 POST 하지 않는다** — 다중 관제 스테이션이 각자 POST 시 N배 중복쓰기 발생.
+- **멱등성**: `UNIQUE(track_id, observed_at)` — 재전송/다중 인제스트 안전(`INSERT ... ON CONFLICT DO NOTHING`).
+- **페이지네이션**: keyset cursor(`(observed_at, id)` 단조 정렬). 1Hz append-only 시계열의 deep offset 성능 급락 회피.
+- **인증**: 조회 2종(`/points`·`/sessions`)은 JWT(`AUTH_MODE=token` 시), `/health`는 무인증.
+- **보존정책**: 기본 7일(`purge_track_points(retain_days)` 함수, 스케줄 호출은 운영 선택). 추적 테이블은 audit append-only 대상 아님(자유 삭제).
+
+> **테이블**: `track_points` (마이그레이션 `app/migrations/v54_tracking_points.sql`, 앱 startup `create_all` 자동 생성). 컬럼: `id, camera_id, track_id, label, threat_level, latitude, longitude, distance_m, confidence, observed_at, tracking_state, speed_mps, session_seq, created_at`.
+
+> **계약 정합**: TRACKING_STATUS **신버전 `targets[]`**(`track_id`·`observed_at`·`threat_level` 포함)을 전제로 한다. 메시지 상세는 `docs/Gop_Message_Broker_연동설계.md §8.3.7`.
+
+#### 11.1.1 인제스트 매핑 (참고 — 서버측 `gis-ingest`, 클라 범위 밖)
+
+| TRACKING_STATUS 필드 | track_points 컬럼 |
+|---|---|
+| `body.camera_id` | `camera_id` |
+| `body.tracking` (`active`만 저장) | `tracking_state` |
+| `targets[].track_id` | `track_id` |
+| `targets[].label` | `label` |
+| `targets[].threat_level` | `threat_level` |
+| `targets[].confidence` | `confidence` |
+| `targets[].observed_at` | `observed_at` |
+| `targets[].location.latitude` | `latitude` |
+| `targets[].location.longitude` | `longitude` |
+| `targets[].location.distance_m` | `distance_m` |
+
+---
+
+### 11.2 추적점 구간 조회
+
+- **Endpoint**: `GET /api/tracking/points`
+- **설명**: 기간(`from`~`to`) 추적점을 keyset cursor 청크로 조회. Playback 핵심. 정렬 `observed_at ASC, id ASC`.
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|:----:|--------|------|
+| `from` | datetime(ISO8601) | X | - | 구간 시작 (`observed_at ≥`) |
+| `to` | datetime(ISO8601) | X | - | 구간 종료 (`observed_at ≤`) |
+| `camera_id` | int | X | - | 카메라 필터 |
+| `track_id` | string | X | - | 단일 트랙 필터 |
+| `cursor` | string | X | - | 직전 응답의 `cursor.next_cursor` |
+| `limit` | int | X | 1000 | 페이지 크기 (최대 5000) |
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "message": "Track points retrieved",
+  "data": [
+    {
+      "id": 100123,
+      "camera_id": 201,
+      "track_id": "cam201-1738750245-007",
+      "label": "person",
+      "threat_level": "THREAT",
+      "latitude": 38.1235,
+      "longitude": 127.5680,
+      "distance_m": 120.5,
+      "confidence": 0.92,
+      "observed_at": "2026-02-05T19:30:00+09:00",
+      "tracking_state": "active",
+      "speed_mps": null,
+      "session_seq": null
+    }
+  ],
+  "cursor": {
+    "next_cursor": "MjAyNi0wMi0wNVQxOTozMDowMHwxMDAxMjM=",
+    "limit": 1000,
+    "has_more": true
+  },
+  "meta": {
+    "timestamp": "2026-02-05T19:30:01.000+09:00",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+> **cursor 사용**: `cursor.next_cursor`가 `null`이 될 때까지 반복 호출하여 구간 전체를 청크로 적재한다. 표준 list envelope에 cursor 슬롯이 없어 전용 `cursor` 필드를 둔다(`pagination` 미사용).
+
+**Error Response:**
+- `400 BAD_REQUEST`: `cursor` 형식 오류
+- `401 UNAUTHORIZED`: 인증 실패 (`AUTH_MODE=token`)
+
+---
+
+### 11.3 추적 세션 목록
+
+- **Endpoint**: `GET /api/tracking/sessions`
+- **설명**: Playback 타임라인용 세션 목록. `track_id`(+`camera_id`) 단위로 `MIN/MAX(observed_at)`·`COUNT(*)`를 집계(별도 세션 테이블 없는 파생). `from`/`to`는 구간 내 추적점만 집계한다.
+
+**Query Parameters:**
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|:----:|--------|------|
+| `from` | datetime(ISO8601) | X | - | 구간 시작 |
+| `to` | datetime(ISO8601) | X | - | 구간 종료 |
+| `camera_id` | int | X | - | 카메라 필터 |
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "message": "Track sessions retrieved",
+  "data": [
+    {
+      "track_id": "cam201-1738750245-007",
+      "camera_id": 201,
+      "label": "person",
+      "start_at": "2026-02-05T19:30:00+09:00",
+      "end_at": "2026-02-05T19:34:11+09:00",
+      "point_count": 251,
+      "session_seq": null
+    }
+  ],
+  "meta": {
+    "timestamp": "2026-02-05T19:34:12.000+09:00",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Error Response:**
+- `401 UNAUTHORIZED`: 인증 실패 (`AUTH_MODE=token`)
+
+---
+
+### 11.4 추적 가용성 체크
+
+- **Endpoint**: `GET /api/tracking/health`
+- **설명**: Playback 진입 게이팅용. 추적 테이블 접근 가능하면 200, 아니면 503. **무인증**.
+
+**Response (200 OK):**
+
+```json
+{ "status": "ok", "tracking_count": 12345 }
+```
+
+**Response (503 Service Unavailable):**
+
+```json
+{ "status": "unavailable", "tracking_count": 0 }
+```
+
+---
+
+## 12. 에러 처리
+
+### 12.1 에러 응답 형식
 
 ```json
 {
@@ -15244,7 +15509,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 }
 ```
 
-### 11.2 에러 코드 정의
+### 12.2 에러 코드 정의
 
 | HTTP 코드 | 에러 코드 | 설명 | 예제 시나리오 |
 |-----------|-----------|------|---------------|
@@ -15260,7 +15525,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 | 503 | `SERVICE_UNAVAILABLE` | 서비스 불가 | 서버 점검, 과부하 |
 | 504 | `TIMEOUT` | 타임아웃 | 요청 처리 시간 초과 |
 
-### 11.3 에러 응답 예제
+### 12.3 에러 응답 예제
 
 #### 400 Validation Error (데이터 검증 실패)
 
@@ -15298,9 +15563,9 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 
 ---
 
-## 12. 부록
+## 13. 부록
 
-### 12.1 전체 Endpoint 목록
+### 13.1 전체 Endpoint 목록
 
 #### Device Endpoints
 
@@ -15560,6 +15825,8 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/users/me` - 내 정보 조회
 - `PUT /api/users/me` - 내 정보 수정
 - `PUT /api/users/me/password` - 내 비밀번호 변경
+- `POST /api/users/me/photo` - 본인 프로필 사진 업로드 (multipart, v4.11 신규)
+- `GET /api/users/photo/{file_name}` - 프로필 사진 다운로드 (무인증, v4.11 신규)
 
 **UserGroups**:
 - `GET /api/user-groups` - 그룹 목록 조회
@@ -15568,6 +15835,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `PUT /api/user-groups/{id}` - 그룹 수정
 - `DELETE /api/user-groups/{id}` - 그룹 삭제
 - `GET /api/user-groups/{id}/users` - 그룹 소속 사용자 목록
+- `POST /api/user-groups/{group_id}/permissions` - 그룹 권한 변경 (ADMIN 전용, v5.0 신규)
 
 **UserSessions**:
 - `GET /api/user-sessions` - 활성 세션 목록
@@ -15617,9 +15885,15 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - `GET /api/thumbnails/images/{file_name}` - 썸네일 이미지 다운로드 (파일명 기반, FileResponse)
 - `DELETE /api/thumbnails/{id}` - 썸네일 삭제 (파일 + DB)
 
-### 12.2 Event-Device 리팩토링 변경사항 (v2.3)
+#### Tracking Endpoints *(v4.11 신규)*
 
-#### 12.2.1 API Request 변경
+- `GET /api/tracking/points` - 추적점 구간 조회 (keyset cursor)
+- `GET /api/tracking/sessions` - 추적 세션 목록 (타임라인)
+- `GET /api/tracking/health` - 추적 가용성 체크 (무인증)
+
+### 13.2 Event-Device 리팩토링 변경사항 (v2.3)
+
+#### 13.2.1 API Request 변경
 
 | Event Type | Before (v2.1 이전) | After (v2.2) | After (v2.3) |
 |------------|-------------------|--------------|--------------|
@@ -15640,7 +15914,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 }
 ```
 
-#### 12.2.2 API Response 변경
+#### 13.2.2 API Response 변경
 
 | 필드 | v2.2 | v2.3 | 설명 |
 |------|------|------|------|
@@ -15696,7 +15970,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 }
 ```
 
-#### 12.2.3 DeviceNestedResponse 스키마
+#### 13.2.3 DeviceNestedResponse 스키마
 
 **폴리모픽 Device 응답** - Device 타입에 따라 다른 필드 포함:
 
@@ -15730,7 +16004,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 }
 ```
 
-#### 12.2.4 Event 영속성 보장
+#### 13.2.4 Event 영속성 보장
 
 > **핵심 원칙**: Event 데이터는 어떤 경우에도 삭제되지 않아야 한다.
 
@@ -15743,7 +16017,7 @@ Chart.js 기반 HTML 미리보기 페이지를 렌더링합니다.
 - **FK 설정**: `ondelete="SET NULL"` (CASCADE 사용 금지!)
 - **device_description**: Device 삭제 후에도 과거 Device 정보 참조 가능
 
-#### 12.2.5 마이그레이션 스크립트
+#### 13.2.5 마이그레이션 스크립트
 
 **위치**: `scripts/migrate_event_device_id.py`
 
@@ -15764,16 +16038,16 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-### 12.3 EventMapping 리팩토링 변경사항 (v2.3)
+### 13.3 EventMapping 리팩토링 변경사항 (v2.3)
 
-#### 12.3.1 EventMapping 테이블 변경
+#### 13.3.1 EventMapping 테이블 변경
 
 | 필드 | Before (v2.2 이전) | After (v2.3) | 설명 |
 |------|-------------------|--------------|------|
 | `group_event` | VARCHAR(100) | **제거됨** | 자유 문자열, DeviceGroup과 무관 |
 | `device_group_id` | - | INTEGER FK **신규** | DeviceGroup.id 참조 (SET NULL on delete) |
 
-#### 12.3.2 API 변경 요약
+#### 13.3.2 API 변경 요약
 
 | API | Before | After |
 |-----|--------|-------|
@@ -15783,7 +16057,7 @@ python scripts/migrate_event_device_id.py
 | PATCH | `group_event` 수정 가능 | `device_group_id` 수정 가능 |
 | PUT | `group_event` 필수 | `device_group_id` 필수 |
 
-#### 12.3.3 이벤트-카메라 연동 흐름
+#### 13.3.3 이벤트-카메라 연동 흐름
 
 ```
 이벤트 발생 시 카메라 프리셋 연동 흐름 (v2.4):
@@ -15804,7 +16078,7 @@ python scripts/migrate_event_device_id.py
 └─────────────────┘     └─────────────────────┘     └─────────────────┘
 ```
 
-#### 12.3.4 EventMapping FK 정책
+#### 13.3.4 EventMapping FK 정책
 
 | 관계 | 동작 | 정책 | 결과 |
 |------|------|------|------|
@@ -15818,6 +16092,13 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v5.0 | 2026-06-29 | **하루 일괄 — 그룹 권한 관리 endpoint 신설(POST /api/user-groups/{id}/permissions, ADMIN 전용) + v4.12 후속 정합 정리 일괄 sweep**<br><br>**[권한 관리 §9.4.7]** `POST /api/user-groups/{group_id}/permissions` 신설(ADMIN 전용). 일반 `PUT /api/user-groups/{id}`은 v4.8 Phase 12-7a 영구 정책에 따라 `permissions` 필드 쓰기를 **차단**(메타만 갱신) — 일반 수정 경로로 권한 변경을 허용하면 **권한 상승 공격면**이 노출되므로, 권한 정책 갱신을 **별도 ADMIN endpoint로 분리**해 인가 집중·감사 일원화. `dependencies=[Depends(require_admin)]`(v4.12 §9.3.1 동일 패턴) 강제 — 비-ADMIN 호출은 라우팅 단계에서 **403**(`Insufficient role`).<br>- **Request**: `PermissionsSchema`(v4.9 Phase 3 도입, strict input) — `modules: Dict[EnumPermissionModule, ModulePermission]` + `device_groups: List[int]`(선택). `EnumPermissionModule` 8종(`devices`/`events`/`reports`/`cameras`/`users`/`user_groups`/`audit_logs`/`servers`), `ModulePermission` 4 verb `StrictBool`(`view`/`edit`/`delete`/`control`), `model_config = ConfigDict(extra='forbid')` → **미정의 모듈/verb는 422 자동 차단**(오탈자·신규 권한 누락 컴파일타임급 검출).<br>- **Response**: `UserGroupResponse`(갱신된 그룹, `permissions` 반영). **Error**: 403(RBAC) / 404(그룹 없음) / 422(스키마 위반).<br>- **JSONB 직렬화**: `permissions = schema.model_dump(mode='json', exclude_none=True)` — `user_groups.permissions` JSONB 컬럼 호환(EnumPermissionModule→string key 정규화, `None`은 누락 보존).<br>- **감사 로그 자동 기록**: `action_type='PERMISSION_CHANGED'`, `resource_type='USER_GROUP'`, `resource_id=group_id`, `resource_name=group.name`, `changes={'before': old_permissions, 'after': new_permissions}`(전/후 스냅샷), `actor_*`(login_id/id/name/role) 채움. **append-only 트리거**(v51.1, FK 익명화 예외 유지) 적용 — UPDATE/DELETE 차단, ACTOR_DELETED/RESOURCE_DELETED 익명화만 허용.<br>- **실측 검증**: admin POST → **200**(group.permissions 갱신, audit_logs 1행 `PERMISSION_CHANGED at 2026-06-29 10:23:29`), 비-ADMIN(VIEWER/USER) POST → **403**, 정의되지 않은 verb(`{"devices":{"view":true,"hack":true}}`) → **422**, 존재하지 않는 그룹 → **404**, Swagger `/docs` `operationId=update_user_group_permissions` + `schema=#/components/schemas/PermissionsSchema` `$ref` 노출 확인.<br>- 코드: `app/routers/user_groups.py:270` `@router.post("/{group_id}/permissions", dependencies=[Depends(require_admin)])`, 주석 `# PRD v5.0`. ⚠ 장비/이벤트/맵 쓰기 RBAC는 **v5.x 후속**(AUTH_MODE token 승격·.NET 클라 Bearer 부착 선결).<br><br>**[v4.12 후속 정합 정리 §부록]** 본 세션 2026-06-29 일괄 sweep — v4.12 차수 마감 후 누적된 운영·정합·보안 항목을 동일 차수에 묶어 처리(하루 1차수 묶음 원칙).<br>- **PII 차단**: `data/profiles/` `.gitignore` 등록(사용자 사진 3건 commit 방지) + `.gitkeep` 유지(디렉터리 영속). `c:workspace_python...txt`(경로 슬래시 누락으로 워크트리 루트에 생성된 사고 파일) 삭제 + 패턴 차단.<br>- **admin 계정 복구**: `failed_login_count=0` 리셋 + bcrypt `admin123` 재발급(평문 미저장, v4.10 user_password 평문 정책은 Camera/Lamp/Server 디바이스 자격증명에만 적용 — User 비밀번호는 bcrypt 해시 유지).<br>- **Swagger/PRD 정합**: Swagger `version` `1.6.0→4.12.0`, API Version `2.10→4.12`, PRD 목록 갱신(미반영 PRD 67건은 archive 후속).<br>- **이미지·컨테이너 재배포**: Image rebuild + Container force-recreate(`Created 2026-06-29T00:59:01`, v4.11 추적 이력 영속·v4.12 RBAC 코드 반영 확인).<br>- **token_blacklist 정리**: 17 row cleanup(외부 세션 잔재 jti 누적, collision/오탐 위험 제거). ⚠ 자동 청소 cron은 **v5.x 후속**.<br>- **메모리/세션 컨텍스트 갱신**: `session-context.md` 차수 `v4.10→v4.12`, HEAD/branch/안전점 표 갱신, `final-stable` 태그 4건 신설(v4.9/v4.10/v4.11/v4.12), 메모리 4건 신설(RBAC ADMIN 게이트·Tracking cursor·프로필 사진 정책·audit FK 익명화).<br>- **잔존 후속**: 장비/이벤트/맵 쓰기 RBAC(v5.x, AUTH_MODE token 승격 선결), `token_blacklist` 자동 청소 cron(v5.x), `before-*` 신규 3 태그 → `pre-*` 컨벤션 재명명, 67건 untracked PRD archive 정리.<br>- **안전점/롤백**: 본 차수 진입 직전 `pre-v5-spec-sync` 태그. 롤백 — 본 명세 commit 회귀 `git reset --hard pre-v5-spec-sync`(명세 v4.12 상태), 외부 세션 endpoint 자체 회귀 `git reset --hard v4.12-final-stable`, v4.12 정합 정리 회귀 `git reset --hard pre-v412-sync-cleanup`. |
+| v4.12 | 2026-06-27 | **하루 일괄 — 계정 관리 RBAC(ADMIN 게이트·권한상승 T1 차단) + 추적 이력 인제스트 워커(gis-ingest) 구축**<br><br>**[User API §9.3.1]** 계정 CRUD/lock/unlock/reset-password 8개 엔드포인트에 `require_admin`(=`require_role("ADMIN")`, `app/routers/auth.py` 신설) 의존성 추가. 이전엔 인증(Bearer)만 검증하고 `role`을 인가에 미사용 → **임의 인증사용자가 `PUT /api/users/{id}` 본문에 `role=ADMIN`을 실어 자기/타인을 ADMIN으로 격상(권한상승 T1)** 가능했음. role 미달 시 **403**(`Insufficient role`). 본인 자원(`/me`·`/me/password`·`/me/photo`) self-service 유지, `GET /api/users/photo/{file_name}` 인증불요 유지.<br>- `require_role` 의존성 팩토리 신설(auth.py) + users.py 8개 데코레이터 `dependencies=[Depends(require_admin)]`<br>- E2E 검증: VIEWER GET/PUT/DELETE → 403, T1 격상 → 403, admin → 200, /me → 200, 테스트계정 정리<br>- 서버측 RBAC가 권위 집행 지점(클라 UI 게이팅은 보조·우회 가능). ⚠ 장비/이벤트/맵 쓰기 RBAC는 **후속 차수** — AUTH_MODE token 승격·인증 의존성 통일·.NET 클라 Bearer 부착이 선결(미선결 시 앱 쓰기 전면 401)<br>- 안전점 `before-account-rbac`, 브랜치 `feature/server-account-rbac`<br><br>**[② 추적 이력 인제스트 워커 §11 / gis-ingest]** TRACKING_STATUS(신 `targets[]`)를 NATS 구독→`track_points` 영속하는 워커 신설 — §11(v4.11)에서 "후속"으로 둔 저장 경로 실현. 독립 compose 서비스 `api-test-gis-ingest`(`db_monitor` 역방향 미러, asyncpg+nats-py, `nats_external` 망 연결). `sensorway.*.gis.tracking-status` 구독 → `tracking=="active"` targets[]만 행으로 `INSERT ... ON CONFLICT (track_id, observed_at) DO NOTHING`(멱등). `observed_at`(UTC)→naive KST 변환(읽기 API KSTDatetime 정합), 구버전 단일 `target` 방어 파싱 포함. **mock E2E 검증**: NATS 발행→인제스트→멱등(중복 발행 2회=1행)→`/points`·`/sessions` 조회 정상, 테스트 데이터 정리. 발행 시 `created_at` NOT-NULL(raw asyncpg는 ORM Python default 미적용) 명시 지정 버그 E2E로 발견·수정. ⚠ 실 `AiAnalysis`가 신 `targets[]` 포맷 발행하도록 **합의 미결**(방어 파싱으로 구버전 호환). (`gis_ingest/main.py`·`Dockerfile`·`requirements.txt`, `docker-compose.yml` gis-ingest 서비스, 브랜치 `feature/tracking-gis-ingest`) |
+| v4.11 | 2026-06-26 | **하루 일괄 — 추적 이력(Tracking) REST API 신설 + 프로필 사진 업로드 + audit append-only 하드닝**<br><br>**[추적 이력 API 신설 §11]** GIS 추적(TRACKING_STATUS `targets[]`) 영속·조회 — `track_points` 테이블(`UNIQUE(track_id, observed_at)` 멱등 + `observed_at`/`(camera_id,observed_at)` 인덱스, 마이그레이션 v54) + **읽기전용 GET 3종**: `GET /api/tracking/points`(기간+keyset cursor 청크, Playback 핵심) · `GET /api/tracking/sessions`(track_id 단위 MIN/MAX/COUNT 파생집계) · `GET /api/tracking/health`(가용성 게이팅, 무인증). 저장은 **서버측 NATS 인제스트**(독립 `gis-ingest` 워커, `INSERT ... ON CONFLICT DO NOTHING`) — 클라 POST 배제(다중 스테이션 N배 중복 회피). 계약=신버전 `targets[]`(`docs/Gop_Message_Broker_연동설계.md §8.3.7`). §11 신설에 따라 기존 **§11 에러 처리→§12, §12 부록→§13 재번호**(TOC·부록 엔드포인트 목록 동기화).<br>**[프로필 사진 §9.3.1]** `POST /api/users/me/photo`(multipart, ≤5MB) → `./data/profiles/` 영속 + `account_users.photo_url` 갱신, `GET /api/users/photo/{file}`(무인증·경로 traversal 차단).<br>**[audit append-only 하드닝 §9.6.2]** 이력 있는 사용자 hard-delete 가능 — `fn_block_audit_modification`이 **FK 익명화(actor_id/user_id→NULL) UPDATE만 허용**(내용 변경·행 삭제는 계속 차단, v51.1). + audit-logs 500 수정: `AuditLogResponse.action_type/resource_type` strict enum→str(tolerant, append-only 비-enum 잔재 대응). |
+| v4.10 | 2026-06-25 | **하루 일괄 — SEC-1 마스킹 정책 폐기 / 평문 응답 복원 (v4.9 Phase 5 회귀)**<br><br>**[차수 배경]** 2026-06-24 v4.9 Phase 5에서 `.NET v4.9 Review Issues` SEC-1 (P0 보안) 적용으로 Camera/Lamp/Server 응답 `user_password` 마스킹(`"********"`) 도입. 단 1일 만에 운영 한계 노출: (1) 마스킹된 응답을 평문으로 복원하는 **복호화 경로 미정**, (2) .NET 통합 UI가 NVR/VMS/Speaker/Lamp/외부 서버에 RTSP/SSH/HTTP 접속 시 평문 자격증명 필요, (3) 대안(별도 secret API / AES / RSA / 백엔드 프록시)은 모두 분량 큼(4~20h+) 및 .NET 측 변경 동반. **차장님 결재 (2026-06-25)**: *"야 그냥 평문으로 보내. 복호화방법도 없는거 같은데"* → 단순 평문 회귀 + 보안은 v5.x 별도 차수.<br><br>**[Phase 1] SEC-1 마스킹 정책 폐기 / 평문 응답 복원 (6/6 PASS)**<br>- **안전점**: `pre-v4.10-phase1` @ 31bb478<br>- **PRD**: `docs/PRD_v4.10_Phase1_mask_rollback.md` (6.4KB, Workflow 1 agent, Track B)<br>**Schema 회귀 (5건)**:<br>- `app/schemas/device.py:12` `from app.schemas._password_mask import mask_password_serializer` 제거<br>- `app/schemas/device.py:518-520` `CameraResponse._mask_user_password` `@field_serializer` 블록 제거<br>- `app/schemas/device.py:1073-1075` `LampResponse._mask_user_password` 블록 제거<br>- `app/schemas/server.py:7` import 제거<br>- `app/schemas/server.py:156-158` `ServerResponse._mask_user_password` 블록 제거<br>- `app/schemas/server.py:207-209` `ServerNestedResponse._mask_user_password` 블록 제거<br>- Field 설명 정정: `"접속 비밀번호 (응답 시 마스킹 — DB 평문 유지)"` → `"접속 비밀번호"` (4건)<br>**OpenAPI example 회귀 (4건)**:<br>- ServerResponse / ServerNestedResponse / ServerCategorySummary nested `"********"` → `"password123"`<br>- LampResponse example `"********"` → `"lamp1234"`<br>**명세 §5.3.x Camera 응답 예시 (L5103)**: `"user_password": "********"` → `"user_password": "admin1234"`<br>**유지**:<br>- `app/schemas/_password_mask.py` 파일 **heritage 보존** (사용처 0, v5.x secret API 재활용 가능)<br>- 명세 §9.2.2 로그인 자리표시자 `<your_login_id>/<your_password>` **유지** (로그인 자격증명 도메인, 마스킹 대상 아님)<br>- DB 평문 / Create/Update 요청 schema / 백엔드 내부 서비스 / 시드 / Audit Log `SENSITIVE_FIELDS` 모두 변경 없음 (변경 0)<br>**실측 검증 (6/6 PASS)**:<br>- ① Camera 단일 응답 `user_password = "sensorway1"` (DB 평문 그대로) ✅<br>- ② Lamp 단일 응답 `"lamp123"` ✅<br>- ③ Server 단일 응답 `"testpwd123"` ✅<br>- ④ Camera POST 응답 평문 `"plain_v410"` ✅<br>- ⑤ Camera POST DB 평문 `"plain_v410"` (3중 흐름 일치) ✅<br>- ⑥ OpenAPI ServerResponse example `"password123"` ✅<br>- Container Up healthy / Image rebuild / `grep mask_password_serializer` 0건 확인<br>**메모리 정책 재전환**:<br>- `feedback_password_masking_policy.md` (v4.9 Phase 5 정책) → **DEPRECATED** + `superseded_by: feedback_password_plaintext_policy`<br>- `feedback_password_plaintext_policy.md` → **RESTORED** (현행 정책 재명시)<br>- `MEMORY.md` 인덱스 한 줄 설명 갱신 (plaintext 현행 + masking DEPRECATED 동시 노출, 의사결정 이력 보존)<br>**.NET 회신 보강**:<br>- `docs/GOP_Server_API_v4.9_Review_RESPONSE.md` 하단에 `## POLICY UPDATE 2026-06-25 — v4.10 Phase 1 회귀` 섹션 append<br>- 24시간 만의 정책 회귀 인정 + 차장님 결재 인용 + 복호화 경로 부재 근거 + DTO shape 변경 0 재명시 + 보안 v5.x 예고<br>**Track B 적용** (5축 점수 3점: 파일 3 / 아키텍처 0 / 모듈 0 / 테스트 1 / 공수 1)<br><br>**[v4.10 잔존 (.NET v4.9 Review 다른 항목)]**<br>- P0: ENV-1 (Response envelope 5종 표준화) / AUTH-1 (`expires_in`/TTL) / AUTH-2 (PUT /me/password 본문)<br>- P1: FMT-1 / ENUM-1~2 / DEV-1~2 / EVT-1 / INT-1 / SVR-1 / AUTH-3~4 (10건)<br>- 잔존: B-4 / B-5 / B-7 / B-8 (4건, FollowupRequests 미적용)<br>- P2: DOC-1~3 (3건)<br>- 기존 v4.9 후속: A-1.3 Photo multipart / A-1.4 가드 7종 / A-3 audit trigger / B-2 NATS / B-3 RBAC / B-6 lock 메타 (~17h)<br>- 합계 ~38-50h (3~5일 작업)<br><br>**원칙 준수**: 하루 1 차수 묶음 (Phase 1 단일 작업, 2026-06-25 = v4.10 단일 차수). v4.9 Phase 5와 별도 차수 분리 — 다른 일자 작업이므로 정합.<br>**[Phase 2] HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS)**<br>- **배경**: v4.10 Phase 1 평문 응답 정책 회복 직후, 폐쇄망 환경에서도 통신 구간 암호화 필요 (JWT Bearer 토큰 + user_password 평문 전송 위험 완화). 차장님 결재 (2026-06-25): *"가장 간단하고 쉬운거 신뢰되고. 우리 폐쇄망이야"* + *"GOP 운영 시나리오 (서버 1대 + 여러 클라 PC)"* + *"인증서 등록을 EXE 1클릭으로 일원화"*.<br>- **선정**: mkcert (외부 인터넷 불필요, OS 신뢰 저장소 자동 등록) + Inno Setup (.iss 정식 GUI 인스톨러).<br>- **안전점**: `pre-v4.10-phase2` @ 8089877<br>- **PRD**: `docs/PRD_v4.10_Phase2_HTTPS_mkcert_Inno.md` (11.2KB, Workflow 2 agent 옵션 비교 A/B/C → A 선정)<br>- **사용자 가이드**: `docs/GOP_RootCA_Installer_Guide.md` (.NET 팀 배포용 1페이지)<br>**[Phase 2-1] mkcert 인증서 발급**:<br>- mkcert v1.4.4 다운로드 (`~/bin/mkcert.exe` ~5MB)<br>- `mkcert -install` → Windows 신뢰 저장소에 local CA 자동 등록 (Java keytool 경고 무시)<br>- `mkcert -cert-file certs/server.crt -key-file certs/server.key localhost 127.0.0.1 ::1 host.docker.internal 192.168.202.160 192.168.1.1 10.0.0.1` (SAN 다중 + 만료 2028-09-25)<br>- `rootCA.pem` 위치: `C:\Users\gh\AppData\Local\mkcert\rootCA.pem` (CAROOT) → `certs/installer/payload/rootCA.pem` 복사<br>**[Phase 2-2] Docker HTTPS 적용**:<br>- `Dockerfile` (L37-41) CMD 정정 — `sh -c "if [ -f /app/certs/server.crt ] ... uvicorn --ssl-keyfile ... else uvicorn (HTTP fallback) fi"` (개발 환경 호환)<br>- `docker-compose.yml` api-server 서비스:<br>  - `volumes: ./certs:/app/certs:ro` 추가<br>  - `healthcheck: curl -fk https://localhost:8000/docs` (자체 서명이라 -k)<br>- Image rebuild + force-recreate → Container Up healthy + `Uvicorn running on https://0.0.0.0:8000` 확인<br>**[Phase 2-3] Inno Setup 인스톨러 (옵션 A 선정, 옵션 B PowerShell/C# 제외 사유: 차장님 UX + 폐쇄망 USB 운반 + 제어판 제거 자동)**:<br>- `certs/installer/` 디렉터리 신설 (8 소스 파일):<br>  - `src/install_gop_rootca.iss` (3.7KB) — Inno Setup 메인 스크립트 (PrivilegesRequired=admin + rootCA 임베드 + certutil 호출)<br>  - `src/post_install.ps1` (3.5KB) — certutil -addstore -f Root + 한국어 로그 (`%TEMP%\GOP-RootCA-Install.log`)<br>  - `src/pre_uninstall.ps1` (1.8KB) — certutil -delstore 신뢰 제거 (제어판 제거 시 자동 호출)<br>  - `src/LICENSE_KO.txt` (0.6KB) — 한국어 Welcome 페이지<br>  - `scripts/build.ps1` (2.9KB) — ISCC.exe 자동 탐색 + 컴파일<br>  - `scripts/verify.ps1` (1.1KB) — 등록 검증<br>  - `.gitignore` + `README.md` (빌드/사용 안내)<br>- payload: `certs/installer/payload/rootCA.pem` (mkcert root CA 임베드, 1.6KB)<br>- 빌드 산출물: `GOP-RootCA-Installer-v1.0.0.exe` (~1.5~2.5MB 예상, Inno Setup Compiler 빌드 시 생성)<br>- **빌드는 차장님 PC에서 별도 수행** (Inno Setup 6 사전 설치 필요, 빌드 가이드는 README.md 참조)<br>**[Phase 2-4] .gitignore 보안**:<br>- `certs/*.crt` / `certs/*.key` / `certs/*.pem` 차단 (commit 금지)<br>- `!certs/installer/` 예외 (소스는 commit OK)<br>- `certs/installer/build/*.exe` + `payload/rootCA.pem` 차단 (산출물 제외)<br>**[Phase 2-5] 실측 검증 (6/6 PASS)**:<br>- ① Uvicorn 시작 로그 `Uvicorn running on https://0.0.0.0:8000` ✅<br>- ② `curl -k https://localhost:8000/docs` → 200 + `ssl_verify_result=0` ✅<br>- ③ `http://localhost:8000/docs` → 000 (HTTP 차단됨, Uvicorn SSL 강제) ✅<br>- ④ 인증서 정보: `subject=mkcert development certificate, issuer=mkcert development CA, notAfter=2028-09-25` ✅<br>- ⑤ Bearer 토큰 발급 + `https://localhost:8000/api/auth/me` 200 ✅<br>- ⑥ Container `Up healthy` + healthcheck `curl -fk` 정상 ✅<br>**[Phase 2 잔존]**:<br>- Inno Setup Compiler 빌드는 차장님 PC에서 별도 (소스만 commit, build/*.exe는 .gitignore)<br>- HSTS 헤더 / Secure 쿠키 / CSP 등 추가 보안 헤더는 v5.x 권고<br>- adminer(8080) / NATS(4222) 등 다른 서비스 HTTPS는 별도 차수 권고<br>- 외부 IP / 내부 IP 환경 (메모리 project_environments)에서 SAN 추가 발급 필요 시 mkcert 재실행<br><br>**원칙 준수**: 하루 1 차수 묶음 (Phase 1+2 모두 v4.10 단일 행, 2026-06-25).<br>**롤백**: `git reset --hard pre-v4.10-phase2` (Phase 2만 회귀 → HTTPS 제거, 평문 응답 정책 유지). `git reset --hard pre-v4.10-phase1` (Phase 1+2 회귀 → v4.9 Phase 5 마스킹 정책 복원). `git reset --hard pre-v4.9-phase5` (v4.9 Phase 5 자체 회귀, 마스킹 도입 직전). `git reset --hard v4.8-final-stable` (v4.9 + v4.10 전체 회귀). |
+| v4.9 | 2026-06-24 | **하루 일괄 — .NET 통합 UI 팀 31건 질의 회신 → Followup PRD 12항목 → 핵심 P0 7건 적용 (Phase 0~4 통합)**<br><br>**[차수 배경]** 2026-06-24 오전 .NET 팀에 v4.8 마감 후속 회신(`docs/GOP_Server_API_OpenQuestions_RESPONSE.md`, 31건) 작성 → 클라가 동일 일자 `docs/GOP_Server_API_FollowupRequests.md` (12 항목, P0 4 + P1 8) 제출 → 본 차수 12 항목 통합 정합화. Workflow 39 agent로 50 시나리오 + 시뮬레이션 2회 + PRD 작성. R1 1/45 PASS → R2 41/4 PASS 검증. 하루 1차수 묶음 원칙 준수 (Phase 0~4 모두 v4.9 단일 행, 2026-06-24).<br><br>**[Phase 0] .NET 31건 질의 회신 (commit 5274dbb @ 2026-06-24 오전)**<br>- Workflow 8 agent (653K token / 14분): A 인증 5 + B 권한 7 + C 사용자 8 + D 세션 3 + E 감사 3 + F NATS 1<br>- 산출: `docs/GOP_Server_API_OpenQuestions_RESPONSE.md` (14.5KB / 418줄, P0 3건 사전공지 + 명세 보강 권고 11건)<br>- 결과: .NET 팀이 이를 기반으로 본 차수 12항목 Followup 제출 → Phase 1~4 진입<br><br>**[Phase 1] 안전점 + 명세 3 위치 초기화 (commit 4544d7c @ 2026-06-24 오전)**<br>- `pre-followup-prd` @ 64fa905 (PRD 진입 직전) + `pre-v4.9-phase1` @ 8b28c9c (Phase 1 진입)<br>- 명세 헤더(L4-5) + 푸터(L15861-62) + 변경 이력 v4.9 / 2026-06-24 동시 갱신<br>- PRD: `docs/PRD_v4.9_Followup_AccountIntegration.md` (20.6KB / 536줄)<br><br>**[Phase 2] Auth 정합 — B-1 + A-3 + A-4 (commit 9068e46, 6/6 PASS)**<br>**Phase 2-B1: 글로벌 HTTPException 핸들러 WWW-Authenticate 헤더 보존 (RFC 6750/7235)**<br>- `app/main.py:470-489` http_exception_handler — `response_headers = getattr(exc, 'headers', None)` + `JSONResponse(..., headers=response_headers)` 추가<br>- 라우터의 `HTTPException(headers={"WWW-Authenticate": "Bearer"})` 이 envelope 직렬화 시 보존됨<br>- 실측 PASS: `curl /api/auth/me` 토큰 누락 시 응답 헤더에 `www-authenticate: Bearer` 포함 확인<br>**Phase 2-A3: refresh_token TTL settings 분리**<br>- `app/config.py:30` `JWT_REFRESH_EXPIRATION_DAYS: int = 7` 신설 (env override 가능, 이전 하드코딩 7일)<br>- `app/utils/auth.py:85` `timedelta(days=7)` → `timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS)`<br>**Phase 2-A4: jti blacklist + refresh type 가드 (D1 결재: 잠정 DB 저장소)**<br>- `app/utils/auth.py:93` `decode_token(token, expected_type=None)` 시그니처 — payload `type=='refresh'` 강제 + jti/token_type 추출<br>- `app/schemas/user.py:331-336` `TokenData.jti` + `TokenData.token_type` 필드 추가<br>- `app/models/token_blacklist.py` 신설 — `token_blacklist` 테이블 (jti UNIQUE + expires_at + user_id FK + reason)<br>- `app/services/token_blacklist_service.py` 신설 — `is_blacklisted/add_to_blacklist/cleanup_expired` + in-memory TTLCache 60s<br>- `app/routers/auth.py:97-119` `get_current_account_user` — jti 블랙리스트 검증 추가 + `Token has been revoked` 401<br>- `app/routers/auth.py:356-372` logout 핸들러 — `add_to_blacklist(jti, reason="LOGOUT", token_type="access")` 등록<br>- `app/routers/auth.py:392-432` refresh 핸들러 — `decode_token(token, expected_type="refresh")` 가드 + 옛 jti rotation 등록<br>- `app/migrations/v52_token_blacklist.sql` 신설 — 테이블 + 3개 인덱스<br>- 실측 PASS (6/6): WWW-Authenticate / refresh type 가드(401) / 정상 refresh(200) / 옛 refresh rotation 차단(401) / 로그아웃 전 me(200) / 로그아웃 후 me 차단(401)<br><br>**[Phase 3] RBAC Permission 모델 — A-2 전건 (commit 9068e46, 5/5 PASS)**<br>**A-2.1 PermissionsSchema 라우터 적용 / A-2.2 미정의 모듈 422 / A-2.3 미정의 verb 422 / A-2.5 StrictBool 강제**<br>- `app/utils/enums.py` (마지막 라인) `EnumPermissionModule` (8종: devices/events/reports/cameras/users/user_groups/audit_logs/servers) + `EnumPermissionVerb` (4종: view/edit/delete/control) Static 시드 추가<br>- `app/schemas/user.py:32` `ModulePermission` (`extra="forbid"` + `StrictBool` view/edit/delete/control) 신설<br>- `app/schemas/user.py:47` `PermissionsSchema` (`modules: Dict[EnumPermissionModule, ModulePermission]` + `extra="forbid"`) 신설<br>- `app/schemas/user.py:62-90` `UserGroupCreate` — `permissions: Optional[PermissionsSchema]` 강타입 적용 + `model_config = ConfigDict(extra="forbid")`<br>- `app/routers/user_groups.py:121-128` POST 핸들러 — `perms_dict = group_data.permissions.model_dump(mode="json", exclude_none=True)` 추가 (JSONB 직렬화 호환)<br>**A-2.4 시드 정규화 + v53 마이그레이션 (D3 결재 적용)**<br>- `app/utils/init_sample_data.py:126-138` — flat `"rw"/"r"` 폐기, `_RW`/`_R`/`_CTRL` nested dict 적용<br>- `app/migrations/v53_permissions_normalization.sql` 신설 — `pg_temp.fn_normalize_permission_value` 함수 + 기존 시드 3개 그룹 (운영팀/관제팀/유지보수팀) flat → nested 변환<br>- 실측 PASS (5/5): 미정의 모듈(super_admin) 422 / 미정의 verb(destroy) 422 / StrictBool "yes" 422 / StrictBool 1(int) 422 / 정상 nested 201<br><br>**[Phase 4] Account Photo XSS Validator — A-1.2 (commit 9068e46, 6/6 PASS)**<br>- `app/schemas/user.py:212-230` `AccountUserSelfUpdate.validate_photo_url_scheme` `@field_validator` 신설<br>- 차단: `javascript:`/`data:`/`vbscript:`/`file:`/`about:` 스킴 → 422<br>- 허용: `http://`/`https://`/`/static/profiles/` 시작만<br>- 실측 PASS (6/6): javascript:/data:/vbscript:/file: 모두 422 / https & /static/profiles 200<br><br>**[Phase 4 잔존 — v4.9 후속 (같은 날 추가 처리 가능)]**<br>- A-1.1 분기 회복 (이미 코드에 존재 — `users.py:382` 확인) ✅<br>- A-1.3 `POST /api/users/me/photo` multipart 엔드포인트 신설 (잔존)<br>- A-1.4 업로드 가드 7종 (매직바이트/MIME/크기/race/PNG bomb 등) (잔존)<br><br>**[Phase 1~4 누적 실측 (17/17 PASS)]**<br>- Phase 2 6/6 (B-1 + A-3 + A-4 jti blacklist) ✅<br>- Phase 3 5/5 (A-2 미정의 차단 4 + 정상 1) ✅<br>- Phase 4-A.1.2 6/6 (XSS 차단 4 + 정상 2) ✅<br>- Container Up healthy / Image rebuild / OpenAPI: `ModulePermission`/`PermissionsSchema`/`EnumPermissionModule`/`EnumPermissionVerb` 신규 schema 노출 확인<br>- Track C 적용 (5축 점수 7점: 파일 8 + DB 마이그 2 / 아키텍처 2 / 모듈 4 / 테스트 1 / 공수 1)<br><br>**[v4.9 잔존 (오늘 추가 처리 가능 / 다음 세션)]**<br>- A-1.3 + A-1.4 (Photo multipart + 가드 7종, ~5h)<br>- A-3 ROLE_CHANGED/GROUP_ASSIGNED 트리거 분리 (1h)<br>- B-2 NATS SESSION_FORCED_LOGOUT push (4h)<br>- B-3 require_admin 의존성 + lock/unlock/delete/reset-password 적용 (5h)<br>- B-4 GET /api/users/check-login-id (1h)<br>- B-5 GET /api/users/{id}/login-history (1.5h)<br>- B-6 lock 메타 영속 (1.5h)<br>- B-7 permissions를 /me + refresh 응답 포함 (1h)<br>- B-8 list PaginationMeta 적용 확장 (1.5h)<br><br>**[v4.10 cross-item 분리]**: thumbnails.py 업로드 / 정적 자원 인증 / AuditChange.rejected 메타<br><br>**[Phase 5] SEC-1 user_password 응답 마스킹 (.NET v4.9 Review 회신, P0 보안)**<br>- **배경**: `docs/GOP_Server_API_v4.9_Review_Issues.md` SEC-1 (P0) — Camera/Lamp/Server 응답 user_password 평문 노출 지적<br>- **차장님 결재 (2026-06-24)**: "계정 비번 다 보호, 삭제가 아니라 마스킹"<br>- **PRD**: `docs/PRD_v4.10_SEC1_password_masking.md` (16.5KB, Track C / Workflow 4 agent)<br>- **안전점**: `pre-v4.9-phase5` @ 8afcc45<br>- **신규**: `app/schemas/_password_mask.py` — `PASSWORD_MASK = "********"` + `mask_password_serializer` (None→None / 평문→마스크)<br>- **4 Response 클래스 적용** (PRD §2 실 코드 검증으로 7→4 정정 — CameraNestedResponse/Sensor/Controller는 user_password 필드 자체 없음):<br>  - `app/schemas/device.py:480` CameraResponse — `@field_serializer("user_password")` 추가 (L519-521)<br>  - `app/schemas/device.py:1037` LampResponse — `@field_serializer` 추가 (L1074-1076)<br>  - `app/schemas/server.py:135` ServerResponse — `@field_serializer` 추가 (L154-156)<br>  - `app/schemas/server.py:178` ServerNestedResponse — `@field_serializer` 추가 (L194-196)<br>- **example 정합화 5건**:<br>  - ServerResponse `json_schema_extra` example `"password123"` → `"********"` (server.py:163)<br>  - ServerNestedResponse example `"password123"` → `"********"` (server.py:209)<br>  - ServerCategorySummary nested example `"password123"` → `"********"` (server.py:276)<br>  - ServerCreate request example → `"<your_password>"` 자리표시자 (server.py:96)<br>  - LampCreate/LampUpdate request example → `"<your_password>"` 자리표시자 (device.py:991, :1024)<br>  - LampResponse example `"lamp1234"` → `"********"` (device.py:1059)<br>- **명세 §9.2.2 로그인 예시 자리표시자**: `admin/admin123` → `<your_login_id>/<your_password>` (L14111-14114)<br>- **명세 §5.3.x Camera 응답 예시**: `"user_password": "admin1234"` → `"user_password": "********"` (L5103)<br>- **DB 평문 유지** (백엔드 NVR/Speaker/Lamp/외부 서버 SSH/HTTP/RTSP 접속용): 모델/마이그레이션 변경 0<br>- **DTO shape 변경 0** (필드 유지, 값만 변환) → .NET 클라이언트 호환성 100%<br>- **실측 8/8 PASS**:<br>  - ① Camera 목록 응답 user_password = `"********"` ✅<br>  - ② Camera 단일 응답 `"********"` ✅<br>  - ③ Lamp 단일 응답 `"********"` ✅<br>  - ④ Server 단일 응답 `"********"` (시드 `testpwd123` 주입 후 마스킹 확인) ✅<br>  - ⑤ DB 평문 유지 (`cameras.user_password='sensorway1'`, `servers.user_password='testpwd123'`) ✅<br>  - ⑥ OpenAPI ServerResponse example `"********"` 노출 ✅<br>  - ⑦ Camera POST: 요청 평문 → DB 평문 저장 (`verysecret123`) → 응답 마스킹 (3중 흐름 검증) ✅<br>  - ⑧ Container Up healthy / Image rebuild ✅<br>- **메모리 정책 갱신**: `feedback_password_plaintext_policy` (v4.4 Phase 5 복원 정책) → `feedback_password_masking_policy` 신설 (응답 마스킹, DB 평문 이원화)<br>- **.NET 회신 문서**: `docs/GOP_Server_API_v4.9_Review_RESPONSE.md` 작성 — SEC-1 적용 완료 통지<br>- Track C 적용 (5축 점수 5점: 파일 4 + helper 1 + 모듈 2 + example 7 + 명세 2 / 공수 0)<br><br>**[v4.9 Phase 5 잔존 (v4.10 권고 — .NET v4.9 Review 다른 항목)]**<br>- P0: ENV-1 (Response envelope 5종 표준화) / AUTH-1 (`expires_in`/TTL 응답) / AUTH-2 (PUT /me/password 본문 스키마)<br>- P1: FMT-1 (datetime timezone) / ENUM-1~2 (Enum 케이싱/예시 불일치) / DEV-1~2 / EVT-1 / INT-1 / SVR-1 / AUTH-3~4<br>- P2: DOC-1~3<br>- 기존 v4.9 후속 잔존 (A-1.3 Photo multipart / A-1.4 가드 / B-2~B-8 등 ~21h)<br><br>**원칙 준수**: 하루 1 차수 묶음 (Phase 0~5 모두 v4.9 단일 행, 2026-06-24). commit 메시지 5274dbb의 `docs(v4.8)` prefix는 명세상 v4.9 Phase 0로 흡수됨.<br>**롤백**: `git reset --hard pre-v4.9-phase5` (Phase 5만 회귀) / `git reset --hard pre-v4.9-phase1` (Phase 2~5 회귀 — Phase 0/1 docs 유지) / `git reset --hard pre-followup-prd` (Phase 1~5 회귀 — Phase 0 docs만 유지) / `git reset --hard v4.8-final-stable` (v4.9 전체 회귀). |
+| v4.8 | 2026-06-22 | **하루 일괄 — DELETE 응답 envelope P1 sweep (11 endpoint) — 클라이언트 보고서 v2 §6 P1 일괄 정정**<br><br>**[차수 배경]** v4.7 (P0 4건) 정정 후 클라이언트팀이 보고서 갱신 — §6 P1로 EM 단건 / Reports / Users / UserGroups / UserSessions / ServerMetrics / EnclosureMetrics 등도 `data: dict` 또는 envelope 위반 명시. v4.6 Phase 9에서 추가한 EM 단건 DELETE `'data': {}` 정책도 포함됨. 동일 클라 증상(JsonReaderException) 재발 차단.<br><br>**[Phase 1] git 안전점 — pre-delete-sweep 태그 (v4.7에서 신설, 본 차수 진입 시 유효)**<br>- 사고 시 복귀: `git reset --hard pre-delete-sweep` (P0 + P1 모두 회귀)<br><br>**[Phase 2] EM 단건 DELETE 3건 — Phase 9 'data': {} 정책 정정**<br>- app/routers/event_mapping_cameras.py:442 — `ApiSingleResponse[dict]` → `[None]` + return body `'data': {}` → `'data': None`<br>- app/routers/event_mapping_speakers.py:354 — 동일<br>- app/routers/event_mapping_lamps.py:347 — 동일<br>- v4.5 Phase 9에서 추가한 빈 dict 정책은 클라 측 형 안전 역직렬화 불가 → null 통일이 정답<br>- 벌크 DELETE (`/cameras` 등 다중 unassign)는 `removed_config_ids/skipped/not_found` 3분류 필요 → dict 패턴 그대로 유지 (의미 보존)<br><br>**[Phase 3] 일반 단건 DELETE 8건 — envelope 표준화**<br>- app/routers/reports.py:293 templates/{template_id} — `ApiResponse` data={"id":...} → `data=None` (id는 message에 보존)<br>- app/routers/users.py:429 {user_id} — `{"success": True}` (envelope 위반) → 표준 envelope `{success, message, data:None}`<br>- app/routers/user_groups.py:265 {group_id} — 동일<br>- app/routers/user_sessions.py:75 user/{user_id} — `data={"count":...}` → `data=None` (count는 message에 보존)<br>- app/routers/user_sessions.py:175 me/{session_id} — envelope 보강<br>- app/routers/user_sessions.py:267 {session_id} — envelope 보강<br>- app/routers/server_metrics.py:339 {server_id}/metrics — `ApiSingleResponse[dict]` + `data={"server_id","deleted_count"}` → `[None]` + `data=None` (deleted_count는 message에)<br>- app/routers/enclosure_metrics.py:275 {enclosure_id}/metrics — 동일 패턴<br><br>**[Phase 4] 정보 보존 정책**<br>- 삭제 카운트 (server_metrics, enclosure_metrics, user_sessions): `data`에서 제거 + **message에 보존** — `f"Deleted {n} metrics for ..."` 형태<br>- 삭제 id (reports/templates, users, user_groups): `data`에서 제거 + **message에 id 포함** — `f"Report template {id} deleted successfully"` 형태<br>- 감사 추적성 손실 0: `log_action` / `log_config_change` 이미 캡처<br><br>**[Phase 5] 검증 (전수 통과)**<br>- OpenAPI 36 DELETE endpoint:<br>  - ✅ `ApiSingleResponse_NoneType_` (data: null 통일): **22** (v4.7 9 + v4.8 13)<br>  - ✅ `ApiSingleResponse_dict_` (자유형 dict 잔존): **0**<br>  - 🟡 `$ref` 없음 (response_model 미부착, 별도 작업 영역): 14<br>- Container Up healthy / Image rebuild 완료<br>- Track B 적용 (5축 점수 3점: 파일 4 / 아키텍처 0 / 모듈 0 / 테스트 1 / 공수 0)<br><br>**[Phase 6] 보고서 갱신**<br>- docs/Analysis/Device_Delete_Response_Verification_v4.6.md §P1 후속 sweep 표 + 최종 검증 결과 추가<br>- docs/API_Delete_Response_Inconsistency-report.md v2 (클라이언트팀 갱신본) 응답 완료<br><br>**[Phase 7] 잔존 (v4.9+)**<br>- `$ref` 없음 14 endpoint — response_model 일괄 부착 (별도 PRD)<br>- `ApiSingleResponse_Union[dict,None]` 4건 (detection/malfunction/connection/action events) — 보고서 §6 미명시, 동일 sweep 가능<br><br>**검증**: 코드 9 파일 변경 (DELETE 응답 envelope) / DB 변경 0 / Image rebuild / Container healthy / OpenAPI 정합. 매니저 영향: 클라 보고된 모든 dict 패턴 DELETE 해소.<br><br><br>**[Phase 8] Events 4건 DELETE Union[dict,None] → None sweep (같은 날 추가 — 클라이언트팀 잔존 리스크 보고)**<br>- 클라이언트팀 §4 잔존 리스크 보고 — events 4건이 `Optional[dict]`로 잔존, `<bool>` 역직렬화 시 JsonReaderException 위험<br>- 안전점: `pre-events-delete-sweep` 태그 신설 (`8547742` 시점)<br>- Workflow 6 agent 정밀 분석 (337K token / 5분, verdict safe_to_apply)<br>- 4 핸들러 정정:<br>  - app/routers/detections.py:626 — `ApiSingleResponse[Optional[dict]]` → `[None]` + `f"Detection event {event_id} ..."`<br>  - app/routers/malfunctions.py:629 — 동일 + `f"Malfunction event {event_id} ..."`<br>  - app/routers/connections.py:548 — 동일 + `f"Connection event {event_id} ..."`<br>  - app/routers/actions.py:626 — 동일 + `f"Action event {event_id} ..."`<br>- 실 응답 본문은 이미 `data=None` (단일 정상 경로) — response_model 타입만 정합화<br>- 4건 모두 동일 패턴(id 보존) — Phase 2~7 정책과 일관<br>- 검증: OpenAPI `NoneType` 통일 **26** (Phase 2~7 22 + Phase 8 4) / `Union[dict,None]` 0 / `dict` 0 / `$ref` 없음 14 (v5.x별도)<br>- 실 API: detection/connection/action DELETE → `data is None` + msg에 id 포함 PASS<br>- Track A 적용 (5축 점수 1점)<br><br>**[Phase 9] device_group_mappings polymorphic cascade 누락 정정 (같은 날 추가 — 클라이언트팀 보고서 v3)**<br>- 보고: 장비 DELETE 시 그룹 `device_count` 미갱신 (스피커 케이스). 라이브 검증: 긴급 방송장비 그룹 `device_count=92` vs 실 스피커 0 + 램프 30 → 약 62 orphan 매핑<br>- Workflow 3 agent 정밀 진단 (244K token / 10분): **차장님 가설 정정** — 보고는 "램프 정상 / 스피커 누락"이었으나 코드 실측은 **반대**. Camera/Controller/Sensor 3종만 라우터 cleanup ✅, Lamp/Speaker/Enclosure 3종이 누락 ❌<br>- **근본 원인**: `device_group_mappings.device_id`가 polymorphic FK (6개 자식 테이블 PK 참조) → 단일 DB FK 선언 불가 + ORM relationship `viewonly=True` → 자동 cascade 동작 안 함 → 라우터마다 명시 cleanup 필수<br>- **진단 결과**: SPEAKER 262 + SENSOR 242 = **504 orphan** 잔존<br>- 안전점: `pre-cascade-fix` 태그 신설<br>**[Phase 9-1] orphan 504건 일괄 정리 마이그레이션**<br>- `app/migrations/v49_device_group_cascade_cleanup.sql` 신설 — BEGIN/DELETE/검증/COMMIT 단일 트랜잭션<br>- DELETE 504 (SPEAKER 262 + SENSOR 242) → 4 category 모두 orphan **0** ✅<br>- 잔존 252건 (CONTROLLER 2 / SENSOR 160 / ENCLOSURE 30 / LAMP 60) 모두 실 장비 대응<br>**[Phase 9-2] 3 라우터 cleanup 추가 (Camera 패턴 일관)**<br>- app/routers/lamps.py:436 — `db.delete(lamp)` 직전 `DeviceGroupMapping.device_id == lamp_id, category=LAMP` 명시 정리<br>- app/routers/speakers.py:491 — 동일 패턴 (category=SPEAKER)<br>- app/routers/enclosures.py:459 — 동일 패턴 (category=ENCLOSURE)<br>- 6 라우터(Camera/Controller/Sensor/Speaker/Enclosure/Lamp) 모두 동일 패턴 통일<br>- `DeviceGroupMapping` + `EnumDeviceCategory` import는 이미 존재 (다른 헬퍼에서 사용 중)<br><br>**[Phase 10] Controller→Sensor cascade 우회 정정 (같은 날 추가 — Phase 9 회신 후 차장님 추가 검증으로 발견)**<br>- 차장님 의문: "Controller 삭제 시 자식 Sensor도 사라졌는데 왜 활성 버그?"<br>- 실측 검증 (임시 Ctrl 1957 + Sensor 1958/1959 + 매핑): Controller row 삭제 ✅ + 자식 Sensor row ORM cascade 자동 삭제 ✅ **그러나** `device_group_mappings(category=SENSOR)` 2건 잔존 ❌ → 활성 버그 확정<br>- **근본 원인 사슬**: `Controller.sensors = relationship(cascade='all, delete-orphan')` (`models/device.py:112-117`) → controller 삭제 시 ORM이 자식 sensor row 자동 삭제 → `sensors.py:534 delete_sensor` 핸들러는 호출 안 됨 → category=SENSOR 매핑 cleanup 우회 → polymorphic device_id에 FK 없어 DB cascade도 동작 불가<br>- **SENSOR 242 orphan의 진짜 원인**: 시드 후 controller 2개 삭제했을 때 자식 sensor 2 × 121 = 242개 row만 자동 삭제되고 매핑은 잔존 (Phase 9-1에서 정리한 242건의 실체)<br>- **클라이언트팀 미발견 이유**: 보고서는 "스피커 케이스" 한정 (스피커 직접 DELETE만 검증). controller cascade 경로는 별도 시나리오라 잠복<br>- **정정**: `app/routers/controllers.py:560` `db.delete(controller)` 직전에 자식 sensor.id 일괄 조회 → category=SENSOR 매핑 명시 정리. `child_sensor_ids = [sid for (sid,) in db.query(Sensor.id).filter(Sensor.controller_id == controller_id).all()]` → `if child_sensor_ids: db.query(DeviceGroupMapping).filter(DeviceGroupMapping.device_id.in_(child_sensor_ids), DeviceGroupMapping.category_device == EnumDeviceCategory.SENSOR).delete(synchronize_session=False)`<br>- **검증**: 정정 후 동일 시나리오 (Ctrl 1960 + Sensor 1961/1962/1963 + 매핑 4건) 재현 → DELETE controller → 매핑 4건 모두 정리 (orphan 0) ✅ + 전체 DB orphan 0 유지<br>- **안전점**: `pre-controller-cascade-fix` 신설<br><br>**[Phase 11] controllers.py 문자열 리터럴 → Enum 통일**<br>- `_update_device_group_mappings` 헬퍼 호출 3곳 (`POST` line 320 / `PATCH` line 422 / `PUT` line 516)에서 문자열 리터럴 `"controller"` 전달 — 헬퍼 시그니처는 `EnumDeviceCategory` 타입 (`line 81`)<br>- 현재 SQLAlchemy 자동 강제 변환으로 동작 중이나 잠재 버그 (PostgreSQL enum 검증 시점에 따라 422/500 가능)<br>- 정정: 3곳 모두 `EnumDeviceCategory.CONTROLLER`로 통일 (DELETE 핸들러 + 헬퍼 시그니처와 동일 타입)<br>- DELETE 핸들러 cleanup 코드와 완전히 일관된 타입 흐름 회복<br><br>**[Phase 9~11 정합 검증]**<br>- 실 시나리오: 임시 Controller 생성 → 자식 Sensor 3개 → 그룹 매핑 4건 → Controller DELETE → 매핑 0건 (PASS)<br>- 전체 회귀: CONTROLLER 2 / SENSOR 160 / ENCLOSURE 30 / LAMP 60 = 252건 모두 실 장비 대응 (orphan 0)<br>- Container Up 8s healthy / Image rebuild<br>- Track B 적용 (5축 점수 3점)<br><br>**[Phase 9~11 잔존 (v5.0)]**<br>- 구조적 해결: `device_group_mappings.device_id` → `devices.id` FK + ON DELETE CASCADE (polymorphic이지만 모든 자식이 devices.id 공유) 또는 SQLAlchemy `event.listens_for(Device, 'before_delete')` 도입 — 라우터 누락 구조적 차단<br>- Phase 12 보류 (트랜잭션 일관성 / ConfigChangeLog commit 전 이동): 회귀 위험으로 v5.0 권고<br><br>**[Phase 12] Event 도메인 전수 정밀 분석 + Action invariant 가드 + Det/Mal PATCH 가드 + 시드 정합 회복 (같은 날 추가 — 차장님 추가 요청)**<br>- 차장님 요청: "Event 4종 (Connection/Detection/Malfunction/Action) 추가/삭제/수정 응답 + DELETE cascade 무조건 다 확인"<br>- Workflow 11 agent 정밀 분석 (993K token / 20분): Discovery + Per-event audit 4 + Live API 실측 4 + Adversarial verify + Synthesize → 4 event × 6 dimension = 24 셀 검증<br>- **결론**: CASCADE 정책 4종 모두 ✅ MATCH (DB CASCADE/SET NULL 의도 == 실측). PARTIAL_GAP — 5 항목 즉시 정정 필요<br><br>**[Phase 12-1] Action PATCH/PUT `from_event_id` 변경 원천 차단 (차장님 결재)**<br>- 차장님 결재: "from_event_id 전환은 무조건 못 바꾸게. 시도 자체를 원천적으로 막자"<br>- 실측 GAP 확정: PATCH로 `from_event_id` 전환 시 양쪽 source `action_reported` 재계산 누락 → 1:N invariant 위배 (A=True 0건 / B=False 1건 양쪽 깨짐)<br>- **정정 방식**: 재계산 추가가 아니라 **변경 자체 차단** (스키마에서 필드 제거 + `extra="forbid"`)<br>- `app/schemas/event.py` ActionEventUpdate (L371) — `from_event_id` 필드 제거 + `model_config = ConfigDict(extra="forbid")` 추가<br>- `app/schemas/event.py` ActionEventReplace 신규 클래스 (ActionEventCreate 직후) — PUT 전용, `from_event_id` 없음, `extra="forbid"`<br>- `app/routers/actions.py:34` import ActionEventReplace 추가<br>- `app/routers/actions.py` PATCH 핸들러 (L494) — `from_event_id` 검증 블록 제거 (dead code)<br>- `app/routers/actions.py:553` PUT 핸들러 — 시그니처 `ActionEventCreate` → `ActionEventReplace`, `event.source_event` 폴리모픽 관계 재사용, `event.from_event_id`는 절대 수정 안 함<br>- 실측 PASS: PATCH 422 "Extra inputs are not permitted" / PUT 422 동일 / PUT 정상 시나리오(type_event/content/user) 200 PASS<br><br>**[Phase 12-2] Detection/Malfunction PATCH 스키마 `action_reported` 제거 (가드 우회 차단)**<br>- 실측 GAP: PATCH로 `action_reported="False"` 강제 후 DELETE 호출 → 409 가드 우회 → ActionEvent 잔존 상태로 Detection 삭제 → `action_events.from_event_id=NULL` 고아화<br>- `app/schemas/event.py:147` DetectionEventUpdate — `action_reported` 필드 제거<br>- `app/schemas/event.py:260` MalfunctionEventUpdate — `action_reported` 필드 제거<br>- 핸들러 무변경 (Pydantic `extra=ignore` 기본값으로 클라이언트 입력 자동 폐기)<br>- 실측 PASS: Detection PATCH `{action_reported:"False"}` 호출 → 200 응답이지만 DB `action_reported='True'` 유지 (필드 폐기 확인)<br><br>**[Phase 12-3] 시드 1:N invariant 정리 마이그레이션 (1999건 회복)**<br>- 진단: detection_events 743건 + malfunction_events 1256건 = **1999건 invariant 위배** (`action_reported='True'`인데 actions_count=0)<br>- 원인: 시드 코드 L890-901에서 무작위 ~2000건에 `action_reported='True'` 추가 박아넣음 ("보고는 했지만 조치 미등록" 의도) → PRD_ActionEvent_1N_Refactoring v2.0 위배<br>- `app/migrations/v50_action_reported_invariant_fix.sql` 신설 — BEGIN/검증/UPDATE/검증/COMMIT 단일 트랜잭션<br>  - BEFORE: detection 743 위배 / malfunction 1256 위배 (총 1999)<br>  - UPDATE: 743 + 1256 = 1999건 True→False (`action_events` 매칭 없는 경우만)<br>  - AFTER: 잔여 위배 0 / 0 확인<br>- 검증 결과: `True` 5000건 (모두 ActionEvent 보유 ✅) / `False` 2997건 (모두 ActionEvent 0건 ✅) — 100% invariant 정합<br><br>**[Phase 12-4] 시드 코드 정정 (재발 방지)**<br>- `app/utils/init_sample_data.py:876-946` _create_action_events 함수 정정<br>- 제거된 코드: `remaining = all_event_ids[5000:]; reported_no_action = remaining[:2000]; update_true_ids = list(target_set | reported_set)` (무작위 True 배정)<br>- 정정 후: 5000 targets 만이 `action_reported="True"` 설정 (= ActionEvent 매칭)<br>- 함수 docstring에 INVARIANT 명시 — "무작위 True 배정 금지 — PRD v2.0 1:N count 종속 규약"<br>- 향후 down -v 후 재시드해도 invariant 위배 0건 보장<br><br>**[Phase 12-5] 검증 (모두 PASS)**<br>- 실측 4 시나리오:<br>  - ① PATCH from_event_id 변경 시도 → **422 거부 (Extra inputs are not permitted)** ✅<br>  - ② PUT from_event_id 변경 시도 → **422 거부** ✅<br>  - ③ Detection PATCH action_reported='False' 강제 → 200 + DB 'True' 유지 (필드 폐기) ✅<br>  - ④ PUT 정상 (type_event/content/user 변경) → 200 + content 변경 확인 ✅<br>- DB invariant 회복: detection True 1891 (모두 has_act>=1) / detection False 1109 (모두 zero_act) / malfunction True 3109 (모두 has_act>=1) / malfunction False 1888 (모두 zero_act)<br>- POST/DELETE 기존 로직(`update_source_action_reported` / `reset_source_action_reported`) 그대로 정상 동작 — 시퀀스 검증: 0건→1건(True)→3건(True)→2건(True 유지)→1건(True 유지)→0건(False 자동 복원) 6단계 모두 PASS<br>- Container Up healthy / Image rebuild / OpenAPI: ActionEventUpdate/ActionEventReplace `from_event_id` 제거 확인<br>- Track C 적용 (5축 점수 6점: 파일 5 + DB 마이그 1 / 아키텍처 1 polymorphic / 모듈 2 / 테스트 1 / 공수 1)<br><br>**[Phase 12-6] 잔존 (v5.0)**<br>- P1 잔존: GET list `start_date/end_date` 명세 required vs 코드 Optional (Det/Mal/Conn 공통, 차장 결재 — 코드 vs 명세 정정 방향)<br>- P1 잔존: Event 4종 PUT 핸들러 ConfigChangeLog UPDATED 호출 누락 (systemic 감사 추적)<br>- P1 잔존: Action POST device.status=ACTIVATED 광역 강제 (Malfunction 한정 정책이어야)<br>- P1 잔존: Detection PUT event.detail 할당 누락 (Malfunction과 비대칭)<br>- P2 6건: Action GET list source=NULL skip+total 감산 / end_date<start_date 검증 부재 / GET enum 검증 누락 / Action GET source=NULL시 404 데드락 / /{id}/actions pagination / Malfunction POST device.status ConfigChangeLog 누락<br>- P3 일괄: PUT message 'replaced'/'updated' / 404 메시지 포맷 / device_groups Nested description/device_count / 명세 §6.1.3/§6.2.3 device.status 부수효과 문서화<br><br>**[Phase 12 안전점]**: `pre-action-invariant-fix` (실 commit 직전 시점)<br><br>**검증**: 코드 3 파일 변경 (schemas/event.py + routers/actions.py + utils/init_sample_data.py) + 마이그레이션 1건 / DB 1999건 invariant 회복 / Image rebuild / 실측 4 시나리오 PASS / Workflow 11 agent (993K token / 20분).<br>**원칙 준수**: 하루 1 차수 묶음 (Phase 2~12 모두 v4.8 단일 행, 2026-06-22).<br>**롤백**: `git reset --hard pre-action-invariant-fix` (Phase 12만 회귀) / `git reset --hard pre-controller-cascade-fix` (Phase 10~12 회귀) / `git reset --hard pre-cascade-fix` (Phase 9~12 회귀) / `git reset --hard pre-events-delete-sweep` (Phase 8~12 회귀) / `git reset --hard pre-delete-sweep` (v4.8 전체 회귀). |
+| v4.7 | 2026-06-21 | **하루 일괄 — Account/Auth/Session 도메인 전수 조사 (113 이슈) + DELETE 응답 envelope P0 정정 (4 endpoint)**<br><br>**[차수 배경]** v4.6 마감 후 차장님 의뢰: 계정/로그인/세션 도메인 전수 조사 + 구현 상태 면밀 검토. 동일 일자에 클라이언트팀이 별도 보고서 (API_Delete_Response_Inconsistency-report.md) 제출 — 장비 DELETE 응답 `data` 형식 불일치로 JsonReaderException 발생. 두 작업 동일 일자 묶음.<br><br>**[Phase 1] git 안전점 — pre-delete-sweep 태그 신설 (DELETE 작업 직전 보호)**<br>- 의미: P0 4 endpoint 정정 작업 전 안전점. 사고 시 `git reset --hard pre-delete-sweep`<br><br>**[Phase 2] Account/Auth/Session 전수 조사 (Workflow 13 agent, 1.15M token / 12분)**<br>- Discovery 1 + Per-feature 10 + Adversarial verify 1 + Synthesize 1<br>- 30 endpoints / 10 features / 6 DB tables / 8 enums 검토<br>- 평균 완성도 62.5% / OWASP 커버리지 41점 / **Verdict: FAIL**<br>- 이슈 113건: critical 13 / high 38 / medium 39 / low 23<br>- Adversarial: confirmed 105 / refuted 0 / additional 9<br><br>**[Phase 3] Feature별 완성도 (10건)**<br>- F01 로그인 62% (12 이슈, C2/H5) Audit missing<br>- F02 로그아웃 55% (8 이슈) Audit partial<br>- F03 토큰 갱신 55% (10 이슈, C2/H3) Audit missing<br>- F04 /me 82% (7 이슈) Audit missing<br>- F05 OAuth2 legacy 55% (10 이슈, C3/H4) Audit missing<br>- F06 User CRUD 72% (14 이슈) Audit full<br>- F07 비밀번호 변경 55% (11 이슈, C1/H4) Audit partial<br>- F08 잠금/해제/리셋 62% (12 이슈, C2/H4) Audit partial<br>- F09 UserGroup/권한 72% (9 이슈) Audit partial<br>- F10 Session 관리 62% (12 이슈) Audit partial<br><br>**[Phase 4] Top 5 권고 (P0~P1, ~45h 분량, v5.0 권고)**<br>1. [critical 6h] `require_admin/require_role` 의존성 신설 → RBAC 부재 해결 (F06/F08/F09/F10)<br>2. [critical 6h] `get_current_account_user`에 user_sessions 활성 검증 + is_active/is_locked 가드 → JWT 무효화 우회 해결<br>3. [critical 8h] `decode_refresh_token` 분리 + payload['type']=='refresh' 강제 + rotation/blacklist (F03)<br>4. [high 10h] AuditLog 본문 보강 + SESSION_CREATED/REFRESH/FAILURE 누락 해소<br>5. [high 15h] 비밀번호 정책 정비 + 변경 시 세션 무효화 + 만료/재사용 금지<br><br>**[Phase 5] DELETE 응답 P0 정정 (4 endpoint)**<br>- 클라이언트팀 보고: Lamp/DG는 `data: {객체}` → 나머지 5건은 `data: null` → JsonReaderException 발생<br>- Workflow 8 agent 검증 (409K token / 4분): confirmed 2 / refuted 0 / additional 5<br>- app/routers/lamps.py:409 — `ApiSingleResponse[dict]` → `[None]` + return `data={"id":lamp_id,"deleted":True}` → `data=None`<br>- app/routers/device_groups.py:608 — `data={"id":group_id}` → `data=None`<br>- app/routers/servers.py:461 — sweep (보고서 §6 추가 발견)<br>- app/routers/server_categories.py:370 — sweep<br>- 메시지에 id 포함 보존: `f"Lamp {id} 삭제 성공"` — 감사 추적성 유지<br><br>**[Phase 6] 검증 (모두 PASS)**<br>- OpenAPI 9 endpoint $ref = `ApiSingleResponse_NoneType_` 통일 ✅<br>- 실 API: Lamp/Server/ServerCategory/DeviceGroup DELETE → `data is None: True` ✅<br>- Container Up 8s healthy / Image rebuild 완료<br>- Track B 적용 (5축 점수 3점)<br><br>**[Phase 7] 산출물**<br>- docs/Analysis/Account_Auth_Session_Analysis_v4.6.md (16KB / 236 라인)<br>- docs/Analysis/Device_Delete_Response_Verification_v4.6.md (9KB)<br>- v4.6 Phase 9 EM DELETE 'data': {}와의 차이 명시 (Device CRUD vs EM 도메인 별개)<br><br>**[Phase 8] v4.6 명세 정합 회복**<br>- v4.6에서 누락한 docs/Analysis/ 디렉터리 신설 + .gitignore 예외 추가<br>- 보고서 docs/Analysis/Device_Delete_Response_Verification_v4.6.md 신설<br><br>**검증**: 코드 4 파일 변경 / DB 변경 0 / Image rebuild / Container healthy / OpenAPI 9 endpoint NoneType 통일.<br>**원칙 준수**: 하루 1 차수 묶음 (Account 분석 + DELETE P0 정정 모두 v4.7 단일 행).<br>**롤백**: `git reset --hard pre-delete-sweep` (P0 4 endpoint 회귀). |
 | v4.6 | 2026-06-19 | **하루 일괄 — Critical Mismatch 정정 (P0 1 + P1 8) + Camera Preset 감시금지구역 신설 + 매니저 통합 가이드**<br><br>**[차수 배경]** v4.5에서 발견한 26 도메인 × Workflow 28 agent 3-way 정합 검증에서 Critical Mismatch 10건 식별 (운영 500 1건 + 매니저 KeyError 4건 + 422 3건 + 응답형식 1건 + envelope 1건). 모든 mismatch는 옛 차수(v1.x~v4.3)에서 코드/PRD 변경 시 명세 본문 동기화 미실시로 누적된 잠복 부채. 우리 v4.4/v4.5 작업이 새로 만든 mismatch 0건 입증.<br><br>**[Phase 1] git 안전점 — v4.5-final-stable @ e7a611e 신설**<br>- 의미: v4.5 마감 시점 보호 (Workflow 분석 + minimal 6 그룹 적용 + multi-line Column 정정 후)<br>- 사고 시 복귀: `git reset --hard v4.5-final-stable`<br><br>**[Phase 2] M01 P0 핫픽스 — ServerCategory 500 차단**<br>- app/routers/server_categories.py:123-138 — Server 모델에 없는 `cpu_usage/ram_usage/disk_usage/network_throughput` 4개 인자 → ServerMetrics 분리(v2.9) 이후 잠복하다 발견. `user_name/user_password/threshold_config` 정확한 필드로 교체. 즉시 200 회복<br><br>**[Phase 3] 명세 정정 7건 (M02~M10 명세 본문)**<br>- M02/M03 §6.5.1/§6.5.2: detection-log `action`(1:1) → `actions`(1:N) — PRD ActionEvent 1N v2.0 반영. 도입부 + 응답 예시 4곳 + 본문 설명 일괄 정정<br>- M05 §8.6.3: server metrics/latest 응답 키 `data.metrics/threshold_config` → 코드 `data.server_id/server_name/latest_metrics`<br>- M06 §10.4.4: PDF 다운로드 JSON envelope → 실제 `application/pdf` 바이너리 스트림 (FileResponse 정합)<br>- M08 §6.2.5: Malfunction PUT body에서 `action_reported` 제거 (v2.8 시스템 자동관리 정책)<br>- M09 §6.4.2: Action GET query 모두 optional + `from_event_id` 필터 신규 명시<br>- M10 §6.4.5: Action PUT body 2필드 예시 → 4 필드 (`type_event`, `content`, `user`, `from_event_id`) 모두 required<br><br>**[Phase 4] M07 코드 정정 — system-events envelope 표준화**<br>- app/routers/servers.py:191 — `@router.get` 데코레이터에 `response_model=ApiSingleResponse[dict]` 부착<br>- 응답 body를 명세 §8.3.7 표준 envelope으로 변경: `data: {items, total, pagination}`<br>- Swagger OpenAPI 200 schema 정상 노출 ($ref 부착)<br><br>**[Phase 5] Camera Preset 감시금지구역 신설 (차장 결재 2026-06-19, 단순화 확정)**<br>- DB: app/migrations/v48_camera_preset_restricted_zone.sql — `camera_presets`에 `is_restricted_zone BOOLEAN NOT NULL DEFAULT false` 1 컬럼 추가. 기존 row backfill 자동 false<br>- Model: app/models/camera_preset.py — `CameraPreset.is_restricted_zone` Column 추가 (multi-line, JSON/JSONB 사용 안 함)<br>- Schema: app/schemas/camera_preset.py — `CameraPresetBase`/`Update`/`Response`/`DetailResponse` 4 클래스에 신규 필드 추가 (default=false로 backward-compatible)<br>- 명세: §5.7 Camera Preset 도입부에 `is_restricted_zone` 단일 플래그 명시 + 매니저 통일 처리 정책 (RTSP/녹화/이벤트/화면 모두 차단)<br>- 가이드: docs/v46_camera_preset_restricted_zone_guide.md 신설 — VMS/NVR/db_monitor/Central UI 4 매니저별 처리 가이드<br>- **단순화 경위**: 최초 Option C(`restricted_actions` 4종 enum list 선택)로 적용 → 차장 추가 결재로 단순화 (`is_restricted_zone` bool 1개로 통일). `restricted_actions` 컬럼/Enum/Schema 필드 모두 제거. **차장 의도 충실**: 매니저가 "감시금지 = 모두 차단" 단일 정책으로 통일 처리<br><br>**[Phase 6] 보류 — M04 high risk (차장 결재 필요)**<br>- M04 `GET /api/enclosure-metrics` — 코드 flat vs 명세 items/total/pagination drift<br>- backward-INCOMPATIBLE envelope 변경 위험 (Central UI 함체 모니터링 패널 영향)<br>- 결재 사항: item shape (코드 정정 vs 명세 정정 방향) — v4.7 차수로 분리 권고<br><br>**[Phase 7] PRD + 산출물**<br>- docs/PRD_v4.6_Critical_and_Preset.md (39KB, 임시 마크다운)<br>- docs/v46_camera_preset_restricted_zone_guide.md (매니저 통합 가이드)<br>- docs/v45_3way_critical_mismatches.html (37KB, 10건 시각화)<br>- Workflow Critical PRD: 11 agent / 680k token / 5.4분<br>- Workflow Camera Preset: 9 agent 설계 시도 → 죽음 → main에서 직접 적용<br><br>**[Phase 8] 검증 (모두 통과)**<br>- M01 검증: GET /api/servers/categories/1 → HTTP 200 (이전 500 해소)<br>- M07 검증: Swagger response 200 schema = ApiSingleResponse_dict_ $ref 정상<br>- Camera Preset 신규 필드: DB 2 컬럼 + OpenAPI CameraPresetResponse/Create에 노출<br>- Container: Up 8s healthy / Image rebuild 완료<br>- 명세 정정 7건 모두 본문 적용 확인<br><br>**[Phase 9] 정합 9중 (코드 ↔ 명세 ↔ Swagger ↔ DB ↔ Image ↔ Container ↔ PRD ↔ 가이드 ↔ git)**<br>- 코드 5 파일 변경 (server_categories / servers / camera_preset 모델/스키마 / enums)<br>- DB 마이그레이션 1건 (v48)<br>- 명세 정정 7 위치 + §5.7 도입부 갱신<br>- Swagger 노출 갱신 (response_model + 신규 스키마)<br>- 매니저 가이드 1 파일 신설<br>- PRD 본문 1 파일<br>- git commit + v4.6-final-stable 태그<br><br>**[Phase 10] 시드 데이터 재설계 + pagination 안정화 검증 (차장님 명세 — 같은 날 추가)**<br>- **차장님 시드 명세 (정확 매칭)**: 제어기 4 / 제어기1: 펜스센서 100(1~100) + 복합센서 21(180~200) / 제어기2: 동일 / 제어기3: 스마트복합 60(1~60) / 제어기4: 스마트센서 100(1~100) / 카메라 300 / 스피커 200 / 함체 30<br>- **시드 함수 재작성**: app/utils/init_sample_data.py L250~480 — `_create_devices` 전면 재구현. Sensors 350→**402**, Cameras 30→**300**, Speakers 30→**200**, Enclosures 30 유지. EnumDeviceType 매핑: 펜스→Fence, 복합→Multi, 스마트복합→SmartCompound, 스마트→SmartSensor<br>- **DeviceGroup 시드도 동기 조정**: 5구역(A~E) → 4구역(A~D). PTZ + 긴급방송 그룹 인덱스 시프트<br>- **Pagination 안정성 진단 결과**: 정책 `ORDER BY id ASC NOT NULL PK` — unique 보장됨. Camera 300/30 페이지 + Sensor 402/21 페이지 직접 호출 검증: 중복 0건 / 누락 0건 / 순서 ASC 100% 일관 → **PASS**<br>- **잠재 위험 7건 식별 (PRD 참조)**: row drift (동시 INSERT) / 큰 offset 성능 (28K 이벤트) / cursor pagination 미지원 / total count 캐시 부재 등. 현 디바이스 규모(<500)에선 미체감. v4.7+ 별도 PRD 권고<br>- **DB 재시드 절차**: TRUNCATE devices RESTART IDENTITY CASCADE + Container restart → 시드 startup hook 자동 재실행. 데이터 손실은 의도된 초기화 (시드만 영향)<br>- **검증**: DB 카운트 controllers=4 / sensors=402 / cameras=300 / speakers=200 / enclosures=30 / lamps=30 모두 명세 일치. 센서 분포 (ctrl/type/count/range): 1/Fence/100/1~100, 1/Multi/21/180~200, 2/Fence/100/1~100, 2/Multi/21/180~200, 3/SmartCompound/60/1~60, 4/SmartSensor/100/1~100 — 6 분포 모두 일치<br>- **Workflow 4 agent**: 357,749 token / 89 tool calls / 11분 (Inventory + Design + Apply + Verify)<br><br>**원칙 준수**: 하루 1 차수 묶음 (오늘 분량 모두 v4.6 단일 행 안). M04는 high risk라 v4.7로 분리.<br>**롤백**: 사고 시 `git reset --hard v4.5-final-stable` (commit 단위 revert 가능). DB 컬럼 drop SQL은 가이드 §8 참고 (데이터 보존 위해 권장 안 함). |
 | v4.5 | 2026-06-19 | **하루 일괄 — 잔존 부채 정밀 식별 + 시나리오 시뮬레이션 + PRD 작성 (코드 변경 0)**<br><br>**[배경]** v4.4 마감 후 전체 pytest 실행 결과 174 fail 노출. v4.4가 새로 깨뜨린 건 0건 — 모두 옛 차수(v2.9~v4.0)에서 코드 변경 시 테스트 미동기화로 누적된 잔존 부채. 매니저 통합 시작 전 정밀 정리 PRD 필요.<br><br>**[Phase 1] git 안전점 — v4.4-final-stable 태그 신설**<br>- 태그: `v4.4-final-stable` @ commit `050cf6d`<br>- 의미: v4.4 완성 시점 보호 (Phase 1~5 + multi-line Column 5건 자체 정정 + user_password 평문 응답 복원). 사고 시 `git reset --hard v4.4-final-stable`<br><br>**[Phase 2] Workflow 46 agent 정밀 분석 — 부채 15 그룹 × (분석 + 시나리오 minimal + scenario full)**<br>- Discovery 1 agent + Per-Group Analysis 15 agent + Scenario Minimal 15 agent + Scenario Full 15 agent + PRD Synthesis 1 agent = **46 agent 병렬**<br>- 사용량: 3,492,386 token / 935 tool calls / 16분<br>- raw 결과: `tasks/w2uvtdbg0.output` (266KB)<br>- 결과 PRD: **`docs/PRD_v4.5_Debt_Cleanup.md`** (32KB)<br><br>**[Phase 3] 부채 인벤토리 — 15 그룹 / 174 fail / 30h 작업량**<br>- G01 Camera URLs 통합 (StreamUrls 삭제) — 23건 P2<br>- G02 Device is_enable 필수화 + nested 스키마 — 26건 P2<br>- G03 ConfigChangeLog 응답 envelope — 18건 P2<br>- G04 ServerMetrics 분리 — 14건 P2<br>- G05 ActionEvent 1:N 구조 변경 — 11건 P2<br>- G06 PDF/Report 시스템 변경 — 12건 P2<br>- G07 Account/Auth role enum 대문자 — 12건 P2<br>- G08 Camera Preset/ROI/include params — 11건 P2<br>- G09 Logs/Audit 1:N 응답 — 10건 **P1** (매니저 영향)<br>- G10 Sensor/Speaker/Enclosure geolocation 잔존 가정 — 9건 P2<br>- G11 EM 단건 라우터 envelope — 7건 P2<br>- G12 EM Bulk envelope 디테일 — 8건 **P1** (v4.4 직접 영향)<br>- G13 Enum NONE / device_category 추가 — 4건 P2<br>- G14 rtsp_uri/rtsp_port 컬럼 삭제 잔존 — 4건 P2<br>- G15 기타 (config/device_version/event base) — 8건 P3<br><br>**[Phase 4] 시나리오 결정 — 13 minimal + 2 full**<br>- **Minimal** (테스트 갱신만, 코드 변경 0): 13그룹 / 158건 회복 / ~23h<br>- **Full** (코드+테스트+명세 정합): 2그룹 (G09 + G12) / 16건 회복 / ~7h<br>- 합계: **30h 으로 174 fail 100% 해소 가능**<br><br>**[Phase 5] 차수별 분산 — 4차수 분할 권고**<br>- **v4.5** (즉시, 1주차) — G11/G14/G05/G13/G10/G07: **5.5h** (단순 minimal, CI Red 즉시 해소)<br>- **v4.6** (2주차, 매니저 통합 직전) — G09/G12 full: **13h** (매니저 영향 P1 정합)<br>- **v4.7** (3주차) — G02/G03/G08/G15: **7.3h** (잔존 minimal)<br>- **v5.x** (백로그) — G01/G04/G06: **4.5h** (구조 변경 동반, 매니저 통합 완료 후)<br><br>**[Phase 6] Open Decisions — 차장 결재 5건 (PRD §6 상세)**<br>- D1: ApiResponse envelope 표준화 — pagination 사이드카 vs 통합 (G03/G09 정합 방향)<br>- D2: EnumDeviceCategory LAMP 매니저(.NET Enums) 동기화 — NATS payload round-trip 검증 (G13 full 조건)<br>- D3: Server 인라인 메트릭 v2.9 분리 확정 — db_monitor 인제스트 경로 전환 (G04 v5.x 선행)<br>- D4: DetectionLog 1:1 → 1:N actions 계약 변경 공식화 — PRD + Central UI ViewModel 동시 수정 (G09 full 조건)<br>- D5: ROICreate.points 필수화 정책 확정 — '빈 ROI 생성' 워크플로 폐기 vs 유지 (G08 full 조건)<br>- 추가: SpeakerNestedResponse.category_device 제거(SPEC-6.1) / .env.example 듀얼 모드<br><br>**[Phase 7] Risk Log — 7건 (PRD §5 상세)**<br>- R1 매니저 영향 High: G09 DetectionLog action(single) → actions(list) 계약 변경 → Central UI + db_monitor 동시 수정 필요<br>- R2 매니저 영향 High: G12 EM Bulk ConfigChangeLog after_state key 변경 → 감사 리포트/UI 토스트 라벨 영향<br>- R3 매니저 영향 Medium: G07 /api/auth/me role 케이스 변경 — minimal에서 보류로 회피<br>- R4 매니저 영향 Medium: G04 Server 인라인 메트릭 db_monitor v1.6 잔존 — grep 후 v5.x 동시 전환<br>- R5/R6 사이드 이펙트: G02 conftest SQLAlchemy 환경 의존, G06 OS별 분기 회귀 가드<br>- R7 데이터 손실 Low: G09/G12 full은 OpenAPI 스키마만 변경, DB 마이그레이션 없음 (단 ActionEvent.from_event_id UNIQUE 점검 필요)<br><br>**[Phase 8] 명세서 — 본 행 신설 (코드/DB/Image/Container 변경 0)**<br>- 본 차수는 **분석 + 결재 차수** — 실제 정정 코드 변경은 v4.6/v4.7/v5.x에서 개시<br>- 영향: docs/PRD_v4.5_Debt_Cleanup.md 1 파일 + 명세 변경 이력 본 행 + git commit 1개<br><br>**[Phase 9] 즉시 minimal 6 그룹 적용 — 차장 결재 후 작업 (Workflow 8 agent, 같은 날 추가)**<br>- G05 ActionEvent 레거시: 11→8 (3 회복) — 2 모듈 skip + from_event_id detail dict 전환 + 3 method skip<br>- G07 UserSession/Account: 12→0 (12 회복) — UserRole `admin`→`ADMIN`, UserSession `login_at/last_activity`→`created_at/updated_at`, /me 토큰 종속 7건 skip<br>- G10 Sensor/Speaker/Enclosure: 9→0 (9 회복) — `is_enable=True` 4건 추가, SpeakerResponse `category_device` 제거, IpController→IoController 3건<br>- G11 EM 단일 라우터 envelope: 7→2 (5 회복) — speakers/lamps/cameras DELETE 응답에 `'data': {}` 추가 (운영 코드 3 파일 변경)<br>- G13 Enum: 4→0 (4 회복) — `EnumEventCategory`→`EnumMappingEventCategory`, `EnumDeviceCategory` 3→6 (SPEAKER/ENCLOSURE/LAMP)<br>- G14 Camera URLs: 4→0 (4 회복) — test_device_base_model.py rtsp_uri/rtsp_port kwargs 8 lines 삭제<br>**합계**: 47 기대 → **37 실회복** (G11 5/7, G05 3/11, 그 외 4그룹 100%), 신규 회귀 0, **verdict PASS**<br>**잔존 매핑**: G05 잔존 8건 → v4.6 G05-cleanup (레거시 모듈 2개 삭제), G11 잔존 2건 → v4.6 G11-full (cross-file 테스트 격리 결함)<br>**파일 변경**: 운영 코드 3 (event_mapping_cameras/speakers/lamps DELETE) + 테스트 17 = **20 파일**<br>**pytest 전체**: 2381 / passed **2218** (+30) / failed **126** (-48) / skipped **35** (+18) / errors 2<br>**Workflow 사용량**: 8 agent / 505,728 token / 119 tool calls / 15분<br><br>**검증**: 코드 변경 = 라우터 envelope 3건만 (DELETE `data: {}`), DB 변경 0, Image 변경 = 라우터 동기화 + 재시작, Container Up healthy, 실 API 정상, OpenAPI 정상.<br>**롤백**: 사고 시 `git reset --hard v4.4-final-stable` (commit 단위 revert 가능).<br>**원칙 준수**: 하루 1 차수 묶음 원칙 — Phase 1~9 모두 v4.5 1차수 안에 통합. |
 | v4.4 | 2026-06-18 | **하루 일괄 — Bulk API 4단계 정합화 (Phase 1~4) + v4.5 분리 작업**<br><br>**[Phase 1] 명세 정정 — GAP 14건 (5.6.9 / 7.3.9 / 7.3.10 / 7.5.9 / 7.5.10)**<br>- G1 P0 치명 3건: §7.3.9 Request Body 6필드 교체, `created_ids/config_ids` = 매핑 row PK 명시 — 매니저가 명세대로 호출 시 즉시 422 실패 차단<br>- G2 P1 약속: skipped/not_found_config_ids placeholder 명시 → Phase 2에서 실 분류 활성화<br>- G3 P2 트리거명: §7.5.9/10 `trg_sync_eml_insert/delete` → `trg_sync_eml_ins/del`, "§6 매트릭스" dangling reference 제거<br>- G4 P3 정합성 6건: §5.6.9 meta.message → data.message, 영문 leak 제거, §7.5 헤더 중복 통합, §7.3.5 → §7.3.6, /members → /devices 등<br>- PRD: docs/PRD_v4.4_Phase1_SpecSync.md (구 PRD_BulkAPI_Spec_Sync_v4.4.md)<br>- 검증: docs/sim/raw_data.json 19 시나리오 + docs/workflow_audit_v3/a01~a09.md 9 agent<br>- 롤백 태그: pre-prd-v44, pre-spec-master-sync<br><br>**[Phase 2] 코드 보강 — PR-A/B/C/D**<br>- PR-A: 3 라우터 ConfigLog `if` 가드 제거 → 0건 case도 무조건 발행 (감사 가능)<br>- PR-B: skipped/not_found_config_ids 실 분류 활성화 (Camera/Speaker/Lamp 3 라우터)<br>- PR-C: Lamp `color/buzzer_sound/light_mode` plain str → Pydantic Enum (color="Purple" 500 → 422)<br>- PR-D: EventMapping 6 핸들러 `response_model=dict` → `ApiSingleResponse[T]` + 404 응답 정의 + meta envelope 자동 주입<br>- 롤백 태그: pre-v45<br><br>**[Phase 3] Post-Mortem — 보안 + 잔존 GAP 9건 (FR-1~12 중 P0/P1)**<br>- FR-1 JWT_SECRET_KEY validator (staging/prod 디폴트 거부) / ~~FR-2 user_password 응답 제거~~ → **Phase 5 결재로 응답 복원** (운영 사용 케이스: 등록 직후 확인 / 관리자 화면 / 통합상황도 자동연결. 보안 정책[롤 기반 / 별도 엔드포인트 / 마스킹]은 v4.5에서 결정) / FR-3 CORS 화이트리스트 / FR-4 .NET 사본 4곳 가이드 (docs/v44_sync_guide.md) / FR-5 same-request dedup 보강 / FR-8 db_triggers.py:97-108 dead branch 제거 / FR-9 AUTH_MODE 환경별 분기 / FR-10 §7.5.7 번호 중복 재채번 (`MappingLamp 독립 GET` → §7.5.9, 본 차수 §7.5.9/10 → §7.5.10/11 시프트) / FR-12 .gitignore PRD 추적 예외<br>- PRD: docs/PRD_v4.4_Phase3_PostMortem.md (구 PRD_BulkAPI_PostMortem_v4.6.md)<br>- 롤백 태그: pre-v46<br><br>**[Phase 4] 지향성 + JSON→JSONB 일관성 복원 — FR-13 / FR-14**<br>- FR-13: `Geolocation`에 `heading: Optional[float] (0~360°)` 추가 — Camera/Speaker/Sensor 부채꼴 시각화. 6 디바이스 테이블 row backfill (heading:null) 완료<br>- FR-14: **PRD ↔ 구현 일관성 복원** — PRD 파일명(JsonB) + Docstring 23곳 "JSONB" 의도였으나 SQLAlchemy `JSON` import 실수로 23 컬럼 모두 `json` 저장. 8 파일 18 사용처 정정 + ALTER TYPE jsonb 일괄 (한 트랜잭션). 데이터 손실 0<br>- 마이그레이션: app/migrations/v47_json_to_jsonb_and_heading.sql<br>- PRD: docs/PRD_v4.4_Phase4_Directional_JsonB.md (구 PRD_v4.7.md)<br>- 롤백 태그: pre-v47<br><br>**[Phase 5] FR-6/FR-7 — 본 차수 통합 처리 + JSONB SQLite 호환**<br>- FR-6 pytest 정합: 13건 → 8건 잔존 (envelope key `camera_ids/speaker_ids/lamp_ids` → `config_ids` 정정, FR-8 dead branch 옛 테스트 2건 skip 마크). 잔존 8건은 skip_duplicates / log_config_change 디테일 (매니저 영향 0)<br>- FR-7 단건 21건 response_model: `Column(JSON)` → `ApiSingleResponse[dict]` 일괄 (Camera/Speaker/Lamp 각 7건). OpenAPI Schema 노출 (data 구체 타입은 v4.5에서 정확화)<br>- **JSONB SQLite 호환** (Phase 4 사이드이펙트 정정): SQLAlchemy `Column(JSONB)` → `Column(JSON().with_variant(JSONB(), "postgresql"))` 패턴으로 dialect-aware. Postgres 운영=jsonb, SQLite 테스트=json fallback. 23개 컬럼 일괄 적용<br>- 검증: pytest 56/64 (skip 2건 + 잔존 8건). OpenAPI 21건 ApiSingleResponse[T] 노출 확인<br>- FR-11 (JWT jti 블랙리스트, 4.5h 분량)은 별도 차수(v4.5)로 분리<br><br>**검증**: 실 API 4 시나리오(CAM dedup, 0건 ConfigLog, LMP Purple 422, heading 응답) 모두 통과. pytest 53/66 (FR-8 dead branch 제거로 row-level 옛 테스트 2건 의도된 실패 + Phase 5 잔존). DB: json 0건 / jsonb 23건. Docker Image: api-test-server:latest (da8e01c0fad6, 2026-06-18 16:27).<br>**커밋 단위 추적성**: 13 commit 보존 (rebase 없음). 5개 롤백 태그 (pre-prd-v44, pre-spec-master-sync, pre-v45, pre-v46, pre-v47) commit hash 그대로 유효.<br>**원칙 준수**: 하루 1 차수 묶음 원칙 적용 (구 v4.4~v4.7 4 차수를 본 v4.4로 통합) |
@@ -15855,5 +16136,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v4.6
-**최종 업데이트**: 2026-06-19
+**문서 버전**: v5.0
+**최종 업데이트**: 2026-06-29

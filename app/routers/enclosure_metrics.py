@@ -315,8 +315,8 @@ def delete_enclosure_metrics(
 
     return {
         "success": True,
-        "message": f"Deleted {deleted_count} metrics",
-        "data": {"deleted_count": deleted_count}
+        "message": f"Deleted {deleted_count} metrics for enclosure {enclosure_id}",
+        "data": None
     }
 
 

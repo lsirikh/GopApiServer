@@ -106,6 +106,7 @@ class HardwareSpec(BaseModel):
     device_id: Optional[str] = Field(None, max_length=200, description="장치 ID")
     mac_address: Optional[str] = Field(None, max_length=17, description="MAC 주소 (XX:XX:XX:XX:XX:XX)")
     onvif_version: Optional[str] = Field(None, max_length=50, description="ONVIF 버전")
+    max_detection_range: Optional[float] = Field(None, ge=0, description="최대 탐지거리(m) — GIS '특정 위치 확인' aim 반경/FOV 산출용 (JSONB, DB 컬럼 추가 없음)")
 
     model_config = ConfigDict(from_attributes=True)
 

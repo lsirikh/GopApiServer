@@ -31,6 +31,12 @@ Pillow>=10.0.0
 matplotlib>=3.8.0
 reportlab>=4.0.0
 
+# Report Master Redesign (PRD_Report_Master_Redesign) — HTML→PDF 렌더
+# 네이비/골드 디자인을 Chart.js+CSS 그대로 PDF화 (Chromium 헤드리스)
+playwright>=1.40.0
+# PDF 무손실 재압축(객체스트림 GC + deflate) — Chromium 출력 대비 ~85% 축소
+PyMuPDF>=1.23.0
+
 # Templating (PRD_Report_System.md Section 10: Preview Page)
 jinja2>=3.1.0
 

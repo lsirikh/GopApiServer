@@ -28,6 +28,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# PRD_Report_Master_Redesign: 보고서 HTML→PDF 렌더용 Chromium 설치
+# --with-deps 가 필요한 OS 라이브러리(libnss3, libatk 등)까지 apt로 설치한다.
+RUN playwright install --with-deps chromium && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy application code
 COPY . .
 

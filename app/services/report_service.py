@@ -945,20 +945,60 @@ class ReportService:
         }
 
     def generate_report_async(self, generation_id: int) -> None:
-        """
-        보고서 비동기 생성
+        """보고서 비동기 생성 — 마스터 디자인(HTML→PDF, Playwright/Chromium).
 
-        Args:
-            generation_id: ReportGeneration ID
-
-        Process:
-            1. status를 GENERATING으로 변경
-            2. 통계 데이터 수집
-            3. PDF 생성
-            4. 파일 저장
-            5. status를 COMPLETED로 변경, pdf_file_path 설정
-            6. 에러 시 status를 FAILED로 변경, error_message 설정
+        PRD_Report_Master_Redesign: 정형=전 섹션, 비정형=template 컴포넌트 필터.
+        구 reportlab 경로는 _generate_report_legacy로 보존.
         """
+        from app.services.report_master_builder import build_master_data, build_report_meta
+        from app.services.report_html_renderer import render_report_html
+        from app.utils.html_to_pdf import html_to_pdf_bytes
+
+        generation = self.db.query(ReportGeneration).filter(
+            ReportGeneration.id == generation_id
+        ).first()
+        if not generation:
+            return
+
+        try:
+            generation.status = "GENERATING"
+            self.db.commit()
+
+            enabled = self.get_enabled_components(generation)
+            enabled_set = set(enabled) if enabled is not None else None
+            kind = "비정형" if generation.report_type == "CUSTOM" else "정형"
+            meta = build_report_meta(generation)
+
+            data = build_master_data(
+                self.db, generation.start_date, generation.end_date, meta, enabled_set
+            )
+            html = render_report_html(data, mode="full")
+            pdf_bytes = html_to_pdf_bytes(html)
+
+            reports_dir = os.path.join(os.getcwd(), "reports")
+            os.makedirs(reports_dir, exist_ok=True)
+            filename = f"report_{generation.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            file_path = os.path.join(reports_dir, filename)
+            with open(file_path, "wb") as f:
+                f.write(pdf_bytes)
+
+            generation.status = "COMPLETED"
+            generation.pdf_file_path = file_path
+            generation.pdf_file_size = len(pdf_bytes)
+            generation.completed_at = datetime.now()
+            generation.summary_data = {
+                "section_count": len(data["sections"]),
+                "report_kind": kind,
+            }
+            self.db.commit()
+
+        except Exception as e:
+            generation.status = "FAILED"
+            generation.error_message = str(e)
+            self.db.commit()
+
+    def _generate_report_legacy(self, generation_id: int) -> None:
+        """[DEPRECATED] 구 reportlab 보고서 생성 (PRD_Report_Master_Redesign 이전 경로, 보존용)."""
         from app.utils.chart_generator import ChartGenerator
         from app.utils.pdf_generator import PDFGenerator
 

@@ -71,4 +71,8 @@ def effective_permissions(db, user, now):
 ## 현재 상태 (live)
 
 - WS-A: 휴면 RBAC 배포 완료(Swagger 5.2.0 라이브, `v5.2-deployed`). 활성화(P5)는 클라 Bearer 동시배포 게이트.
-- WS-B: **조율판 수락(2026-06-30, 세션 ppid-61376)**. 경계 동의 — `auth.py` 단독 소유 수용, 27 데코레이터/`init_sample_data.py` 미편집(후자는 편집 전 본 표에 표시). 착수 순서: **FR-01(grants 모델/migration) 커밋 → FR-02(`effective_permissions` in auth.py, `_resolve_role_group`/`_role_group_allows` 재사용) → FR-03 부여 API → FR-04 sweep → FR-06 `/me/permissions`**. PRD 승인(`approve prd`) 대기 중. (참고: `docs/prds/`는 `.gitignore:157`로 **로컬 전용** — PRD 동기화는 공유 디스크로, 본 board만 추적본)
+- WS-B: PRD Approved + plan 작성. **진행 중(2026-06-30)**:
+  - ✅ **FR-01** `UserGroupGrant` 모델 + `v56_user_group_grants.sql` (커밋 `728e537`, 로컬 4 passed)
+  - ✅ **FR-02** `auth.py` `_active_grant_groups`/`_effective_allows` + require_perm/optional 배선 (커밋 `fc3accb`, 로컬 22 passed, NFR-01 만료차단 검증). **`auth.py` 변경 완료 — WS-A 동결 경계 준수**
+  - ⏭ 잔여: FR-03 부여 API(신규 라우터+`main.py` include) → FR-05 status → FR-04 sweep(`main.py` lifespan+`requirements.txt`) → FR-06 `/me/permissions`+NATS → FR-07 login 병합
+  - 경계 준수: 27 데코레이터·`init_sample_data.py` 미편집. (`docs/prds`·`docs/plans`·`tests`는 `.gitignore` 로컬전용 — 본 board만 추적 동기화)

@@ -33,6 +33,8 @@ class UserGroup(Base):
 
     # Relationship to users
     users = relationship("AccountUser", back_populates="group")
+    # FR-01: 시간기반 부여(grant) — 그룹 삭제 시 부여도 정리
+    grants = relationship("UserGroupGrant", back_populates="group", cascade="all, delete-orphan")
 
 
 class AccountUser(Base):
@@ -89,6 +91,8 @@ class AccountUser(Base):
     group = relationship("UserGroup", back_populates="users")
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     login_logs = relationship("UserLoginLog", back_populates="user")
+    # FR-01: 시간기반 권한그룹 부여 — 사용자 삭제 시 부여도 CASCADE
+    grants = relationship("UserGroupGrant", back_populates="user", cascade="all, delete-orphan")
 
     # Report System relationships (PRD: PRD_Report_System.md)
     report_templates = relationship("ReportTemplate", back_populates="owner")
@@ -96,6 +100,45 @@ class AccountUser(Base):
 
     def __repr__(self):
         return f"<AccountUser(login_id='{self.login_id}', role='{self.role}')>"
+
+
+class UserGroupGrant(Base):
+    """
+    UserGroupGrant — 사용자에게 권한그룹을 기간을 정해 부여(시간기반 스케쥴링)
+    PRD: PRD_Permission_Group_Scheduling.md §3.3 (FR-01)
+
+    설계 원칙:
+    - 스케쥴은 "그룹 정의"가 아니라 "부여(assignment)"에 건다(등급그룹 전체 만료 방지).
+    - 권위 판정은 요청 시점 계산(valid_from <= now < valid_until). is_active 는 sweep 비정규화(표시·통지용).
+    - valid_until = NULL → 상시(무기한). revoked_at = soft 회수(물리삭제 금지).
+    """
+    __tablename__ = "user_group_grants"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+
+    # 부여 대상 사용자 / 부여 그룹 (둘 다 삭제 시 CASCADE)
+    user_id = Column(Integer, ForeignKey("account_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # 유효 기간 — valid_until NULL = 상시
+    valid_from = Column(DateTime, nullable=False)
+    valid_until = Column(DateTime, nullable=True)
+
+    # sweep 비정규화 플래그(표시/통지용). 인가 권위는 valid_until > now 계산이 담당.
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # 감사 — 부여한 ADMIN / soft 회수 시각
+    granted_by = Column(Integer, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+
+    # Relationships
+    user = relationship("AccountUser", back_populates="grants")
+    group = relationship("UserGroup", back_populates="grants")
+
+    def __repr__(self):
+        return f"<UserGroupGrant(user_id={self.user_id}, group_id={self.group_id}, valid_until={self.valid_until})>"
 
 
 class UserSession(Base):

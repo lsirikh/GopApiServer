@@ -8,9 +8,10 @@ from jose import JWTError
 from typing import Optional
 from datetime import datetime, timedelta
 
+from sqlalchemy import or_
 from app.dependencies import get_db
 # NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
-from app.models.user import User, AccountUser, UserSession, UserLoginLog, UserGroup
+from app.models.user import User, AccountUser, UserSession, UserLoginLog, UserGroup, UserGroupGrant
 from app.schemas.user import Token, UserResponse, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
 from app.utils.auth import verify_password, create_access_token, create_refresh_token, decode_token
 
@@ -163,6 +164,38 @@ def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
     return isinstance(verbs_perms, dict) and bool(verbs_perms.get(verb))
 
 
+def _active_grant_groups(db: Session, user: AccountUser, now=None) -> list:
+    """현재 유효한(요청시점) grant 들의 권한그룹 목록 — FR-02 (PRD_Permission_Group_Scheduling §3.2).
+
+    유효 = revoked_at IS NULL AND valid_from <= now AND (valid_until IS NULL OR valid_until > now).
+    ★ is_active(sweep 비정규화)는 **보지 않는다** — sweep 지연/미실행 시 보안구멍 방지(NFR-01).
+    시각은 settings.tz(KST) naive 컨벤션(타 테이블·grant 저장과 동일).
+    """
+    if now is None:
+        from app.config import settings
+        now = datetime.now(settings.tz).replace(tzinfo=None)
+    grants = db.query(UserGroupGrant).filter(
+        UserGroupGrant.user_id == user.id,
+        UserGroupGrant.revoked_at.is_(None),
+        UserGroupGrant.valid_from <= now,
+        or_(UserGroupGrant.valid_until.is_(None), UserGroupGrant.valid_until > now),
+    ).all()
+    return [g.group for g in grants if g.group is not None]
+
+
+def _effective_allows(db: Session, user: AccountUser, module: str, verb: str, now=None) -> bool:
+    """유효권한 = 등급 매트릭스 ∪ 현재 유효 grant 그룹 매트릭스 — FR-02.
+
+    ADMIN bypass 는 호출 측(require_perm 등)에서 처리. 여기서는 비-ADMIN 합집합 판정만.
+    """
+    if _role_group_allows(_resolve_role_group(db, user), module, verb):
+        return True
+    for grant_group in _active_grant_groups(db, user, now):
+        if _role_group_allows(grant_group, module, verb):
+            return True
+    return False
+
+
 def require_perm(module: str, verb: str):
     """권한(module:verb) 기반 인가 의존성 팩토리 — v5.1 FR-SV-04 (PRD_GOP_Server_RBAC_Enforcement).
 
@@ -186,7 +219,8 @@ def require_perm(module: str, verb: str):
         # ADMIN bypass — 매트릭스 무관
         if current_user.role == "ADMIN":
             return current_user
-        if not _role_group_allows(_resolve_role_group(db, current_user), module, verb):
+        # 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-02, 요청시점 계산)
+        if not _effective_allows(db, current_user, module, verb):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
@@ -229,7 +263,8 @@ def require_perm_optional(module: str, verb: str):
             )
         if current_user.role == "ADMIN":
             return current_user
-        if not _role_group_allows(_resolve_role_group(db, current_user), module, verb):
+        # 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-02, 요청시점 계산)
+        if not _effective_allows(db, current_user, module, verb):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",

@@ -107,14 +107,11 @@ async def get_current_account_user(
         if login_id is None:
             raise credentials_exception
 
-        # PRD v4.9 Phase 2-A4: jti 블랙리스트 검증
-        from app.services.token_blacklist_service import is_blacklisted
+        # PRD v4.9 Phase 2-A4: jti 블랙리스트 검증 / FR-SVF-10: 안정 코드 SESSION_REVOKED 노출
+        from app.services.token_blacklist_service import is_blacklisted, get_blacklist_reason
         if is_blacklisted(db, token_data.jti):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has been revoked",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            from app.exceptions import RevokedTokenError
+            raise RevokedTokenError(reason=get_blacklist_reason(db, token_data.jti))
 
     except JWTError:
         raise credentials_exception
@@ -571,8 +568,10 @@ async def refresh(
     from app.services.token_blacklist_service import is_blacklisted, add_to_blacklist
     from datetime import timedelta as _td
     if is_blacklisted(db, token_data.jti):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+        from app.exceptions import RevokedTokenError
+        from app.services.token_blacklist_service import get_blacklist_reason
+        raise RevokedTokenError(
+            reason=get_blacklist_reason(db, token_data.jti),
             detail="Refresh token has been revoked",
         )
 

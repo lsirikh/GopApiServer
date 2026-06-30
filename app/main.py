@@ -470,7 +470,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
       "meta": { "timestamp": "...", "request_id": "..." }
     }
     """
-    error_code = HTTP_ERROR_CODES.get(exc.status_code, "UNKNOWN_ERROR")
+    # FR-SVF-10: detection 지점이 부여한 안정 sub-code(예: SESSION_REVOKED)를 우선,
+    # 없으면 status→code 매핑으로 폴백. details 도 예외가 제공하면 노출.
+    error_code = getattr(exc, "code", None) or HTTP_ERROR_CODES.get(exc.status_code, "UNKNOWN_ERROR")
+    error_details = getattr(exc, "details", None)
 
     # PRD v4.9 Phase 2-B1: WWW-Authenticate 등 라우터에서 설정한 헤더 보존 (RFC 6750/7235)
     # 라우터의 HTTPException(headers={"WWW-Authenticate": "Bearer"}) 이 envelope 직렬화 시 손실되지 않도록 전달
@@ -483,7 +486,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "error": {
                 "code": error_code,
                 "message": exc.detail,
-                "details": None
+                "details": error_details
             },
             "meta": create_error_meta(request)
         },

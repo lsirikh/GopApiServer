@@ -20,9 +20,10 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - **Phase 1 (FR-SVF-01/02)** — access+refresh JWT 에 **`sid` 클레임(= UserSession.id)** + login/refresh 응답 `session_id`. 로그인 핸들러 재정렬(session flush→sid 박은 토큰 발급), refresh 는 sid 승계(불변)·jti 회전·UserSession 토큰 재바인딩(orphan 방지). `app/routers/auth.py`, `app/utils/auth.py`, `app/schemas/user.py`.
 - **Phase 2 (FR-SVF-06/07/12)** — `RevokePayload` 스키마(reason=`EnumLogoutReason` 재사용) + canonical(sorted·compact·UTF-8·null 명시) HMAC-SHA256 서명 유틸 + 전용 `REVOKE_SIGNING_KEY`(JWT_SECRET 분리 검증)·freshness 설정. `app/schemas/revoke.py`, `app/utils/revoke_signing.py`, `app/config.py`.
 - **Phase 3 (FR-SVF-05/08/11)** — per-session 전용 subject `sensorway.{unit}.account.{user_id}.session.{session_id}.revoke`(광역 `all.>` 금지) best-effort publisher, force_logout 단건/벌크 연결. **`NATS_REVOKE_ENABLED=False` 게이트** — subject 클라 확정(V-SVF-05) + 발행 ACL(FR-SVF-08) 후 활성화. `app/services/nats_revoke_publisher.py`.
+- **Phase 5 (FR-SVF-10)** — 폐기 세션 → 401 **안정 `error.code=SESSION_REVOKED`**(+`details.reason`) 통일. 전역 핸들러가 detection 지점의 sub-code 우선 렌더, 클라는 메시지 문자열 아닌 코드로 분기. 일반 무효 토큰은 `UNAUTHORIZED` 유지(구분). `RevokedTokenError`(`app/exceptions.py`), `app/main.py`, `app/routers/auth.py`, `token_blacklist_service.get_blacklist_reason`.
 
-**잔여**: FR-SVF-10 (revoked→401 `error.code=SESSION_REVOKED` 통일), FR-SVF-08 NATS 발행 ACL(인프라).
-**검증**: P1 로컬 테스트 23건 PASS(Phases 0-4) + 회귀 0(stash baseline 교차검증). ※ `tests/` 는 `.gitignore` 대상(로컬 검증 전용).
+**잔여**: FR-SVF-08 NATS 발행 ACL(인프라, repo 밖).
+**검증**: P1 로컬 테스트 27건 PASS(Phases 0-5) + 회귀 0(stash baseline 교차검증). ※ `tests/` 는 `.gitignore` 대상(로컬 검증 전용).
 
 ### Security (v5.1 자가 버그 fix)
 

@@ -38,6 +38,17 @@ def is_blacklisted(db: Session, jti: str) -> bool:
     return is_listed
 
 
+def get_blacklist_reason(db: Session, jti: str) -> Optional[str]:
+    """jti의 블랙리스트 사유(LOGOUT/FORCED/PASSWORD_CHANGE 등) 조회 — FR-SVF-10 details.reason 용.
+
+    폐기된 토큰에 대해서만 호출되므로(드묾) 추가 단건 인덱스 조회 비용은 무시 가능.
+    """
+    if jti is None:
+        return None
+    row = db.query(TokenBlacklist.reason).filter(TokenBlacklist.jti == jti).first()
+    return row[0] if row else None
+
+
 def add_to_blacklist(
     db: Session,
     jti: str,

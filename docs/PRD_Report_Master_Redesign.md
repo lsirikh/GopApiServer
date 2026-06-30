@@ -55,6 +55,7 @@ ReportGeneration ─▶ report_master_builder.build_master_data(db, start, end, 
 | `app/utils/html_to_pdf.py` | Playwright Chromium HTML→PDF + PyMuPDF 무손실 재압축(~85% 축소) |
 | `app/services/report_service.py` | `generate_report_async` 신규 경로. 구 reportlab은 `_generate_report_legacy` 보존 |
 | `app/main.py` `/reports/preview/{id}` | 동일 HTML 서빙(기본 compact, `?mode=full`) |
+| `app/routers/reports.py` `GET /api/reports/status` | 엔진 Busy/Ready 상태(read-only). busy/ready, in_progress[], last_completed. 정형 비동기 렌더(~108s) polling용 |
 
 ## 5. 렌더 엔진 결정
 

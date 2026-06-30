@@ -71,4 +71,4 @@ def effective_permissions(db, user, now):
 ## 현재 상태 (live)
 
 - WS-A: 휴면 RBAC 배포 완료(Swagger 5.2.0 라이브, `v5.2-deployed`). 활성화(P5)는 클라 Bearer 동시배포 게이트.
-- WS-B: PRD Draft 완료, **코드 미착수**(grants 모델/스케줄러 없음, working tree clean) — 경계 정하기 적기.
+- WS-B: **조율판 수락(2026-06-30, 세션 ppid-61376)**. 경계 동의 — `auth.py` 단독 소유 수용, 27 데코레이터/`init_sample_data.py` 미편집(후자는 편집 전 본 표에 표시). 착수 순서: **FR-01(grants 모델/migration) 커밋 → FR-02(`effective_permissions` in auth.py, `_resolve_role_group`/`_role_group_allows` 재사용) → FR-03 부여 API → FR-04 sweep → FR-06 `/me/permissions`**. PRD 승인(`approve prd`) 대기 중. (참고: `docs/prds/`는 `.gitignore:157`로 **로컬 전용** — PRD 동기화는 공유 디스크로, 본 board만 추적본)

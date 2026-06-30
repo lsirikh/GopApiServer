@@ -164,23 +164,78 @@ def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
     return isinstance(verbs_perms, dict) and bool(verbs_perms.get(verb))
 
 
-def _active_grant_groups(db: Session, user: AccountUser, now=None) -> list:
-    """현재 유효한(요청시점) grant 들의 권한그룹 목록 — FR-02 (PRD_Permission_Group_Scheduling §3.2).
+def _kst_now() -> datetime:
+    """settings.tz(KST) 기준 naive now — grant 저장/비교 컨벤션 일치."""
+    from app.config import settings
+    return datetime.now(settings.tz).replace(tzinfo=None)
+
+
+def _active_grants(db: Session, user: AccountUser, now=None) -> list:
+    """현재 유효한(요청시점) grant 행 목록 — FR-02 (PRD_Permission_Group_Scheduling §3.2).
 
     유효 = revoked_at IS NULL AND valid_from <= now AND (valid_until IS NULL OR valid_until > now).
     ★ is_active(sweep 비정규화)는 **보지 않는다** — sweep 지연/미실행 시 보안구멍 방지(NFR-01).
-    시각은 settings.tz(KST) naive 컨벤션(타 테이블·grant 저장과 동일).
     """
     if now is None:
-        from app.config import settings
-        now = datetime.now(settings.tz).replace(tzinfo=None)
-    grants = db.query(UserGroupGrant).filter(
+        now = _kst_now()
+    return db.query(UserGroupGrant).filter(
         UserGroupGrant.user_id == user.id,
         UserGroupGrant.revoked_at.is_(None),
         UserGroupGrant.valid_from <= now,
         or_(UserGroupGrant.valid_until.is_(None), UserGroupGrant.valid_until > now),
     ).all()
-    return [g.group for g in grants if g.group is not None]
+
+
+def _active_grant_groups(db: Session, user: AccountUser, now=None) -> list:
+    """현재 유효 grant 들의 권한그룹 목록(_active_grants 파생)."""
+    return [g.group for g in _active_grants(db, user, now) if g.group is not None]
+
+
+def _merge_modules(target: dict, src) -> None:
+    """src.modules 의 truthy verb 를 target.modules 에 OR 병합(합집합)."""
+    if not isinstance(src, dict):
+        return
+    for module, verbs in (src.get("modules") or {}).items():
+        if not isinstance(verbs, dict):
+            continue
+        tgt_verbs = target.setdefault("modules", {}).setdefault(module, {})
+        for verb, val in verbs.items():
+            if val:
+                tgt_verbs[verb] = True
+
+
+def effective_permissions_payload(db: Session, user: AccountUser, now=None) -> dict:
+    """클라 노출용 유효권한 페이로드 — FR-06/FR-07.
+
+    = 등급 매트릭스 ∪ 현재 유효 grant 그룹 매트릭스(modules OR, device_groups 합집합).
+    valid_until = 활성 grant 중 가장 임박한 만료(없으면 None=상시). 클라 캐시 만료시점.
+    """
+    if now is None:
+        now = _kst_now()
+    merged: dict = {"modules": {}, "device_groups": []}
+
+    def _add_device_groups(perms):
+        if isinstance(perms, dict):
+            for dg in (perms.get("device_groups") or []):
+                if dg not in merged["device_groups"]:
+                    merged["device_groups"].append(dg)
+
+    role_group = _resolve_role_group(db, user)
+    if role_group and isinstance(role_group.permissions, dict):
+        _merge_modules(merged, role_group.permissions)
+        _add_device_groups(role_group.permissions)
+
+    earliest_until = None
+    for grant in _active_grants(db, user, now):
+        grp = grant.group
+        if grp and isinstance(grp.permissions, dict):
+            _merge_modules(merged, grp.permissions)
+            _add_device_groups(grp.permissions)
+        if grant.valid_until is not None and (earliest_until is None or grant.valid_until < earliest_until):
+            earliest_until = grant.valid_until
+
+    merged["valid_until"] = earliest_until
+    return merged
 
 
 def _effective_allows(db: Session, user: AccountUser, module: str, verb: str, now=None) -> bool:
@@ -498,14 +553,13 @@ async def login(
     db.add(login_log)
     db.commit()
 
-    # 권한 = 역할(등급) 단위 (PRD-GOP-01 OQ-PG-01 = Option A): user.role 명의 등급 그룹 매트릭스를 사용.
-    # 등급 그룹이 없으면 레거시 group_id 그룹으로 폴백.
-    permissions = None
-    role_group = db.query(UserGroup).filter(UserGroup.name == user.role).first()
-    if role_group and role_group.permissions:
-        permissions = role_group.permissions
-    elif user.group and user.group.permissions:
-        permissions = user.group.permissions
+    # 권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-07, PRD_Permission_Group_Scheduling).
+    # effective_permissions_payload 가 역할명 그룹(Option A) + group_id 폴백 + grant 합집합 + valid_until 산출.
+    _perm_now = _kst_now()
+    permissions = effective_permissions_payload(db, user, _perm_now)
+    if permissions.get("valid_until") is not None:
+        # 클라 시계 보정용 — KST aware 로 직렬화(+09:00)
+        permissions["valid_until"] = permissions["valid_until"].replace(tzinfo=settings.tz)
 
     return {
         "success": True,
@@ -783,3 +837,37 @@ async def get_me(current_user: AccountUser = Depends(get_current_account_user)):
     - 401: 유효하지 않은 토큰
     """
     return current_user
+
+
+@router.get("/me/permissions")
+async def get_my_permissions(
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
+):
+    """현재 사용자의 유효권한 스냅샷 조회 — FR-06 (PRD_Permission_Group_Scheduling).
+
+    클라(Dotnet.Monitoring)가 grant 만료로 stale 된 권한을 재평가하는 경로.
+    로그인 스냅샷과 동일 계산(등급 매트릭스 ∪ 현재 유효 grant).
+
+    **Response data**:
+    - **modules**: 모듈별 권한(view/edit/delete/control)
+    - **device_groups**: 접근 가능 디바이스 그룹 ID
+    - **valid_until**: 가장 임박한 grant 만료(KST, 없으면 null=상시) — 클라 캐시 만료시점
+    - **server_time**: 서버 현재 시각(KST) — 클라-서버 시계 편차 보정용
+
+    **Error**: 401 (유효하지 않은 토큰)
+    """
+    from app.config import settings
+
+    now = _kst_now()
+    payload = effective_permissions_payload(db, current_user, now)
+    valid_until = payload.get("valid_until")
+    return {
+        "success": True,
+        "data": {
+            "modules": payload.get("modules", {}),
+            "device_groups": payload.get("device_groups", []),
+            "valid_until": valid_until.replace(tzinfo=settings.tz) if valid_until is not None else None,
+            "server_time": now.replace(tzinfo=settings.tz),
+        },
+    }

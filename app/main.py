@@ -33,7 +33,7 @@ from app.database import engine
 from app.db_triggers import apply_triggers
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking, settings as settings_router
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
@@ -589,6 +589,7 @@ app.include_router(user_groups.router, prefix="/api/user-groups", tags=["User Gr
 app.include_router(user_sessions.router, prefix="/api/user-sessions", tags=["User Sessions"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
 app.include_router(config_change_logs.router, prefix="/api/config-change-logs", tags=["Config Change Logs"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
 app.include_router(controllers.router, prefix="/api/devices/controllers", tags=["Controllers"])
 app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors"])

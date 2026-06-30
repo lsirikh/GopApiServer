@@ -348,8 +348,11 @@ async def login(
         # Increment failed login count
         user.failed_login_count += 1
 
-        # Lock account after 5 failed attempts
-        if user.failed_login_count >= 5:
+        # FR-SVS-05: 잠금 임계를 런타임 설정에서 읽음(기존 하드코딩 >= 5 대체). 0이면 잠금 비활성.
+        from app.services import settings_service
+        from app.services.settings_service import SettingKey
+        _lockout_threshold = settings_service.get(db, SettingKey.LOCKOUT_THRESHOLD)
+        if _lockout_threshold and user.failed_login_count >= _lockout_threshold:
             user.is_locked = True
             user.lock_reason = "Too many failed login attempts"
             user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
@@ -365,6 +368,12 @@ async def login(
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("User-Agent")
 
+    # FR-SVS-05: 토큰/세션 만료를 런타임 설정에서 읽음(시드 기본값 = .env 와 동일하므로 미설정 시 기존 동작).
+    from app.services import settings_service
+    from app.services.settings_service import SettingKey
+    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
+    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+
     # FR-SVF-01/02: 세션 행을 먼저 flush 하여 id(= session_id)를 확보한 뒤,
     # 그 id를 sid 클레임으로 박은 access+refresh 토큰을 발급한다(refresh로 회전하지 않는 식별자).
     # token 컬럼은 NOT NULL+unique 이므로 임시 unique placeholder 로 flush → 발급 후 실제 토큰으로 갱신.
@@ -374,7 +383,7 @@ async def login(
         user_id=user.id,
         token=_placeholder,
         refresh_token=f"{_placeholder}-r",
-        expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
+        expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=_timeout_hours),
         is_active=True,
         ip_address=client_ip,
         user_agent=user_agent
@@ -382,9 +391,11 @@ async def login(
     db.add(session)
     db.flush()  # session.id 확보 (commit 전)
 
-    # Create JWT tokens — sid = UserSession.id
-    access_token = create_access_token(data={"sub": user.login_id, "sid": str(session.id)})
-    refresh_token = create_refresh_token(data={"sub": user.login_id, "sid": str(session.id)})
+    # Create JWT tokens — sid = UserSession.id, 만료는 런타임 설정 적용
+    access_token = create_access_token(
+        data={"sub": user.login_id, "sid": str(session.id)}, expires_delta=timedelta(hours=_timeout_hours))
+    refresh_token = create_refresh_token(
+        data={"sub": user.login_id, "sid": str(session.id)}, expires_delta=timedelta(days=_refresh_days))
 
     # 실제 발급 토큰으로 placeholder 교체
     session.token = access_token
@@ -601,9 +612,13 @@ async def refresh(
     if sid:
         token_payload["sid"] = sid
 
-    # Create new tokens (sid 승계, jti만 회전)
-    access_token = create_access_token(data=token_payload)
-    new_refresh_token = create_refresh_token(data=token_payload)
+    # Create new tokens (sid 승계, jti만 회전). FR-SVS-05: 만료는 런타임 설정 적용.
+    from app.services import settings_service
+    from app.services.settings_service import SettingKey
+    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
+    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+    access_token = create_access_token(data=token_payload, expires_delta=timedelta(hours=_timeout_hours))
+    new_refresh_token = create_refresh_token(data=token_payload, expires_delta=timedelta(days=_refresh_days))
 
     # FR-SVF-01: 세션 행을 새 토큰 쌍으로 재바인딩(orphan 방지) — force_logout이 현재 토큰의
     # jti를 무효화하도록. sid 없는 레거시 토큰은 건너뜀(점진 롤아웃 호환).

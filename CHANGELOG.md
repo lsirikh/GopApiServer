@@ -25,6 +25,17 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 **잔여**: FR-SVF-08 NATS 발행 ACL(인프라, repo 밖).
 **검증**: P1 로컬 테스트 27건 PASS(Phases 0-5) + 회귀 0(stash baseline 교차검증). ※ `tests/` 는 `.gitignore` 대상(로컬 검증 전용).
 
+### Added (세션 설정 런타임 관리 — Session_Settings PRD FR-SVS-01~06)
+
+> 운영 중 세션/인증 정책(세션만료·refresh만료·잠금임계·세션사용여부)을 서버 재시작 없이 조회·변경하는 ADMIN API. `docs/prds/PRD_GOP_Server_Session_Settings.md`. AUTH_MODE/JWT_SECRET 은 편집 제외(배포/.env 전용, UI 변경 시 전원 잠금/토큰 전체 무효 사고 방지).
+
+- **FR-SVS-01/02** — `app_settings` key-value 저장소(ORM + `v55_app_settings.sql`) + `settings_service`(메모리 캐시 + .env 기본값 시드 + get/put 캐시 무효화, 단일 인스턴스 가정). 시드 후 DB 권위. `app/models/app_settings.py`, `app/services/settings_service.py`.
+- **FR-SVS-03/04** — `GET/PUT /api/settings/session`(require_admin). GET 은 편집가능 + 읽기전용(auth_mode/jwt_algorithm) 반환, **jwt_secret 절대 미노출**(NFR-SVS-03). PUT 은 편집 부분집합만 수용, 경계 위반 422(session_timeout 1~168 / refresh 1~90 / lockout 0 또는 3~20 / session_enabled bool), `app_settings` UPSERT + **ConfigChangeLog 감사**(resource_type=SETTINGS, resource_id=0 sentinel) + 캐시 무효화. `app/routers/settings.py`, `app/schemas/settings.py`.
+- **FR-SVS-05/06** — `auth.py` 리팩터: 토큰 만료(access/refresh)·로그인 잠금 임계를 startup 상수/하드코딩(`>= 5`)이 아닌 `settings_service` 에서 읽음(threshold=0 이면 잠금 비활성). 변경이 재시작 없이 다음 토큰 발급/잠금 판정부터 반영(NFR-SVS-05). 기본 시드값 = .env 동일이라 미설정 시 기존 동작 유지.
+- **NFR-SVS-02** — `EnumConfigResourceType.SETTINGS` 추가(비-행 바운드 설정 감사용).
+
+**검증**: P2 로컬 테스트 11건 PASS(FR-SVS-01~06 + 런타임 적용/잠금 비활성). `tests/` 는 `.gitignore`.
+
 ### Security (v5.1 자가 버그 fix)
 
 - **Fix-2 (v5.1 본 세션 자가 버그)** — `force_logout_all_user_sessions` kwarg `expires_in` (실제 시그니처는 `expires_at`) → 벌크 force_logout 호출 시 `TypeError: unexpected keyword argument 'expires_in'` 500 회귀. `app/routers/user_sessions.py:131,146` 두 호출부 + 단건 force_logout `980abbc` 패턴 동일하게 `expires_at` 교체. settings TTL(`access_token_expire_minutes` / `refresh_token_expire_days`) 기반 `datetime.utcnow() + timedelta(...)` 계산값 전달. 실측 200 OK + `token_blacklist` `FORCE_LOGOUT_BULK` 행 등록 확인.

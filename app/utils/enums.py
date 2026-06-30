@@ -528,6 +528,9 @@ class EnumConfigResourceType(str, Enum):
     EVENT_MAPPING_SPEAKER = "EVENT_MAPPING_SPEAKER"   # 이벤트 매핑 스피커
     EVENT_MAPPING_LAMP = "EVENT_MAPPING_LAMP"         # 이벤트 매핑 경광등 (v3.4)
 
+    # 시스템 설정 (1개) — Session_Settings NFR-SVS-02 (런타임 세션정책 변경 감사)
+    SETTINGS = "SETTINGS"                             # 세션/인증 정책 (resource_id=0 sentinel)
+
 
 class EnumConfigActionType(str, Enum):
     """

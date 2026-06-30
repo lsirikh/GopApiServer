@@ -2,7 +2,9 @@
 
 > **목적**: 동시에 도는 두 작업 세션이 **같은 파일 충돌 없이** 협업하도록 소유권·경계·확장훅을 못박는다.
 > 두 세션 모두 작업 시작 전 이 파일을 읽고, 경계를 바꾸려면 여기 먼저 갱신한다.
-> **갱신**: 2026-06-30 / 브랜치: `feature/tracking-gis-ingest` (공유) / HEAD at write: `59711cd`
+> **갱신**: 2026-06-30 / HEAD at write: `59711cd`
+>
+> ⚠️ **브랜치 현황(2026-06-30 정정)**: 공유 작업트리의 **활성 브랜치 = `feature/report-master-redesign`** (보고서 세션이 `tracking-gis-ingest`에서 분기). 이 브랜치가 **모든 작업의 superset**(선형): v5.2 RBAC/scheduling(WS-B R1·R10③, 내 R10④/R11) + 보고서재설계(`3ae5aa7`). `feature/tracking-gis-ingest`는 **`1a35d72`(R10④)에서 정지**(이후 작업 전부 report-master-redesign에 쌓임). ✅ **origin 백업 완료**(`origin/feature/report-master-redesign`, upstream 설정). ★**모든 세션: 커밋 전 `git branch` 로 활성 브랜치 확인**(공유 트리라 한 세션이 바꾸면 다른 세션 커밋도 그 브랜치로 감). ★**PM 결정 필요**: 3개 기능셋이 한 브랜치에 — main 머지/배포 시 브랜치 전략(통합 1회 vs 분리) 합의.
 
 ---
 

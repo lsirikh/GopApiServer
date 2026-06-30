@@ -123,7 +123,8 @@ async def force_logout_all_user_sessions(
         session.forced_by = current_user.id
         session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
 
-        # access jti 블랙리스트
+        # access jti 블랙리스트 — v5.2 hotfix: expires_in(부재) → expires_at(시그니처 일치)
+        # 단건 핸들러(L362) 패턴과 동일하게 settings TTL 사용.
         if session.token:
             try:
                 td = _decode(session.token)
@@ -131,25 +132,25 @@ async def force_logout_all_user_sessions(
                     add_to_blacklist(
                         db=db,
                         jti=td.jti,
-                        token_type="access",
-                        user_id=user_id,
+                        expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
                         reason="FORCE_LOGOUT_BULK",
-                        expires_in=_td(hours=24),
+                        user_id=user_id,
+                        token_type="access",
                     )
             except JWTError:
                 pass
-        # refresh jti 블랙리스트
+        # refresh jti 블랙리스트 — refresh는 expected_type 명시
         if session.refresh_token:
             try:
-                td = _decode(session.refresh_token)
+                td = _decode(session.refresh_token, expected_type="refresh")
                 if td.jti:
                     add_to_blacklist(
                         db=db,
                         jti=td.jti,
-                        token_type="refresh",
-                        user_id=user_id,
+                        expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
                         reason="FORCE_LOGOUT_BULK",
-                        expires_in=_td(days=7),
+                        user_id=user_id,
+                        token_type="refresh",
                     )
             except JWTError:
                 pass

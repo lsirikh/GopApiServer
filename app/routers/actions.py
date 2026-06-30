@@ -26,7 +26,7 @@ def _to_kst_naive(dt_val: datetime | None) -> datetime | None:
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_user_optional, require_perm_optional
 from sqlalchemy.orm import selectin_polymorphic
 from app.models.event import ActionEvent, Event, DetectionEvent, MalfunctionEvent, ConnectionEvent
 from app.models.device import Device
@@ -365,7 +365,7 @@ async def get_action_event(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[ActionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ActionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def create_action_event(
     event_data: ActionEventCreate,
     current_user = Depends(get_current_user_optional),
@@ -452,7 +452,7 @@ async def create_action_event(
     )
 
 
-@router.patch("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse], dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def update_action_event(
     event_id: int,
     event_data: ActionEventUpdate,
@@ -545,7 +545,7 @@ async def update_action_event(
     )
 
 
-@router.put("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse], dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def replace_action_event(
     event_id: int,
     event_data: ActionEventReplace,
@@ -622,7 +622,7 @@ async def replace_action_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[None])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("events", "delete"))])
 async def delete_action_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),

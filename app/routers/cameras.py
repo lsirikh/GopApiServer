@@ -7,7 +7,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_user_optional, require_perm_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -285,7 +285,7 @@ def _get_camera_presets_nested(db: Session, camera_id: int, include_rois: bool =
     return result
 
 
-@router.post("", response_model=ApiSingleResponse[CameraResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[CameraResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("cameras", "edit"))])
 async def create_camera(
     camera_data: CameraCreate,
     current_user = Depends(get_current_user_optional),
@@ -382,7 +382,7 @@ async def create_camera(
     )
 
 
-@router.patch("/{camera_id}", response_model=ApiSingleResponse[CameraResponse])
+@router.patch("/{camera_id}", response_model=ApiSingleResponse[CameraResponse], dependencies=[Depends(require_perm_optional("cameras", "edit"))])
 async def update_camera(
     camera_id: int,
     camera_data: CameraUpdate,
@@ -507,7 +507,7 @@ async def update_camera(
     )
 
 
-@router.put("/{camera_id}", response_model=ApiSingleResponse[CameraResponse])
+@router.put("/{camera_id}", response_model=ApiSingleResponse[CameraResponse], dependencies=[Depends(require_perm_optional("cameras", "edit"))])
 async def replace_camera(
     camera_id: int,
     camera_data: CameraCreate,
@@ -603,7 +603,7 @@ async def replace_camera(
     )
 
 
-@router.delete("/{camera_id}", response_model=ApiSingleResponse[None])
+@router.delete("/{camera_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("cameras", "delete"))])
 async def delete_camera(
     camera_id: int,
     current_user = Depends(get_current_user_optional),

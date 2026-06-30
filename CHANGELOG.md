@@ -36,6 +36,27 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 **검증**: P2 로컬 테스트 11건 PASS(FR-SVS-01~06 + 런타임 적용/잠금 비활성). `tests/` 는 `.gitignore`.
 
+### Added (권한그룹 시간기반 스케쥴링 — PRD_Permission_Group_Scheduling FR-01~07)
+
+> 권한그룹을 사용자에게 **기간(valid_from~valid_until)을 정해 부여**하고 만료 시 자동 무효화. 외부 수리기사 한시 권한(예: 오늘13:00~내일14:00) / 부서 상시 권한(valid_until NULL). 휴면(public)이라 행동 무변, AUTH_MODE=token 플립 시 RBAC과 함께 활성. 차장님 시나리오 결재(2026-06-30, 옵션B 부여 테이블).
+
+- **FR-01** — `UserGroupGrant` 모델(user_id/group_id CASCADE, valid_from/until, is_active, granted_by, revoked_at) + `v56_user_group_grants.sql`(멱등, 인덱스 2종). `app/models/user.py`.
+- **FR-02** — `auth.py` `_active_grants`/`_effective_allows`: 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant. **요청시점 `valid_until>now` 계산이 권위**(is_active/sweep 비의존 — 만료 grant 즉시 차단, NFR-01). require_perm/optional 배선.
+- **FR-03/05** — 부여 관리 API `app/routers/grants.py`(prefix `/api`): `POST/GET /users/{id}/grants`·`DELETE /grants/{id}`(ADMIN, soft 회수) + 파생 status(ACTIVE/PENDING/EXPIRED/REVOKED, `grant_service.py`) + 감사 `GRANT_CREATED/REVOKED/EXPIRED`.
+- **FR-04** — 경량 sweep 스케줄러(`main.py` lifespan APScheduler 10분, 방어적 — 미설치/실패가 기동 안 막음). 만료 grant `is_active=false`. `requirements.txt` APScheduler.
+- **FR-06/07** — `GET /api/auth/me/permissions`({modules, device_groups, valid_until, server_time}) + 로그인 응답 permissions 를 grant 병합 + valid_until 동봉. 클라(Dotnet.Monitoring) 재평가·시계보정. 클라 가이드 `docs/prds/GUIDE_Grant_Scheduling_Client_v5.2.md`.
+- **R1** — grant 생성/회수/만료 시 NATS `permissions_changed` 통지(`publish_permissions_changed`, best-effort, `NATS_REVOKE_ENABLED` 게이트 off 기본).
+
+**검증**: 로컬 스케쥴링 스위트 31 PASS + 회귀 0. 라이브 컨테이너에 `user_group_grants` 테이블 적용 확인.
+
+### Added (매트릭스 중앙 집행 + 권한모델 단순화 — R9 / ADR_Permission_Model_v5.2)
+
+> 차장님 결정 "권한 매트릭스=미들웨어"(R9) + "권한모델 단순화"(R10, 리스크 최소안). 휴면(public)이라 행동 무변.
+
+- **R9 매트릭스 중앙 집행** — `app/security/permission_map.py`(경로→module:verb 중앙맵, 기존 27 데코레이터 1:1) + `matrix_enforcer.py`(전역 단일 choke point, `main.py` `FastAPI(dependencies=[...])`). 휴면/ADMIN bypass/grant 합집합. 신규 write 라우트 보호를 한 곳에 등록 → 데코레이터 누락 사고 구조적 차단.
+- **R10①②③ 권한원천 변경** — `_resolve_role_group` 의 `name==role` 자동해석 **폐기** → 권한 = **배정 그룹(group_id) + grant**. role 은 ADMIN만 특권(라벨화), `require_admin` 25곳·ADMIN bypass·마지막ADMIN 가드 불변. 시드: admin 사용자를 ADMIN 그룹에 배정(`init_db.py`). 임시 등급상승·프리셋 rename 붕괴 위험 제거.
+- **R4** — 죽은 중복 `PermissionsSchema`(구 List[str] modules) 제거, v4.9 강타입 Dict 가 지배. `app/schemas/user.py`.
+
 ### Security (v5.1 자가 버그 fix)
 
 - **Fix-2 (v5.1 본 세션 자가 버그)** — `force_logout_all_user_sessions` kwarg `expires_in` (실제 시그니처는 `expires_at`) → 벌크 force_logout 호출 시 `TypeError: unexpected keyword argument 'expires_in'` 500 회귀. `app/routers/user_sessions.py:131,146` 두 호출부 + 단건 force_logout `980abbc` 패턴 동일하게 `expires_at` 교체. settings TTL(`access_token_expire_minutes` / `refresh_token_expire_days`) 기반 `datetime.utcnow() + timedelta(...)` 계산값 전달. 실측 200 OK + `token_blacklist` `FORCE_LOGOUT_BULK` 행 등록 확인.

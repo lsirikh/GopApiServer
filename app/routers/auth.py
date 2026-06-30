@@ -192,10 +192,17 @@ def _active_grant_groups(db: Session, user: AccountUser, now=None) -> list:
 
 
 def _merge_modules(target: dict, src) -> None:
-    """src.modules 의 truthy verb 를 target.modules 에 OR 병합(합집합)."""
+    """src.modules 의 truthy verb 를 target.modules 에 OR 병합(합집합).
+
+    R11 가드: modules 가 dict 아니면(레거시 list 등) 무시 — 로그인 경로 500 회귀 방지.
+    (라이브 그룹은 strict schema라 전부 dict이나, 레거시/오염 데이터에도 견고하게.)
+    """
     if not isinstance(src, dict):
         return
-    for module, verbs in (src.get("modules") or {}).items():
+    modules = src.get("modules")
+    if not isinstance(modules, dict):
+        return
+    for module, verbs in modules.items():
         if not isinstance(verbs, dict):
             continue
         tgt_verbs = target.setdefault("modules", {}).setdefault(module, {})

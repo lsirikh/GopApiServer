@@ -71,8 +71,12 @@ def effective_permissions(db, user, now):
 ## 현재 상태 (live)
 
 - WS-A: 휴면 RBAC 배포 완료(Swagger 5.2.0 라이브, `v5.2-deployed`). 활성화(P5)는 클라 Bearer 동시배포 게이트. **추가 완료(2026-06-30)**: 명세서 본문 v5.2 동기화(`36379e3`, 5중싱크 5/5) + **FR-SV-09 종결(`de4266d`)** — `app/routers/user_groups.py` POST/PUT/DELETE/GET-members 에 `require_admin` 부착(권한그룹 관리 ADMIN 전용 통일). ★WS-B 알림: user_groups.py 데코레이터만 변경(핸들러 본문·grants 무관, 충돌 없음). P6 audit append-only는 `trg_audit_logs_immutable`(v51)로 **이미 DB레벨 충족**.
-- WS-B: PRD Approved + plan 작성. **진행 중(2026-06-30)**:
-  - ✅ **FR-01** `UserGroupGrant` 모델 + `v56_user_group_grants.sql` (커밋 `728e537`, 로컬 4 passed)
-  - ✅ **FR-02** `auth.py` `_active_grant_groups`/`_effective_allows` + require_perm/optional 배선 (커밋 `fc3accb`, 로컬 22 passed, NFR-01 만료차단 검증). **`auth.py` 변경 완료 — WS-A 동결 경계 준수**
-  - ⏭ 잔여: FR-03 부여 API(신규 라우터+`main.py` include) → FR-05 status → FR-04 sweep(`main.py` lifespan+`requirements.txt`) → FR-06 `/me/permissions`+NATS → FR-07 login 병합
-  - 경계 준수: 27 데코레이터·`init_sample_data.py` 미편집. (`docs/prds`·`docs/plans`·`tests`는 `.gitignore` 로컬전용 — 본 board만 추적 동기화)
+- WS-B: PRD Approved + plan. **FR-01~07 코드 완료(2026-06-30)** — 스케쥴링 전체 31 로컬 테스트 passed, 회귀 0:
+  - ✅ **FR-01** `UserGroupGrant` 모델 + `v56` (`728e537`)
+  - ✅ **FR-02** `auth.py` `_effective_allows` 요청시점 만료집행 (`fc3accb`, NFR-01 검증)
+  - ✅ **FR-03/05** 부여 API `app/routers/grants.py`(prefix `/api`, users.py 무접촉) + `grant_service.grant_status` (`4c3b641`)
+  - ✅ **FR-04** sweep `main.py` lifespan APScheduler(방어적) + `requirements.txt` (`985097f`)
+  - ✅ **FR-06/07** `effective_permissions_payload` + `GET /api/auth/me/permissions` + 로그인 grant 병합 (`37cce4e`)
+  - 경계 준수: `auth.py`·`main.py`·`requirements.txt`·신규파일만. 27 데코레이터·`init_sample_data.py`·`users.py` 미편집.
+  - ⏭ **WS-A 조율 필요 1건**: FR-06 NATS `permissions_changed` 통지(grant 만료/변경) — **WS-A NATS publisher/ACL 소유**라 미구현. 서버는 매 요청 authoritative(FR-02)라 정합성은 보장, NATS는 즉시성 최적화. WS-A 발행 헬퍼 시그니처 공유해주면 grants.py 생성/회수 + sweep에 thin publish 추가 예정.
+  - ⏭ 배포(미실행): 5중싱크 ②③④(명세서·도커 재빌드·컨테이너) + `v56` 마이그레이션 psql 적용. **AUTH_MODE 플립은 클라 Bearer 동시배포 게이트(WS-A와 공통)** — 스케쥴링 집행도 이 플립으로 함께 활성.

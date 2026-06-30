@@ -92,7 +92,7 @@ async def get_user_group_by_id(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_user_group(
     group_data: UserGroupCreate,
     db: Session = Depends(get_db),
@@ -160,7 +160,7 @@ async def create_user_group(
     }
 
 
-@router.put("/{group_id}")
+@router.put("/{group_id}", dependencies=[Depends(require_admin)])
 async def update_user_group(
     group_id: int,
     group_data: UserGroupUpdate,
@@ -338,7 +338,7 @@ async def update_user_group_permissions(
     }
 
 
-@router.delete("/{group_id}")
+@router.delete("/{group_id}", dependencies=[Depends(require_admin)])
 async def delete_user_group(
     group_id: int,
     db: Session = Depends(get_db),
@@ -396,7 +396,7 @@ async def delete_user_group(
     }
 
 
-@router.get("/{group_id}/users")
+@router.get("/{group_id}/users", dependencies=[Depends(require_admin)])
 async def get_user_group_users(
     group_id: int,
     db: Session = Depends(get_db),

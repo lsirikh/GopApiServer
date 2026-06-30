@@ -136,3 +136,33 @@ c:workspace_python*
 !docs/PRD_GOP_Server_RBAC_Enforcement.md
 
 !docs/PRD_v5.2_Stability_Hotfix.md
+
+# ── Claude Skill Harness ──
+# 이 섹션은 claude-skill-harness install.js가 자동 생성합니다.
+# 하네스/스킬/MCP 관련 파일을 git 추적에서 제외합니다.
+
+# Harness core
+.claude/*
+# 단, 고아 가드 매니페스트만 git 추적 — 외부삭제/IDE Clean 생존 보장
+# (orphan-gitlink-protection PRD Layer 1). .claude/* 는 직접 자식만 무시하므로
+# 디렉터리째 무시(.claude/)와 달리 이 파일 하나만 negation 으로 되살릴 수 있다.
+!.claude/orphan-guard.json
+CLAUDE.md
+CHANGELOG.md
+UPGRADE.md
+
+# Harness documents
+docs/memory/
+docs/analyses/
+docs/prds/
+docs/plans/
+docs/tests/
+docs/reports/
+docs/INDEX.md
+docs/Manual.md
+
+# Harness installer / backup
+install.js
+claude-skill-harness*/
+.skill-set-backup*
+# ── /Claude Skill Harness ──

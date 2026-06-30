@@ -70,7 +70,7 @@ def effective_permissions(db, user, now):
 
 ## 현재 상태 (live)
 
-- WS-A: 휴면 RBAC 배포 완료(Swagger 5.2.0 라이브, `v5.2-deployed`). 활성화(P5)는 클라 Bearer 동시배포 게이트.
+- WS-A: 휴면 RBAC 배포 완료(Swagger 5.2.0 라이브, `v5.2-deployed`). 활성화(P5)는 클라 Bearer 동시배포 게이트. **추가 완료(2026-06-30)**: 명세서 본문 v5.2 동기화(`36379e3`, 5중싱크 5/5) + **FR-SV-09 종결(`de4266d`)** — `app/routers/user_groups.py` POST/PUT/DELETE/GET-members 에 `require_admin` 부착(권한그룹 관리 ADMIN 전용 통일). ★WS-B 알림: user_groups.py 데코레이터만 변경(핸들러 본문·grants 무관, 충돌 없음). P6 audit append-only는 `trg_audit_logs_immutable`(v51)로 **이미 DB레벨 충족**.
 - WS-B: PRD Approved + plan 작성. **진행 중(2026-06-30)**:
   - ✅ **FR-01** `UserGroupGrant` 모델 + `v56_user_group_grants.sql` (커밋 `728e537`, 로컬 4 passed)
   - ✅ **FR-02** `auth.py` `_active_grant_groups`/`_effective_allows` + require_perm/optional 배선 (커밋 `fc3accb`, 로컬 22 passed, NFR-01 만료차단 검증). **`auth.py` 변경 완료 — WS-A 동결 경계 준수**

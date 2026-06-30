@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-06-30 (advance-phase 자동)
-- **총 문서 수**: 7개
+- **총 문서 수**: 8개
 
 ---
 
@@ -26,6 +26,7 @@
 
 | 파일 | 연관 PRD | 진행률 | 날짜 |
 |------|---------|--------|------|
+| [Permission_Group_Scheduling-prd-plan.md](plans/Permission_Group_Scheduling-prd-plan.md) | [PRD](prds/Permission_Group_Scheduling-prd.md) | 1/36 | 2026-06-30 |
 | [RBAC_Enforcement-prd-plan.md](plans/RBAC_Enforcement-prd-plan.md) | [PRD](prds/RBAC_Enforcement-prd.md) | 5/9 | 2026-06-30 |
 
 ## 테스트 결과 (docs/tests/)

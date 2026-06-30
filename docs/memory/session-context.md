@@ -47,7 +47,7 @@
 
 | # | 작업 | 분량/유형 | 비고 |
 |---|------|---------|------|
-| **A** | **RBAC_Enforcement — 휴면 부착 완료, 활성화만 게이트** | 대형 / plan: [RBAC_Enforcement-prd-plan.md](../plans/RBAC_Enforcement-prd-plan.md) | ✅ **휴면(dormant) RBAC 부착 완료**: `c49f0a4`(구조 헬퍼) → `require_perm_optional` 추가 → `9a6624c`(27 write 데코레이터 부착) + `b2f80c8`(FR-SV-10). `require_perm_optional`=**AUTH_MODE=public 무집행(현 동작 보존)**·token 플립 시 활성. 도메인 회귀 0(사전실패 카운트 전후 동일), 단위 5/5 PASS. ★**P5 활성화=게이트**: 클라(.NET 3종) Bearer 동시배포 확인 후 `.env AUTH_MODE=public→token` 플립(분리 시 전원 401, 롤백=public 복귀). 잔여 P6 FR-SV-07(audit DB RULE/RLS, 마이그레이션)·P7 FR-SV-11(RTSP 마스킹, 반파괴)·P8 FR-SV-09(user_groups GET). |
+| **A** | **RBAC_Enforcement — 휴면 부착 완료, 활성화만 게이트** | 대형 / plan: [RBAC_Enforcement-prd-plan.md](../plans/RBAC_Enforcement-prd-plan.md) | ✅ **휴면(dormant) RBAC 부착 완료**: `c49f0a4`(구조 헬퍼) → `require_perm_optional` 추가 → `9a6624c`(27 write 데코레이터 부착) + `b2f80c8`(FR-SV-10). `require_perm_optional`=**AUTH_MODE=public 무집행(현 동작 보존)**·token 플립 시 활성. 도메인 회귀 0(사전실패 카운트 전후 동일), 단위 5/5 PASS. ★**P5 활성화=게이트**: 클라(.NET 3종) Bearer 동시배포 확인 후 `.env AUTH_MODE=public→token` 플립(분리 시 전원 401, 롤백=public 복귀). ✅ **P8 FR-SV-09 종결**(`de4266d`: user_groups POST/PUT/DELETE/GET-members require_admin). ✅ **P6 FR-SV-07 DB레벨 이미 충족**(`trg_audit_logs_immutable` v51 트리거 — DELETE/UPDATE 거부, FK익명화 예외); 잔여=export/retention 엔드포인트 + purge(purge는 WS-B sweep 영역). **P7 FR-SV-11(RTSP 마스킹)=반파괴·클라(Rtsp.Viewer.Ui) 조율 게이트로 보류**. |
 | **B** | **Force-Logout 활성화 (FR-SVF-08 + 게이트)** | 인프라+조율 | NATS 발행 ACL(서버만 account.> publish, 클라 subscribe-only) + 클라 subject 매칭 확인(V-SVF-05) → 확인 후 `.env NATS_REVOKE_ENABLED=true` + 실 REVOKE_SIGNING_KEY 배포. **계약 §6 B-1~B-3에 명시** |
 | ~~**C**~~ | ~~클라 회신용 계약 스냅샷 문서~~ | ✅ **완료** | `docs/prds/CONTRACT_GOP_Server_v5.2.md` — C1 sid / C2 subject / C3 payload+골든벡터 V1·V2 / C4 401 / P2 GET·PUT 스키마. 클라 짝 PRD 통지 + §6 B-1(subject 매칭) 회신 요청 |
 | **D** | **푸시** | 소 | ✅ origin(GitHub) push 완료(7건). ⬜ **gitea 잔여** — 인증실패(http://192.168.202.160:3000). 차장님 직접: `! git push gitea feature/tracking-gis-ingest` |
@@ -190,7 +190,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-89716
+- **현재 세션 ID**: ppid-88392
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-89716
+- **활성 세션 목록**: ppid-88392
 

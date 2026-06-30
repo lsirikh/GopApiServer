@@ -84,8 +84,9 @@ def effective_permissions(db, user, now):
 | R7 | **P7 FR-SV-11 RTSP 마스킹** | **WS-A** | `cameras.py` 등 | WS-A RBAC 잔여(스케쥴링 무관) |
 | R8 | ~~OPERATOR `edit=false` 정책~~ → **매트릭스 데이터 설정(운영작업)** | **운영(ADMIN)** | — | ✅ **차장님 결정(2026-06-30)**: "운영자 업무는 매트릭스에 따라 처리, 매트릭스=미들웨어". 코드 특별취급 0. OPERATOR 권한 변경은 런타임 `POST /api/user-groups/12/permissions` 로 매트릭스만 수정 |
 | **R9** | **매트릭스 중앙 집행(미들웨어형)** | ✅ **WS-B 구현완료(`4355eb4`)** | 신규 `app/security/*` + `main.py` 전역 의존성(WS-B lane) | 차장님 결정 반영. `app/security/permission_map.py`(경로→module:verb 중앙맵, 27 데코레이터 1:1) + `matrix_enforcer.py`(전역 단일 choke point, 휴면/ADMIN bypass/grant 합집합). ★**WS-A 안내**: 27개 `require_perm_optional` 데코레이터는 이제 **중복**(중앙맵이 동일 커버리지). 당장 제거 불요(coexist 안전, 동일 결과)지만, **추후 데코레이터 일괄 제거 = WS-A 조율**(라우터 파일 소유). 신규 write 라우트 보호는 이제 `permission_map.py` 한 곳에 등록 |
+| **R10** | **권한모델 단순화 ADR** (role=ADMIN 특권 + 기능권한=배정그룹+grant, `name==role` 폐기) | ✅ **WS-A ADR 작성(`docs/prds/ADR_Permission_Model_v5.2.md`)** → 구현 분담 | 아래 ↓ | ✅ **차장님 결정(2026-06-30, 리스크 최소안)**. R9 enforcer 유지·정합. **분담**: ① `_resolve_role_group`/`_effective_allows` 권한원천 `name==role`→**배정 group_id + grant**로 변경 = **WS-B**(auth.py/enforcer 락) ② 비-ADMIN role 라벨화(코드 특별취급 0 확인) = **WS-B** ③ 시드 최소화(ADMIN 그룹+admin) = **조율**(init_sample_data 편집 전 표시) ④ 명세서/가이드 권한모델 § = **WS-A**. `require_admin` 25곳·ADMIN bypass·마지막ADMIN 가드 **불변**. 휴면(public)이라 무위험 점진. **🔧 R8 재조정**: R8 "group 12 편집=OPERATOR 권한"은 `name==role` 가정 → ADR 후엔 "OPERATOR 사용자가 **배정된** 그룹" 편집(자동연결 폐기). |
 
-**즉시 착수 가능(무차단)**: WS-B = R4·R5 / WS-A = R1정의·R7·R9데코정리(선택). **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라).
+**즉시 착수 가능(무차단)**: WS-B = R4·R5·**R10①②** / WS-A = ✅R1정의·R7·**R10④(ADR완료)**·R9데코정리(선택). **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라). **조율 선행**: R10③ 시드.
 
 > ⚠️ **사전 격리버그(WS-A 영역, 제 작업 무관)**: `tests/test_auth_mode.py`가 `config.settings = config.Settings()` 로 settings 싱글톤을 교체 → 같은 프로세스에서 뒤에 도는 `tests/test_require_perm_optional.py`의 `monkeypatch.setattr(settings,...)`가 무력화돼 2건 실패(token 모드 미적용). **중앙 집행/스케쥴링과 호출경로 무교차**(전역 의존성 제거해도 동일 재현). 수정 권고: test_auth_mode 가 monkeypatch 로 settings 교체 or teardown 복원. tests/는 gitignore 로컬전용.
 

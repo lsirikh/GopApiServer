@@ -1,6 +1,8 @@
 # Session Context — GOP RESTful API Test Server
 
 > 매 작업 후 갱신 (CLAUDE.md 규약). 다음 세션이 현재 상태를 빠르게 파악하기 위한 단일 진입점.
+>
+> 🤝 **멀티세션 동시작업 중 — 작업 전 반드시 [SESSION_COORDINATION.md](SESSION_COORDINATION.md) 읽기** (소유권 경계: ★`auth.py`는 WS-B 스케쥴링 세션 단독, WS-A RBAC 베이스 동결).
 
 ---
 
@@ -188,7 +190,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-15768
+- **현재 세션 ID**: ppid-61376
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-15768
+- **활성 세션 목록**: ppid-61376
 

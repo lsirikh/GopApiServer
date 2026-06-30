@@ -104,14 +104,28 @@
 
 ---
 
-## 6. 미해결/PM 결정 대기
+## 6. 역할 기본 권한 매트릭스 (2026-06-30 라이브 실측)
 
+역할명 등급 그룹(`UserGroup.name==role`)의 현재 매트릭스. **클라 UI 게이팅은 이 표와 동일하게** 구성.
+write 집행 관점(POST/PATCH/PUT=`edit`, DELETE=`delete`, servers PATCH=ADMIN전용)으로 정리:
+
+| 역할 | cameras | devices(sensor/controller) | events | servers | reports | 비고 |
+|---|---|---|---|---|---|---|
+| **ADMIN** | 전체(bypass) | 전체 | 전체 | 전체 | 전체 | 매트릭스 무관 통과 |
+| **MAINTAINER** | view+edit+delete+control | view+edit+delete | view+edit+delete | **view만** | view+edit | 장비 관리 O, 서버 쓰기 X |
+| **OPERATOR** | view+**control**(edit/delete X) | **view만** | view+**control**(edit/delete X) | X | view+edit | ⚠️ 장비/이벤트 **생성·수정 403** |
+| **VIEWER** | view만 | view만 | view만 | X | view만 | 읽기 전용 |
+| (GUEST 그룹 존재하나 EnumUserRole에 GUEST 없음 → 고아) | | | | | | OQ-PG-06 |
+
+> ⚠️ **PM 확인 필요(OPERATOR 쓰기 정책)**: OPERATOR가 cameras/devices/events `edit=false` → P5 플립 시 운영자의 장비·이벤트 **생성/수정이 403**. 현 public 모드에선 통과하므로 **플립 순간 동작이 바뀜**. "운영자는 control(제어)만, 편집 불가"가 의도면 OK.
+
+### PM 결정 대기 (Open Questions)
 | 항목 | 내용 |
 |---|---|
+| **OPERATOR 쓰기** | 위 ⚠️ — 운영자 장비/이벤트 편집 허용 여부 |
 | OQ-PG-04 | `cam:imaging` 별도 토큰 여부 → 서버 PermissionsSchema 영향 |
-| OQ-PG-06 | GUEST 폐지 시 EnumUserRole/시드 영향 |
+| OQ-PG-06 | GUEST 그룹/역할 폐지 여부 |
 | OQ-PG-07 | 비ADMIN 본인삭제 `DELETE /users/me` 설계 |
-| 역할 기본 매트릭스 | OPERATOR/MAINTAINER/VIEWER 의 모듈별 view/edit/delete/control 기본값 확정(클라 UI 게이팅과 동일 표 사용) |
 
 ---
 

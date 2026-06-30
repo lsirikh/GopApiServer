@@ -11,9 +11,9 @@
 | 항목 | 값 |
 |---|---|
 | **차수** | **v5.2** (2026-06-30, hotfix + **Force-Logout P1** + **Session-Settings P2** + **휴면 RBAC 부착** + **5-sync 배포**) / v5.1 (2026-06-29, RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한) |
-| **HEAD commit** | `4e26a0b` (chore(v5.2): Swagger version bump 5.0.0 → 5.2.0) |
+| **HEAD commit** | `36379e3` (docs(v5.2): [WS-A] 명세서 본문 v5.2 동기화) |
 | **branch** | `feature/tracking-gis-ingest` — ✅ **origin push 완료**(전 커밋), ⬜ **gitea만 잔여**(인증). 태그 `v5.2-pre-deploy`·`v5.2-deployed` |
-| **Container** | ✅ **5-sync 배포 완료**(2026-06-30) — `docker compose build/up api-server`, 컨테이너 healthy, **Swagger version=5.2.0** 라이브 확인. 롤백 이미지 `api-test-server:pre-v5.2`. ⬜ 명세서(GOP_Restful_Api_연동설계.md) 본문 동기화 잔여 |
+| **Container** | ✅ **5-sync 배포 완료**(2026-06-30) — `docker compose build/up api-server`, 컨테이너 healthy, **Swagger version=5.2.0** 라이브 확인. 롤백 이미지 `api-test-server:pre-v5.2`. ✅ **명세서 본문 v5.2 동기화 완료**(`36379e3`: ChangeLog append + §9.2 Auth session_id/SESSION_REVOKED + §9.8 Session Settings API) — **5중싱크 5/5 완료** |
 | **DB** | PostgreSQL 16 / **app_settings 테이블 라이브 생성 확인**(startup create_all, v55 멱등). |
 
 ---
@@ -51,7 +51,7 @@
 | **B** | **Force-Logout 활성화 (FR-SVF-08 + 게이트)** | 인프라+조율 | NATS 발행 ACL(서버만 account.> publish, 클라 subscribe-only) + 클라 subject 매칭 확인(V-SVF-05) → 확인 후 `.env NATS_REVOKE_ENABLED=true` + 실 REVOKE_SIGNING_KEY 배포. **계약 §6 B-1~B-3에 명시** |
 | ~~**C**~~ | ~~클라 회신용 계약 스냅샷 문서~~ | ✅ **완료** | `docs/prds/CONTRACT_GOP_Server_v5.2.md` — C1 sid / C2 subject / C3 payload+골든벡터 V1·V2 / C4 401 / P2 GET·PUT 스키마. 클라 짝 PRD 통지 + §6 B-1(subject 매칭) 회신 요청 |
 | **D** | **푸시** | 소 | ✅ origin(GitHub) push 완료(7건). ⬜ **gitea 잔여** — 인증실패(http://192.168.202.160:3000). 차장님 직접: `! git push gitea feature/tracking-gis-ingest` |
-| ~~**E**~~ | ~~배포(5-sync)~~ | ✅ **완료** | 도커 재빌드(`api-server`) + 컨테이너 재기동(healthy) + app_settings 라이브 생성 + Swagger 5.2.0 라이브 + 태그 `v5.2-pre-deploy`/`v5.2-deployed` + 롤백이미지 `pre-v5.2`. ⬜ 명세서 본문 동기화(5중싱크 ⑤)만 잔여. |
+| ~~**E**~~ | ~~배포(5-sync)~~ | ✅ **완료 (5/5)** | 도커 재빌드(`api-server`) + 컨테이너 재기동(healthy) + app_settings 라이브 + Swagger 5.2.0 라이브 + 태그 `v5.2-pre-deploy`/`v5.2-deployed` + 롤백이미지 `pre-v5.2` + **명세서 본문 v5.2 동기화(`36379e3`)**. 5중싱크 전부 충족. |
 | **F** | (별도) 사전 테스트 실패 174건 | 별도 결정 | server_schema(pydantic AttributeError)·logs_router·config_change_log·test_config = pydantic 버전/환경 이슈, 본 작업 무관 |
 
 ---

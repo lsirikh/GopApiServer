@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-06-30 (advance-phase 자동)
-- **총 문서 수**: 5개
+- **총 문서 수**: 7개
 
 ---
 
@@ -15,16 +15,18 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
+| [PRD_Permission_Group_Scheduling.md](prds/PRD_Permission_Group_Scheduling.md) | PRD_Permission_Group_Scheduling.md | Approved | 2026-06-30 |
+| [GUIDE_RBAC_Activation_v5.2.md](prds/GUIDE_RBAC_Activation_v5.2.md) | GUIDE_RBAC_Activation_v5.2.md | Draft | 2026-06-30 |
 | [CONTRACT_GOP_Server_v5.2.md](prds/CONTRACT_GOP_Server_v5.2.md) | CONTRACT_GOP_Server_v5.2.md | Draft | 2026-06-30 |
 | [PRD_GOP_Server_Force_Logout.md](prds/PRD_GOP_Server_Force_Logout.md) | PRD_GOP_Server_Force_Logout.md | Draft | 2026-06-29 |
 | [PRD_GOP_Server_Session_Settings.md](prds/PRD_GOP_Server_Session_Settings.md) | PRD_GOP_Server_Session_Settings.md | Draft | 2026-06-29 |
 | [PRD_GOP_Server_RBAC_Enforcement.md](prds/PRD_GOP_Server_RBAC_Enforcement.md) | PRD_GOP_Server_RBAC_Enforcement.md | Draft | 2026-06-29 |
-| [PRD_Permission_Group_Scheduling.md](prds/PRD_Permission_Group_Scheduling.md) | 권한그룹 시간기반 스케쥴링 (user_group_grants 부여 테이블·자동 비활성화) | Draft | 2026-06-30 |
 
 ## 구현 플랜 (docs/plans/)
 
 | 파일 | 연관 PRD | 진행률 | 날짜 |
 |------|---------|--------|------|
+| [RBAC_Enforcement-prd-plan.md](plans/RBAC_Enforcement-prd-plan.md) | [PRD](prds/RBAC_Enforcement-prd.md) | 5/9 | 2026-06-30 |
 
 ## 테스트 결과 (docs/tests/)
 

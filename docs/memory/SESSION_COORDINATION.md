@@ -91,7 +91,8 @@ def effective_permissions(db, user, now):
 | **R10③** | 시드 최소화(ADMIN 그룹+admin) | **조율(담당 미정)** | ★실위치 `app/utils/init_db.py:120` (ADR엔 init_sample_data 표기) | name==role 시드 루프 = `init_db.py:120`. ⚠️부수효과: admin 사용자에 `group_id`=ADMIN그룹 미배정 시 **로그인 응답 permissions 빈값**(서버 ADMIN bypass 정상이라 기능 무영향, 클라 UI 표시만). 편집 전 담당 표시 요망. **★WS-A 제안**: 본 시드는 `init_db.py`(WS-B가 최근 편집 영역과 인접) → **WS-B가 R4/시드 작업 시 함께** 처리 권장(파일 충돌 회피). WS-A는 명세서/가이드로 받음. |
 | **R10④** | 명세서/가이드 권한모델 § 동기화 | ✅ **WS-A 완료(spec+GUIDE)** | spec doc · `GUIDE_RBAC_Activation_v5.2.md` | ✅ R10① 코드(`83a90ab`) 반영: GUIDE §6 = "권한원천=배정 group_id+grant, role=ADMIN만 특권, 비-ADMIN 배정 전 권한0" 재작성 + OPERATOR 정책 해소(R8) 반영. 명세서 §9.9·§9.2.6 "등급 매트릭스"→"배정 그룹 매트릭스" 정정. spec=code 정합. |
 
-**즉시 착수 가능(무차단)**: WS-B = R4·R5 / WS-A = R7·R9데코정리(R9-V 통과 → 보안갭 없음). **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라). **조율 선행**: R10③ 시드(담당 미정).
+**✅ WS-B 완료(2026-06-30)**: R1통합(`5969c7f`, grants 생성/회수/sweep→`publish_permissions_changed` best-effort, 게이트 off 무동작) · R4(`71d2794`, 죽은 PermissionsSchema 제거+stale 테스트 Dict화, 27 passed) · R5(`docs/prds/GUIDE_Grant_Scheduling_Client_v5.2.md`). **→ WS-B 액션 잔여 0.** 남은 건 차단/조율: R3 배포(WS-A 리드, 보고서스트림 `3ae5aa7` 커밋돼 tree 정리됨) · R6 플립(클라) · R10③ 시드(담당 미정) · R9 데코정리(WS-A 선택).
+**WS-A 잔여**: R7(RTSP) · R9 데코 일괄제거(선택, R9-V 통과) · R3 배포리드 · R10④(문서).
 
 > ⚠️ **사전 격리버그(WS-A 영역, 제 작업 무관)**: `tests/test_auth_mode.py`가 `config.settings = config.Settings()` 로 settings 싱글톤을 교체 → 같은 프로세스에서 뒤에 도는 `tests/test_require_perm_optional.py`의 `monkeypatch.setattr(settings,...)`가 무력화돼 2건 실패(token 모드 미적용). **중앙 집행/스케쥴링과 호출경로 무교차**(전역 의존성 제거해도 동일 재현). 수정 권고: test_auth_mode 가 monkeypatch 로 settings 교체 or teardown 복원. tests/는 gitignore 로컬전용.
 

@@ -196,6 +196,49 @@ def require_perm(module: str, verb: str):
     return _perm_checker
 
 
+def require_perm_optional(module: str, verb: str):
+    """휴면(dormant) 권한 집행 의존성 팩토리 — v5.x FR-SV-04 (배포-대기형).
+
+    require_perm 과 동일한 등급 매트릭스 집행이지만 **AUTH_MODE=public 에서는 완전 무집행**(현 동작 보존).
+    비계정 도메인(cameras/sensors/controllers/actions/detections/malfunctions/servers) write 라우터에
+    지금 부착해도 public 모드에선 무해 → 클라(.NET 3종) Bearer 동시배포일에 `AUTH_MODE=token` 플립만으로
+    일괄 활성화(점진 롤아웃, FR-SV-03 ②①·클라 ③ 동시 배포 전제).
+
+    동작:
+    - **public 모드**: 항상 통과(토큰 유무·역할 무관). 현 라우터 동작과 100% 동일.
+    - **token 모드**: get_current_account_user_optional 가 토큰 없으면 401(+jti 블랙리스트 검사).
+        ADMIN bypass / 매트릭스 modules[module][verb] 없으면 403.
+
+    require_perm(엄격, 토큰 항상 필수)과의 차이: public 모드 무집행 여부. reports 처럼 AUTH_MODE 무관
+    강제가 필요하면 require_perm 사용.
+    """
+    async def _perm_checker_optional(
+        db: Session = Depends(get_db),
+        current_user: "AccountUser | None" = Depends(get_current_account_user_optional),
+    ) -> "AccountUser | None":
+        from app.config import settings
+        # public 모드: 전환 대기(미집행) — 현 동작 완전 보존
+        if settings.AUTH_MODE != "token":
+            return current_user
+        # token 모드: optional 이 토큰 필수/jti 검사를 이미 수행 → current_user 존재 보장
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if current_user.role == "ADMIN":
+            return current_user
+        if not _role_group_allows(_resolve_role_group(db, current_user), module, verb):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
+            )
+        return current_user
+
+    return _perm_checker_optional
+
+
 async def get_current_account_user_optional(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),

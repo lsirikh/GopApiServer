@@ -7,6 +7,8 @@
 > ⚠️ **브랜치 현황(2026-06-30 정정)**: 공유 작업트리의 **활성 브랜치 = `feature/report-master-redesign`** (보고서 세션이 `tracking-gis-ingest`에서 분기). 이 브랜치가 **모든 작업의 superset**(선형): v5.2 RBAC/scheduling(WS-B R1·R10③·R11) + 보고서재설계(`3ae5aa7`). ✅ **origin 백업 완료**(`origin/feature/report-master-redesign`). ★**모든 세션: 커밋 전 `git branch` 로 활성 브랜치 확인**(공유 트리라 한 세션이 바꾸면 다른 세션 커밋도 그 브랜치로 감).
 >
 > ✅ **권한쪽 머지 완료(2026-06-30, WS-B, 차장님 지시)**: 분리 전략 채택 — `1a35d72` 이후 report-master-redesign에 섞여있던 **권한 코드 3건(R1 `5969c7f`·R10③ `9e98c6a`·R11 `dd7dffb`)을 `feature/tracking-gis-ingest`로 cherry-pick**(격리 worktree, 공유트리 무영향). 결과 tracking-gis-ingest = **완전한 권한 브랜치**(FR-01~07·R9·R10①②③·R4·R1·R11), 신규 SHA `9e2043d`→`b9fe35f`→`209cbc8`. ✅**검증**: 권한 8파일 `git diff tracking..report-master-redesign` = **비어있음(100% 동일)** → 보고서 스트림과 깨끗이 분리. 보고서(`3ae5aa7`,`d468011`)는 report-master-redesign에만 잔류. ⬜ tracking-gis-ingest **push 미수행**(커밋만, 차장님 지시 "커밋"). main 머지/push는 차장님 결정.
+>
+> ✅ **5중 싱크 검증 + CHANGELOG 마감(2026-06-30, WS-B, 차장님 점검 지적 대응)**: 차장님이 "싱크룰 지키나" 점검 → 실측 결과 ①코드 ②Swagger ③명세서(WS-A R2/R10④) ④Docker Image(컨테이너에 R11가드·R10③ 존재 확인) ⑤Container(라이브 DB `user_group_grants` 테이블 적용 확인) **5/5 싱크됨**(WS-A R3 배포가 ~18분 전 수행, 내 최신변경까지 반영). **단 CHANGELOG가 권한 작업 미반영이었음 → `[v5.2]`에 스케쥴링/R9/R10 추가**(report-master-redesign `05a18ca` + tracking-gis-ingest `8f31de7` 양쪽, diff 비어있음 일치). ★자기반성: 배포측 싱크를 R3에 위임하고 확인 안 한 채 진행 = 규율 미흡. 이후 변경은 5중싱크 상태 명시 추적.
 
 ---
 

@@ -82,9 +82,12 @@ def effective_permissions(db, user, now):
 | R5 | **클라(Dotnet.Monitoring) 스케쥴링 연동 가이드** | **WS-B** | **신규 문서**(WS-A `CONTRACT_*` 무접촉) | `/me/permissions`+`valid_until`+`server_time` 소비, 로그인 병합, (후속)NATS 패턴 + R2용 endpoint 스펙 포함 |
 | R6 | **AUTH_MODE=public→token 플립** | **공통(차단)** | `.env` | .NET 클라 3종 Bearer 동시배포 게이트. 스케쥴링·RBAC 동시 활성 |
 | R7 | **P7 FR-SV-11 RTSP 마스킹** | **WS-A** | `cameras.py` 등 | WS-A RBAC 잔여(스케쥴링 무관) |
-| R8 | **OPERATOR `edit=false` 정책** | **PM(차장님) 결정** | — | 활성화(R6) 전 의도 확인. WS-A 가이드 §6 |
+| R8 | ~~OPERATOR `edit=false` 정책~~ → **매트릭스 데이터 설정(운영작업)** | **운영(ADMIN)** | — | ✅ **차장님 결정(2026-06-30)**: "운영자 업무는 매트릭스에 따라 처리, 매트릭스=미들웨어". 코드 특별취급 0. OPERATOR 권한 변경은 런타임 `POST /api/user-groups/12/permissions` 로 매트릭스만 수정 |
+| **R9** | **매트릭스 중앙 집행(미들웨어형)** | ✅ **WS-B 구현완료(`4355eb4`)** | 신규 `app/security/*` + `main.py` 전역 의존성(WS-B lane) | 차장님 결정 반영. `app/security/permission_map.py`(경로→module:verb 중앙맵, 27 데코레이터 1:1) + `matrix_enforcer.py`(전역 단일 choke point, 휴면/ADMIN bypass/grant 합집합). ★**WS-A 안내**: 27개 `require_perm_optional` 데코레이터는 이제 **중복**(중앙맵이 동일 커버리지). 당장 제거 불요(coexist 안전, 동일 결과)지만, **추후 데코레이터 일괄 제거 = WS-A 조율**(라우터 파일 소유). 신규 write 라우트 보호는 이제 `permission_map.py` 한 곳에 등록 |
 
-**즉시 착수 가능(무차단)**: WS-B = R4·R5 / WS-A = R1정의·R2·R7. **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라)·R8(PM).
+**즉시 착수 가능(무차단)**: WS-B = R4·R5 / WS-A = R1정의·R7·R9데코정리(선택). **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라).
+
+> ⚠️ **사전 격리버그(WS-A 영역, 제 작업 무관)**: `tests/test_auth_mode.py`가 `config.settings = config.Settings()` 로 settings 싱글톤을 교체 → 같은 프로세스에서 뒤에 도는 `tests/test_require_perm_optional.py`의 `monkeypatch.setattr(settings,...)`가 무력화돼 2건 실패(token 모드 미적용). **중앙 집행/스케쥴링과 호출경로 무교차**(전역 의존성 제거해도 동일 재현). 수정 권고: test_auth_mode 가 monkeypatch 로 settings 교체 or teardown 복원. tests/는 gitignore 로컬전용.
 
 ---
 

@@ -91,3 +91,73 @@ async def publish_session_revoke(
     except Exception as e:  # best-effort: 발행 실패가 force_logout 을 막지 않음
         logger.warning("revoke publish failed (subject=%s): %s", subject, e)
         return False
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# permissions_changed 통지 — Permission_Group_Scheduling FR-06 (WS-A NATS 소유분)
+#
+# 권한그룹 부여(grant) 생성/회수/만료 시 해당 사용자의 클라가 `GET /api/auth/me/permissions`
+# 를 즉시 재조회하도록 깨우는 가속 통지. 무효화 권위는 서버 request-time 판정(FR-02)이며,
+# 이 통지는 클라 캐시 staleness 를 줄이는 보조 경로(미발행/스푸핑돼도 서버가 authoritative).
+#
+# subject 는 per-user (grant 는 사용자 단위로 전 세션 영향). 광역 all.> 금지.
+# 게이트는 revoke 와 동일한 settings.NATS_REVOKE_ENABLED 재사용(같은 NATS account 통지 인프라).
+# 서명은 REVOKE_SIGNING_KEY 재사용 — 클라가 스푸핑된 re-fetch 폭주를 거르도록.
+# ──────────────────────────────────────────────────────────────────────────
+
+def permissions_changed_subject(user_id: int) -> str:
+    """per-user 권한변경 통지 subject — `sensorway.{unit}.account.{user_id}.permissions.changed`."""
+    return f"sensorway.{settings.NATS_UNIT_ID}.account.{user_id}.permissions.changed"
+
+
+def build_permissions_changed_message(
+    *, user_id: int, reason: str = "PERMISSIONS_CHANGED", issued_at: Optional[str] = None
+) -> dict:
+    """서명된 permissions_changed payload dict 생성(발행 본문).
+
+    reason 예: GRANT_CREATED / GRANT_REVOKED / GRANT_EXPIRED / PERMISSIONS_CHANGED (정보용, 클라는 재조회만 수행).
+    issued_at 은 RFC3339 UTC 'Z' 고정(.NET 과 동일 canonical 보장). 서명 규칙은 revoke 와 동일(canonical §revoke_signing).
+    """
+    from app.utils.revoke_signing import sign_revoke
+    if issued_at is None:
+        issued_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "message_id": str(_uuid.uuid4()),
+        "user_id": user_id,
+        "reason": str(reason),
+        "issued_at": issued_at,
+    }
+    payload["signature"] = sign_revoke(payload, settings.REVOKE_SIGNING_KEY)
+    return payload
+
+
+async def publish_permissions_changed(
+    *, user_id: int, reason: str = "PERMISSIONS_CHANGED"
+) -> bool:
+    """사용자 권한변경을 best-effort 로 발행. 실패해도 예외를 던지지 않는다(authoritative 아님).
+
+    WS-B(권한그룹 스케쥴링) 가 grants 생성/회수 + sweep 만료 시 호출한다.
+
+    Returns:
+        True  — 발행 성공
+        False — 비활성(게이트 off) 또는 발행 실패(로그만 남김)
+    """
+    if not settings.NATS_REVOKE_ENABLED:
+        return False
+
+    subject = permissions_changed_subject(user_id)
+    message = build_permissions_changed_message(user_id=user_id, reason=reason)
+    try:
+        import nats
+        nc = await nats.connect(
+            settings.NATS_URL, connect_timeout=2, max_reconnect_attempts=1
+        )
+        try:
+            await nc.publish(subject, json.dumps(message).encode("utf-8"))
+            await nc.flush(timeout=2)
+        finally:
+            await nc.close()
+        return True
+    except Exception as e:  # best-effort: 발행 실패가 grant 작업을 막지 않음
+        logger.warning("permissions_changed publish failed (subject=%s): %s", subject, e)
+        return False

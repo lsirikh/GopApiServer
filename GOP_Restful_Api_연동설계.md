@@ -15333,6 +15333,7 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 | Method | Endpoint | 설명 |
 |--------|----------|------|
 | POST | `/api/reports/generate` | 보고서 생성 요청 |
+| GET | `/api/reports/status` | 보고서 엔진 Busy/Ready 상태 (read-only) |
 | GET | `/api/reports/generations` | 생성 이력 목록 조회 |
 | GET | `/api/reports/generations/{id}` | 생성 이력 상세 조회 |
 | GET | `/api/reports/generations/{id}/download` | PDF 다운로드 |
@@ -15467,6 +15468,41 @@ PDF 파일을 직접 다운로드합니다 — JSON envelope 아님, **PDF 바�
   }
 }
 ```
+
+#### 10.4.6 GET `/api/reports/status`
+
+보고서 엔진의 Busy/Ready 상태를 조회합니다 (read-only). 정형 보고서는 전체 페이지네이션으로 Chromium 렌더가 무거워 비동기 생성되므로, 클라이언트는 generation id 없이 본 엔드포인트를 polling 하여 진행 여부를 판단할 수 있습니다.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report engine status retrieved successfully",
+  "data": {
+    "busy": false,
+    "ready": true,
+    "in_progress_count": 0,
+    "in_progress": [],
+    "last_completed": {
+      "id": 4,
+      "title": "2026년 6월 운영 보고서",
+      "completed_at": "2026-06-30T17:42:00+09:00",
+      "pdf_download_url": "/api/reports/generations/4/download"
+    }
+  }
+}
+```
+
+**필드 설명**:
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| busy | bool | 진행 중(PENDING/GENERATING) 작업 존재 여부 |
+| ready | bool | `busy` 의 반대 (새 생성 즉시 처리 가능) |
+| in_progress_count | int | 진행 중 작업 수 |
+| in_progress[] | array | 진행 중 작업 목록 (id, title, status, created_at) |
+| last_completed | object\|null | 최근 완료 보고서 (id, title, completed_at, pdf_download_url) |
+
+> **참조**: PRD_Report_Master_Redesign — 보고서 PDF는 HTML(Chart.js)→Chromium 렌더 + PyMuPDF 무손실 재압축(~85% 축소). 정형=전 섹션 전체 페이지네이션, 비정형=template 컴포넌트(`enabled_components`) 선택. 본 status·download·preview 모두 동일 비동기 파이프라인 기준.
 
 ### 10.5 Report Preview Page
 
@@ -16025,6 +16061,7 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 
 **Report Generations**:
 - `POST /api/reports/generate` - 보고서 생성 요청
+- `GET /api/reports/status` - 보고서 엔진 Busy/Ready 상태 (read-only)
 - `GET /api/reports/generations` - 생성 이력 목록 조회
 - `GET /api/reports/generations/{id}` - 생성 이력 상세 조회
 - `GET /api/reports/generations/{id}/download` - PDF 다운로드

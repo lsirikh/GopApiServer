@@ -66,6 +66,7 @@
    - 9.5 [UserSession API](#95-usersession-api)
    - 9.6 [Audit Logs API](#96-audit-logs-api) *(v3.1 신규)*
    - 9.7 [Config Change Logs API](#97-config-change-logs-api) *(v3.2 신규)*
+   - 9.8 [Session Settings API](#98-session-settings-api-v52-신규) *(v5.2 신규)*
 10. [Report API 설계](#10-report-api-설계-v33-신규) *(v3.3 신규)*
     - 10.1 [개요](#101-개요)
     - 10.2 [Report Components API](#102-report-components-api)
@@ -14919,6 +14920,65 @@ Accept: application/json
 | EVENT_MAPPING_SPEAKER | `/api/event-mappings/{id}/speakers` | 매핑 스피커 생성/수정/삭제 |
 
 > **상태 변경 (STATUS_CHANGED)**: 리소스의 `status` 필드가 변경될 때 자동으로 `STATUS_CHANGED` 액션으로 기록됩니다.
+
+---
+
+### 9.8 Session Settings API *(v5.2 신규)*
+
+세션/인증 정책 **런타임 관리** API. `app_settings` 테이블에 저장되며 DB가 권위(.env는 최초 1회 기본값). 모두 **ADMIN 전용**(`require_admin`). 참조 PRD: `PRD_GOP_Server_Session_Settings.md`.
+
+#### 9.8.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 인가 | 섹션 |
+|--------|----------|------|------|------|
+| GET | `/api/settings/session` | 세션/인증 정책 조회 | ADMIN | 9.8.2 |
+| PUT | `/api/settings/session` | 세션/인증 정책 변경(부분) | ADMIN | 9.8.3 |
+
+#### 9.8.2 GET `/api/settings/session`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "session_timeout_hours": 24,
+    "refresh_expiration_days": 7,
+    "lockout_threshold": 5,
+    "session_enabled": true,
+    "auth_mode": "public",
+    "jwt_algorithm": "HS256"
+  }
+}
+```
+
+| 필드 | 타입 | 편집 | 제약 |
+|------|------|------|------|
+| session_timeout_hours | int | ✅ | 1 ~ 168 |
+| refresh_expiration_days | int | ✅ | 1 ~ 90 |
+| lockout_threshold | int | ✅ | **0(비활성) 또는 3 ~ 20** (1~2 금지) |
+| session_enabled | bool | ✅ | — |
+| auth_mode | string | ❌ 읽기전용 | 배포(.env) 전용 |
+| jwt_algorithm | string | ❌ 읽기전용 | 배포 전용 |
+
+> `jwt_secret`은 **절대 응답에 노출되지 않는다**(NFR-SVS-03).
+
+#### 9.8.3 PUT `/api/settings/session`
+
+편집 가능 필드의 **부분집합만** 수용(미지정 필드 불변). 변경분은 `ConfigChangeLog` 감사 + 캐시 무효화 + 런타임 만료/잠금 즉시 반영.
+
+**Request Body** (예: 일부만):
+```json
+{
+  "session_timeout_hours": 8,
+  "lockout_threshold": 5
+}
+```
+
+**Response (200 OK)**: GET과 동일한 전체 스냅샷(`data`).
+
+**Error**:
+- `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422.
+- `401`/`403` — 미인증 / 비-ADMIN.
 
 ---
 

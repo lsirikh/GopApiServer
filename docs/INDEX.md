@@ -1,7 +1,18 @@
 # docs/ Index
 
 > 문서 단일 진입점. 141 파일을 9 카테고리로 정리.
-> 최종 갱신: 2026-06-19 / 현재 차수: v4.6
+> 최종 갱신: 2026-06-30 / 현재 차수: v5.2
+
+---
+
+## 🔐 v5.2 — .NET 이관 서버 PRD + 계약 (2026-06-30)
+
+| 문서 | 용도 |
+|---|---|
+| [CONTRACT_GOP_Server_v5.2.md](prds/CONTRACT_GOP_Server_v5.2.md) | **클라 통지용 계약 스냅샷** — sid/subject/payload/401 + 골든벡터 + P2 스키마 |
+| [PRD_GOP_Server_Force_Logout.md](prds/PRD_GOP_Server_Force_Logout.md) | 강제 로그아웃 전파 (P1, FR-SVF-01~12) |
+| [PRD_GOP_Server_Session_Settings.md](prds/PRD_GOP_Server_Session_Settings.md) | 세션 정책 런타임 관리 (P2, FR-SVS-01~06) |
+| [PRD_GOP_Server_RBAC_Enforcement.md](prds/PRD_GOP_Server_RBAC_Enforcement.md) | RBAC enforcement (잔여 A, FR-SV-04/08) |
 
 ---
 

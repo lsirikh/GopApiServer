@@ -8,12 +8,47 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v5.0** (2026-06-29, 그룹 권한 관리 endpoint + 9중 정합 정리) / v4.12 (2026-06-27, RBAC ADMIN + GIS ingest) / v4.11 (2026-06-26, 추적 REST + 프로필 사진 + audit FK) / v4.10 (2026-06-25, 평문 회귀 + HTTPS) |
-| **HEAD commit** | `6d7ec50` (feat(v5.0): 그룹 권한 endpoint + 9중 정합 정리) — 명세/CHANGELOG/PRD/Swagger 5.0 정합화 |
-| **태그** | `v5.0-final-stable` @ `6d7ec50` / `pre-v5-spec-sync` @ `c71c8ce` (외부 세션 권한 endpoint 직후) / `v4.12-final-stable` / `v4.11-final-stable` / `v4.10-final-stable` / `v4.9-final-stable` / `pre-v412-sync-cleanup` / `pre-v4.10-phase2/1` / `pre-v4.9-phase5` / `v4.8-final-stable` |
-| **branch** | `feature/tracking-gis-ingest` (local), Gitea `v4.8`=`6d7ec50` (v5.0 마감 동기화 완료) |
-| **Container** | Up healthy / Image rebuild 2026-06-29 / Swagger version=`5.0.0` (v5.0 갱신) |
-| **DB** | PostgreSQL 16 / 차장님 명세 시드 (4/402/300/200/30/30) |
+| **차수** | **v5.2** (2026-06-30, 안정성 hotfix + **강제로그아웃 전파 P1** + **세션설정 런타임 관리 P2**) / v5.1 (2026-06-29, 서버 RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한 endpoint) |
+| **HEAD commit** | `73ecc5e` (feat(v5.2): 세션 설정 런타임 관리 API — Session_Settings FR-SVS-01~06) |
+| **branch** | `feature/tracking-gis-ingest` (local) — ★ v5.2 커밋 4건 **미푸시** (gitea/origin push 잔여) |
+| **Container** | ⚠️ 본 세션은 **로컬 코드/테스트만** — 도커 재빌드·컨테이너 반영(5-sync) 미수행. Swagger version 여전히 `5.0.0`(v5.1/v5.2 미반영, 팀 관행) |
+| **DB** | PostgreSQL 16 / app_settings 테이블 신설(v55 마이그레이션 — psql 적용 잔여) |
+
+---
+
+## 이번 세션 (v5.2 — 2026-06-30, .NET 이관 PRD 2종)
+
+> .NET 클라팀 이관 서버 PRD 3종(`docs/prds/PRD_GOP_Server_*.md`) 중 실행 2종 완료. 계약 4건 PM 확정.
+
+### 완료 + 커밋 (로컬, tests/는 .gitignore라 미커밋)
+
+- **P1 Force-Logout (Phases 0-5)** — `f00f7ca`(구조: token_blacklist id cross-dialect) + `4ff9a05`(FR-SVF-01~12) + `785c313`(FR-SVF-10 401 SESSION_REVOKED).
+  - logout이 access+refresh 패밀리 무효화(구멍 차단) / force_logout last-ADMIN 가드 / sid 클레임(=UserSession.id)·login·refresh session_id / RevokePayload+HMAC 서명 / per-session NATS publisher(게이트 off) / 401 안정코드.
+  - 로컬 27건 PASS.
+- **P2 Session_Settings (FR-SVS-01~06)** — `73ecc5e`. app_settings + settings_service + GET/PUT /api/settings/session(require_admin) + auth.py 런타임 만료·잠금임계 + ConfigChangeLog 감사 + v55 마이그레이션. 로컬 11건 PASS.
+- **전체 회귀 0**: 전체 스위트 174 failed(전부 사전 실패 = pydantic/env, P1+P2 전과 동일 -1) / 2244 passed.
+
+### 확정 계약 4건 (클라 짝 PRD 통지 대상)
+
+1. session_id = JWT `sid`(=UserSession.id) + login/refresh 응답 필드. refresh 시 sid 고정·jti 회전.
+2. revoke subject = `sensorway.{unit}.account.{user_id}.session.{session_id}.revoke` (광역 금지).
+3. payload = HMAC-SHA256 + 전용 REVOKE_SIGNING_KEY, canonical(sorted·compact·UTF-8·null 명시), reason=EnumLogoutReason.
+4. revoked → 401 `error.code=SESSION_REVOKED`(403=권한부족 구분).
+
+---
+
+## 나머지 작업 (다음 세션) ★
+
+> **2026-06-30 추가 세션**: ✅ **D 부분완료**(origin push 7건 완료, **gitea만 인증실패로 잔여**) + ✅ **C 완료**([CONTRACT_GOP_Server_v5.2.md](../prds/CONTRACT_GOP_Server_v5.2.md) 작성, 골든벡터 실코드 계산).
+
+| # | 작업 | 분량/유형 | 비고 |
+|---|------|---------|------|
+| **A** | **RBAC_Enforcement 잔여 (FR-SV-04/08)** | 대형 / plan 먼저 | `require_perm`을 비계정 write 8도메인(cameras/sensors/controllers/actions/detections/malfunctions/servers/audit_logs) 부착 + 30+ 라우터 `get_current_user_optional`→`get_current_account_user_optional` 이주. ★AUTH_MODE=token 전환은 **클라 Bearer 동시배포 필수**(분리 시 비계정 전원 401). FR-SV-05(map/broadcast) 이미 반영. FR-SV-07(audit DB레벨 DELETE RULE/RLS)·FR-SV-10(비번변경 세션무효화)·FR-SV-11(RTSP 마스킹) 미구현 |
+| **B** | **Force-Logout 활성화 (FR-SVF-08 + 게이트)** | 인프라+조율 | NATS 발행 ACL(서버만 account.> publish, 클라 subscribe-only) + 클라 subject 매칭 확인(V-SVF-05) → 확인 후 `.env NATS_REVOKE_ENABLED=true` + 실 REVOKE_SIGNING_KEY 배포. **계약 §6 B-1~B-3에 명시** |
+| ~~**C**~~ | ~~클라 회신용 계약 스냅샷 문서~~ | ✅ **완료** | `docs/prds/CONTRACT_GOP_Server_v5.2.md` — C1 sid / C2 subject / C3 payload+골든벡터 V1·V2 / C4 401 / P2 GET·PUT 스키마. 클라 짝 PRD 통지 + §6 B-1(subject 매칭) 회신 요청 |
+| **D** | **푸시** | 소 | ✅ origin(GitHub) push 완료(7건). ⬜ **gitea 잔여** — 인증실패(http://192.168.202.160:3000). 차장님 직접: `! git push gitea feature/tracking-gis-ingest` |
+| **E** | **배포(5-sync)** | 중 | 도커 재빌드 + 컨테이너 반영 + v55 마이그레이션 psql 적용 + Swagger version bump + 안전점 태그(`v5.2-...`). 본 세션 미수행 |
+| **F** | (별도) 사전 테스트 실패 174건 | 별도 결정 | server_schema(pydantic AttributeError)·logs_router·config_change_log·test_config = pydantic 버전/환경 이슈, 본 작업 무관 |
 
 ---
 
@@ -131,11 +166,20 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 
 ## 다음 세션 진입 시 권고
 
-1. 이 파일(`session-context.md`) 읽고 현재 상태 파악
-2. `git log --oneline -10` — 최근 commit 확인
-3. v4.9 잔존 작업 진행 (A-1.3/A-1.4 Photo multipart + A-3 audit trigger + B-2~B-8, ~21h)
-4. CLAUDE.md 매 응답 전 복잡도 판단 (Track A/B/C)
+1. 이 파일(`session-context.md`) 읽고 위 **"나머지 작업 (다음 세션)"** 표(A~F) 확인
+2. `git log --oneline -8` — v5.2 커밋 4건 확인 (HEAD `73ecc5e`)
+3. 우선순위 권고: **D 푸시** + **C 클라 계약 통지** 먼저(소) → **B Force-Logout 활성화**(클라 subject 확인 필요) → **A RBAC 잔여**는 plan부터(대형, 클라 Bearer 동시배포 조율)
+4. ★ 본 세션 작업은 **로컬 코드/테스트만** — 배포(E: 도커 재빌드·마이그레이션·태그) 미수행. `tests/`는 `.gitignore`(로컬 검증)
+5. CLAUDE.md 매 응답 전 복잡도 판단 (Track A/B/C)
 
 ---
 
-**문서 버전**: v4.10 / **최종 업데이트**: 2026-06-25 / **다음 차수**: v4.10 잔존 (ENV-1 / AUTH-1 / AUTH-2 + P1 10건 + B-4/5/7/8 잔존, ~38-50h)
+**문서 버전**: v5.2 / **최종 업데이트**: 2026-06-30 / **다음 차수 후보**: 푸시·클라통지(C/D) → Force-Logout 활성화(B) → RBAC 잔여 plan(A)
+
+## 세션 상태
+
+- **활성 세션 수**: 1
+- **현재 세션 ID**: ppid-54616
+- **충돌 여부**: 없음
+- **활성 세션 목록**: ppid-54616
+

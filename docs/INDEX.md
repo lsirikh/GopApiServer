@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-06-30 (advance-phase 자동)
-- **총 문서 수**: 4개
+- **총 문서 수**: 5개
 
 ---
 
@@ -19,6 +19,7 @@
 | [PRD_GOP_Server_Force_Logout.md](prds/PRD_GOP_Server_Force_Logout.md) | PRD_GOP_Server_Force_Logout.md | Draft | 2026-06-29 |
 | [PRD_GOP_Server_Session_Settings.md](prds/PRD_GOP_Server_Session_Settings.md) | PRD_GOP_Server_Session_Settings.md | Draft | 2026-06-29 |
 | [PRD_GOP_Server_RBAC_Enforcement.md](prds/PRD_GOP_Server_RBAC_Enforcement.md) | PRD_GOP_Server_RBAC_Enforcement.md | Draft | 2026-06-29 |
+| [PRD_Permission_Group_Scheduling.md](prds/PRD_Permission_Group_Scheduling.md) | 권한그룹 시간기반 스케쥴링 (user_group_grants 부여 테이블·자동 비활성화) | Draft | 2026-06-30 |
 
 ## 구현 플랜 (docs/plans/)
 

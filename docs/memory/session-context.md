@@ -45,7 +45,7 @@
 
 | # | 작업 | 분량/유형 | 비고 |
 |---|------|---------|------|
-| **A** | **RBAC_Enforcement 파괴 핵심 (FR-SV-04/08)** | 대형 / **클라 Bearer 동시배포 필수** | `require_perm` 8도메인(cameras/sensors/controllers/actions/detections/malfunctions/servers/audit_logs) 부착 + 30 라우터 `get_current_user_optional`→`get_current_account_user_optional` 이주 + `AUTH_MODE=public→token`. ★현 public 모드에서 단독 부착 시 비계정 클라 전원 401 → **단독 배포 불가, 클라팀(.NET 3종) Bearer 동시배포 조율 필수**. 잔여: FR-SV-07(audit DB레벨 DELETE RULE/RLS, 마이그레이션)·FR-SV-11(RTSP 마스킹, 응답변경=반파괴)·FR-SV-09(user_groups GET 점검). ✅ FR-SV-10(비번변경 세션무효화)=`b2f80c8` 완료. |
+| **A** | **RBAC_Enforcement — 휴면 부착 완료, 활성화만 게이트** | 대형 / plan: [RBAC_Enforcement-prd-plan.md](../plans/RBAC_Enforcement-prd-plan.md) | ✅ **휴면(dormant) RBAC 부착 완료**: `c49f0a4`(구조 헬퍼) → `require_perm_optional` 추가 → `9a6624c`(27 write 데코레이터 부착) + `b2f80c8`(FR-SV-10). `require_perm_optional`=**AUTH_MODE=public 무집행(현 동작 보존)**·token 플립 시 활성. 도메인 회귀 0(사전실패 카운트 전후 동일), 단위 5/5 PASS. ★**P5 활성화=게이트**: 클라(.NET 3종) Bearer 동시배포 확인 후 `.env AUTH_MODE=public→token` 플립(분리 시 전원 401, 롤백=public 복귀). 잔여 P6 FR-SV-07(audit DB RULE/RLS, 마이그레이션)·P7 FR-SV-11(RTSP 마스킹, 반파괴)·P8 FR-SV-09(user_groups GET). |
 | **B** | **Force-Logout 활성화 (FR-SVF-08 + 게이트)** | 인프라+조율 | NATS 발행 ACL(서버만 account.> publish, 클라 subscribe-only) + 클라 subject 매칭 확인(V-SVF-05) → 확인 후 `.env NATS_REVOKE_ENABLED=true` + 실 REVOKE_SIGNING_KEY 배포. **계약 §6 B-1~B-3에 명시** |
 | ~~**C**~~ | ~~클라 회신용 계약 스냅샷 문서~~ | ✅ **완료** | `docs/prds/CONTRACT_GOP_Server_v5.2.md` — C1 sid / C2 subject / C3 payload+골든벡터 V1·V2 / C4 401 / P2 GET·PUT 스키마. 클라 짝 PRD 통지 + §6 B-1(subject 매칭) 회신 요청 |
 | **D** | **푸시** | 소 | ✅ origin(GitHub) push 완료(7건). ⬜ **gitea 잔여** — 인증실패(http://192.168.202.160:3000). 차장님 직접: `! git push gitea feature/tracking-gis-ingest` |

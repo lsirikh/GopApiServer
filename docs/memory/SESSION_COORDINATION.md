@@ -4,7 +4,9 @@
 > 두 세션 모두 작업 시작 전 이 파일을 읽고, 경계를 바꾸려면 여기 먼저 갱신한다.
 > **갱신**: 2026-06-30 / HEAD at write: `59711cd`
 >
-> ⚠️ **브랜치 현황(2026-06-30 정정)**: 공유 작업트리의 **활성 브랜치 = `feature/report-master-redesign`** (보고서 세션이 `tracking-gis-ingest`에서 분기). 이 브랜치가 **모든 작업의 superset**(선형): v5.2 RBAC/scheduling(WS-B R1·R10③, 내 R10④/R11) + 보고서재설계(`3ae5aa7`). `feature/tracking-gis-ingest`는 **`1a35d72`(R10④)에서 정지**(이후 작업 전부 report-master-redesign에 쌓임). ✅ **origin 백업 완료**(`origin/feature/report-master-redesign`, upstream 설정). ★**모든 세션: 커밋 전 `git branch` 로 활성 브랜치 확인**(공유 트리라 한 세션이 바꾸면 다른 세션 커밋도 그 브랜치로 감). ★**PM 결정 필요**: 3개 기능셋이 한 브랜치에 — main 머지/배포 시 브랜치 전략(통합 1회 vs 분리) 합의.
+> ⚠️ **브랜치 현황(2026-06-30 정정)**: 공유 작업트리의 **활성 브랜치 = `feature/report-master-redesign`** (보고서 세션이 `tracking-gis-ingest`에서 분기). 이 브랜치가 **모든 작업의 superset**(선형): v5.2 RBAC/scheduling(WS-B R1·R10③·R11) + 보고서재설계(`3ae5aa7`). ✅ **origin 백업 완료**(`origin/feature/report-master-redesign`). ★**모든 세션: 커밋 전 `git branch` 로 활성 브랜치 확인**(공유 트리라 한 세션이 바꾸면 다른 세션 커밋도 그 브랜치로 감).
+>
+> ✅ **권한쪽 머지 완료(2026-06-30, WS-B, 차장님 지시)**: 분리 전략 채택 — `1a35d72` 이후 report-master-redesign에 섞여있던 **권한 코드 3건(R1 `5969c7f`·R10③ `9e98c6a`·R11 `dd7dffb`)을 `feature/tracking-gis-ingest`로 cherry-pick**(격리 worktree, 공유트리 무영향). 결과 tracking-gis-ingest = **완전한 권한 브랜치**(FR-01~07·R9·R10①②③·R4·R1·R11), 신규 SHA `9e2043d`→`b9fe35f`→`209cbc8`. ✅**검증**: 권한 8파일 `git diff tracking..report-master-redesign` = **비어있음(100% 동일)** → 보고서 스트림과 깨끗이 분리. 보고서(`3ae5aa7`,`d468011`)는 report-master-redesign에만 잔류. ⬜ tracking-gis-ingest **push 미수행**(커밋만, 차장님 지시 "커밋"). main 머지/push는 차장님 결정.
 
 ---
 

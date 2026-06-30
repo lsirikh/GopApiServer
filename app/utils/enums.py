@@ -458,6 +458,11 @@ class EnumAuditActionType(str, Enum):
     GROUP_DELETED = "GROUP_DELETED"         # 그룹 삭제
     PERMISSION_CHANGED = "PERMISSION_CHANGED"  # 권한 변경
 
+    # 권한그룹 시간 부여(grant) — PRD_Permission_Group_Scheduling (3종)
+    GRANT_CREATED = "GRANT_CREATED"         # 그룹 부여(기간 지정)
+    GRANT_REVOKED = "GRANT_REVOKED"         # 부여 회수(soft)
+    GRANT_EXPIRED = "GRANT_EXPIRED"         # 부여 만료(sweep 자동)
+
     # 세션 관리 (3종)
     SESSION_CREATED = "SESSION_CREATED"     # 세션 생성 (로그인)
     SESSION_TERMINATED = "SESSION_TERMINATED"  # 세션 종료 (로그아웃)

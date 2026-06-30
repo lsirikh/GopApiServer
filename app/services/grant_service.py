@@ -94,6 +94,10 @@ async def run_grant_sweep() -> int:
                 resource_name=gname,
                 description=f"부여 만료(sweep): grant={gid} user={uid}",
             )
+        # FR-06: 영향 사용자별 권한변경 통지(best-effort, 게이트 off 시 무동작) — 사용자 단위 dedup
+        from app.services.nats_revoke_publisher import publish_permissions_changed
+        for uid in {u for _, u, _ in snapshot}:
+            await publish_permissions_changed(user_id=uid, reason="GRANT_EXPIRED")
         return len(due)
     finally:
         db.close()

@@ -109,6 +109,7 @@ def decode_token(token: str, expected_type: Optional[str] = None) -> TokenData:
         username: str = payload.get("sub")
         token_jti: str = payload.get("jti")
         token_type: str = payload.get("type")  # access: None / refresh: "refresh"
+        token_sid: str = payload.get("sid")    # FR-SVF-02: 세션 식별자(== UserSession.id), 없을 수 있음(레거시 토큰)
 
         if username is None:
             raise JWTError("Username not found in token")
@@ -117,7 +118,7 @@ def decode_token(token: str, expected_type: Optional[str] = None) -> TokenData:
         if expected_type == "refresh" and token_type != "refresh":
             raise JWTError("Token type mismatch — refresh token required")
 
-        return TokenData(username=username, jti=token_jti, token_type=token_type)
+        return TokenData(username=username, jti=token_jti, token_type=token_type, sid=token_sid)
 
     except JWTError:
         raise

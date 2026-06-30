@@ -11,6 +11,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 **PRD**: `docs/PRD_v5.2_Stability_Hotfix.md`
 **안전점**: `pre-stability-hotfix` @ `6eced61`
 
+### Added (강제 로그아웃 전파 서버측 — Force_Logout PRD Phases 0-4)
+
+> .NET 클라 세션에서 이관된 `docs/prds/PRD_GOP_Server_Force_Logout.md` (FR-SVF-01~12). 클라가 강제 로그아웃을 실시간 수신·매칭하기 위한 서버 선결: 불변 session_id, 토큰 패밀리 무효화, 서명된 per-session NATS revoke. 클라↔서버 계약 4건 PM 확정(2026-06-30).
+
+- **Phase 0a (FR-SVF-03)** — `POST /auth/logout` 이 access jti 만이 아니라 **paired refresh jti 도 블랙리스트** 등록. 셀프 로그아웃 후 저장된 refresh_token 으로 `/refresh` 세션 부활하던 구멍 차단. `app/routers/auth.py`.
+- **Phase 0b (FR-SVF-09)** — `force_logout` 단건/벌크 양 경로에 **마지막 활성 ADMIN 세션 가드**(409, FOR UPDATE TOCTOU 안전). 벌크 응답 `data.count` 계약 복원. `app/routers/user_sessions.py`.
+- **Phase 1 (FR-SVF-01/02)** — access+refresh JWT 에 **`sid` 클레임(= UserSession.id)** + login/refresh 응답 `session_id`. 로그인 핸들러 재정렬(session flush→sid 박은 토큰 발급), refresh 는 sid 승계(불변)·jti 회전·UserSession 토큰 재바인딩(orphan 방지). `app/routers/auth.py`, `app/utils/auth.py`, `app/schemas/user.py`.
+- **Phase 2 (FR-SVF-06/07/12)** — `RevokePayload` 스키마(reason=`EnumLogoutReason` 재사용) + canonical(sorted·compact·UTF-8·null 명시) HMAC-SHA256 서명 유틸 + 전용 `REVOKE_SIGNING_KEY`(JWT_SECRET 분리 검증)·freshness 설정. `app/schemas/revoke.py`, `app/utils/revoke_signing.py`, `app/config.py`.
+- **Phase 3 (FR-SVF-05/08/11)** — per-session 전용 subject `sensorway.{unit}.account.{user_id}.session.{session_id}.revoke`(광역 `all.>` 금지) best-effort publisher, force_logout 단건/벌크 연결. **`NATS_REVOKE_ENABLED=False` 게이트** — subject 클라 확정(V-SVF-05) + 발행 ACL(FR-SVF-08) 후 활성화. `app/services/nats_revoke_publisher.py`.
+
+**잔여**: FR-SVF-10 (revoked→401 `error.code=SESSION_REVOKED` 통일), FR-SVF-08 NATS 발행 ACL(인프라).
+**검증**: P1 로컬 테스트 23건 PASS(Phases 0-4) + 회귀 0(stash baseline 교차검증). ※ `tests/` 는 `.gitignore` 대상(로컬 검증 전용).
+
 ### Security (v5.1 자가 버그 fix)
 
 - **Fix-2 (v5.1 본 세션 자가 버그)** — `force_logout_all_user_sessions` kwarg `expires_in` (실제 시그니처는 `expires_at`) → 벌크 force_logout 호출 시 `TypeError: unexpected keyword argument 'expires_in'` 500 회귀. `app/routers/user_sessions.py:131,146` 두 호출부 + 단건 force_logout `980abbc` 패턴 동일하게 `expires_at` 교체. settings TTL(`access_token_expire_minutes` / `refresh_token_expire_days`) 기반 `datetime.utcnow() + timedelta(...)` 계산값 전달. 실측 200 OK + `token_blacklist` `FORCE_LOGOUT_BULK` 행 등록 확인.

@@ -390,10 +390,12 @@ class TokenData(BaseModel):
     """Schema for token payload data
 
     PRD v4.9 Phase 2-A4: jti + token_type 추가 (블랙리스트 + refresh 가드)
+    PRD Force_Logout FR-SVF-02: sid 추가 (세션 식별자 = UserSession.id, refresh 시 불변)
     """
     username: Optional[str] = None
     jti: Optional[str] = None  # JWT ID (블랙리스트 키)
     token_type: Optional[str] = None  # "refresh" or None (access)
+    sid: Optional[str] = None  # session id (== UserSession.id), refresh로 회전하지 않음
 
 
 # ============================================================

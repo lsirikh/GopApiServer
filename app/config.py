@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     # PRD v4.9 Phase 2-A3: refresh_token TTL settings 분리 (이전 하드코딩 7일)
     JWT_REFRESH_EXPIRATION_DAYS: int = 7
 
+    # Force_Logout FR-SVF-07: revoke 서명 전용 키 (JWT_SECRET_KEY 와 반드시 분리 — 재사용 시 토큰 위조 위험)
+    REVOKE_SIGNING_KEY: str = "dev-revoke-signing-key-change-in-production"
+    # 클라 replay 방어용 issued_at 허용 오차(초)
+    REVOKE_FRESHNESS_WINDOW_SECONDS: int = 30
+
+    # Force_Logout FR-SVF-05/08: NATS revoke 발행 (워커 db_monitor/gis_ingest 와 동일 기본값)
+    NATS_URL: str = "nats://nats-server-01:4222"
+    NATS_UNIT_ID: str = "unit001"
+    # ★ 활성화 게이트(기본 False): subject 클라 EffectiveSubject 매칭 확인(V-SVF-05) +
+    #    발행 ACL(FR-SVF-08) 적용 후에만 True 로. False면 force_logout 은 블랙리스트만 수행.
+    NATS_REVOKE_ENABLED: bool = False
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def reject_default_jwt_secret(cls, v: str) -> str:
@@ -52,6 +64,25 @@ class Settings(BaseSettings):
                 )
         if len(v) < 16:
             raise ValueError("JWT_SECRET_KEY는 최소 16자 이상")
+        return v
+
+    @field_validator("REVOKE_SIGNING_KEY")
+    @classmethod
+    def validate_revoke_signing_key(cls, v: str, info) -> str:
+        """Force_Logout FR-SVF-07: revoke 서명 전용 키 가드.
+        - JWT_SECRET_KEY 재사용 금지(공유 시 클라가 access 토큰 위조 가능 → 권한상승).
+        - staging/prod 디폴트 리터럴 금지, 최소 16자."""
+        env = os.environ.get("ENVIRONMENT", "dev")
+        jwt_secret = info.data.get("JWT_SECRET_KEY") if info and info.data else None
+        if jwt_secret is not None and v == jwt_secret:
+            raise ValueError(
+                "REVOKE_SIGNING_KEY는 JWT_SECRET_KEY와 달라야 함 — 키 재사용 시 클라가 access 토큰 위조 가능"
+            )
+        if any(tok in v.lower() for tok in ("change-in-production", "change-me")):
+            if env in ("staging", "prod"):
+                raise ValueError(f"REVOKE_SIGNING_KEY는 {env} 환경에서 디폴트값 사용 금지")
+        if len(v) < 16:
+            raise ValueError("REVOKE_SIGNING_KEY는 최소 16자 이상")
         return v
 
     @field_validator("AUTH_MODE")

@@ -364,25 +364,34 @@ async def login(
             detail="Incorrect login_id or password",
         )
 
-    # Create JWT tokens
-    access_token = create_access_token(data={"sub": user.login_id})
-    refresh_token = create_refresh_token(data={"sub": user.login_id})
-
     # Extract client info from request (US-2: PRD_UserSession_Improvement.md)
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("User-Agent")
 
-    # Create UserSession record
+    # FR-SVF-01/02: 세션 행을 먼저 flush 하여 id(= session_id)를 확보한 뒤,
+    # 그 id를 sid 클레임으로 박은 access+refresh 토큰을 발급한다(refresh로 회전하지 않는 식별자).
+    # token 컬럼은 NOT NULL+unique 이므로 임시 unique placeholder 로 flush → 발급 후 실제 토큰으로 갱신.
+    import uuid as _uuid
+    _placeholder = f"pending-{_uuid.uuid4()}"
     session = UserSession(
         user_id=user.id,
-        token=access_token,
-        refresh_token=refresh_token,
+        token=_placeholder,
+        refresh_token=f"{_placeholder}-r",
         expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
         is_active=True,
         ip_address=client_ip,
         user_agent=user_agent
     )
     db.add(session)
+    db.flush()  # session.id 확보 (commit 전)
+
+    # Create JWT tokens — sid = UserSession.id
+    access_token = create_access_token(data={"sub": user.login_id, "sid": str(session.id)})
+    refresh_token = create_refresh_token(data={"sub": user.login_id, "sid": str(session.id)})
+
+    # 실제 발급 토큰으로 placeholder 교체
+    session.token = access_token
+    session.refresh_token = refresh_token
 
     # Create UserLoginLog record
     login_log = UserLoginLog(
@@ -411,6 +420,7 @@ async def login(
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer",
+            "session_id": str(session.id),  # FR-SVF-01: 불변 세션 식별자(클라 강제로그아웃 매칭키)
             "user": {
                 "id": user.id,
                 "login_id": user.login_id,
@@ -503,6 +513,26 @@ async def logout(
             token_type="access",
         )
 
+    # FR-SVF-03: 토큰 패밀리 무효화 — paired refresh jti도 블랙리스트 등록.
+    # access만 등재하면 셀프 로그아웃 후 저장된 refresh_token으로 /refresh 호출 시
+    # 새 토큰을 발급받아 세션이 부활함. force_logout_session(user_sessions.py:368-376) 동일 패턴.
+    if session and session.refresh_token:
+        from app.services.token_blacklist_service import add_to_blacklist
+        from datetime import timedelta as _td
+        try:
+            refresh_data = decode_token(session.refresh_token, expected_type="refresh")
+            if refresh_data.jti:
+                add_to_blacklist(
+                    db=db,
+                    jti=refresh_data.jti,
+                    expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                    reason="LOGOUT",
+                    user_id=session.user_id,
+                    token_type="refresh",
+                )
+        except JWTError:
+            pass
+
     return {"success": True}
 
 
@@ -566,16 +596,38 @@ async def refresh(
             token_type="refresh",
         )
 
-    # Create new tokens
-    access_token = create_access_token(data={"sub": user.login_id})
-    new_refresh_token = create_refresh_token(data={"sub": user.login_id})
+    # FR-SVF-01/02: sid(세션 식별자)는 refresh로 회전하지 않는다 — 옛 토큰의 sid를 그대로 승계.
+    sid = token_data.sid
+    token_payload = {"sub": user.login_id}
+    if sid:
+        token_payload["sid"] = sid
+
+    # Create new tokens (sid 승계, jti만 회전)
+    access_token = create_access_token(data=token_payload)
+    new_refresh_token = create_refresh_token(data=token_payload)
+
+    # FR-SVF-01: 세션 행을 새 토큰 쌍으로 재바인딩(orphan 방지) — force_logout이 현재 토큰의
+    # jti를 무효화하도록. sid 없는 레거시 토큰은 건너뜀(점진 롤아웃 호환).
+    if sid:
+        try:
+            session = db.query(UserSession).filter(
+                UserSession.id == int(sid),
+                UserSession.is_active == True,
+            ).first()
+        except (TypeError, ValueError):
+            session = None
+        if session:
+            session.token = access_token
+            session.refresh_token = new_refresh_token
+            db.commit()
 
     return {
         "success": True,
         "data": {
             "access_token": access_token,
             "refresh_token": new_refresh_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "session_id": sid
         }
     }
 

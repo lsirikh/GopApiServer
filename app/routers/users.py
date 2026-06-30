@@ -14,9 +14,13 @@ from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
-from app.routers.auth import get_current_account_user, require_admin
-from app.utils.auth import hash_password, verify_password
+from app.routers.auth import get_current_account_user, require_admin, bearer_scheme
+from app.utils.auth import hash_password, verify_password, decode_token
 from app.services.audit_service import log_action, get_changes
+from app.services.token_blacklist_service import add_to_blacklist
+from fastapi.security import HTTPAuthorizationCredentials
+from jose import JWTError
+from datetime import datetime, timedelta
 
 router = APIRouter(tags=["Users"])
 
@@ -160,11 +164,69 @@ async def update_my_info(
     }
 
 
+def _current_session_id(credentials: HTTPAuthorizationCredentials | None) -> str | None:
+    """현재 요청 Bearer 토큰의 sid(== UserSession.id) 추출. 토큰 부재/무효 시 None."""
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        return decode_token(credentials.credentials).sid
+    except JWTError:
+        return None
+
+
+def _invalidate_other_sessions_on_password_change(
+    db: Session, user: AccountUser, current_sid: str | None
+) -> int:
+    """FR-SV-10: 비밀번호 변경 시 본인의 다른 활성 세션을 전부 무효화.
+
+    각 세션의 access+refresh jti 를 블랙리스트 등록(발급된 JWT 가 exp 까지 통과하는 구멍 차단)하고
+    is_active=False + logout_reason=PASSWORD_CHANGED 로 마킹한다. 현재 요청 세션(current_sid)은 보존.
+    벌크 force_logout 핸들러(user_sessions.py)와 동일 패턴.
+    """
+    active_sessions = db.query(UserSession).filter(
+        UserSession.user_id == user.id,
+        UserSession.is_active == True,
+    ).all()
+
+    count = 0
+    for session in active_sessions:
+        if current_sid is not None and str(session.id) == str(current_sid):
+            continue  # 현재 기기 세션은 유지
+        if session.token:
+            try:
+                td = decode_token(session.token)
+                if td.jti:
+                    add_to_blacklist(
+                        db=db, jti=td.jti,
+                        expires_at=datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
+                        reason="PASSWORD_CHANGED", user_id=user.id, token_type="access",
+                    )
+            except JWTError:
+                pass
+        if session.refresh_token:
+            try:
+                td = decode_token(session.refresh_token, expected_type="refresh")
+                if td.jti:
+                    add_to_blacklist(
+                        db=db, jti=td.jti,
+                        expires_at=datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                        reason="PASSWORD_CHANGED", user_id=user.id, token_type="refresh",
+                    )
+            except JWTError:
+                pass
+        session.is_active = False
+        session.logout_reason = "PASSWORD_CHANGED"
+        session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+        count += 1
+    return count
+
+
 @router.put("/me/password")
 async def change_my_password(
     password_data: PasswordChangeRequest,
     db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    current_user: AccountUser = Depends(get_current_account_user),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     """
     내 비밀번호 변경
@@ -179,6 +241,9 @@ async def change_my_password(
 
     **Error**:
     - 400: 현재 비밀번호가 일치하지 않음
+
+    **보안(FR-SV-10)**: 변경 성공 시 본인의 다른 활성 세션을 전부 무효화한다
+    (access+refresh jti 블랙리스트 + 세션 비활성화). 현재 요청 세션만 유지.
     """
     # Verify current password
     if not verify_password(password_data.current_password, current_user.password_hash):
@@ -188,6 +253,11 @@ async def change_my_password(
         )
 
     current_user.password_hash = hash_password(password_data.new_password)
+
+    # FR-SV-10: 비번 변경 후 본인 다른 활성 세션 무효화(타 기기 강제 재로그인). 현재 세션은 보존.
+    _invalidate_other_sessions_on_password_change(
+        db, current_user, _current_session_id(credentials)
+    )
     db.commit()
 
     # Audit log: PASSWORD_CHANGED

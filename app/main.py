@@ -230,9 +230,29 @@ async def lifespan(app: FastAPI):
     print(f"Authentication Mode: {settings.AUTH_MODE}")
     print("=" * 60)
 
+    # 경량 sweep 스케줄러 (FR-04, PRD_Permission_Group_Scheduling) — 만료 grant is_active=false.
+    # ★ 보안 비의존(요청시점 계산이 권위). APScheduler 미설치/시작실패가 앱 기동을 막지 않도록 방어적.
+    scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from app.services.grant_service import run_grant_sweep
+
+        scheduler = AsyncIOScheduler(timezone=settings.tz)
+        scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
+                          coalesce=True, max_instances=1)
+        scheduler.start()
+        print("Grant sweep scheduler started (interval 10m)")
+    except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
+        print(f"[WARN] grant sweep scheduler not started: {e}")
+
     yield
 
     # Shutdown
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
     print("GOP API Server Shutting down...")
 
 

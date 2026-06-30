@@ -39,21 +39,61 @@ def is_valid_now(grant, now: datetime) -> bool:
     return grant_status(grant, now) == STATUS_ACTIVE
 
 
+def find_due_grants(db, now: datetime):
+    """만료됐는데 아직 is_active=True 인 grant 목록(sweep 대상)."""
+    from app.models.user import UserGroupGrant
+
+    return db.query(UserGroupGrant).filter(
+        UserGroupGrant.is_active == True,  # noqa: E712
+        UserGroupGrant.valid_until.isnot(None),
+        UserGroupGrant.valid_until <= now,
+    ).all()
+
+
 def expire_due_grants(db, now: datetime) -> int:
     """만료된 grant 의 is_active 플래그를 false 로 내린다(sweep, 표시/통지용).
 
     ★ 보안 비의존 — 인가 차단은 요청 시점 계산(is_valid_now/auth._effective_allows)이 담당.
     본 sweep 은 목록/UI 표시·통지·정리 목적. 반환값 = 갱신된 행 수.
     """
-    from app.models.user import UserGroupGrant
-
-    due = db.query(UserGroupGrant).filter(
-        UserGroupGrant.is_active == True,  # noqa: E712
-        UserGroupGrant.valid_until.isnot(None),
-        UserGroupGrant.valid_until <= now,
-    ).all()
+    due = find_due_grants(db, now)
     for g in due:
         g.is_active = False
     if due:
         db.commit()
     return len(due)
+
+
+async def run_grant_sweep() -> int:
+    """스케줄러 진입점(FR-04) — 만료 grant is_active=false + GRANT_EXPIRED 감사.
+
+    자체 DB 세션을 열고 닫는다(스케줄러 컨텍스트). 보안 비의존(요청시점 계산이 권위).
+    예외는 호출 측(스케줄러 래퍼)에서 잡아 기동/주기를 막지 않는다.
+    """
+    from app.database import SessionLocal
+    from app.config import settings
+    from app.services.audit_service import log_action
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(settings.tz).replace(tzinfo=None)
+        due = find_due_grants(db, now)
+        if not due:
+            return 0
+        snapshot = [(g.id, g.user_id, (g.group.name if g.group else None)) for g in due]
+        for g in due:
+            g.is_active = False
+        db.commit()
+        for gid, uid, gname in snapshot:
+            await log_action(
+                db=db,
+                action_type="GRANT_EXPIRED",
+                resource_type="USER_GROUP",
+                actor_login_id="SYSTEM",
+                resource_id=gid,
+                resource_name=gname,
+                description=f"부여 만료(sweep): grant={gid} user={uid}",
+            )
+        return len(due)
+    finally:
+        db.close()

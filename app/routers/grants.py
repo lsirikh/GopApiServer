@@ -19,6 +19,7 @@ from app.schemas.grant import GrantCreate, GrantResponse
 from app.routers.auth import get_current_account_user, require_admin
 from app.services.audit_service import log_action
 from app.services.grant_service import grant_status
+from app.services.nats_revoke_publisher import publish_permissions_changed
 
 router = APIRouter(tags=["User Group Grants"])
 
@@ -115,6 +116,9 @@ async def create_grant(
         description=f"권한그룹 부여: user={user_id} group={group.name} until={valid_until}",
     )
 
+    # FR-06: 권한 변경 통지(best-effort, 게이트 NATS_REVOKE_ENABLED off 시 무동작). 클라 재평가 트리거.
+    await publish_permissions_changed(user_id=user_id, reason="GRANT_CREATED")
+
     return {"success": True, "data": _serialize(grant, now)}
 
 
@@ -162,5 +166,8 @@ async def revoke_grant(
             resource_name=grant.group.name if grant.group else None,
             description=f"권한그룹 부여 회수: grant={grant_id} user={grant.user_id}",
         )
+
+        # FR-06: 권한 변경 통지(best-effort, 게이트 off 시 무동작)
+        await publish_permissions_changed(user_id=grant.user_id, reason="GRANT_REVOKED")
 
     return {"success": True, "message": f"Grant {grant_id} revoked", "data": None}

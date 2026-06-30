@@ -4,6 +4,53 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.2] — 2026-06-30
+
+> 차장님 보고 "API 서버가 가끔 죽는데 원인 모름" → Workflow 7 agent 정밀 감사(498K token / 6.5분) 완료. Health 58/100, TOP 5 사망 원인 + 호스트 절전 가설 확정(Windows Event ID 41/6008, 5~9일 간격 비정상 종료). 5건 hot-fix 즉시 적용 + 실측 5/5 PASS. 본 세션 v5.1 자가 버그(force_logout kwarg 오타 → TypeError 500) 동시 fix. bcrypt async / APScheduler 청소 / db_monitor autoheal 등은 v5.3+ 권고.
+
+**PRD**: `docs/PRD_v5.2_Stability_Hotfix.md`
+**안전점**: `pre-stability-hotfix` @ `6eced61`
+
+### Security (v5.1 자가 버그 fix)
+
+- **Fix-2 (v5.1 본 세션 자가 버그)** — `force_logout_all_user_sessions` kwarg `expires_in` (실제 시그니처는 `expires_at`) → 벌크 force_logout 호출 시 `TypeError: unexpected keyword argument 'expires_in'` 500 회귀. `app/routers/user_sessions.py:131,146` 두 호출부 + 단건 force_logout `980abbc` 패턴 동일하게 `expires_at` 교체. settings TTL(`access_token_expire_minutes` / `refresh_token_expire_days`) 기반 `datetime.utcnow() + timedelta(...)` 계산값 전달. 실측 200 OK + `token_blacklist` `FORCE_LOGOUT_BULK` 행 등록 확인.
+
+### Fixed (안정성 4건)
+
+- **Fix-1 — 호스트 C: 99% 디스크 회수**: Docker images 99GB + build cache 45GB 누적 → `docker builder prune -af` + `docker image prune -af` 로 **45.63GB + 444MB 회수**. C: 점유율 99% → 98.1%. `docker system df` Build Cache `0B` (이전 45.63GB) 확정. (호스트 절전 외 2차 OOM/디스크풀 사망 인자 제거)
+- **Fix-3 — PostgreSQL runaway tx 차단**: `gop` DB의 `statement_timeout=0` / `idle_in_transaction_session_timeout=0` (무제한) 정책 → 단일 쿼리/idle 트랜잭션이 connection pool 영구 점유 가능. `ALTER DATABASE gop SET statement_timeout='60s'` + `idle_in_transaction_session_timeout='5min'` 적용. `SHOW` 검증 60s / 300s 확정.
+- **Fix-4 — docker-compose 로그 회전 표준화**: 모든 서비스 무제한 json-file 로그 → 디스크 소진 인자. `docker-compose.yml` 상단 YAML anchor `x-default-logging: &default-logging` 정의(driver `json-file`, `max-size: 10m`, `max-file: 3`) + 모든 서비스 `logging: *default-logging` 참조. `docker inspect` `LogConfig {max-file:3, max-size:10m}` 검증.
+- **Fix-5 — healthcheck 경량화**: 기존 healthcheck `/docs`(3.6KB HTML 응답, 인증 의존) → 매 30초 호출이 응답 크기·인증 미들웨어 비용 누적. `/api/tracking/health`(약 30B JSON, 무인증) 로 교체. `docker inspect` `Healthcheck.Test = curl /api/tracking/health` 확정.
+
+### Verified (5/5 PASS)
+
+- Fix-1: `docker system df` Build Cache `0B` (45.63GB → 0), C: 98.1%.
+- Fix-2: 벌크 force_logout 200 OK + `token_blacklist` `FORCE_LOGOUT_BULK` 등록.
+- Fix-3: `SHOW statement_timeout` → `60s`, `SHOW idle_in_transaction_session_timeout` → `300s`.
+- Fix-4: `docker inspect` `LogConfig` = `{max-file: 3, max-size: 10m}` 전 서비스.
+- Fix-5: `docker inspect` `Healthcheck.Test` = `curl -f /api/tracking/health`.
+
+### Diagnostics (Health Score 58/100)
+
+- A. container-events 55/100 (7 findings / 3 likely-death)
+- B. memory-leak 62/100 (8/2)
+- C. db-connection 72/100 (7/1)
+- D. async-patterns 42/100 (8/3) — bcrypt sync in async login 동시 30건 4170ms 270배 폭증 + CPU 95% pin
+- E. startup-deps 62/100 (5/2)
+- F. endpoint-stress 55/100 (7/2)
+- **호스트 절전 가설 확정** — Windows Event ID 41 (Kernel-Power) + 6008 (Unexpected Shutdown), 2026-06-29 09:30 / 06-24 08:38 / 06-20 09:55 → 5~9일 간격. 형제 4 컨테이너 09:32 KST 일제 재기동 = Docker daemon 단위 재시작 패턴.
+
+### Deferred (v5.3+, 별도 PR 권고)
+
+- bcrypt async 전환 (`asyncio.to_thread`) — `auth.py:303`/`609` login + login_oauth2 + `users.py:184` password change 3곳 (TOP 1 사망 원인)
+- APScheduler + cachetools 도입 — `token_blacklist` / `api_logs` / `user_sessions` / `track_points` 자동 청소 cron
+- 트랜잭션 안전망 표준화 — `get_db` rollback 패턴 일괄 적용
+- `APILoggingMiddleware` 비동기 큐 분리 — 매 요청 DB 세션 신규 생성 → pool 2배 소모 해소
+- `db_monitor` 재시도 + autoheal 컨테이너 (`willfarrell/autoheal`)
+- `uptime_watch.ps1` 매분 `docker inspect` 스냅샷
+- 차장님 PC 절전 비활성화 (제어판 → 전원옵션)
+- `events` / `api_logs` / `audit_logs` 보존 정책 (90일/180일/영구) PRD 결재
+
 ## [v5.1] — 2026-06-29
 
 > 외부 세션 시뮬레이션 `wf_52155656`(22 agent / 218 시나리오 / 99 발견) 결과 PRD 도입 → 서버 RBAC 집행률 0% 확진. P0 5건 + P1 일부(SV-06/09) 즉시 적용. AUTH_MODE=token 전환 + 비계정 라우터 require_perm 일괄 부착은 v5.2 권고.

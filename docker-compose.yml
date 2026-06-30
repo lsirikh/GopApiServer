@@ -1,3 +1,11 @@
+x-logging: &default-logging
+  # v5.2 stability hotfix: 로그 회전 설정 (디스크 잠식 방지 + 죽음 증거 보존)
+  # 10MB × 3 파일 = 서비스당 최대 30MB 보존, 호스트 C: 압박 해소
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,6 +25,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    logging: *default-logging
 
   api-server:
     container_name: api-test-server
@@ -46,12 +55,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      # PRD v4.10 Phase 2: HTTPS healthcheck (자체 서명이므로 -k 옵션 — 컨테이너 내부엔 mkcert CA 미신뢰)
-      test: ["CMD", "curl", "-fk", "https://localhost:8000/docs"]
+      # v5.2 stability hotfix: 경량 health endpoint로 전환
+      # 이전 /docs (3.6KB HTML) → /api/tracking/health (무인증, JSON 30B)
+      # DB 블로킹 시 false-healthy 방지 + healthcheck 자체가 hot path에 부담 X
+      test: ["CMD", "curl", "-fk", "https://localhost:8000/api/tracking/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging: *default-logging
 
   db-monitor:
     build:
@@ -71,6 +83,7 @@ services:
     networks:
       - default
       - nats_external
+    logging: *default-logging
 
   gis-ingest:
     # 추적 이력 인제스트 워커: NATS sensorway.*.gis.tracking-status 구독 → track_points INSERT
@@ -92,6 +105,7 @@ services:
     networks:
       - default
       - nats_external
+    logging: *default-logging
 
   db-admin:
     container_name: api-test-db-admin
@@ -103,6 +117,7 @@ services:
     depends_on:
       - postgres
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   api-test-pgdata:

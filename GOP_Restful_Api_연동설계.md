@@ -14240,7 +14240,7 @@ Authorization: Bearer {access_token}
 
 #### 9.2.6 GET `/api/auth/me/permissions` *(v5.2)*
 
-현재 사용자의 **유효권한 스냅샷**을 조회한다(인증 필요). 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant 매트릭스(§9.9). 클라(Dotnet.Monitoring)가 grant 만료/변경으로 stale 된 권한을 재평가하는 경로. 로그인 응답 `data.user.permissions` 와 동일 계산.
+현재 사용자의 **유효권한 스냅샷**을 조회한다(인증 필요). 유효권한 = **배정 그룹(`group_id`) 매트릭스 ∪ 현재 유효 grant 매트릭스**(§9.9). role 은 ADMIN만 특권(bypass), 비-ADMIN은 라벨 — 권한 원천은 배정 그룹(ADR_Permission_Model_v5.2). 클라(Dotnet.Monitoring)가 grant 만료/변경으로 stale 된 권한을 재평가하는 경로. 로그인 응답 `data.user.permissions` 와 동일 계산.
 
 **Response (200 OK)**:
 ```json
@@ -15014,7 +15014,7 @@ Accept: application/json
 
 ### 9.9 권한그룹 부여(Grant) API *(v5.2 신규)*
 
-권한그룹(UserGroup)을 사용자에게 **기간을 정해 부여**한다(상시=`valid_until` 생략, 한시=만료 지정). 유효권한 = **등급 매트릭스 ∪ 현재 유효 grant 매트릭스**(요청시점 계산이 권위, sweep 미실행에도 만료 차단). 참조 PRD: `PRD_Permission_Group_Scheduling.md`. ⚠ 집행은 휴면 RBAC와 함께 `AUTH_MODE=token` 플립 시 활성(부여/조회/회수 관리 API는 AUTH_MODE 무관 즉시 동작).
+권한그룹(UserGroup)을 사용자에게 **기간을 정해 부여**한다(상시=`valid_until` 생략, 한시=만료 지정). 유효권한 = **배정 그룹(`group_id`) 매트릭스 ∪ 현재 유효 grant 매트릭스**(요청시점 계산이 권위, sweep 미실행에도 만료 차단). role 은 ADMIN만 특권(bypass), 기능권한은 배정 그룹에서 — `name==role` 자동해석 폐기(ADR_Permission_Model_v5.2). 참조 PRD: `PRD_Permission_Group_Scheduling.md`. ⚠ 집행은 휴면 RBAC와 함께 `AUTH_MODE=token` 플립 시 활성(부여/조회/회수 관리 API는 AUTH_MODE 무관 즉시 동작).
 
 #### 9.9.1 Endpoint 목록
 

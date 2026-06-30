@@ -37,7 +37,7 @@
 ## 확장 훅 (WS-B가 auth.py에서 쓸 것)
 
 WS-A가 추출해둔 헬퍼(`app/routers/auth.py`)를 WS-B가 그대로 재사용:
-- `_resolve_role_group(db, user)` — 역할명 그룹(`UserGroup.name==role`) 1순위 + group_id 폴백.
+- `_resolve_role_group(db, user)` — **배정 그룹(`group_id`)만** (R10① 반영, `name==role` 폐기). 미배정 비-ADMIN=None=권한0.
 - `_role_group_allows(group, module, verb)` — 매트릭스 판정(bool).
 
 WS-B 권장 구현(§3.2):
@@ -88,7 +88,8 @@ def effective_permissions(db, user, now):
 | **R10** | **권한모델 단순화 ADR** (role=ADMIN 특권 + 기능권한=배정그룹+grant, `name==role` 폐기) | ✅ **WS-A ADR 작성(`docs/prds/ADR_Permission_Model_v5.2.md`)** → 구현 분담 | 아래 ↓ | ✅ **차장님 결정(2026-06-30, 리스크 최소안)**. R9 enforcer 유지·정합. **분담**: ① `_resolve_role_group`/`_effective_allows` 권한원천 `name==role`→**배정 group_id + grant**로 변경 = **WS-B**(auth.py/enforcer 락) ② 비-ADMIN role 라벨화(코드 특별취급 0 확인) = **WS-B** ③ 시드 최소화(ADMIN 그룹+admin) = **조율**(init_sample_data 편집 전 표시) ④ 명세서/가이드 권한모델 § = **WS-A**. `require_admin` 25곳·ADMIN bypass·마지막ADMIN 가드 **불변**. 휴면(public)이라 무위험 점진. **🔧 R8 재조정**: R8 "group 12 편집=OPERATOR 권한"은 `name==role` 가정 → ADR 후엔 "OPERATOR 사용자가 **배정된** 그룹" 편집(자동연결 폐기). |
 
 | **R10①②** | name==role 폐기 → 배정 group_id+grant | ✅ **WS-B 완료(`83a90ab`)** | `app/routers/auth.py` | `_resolve_role_group`=group_id 그룹만. 비-ADMIN 특별취급 0건 확인(=="ADMIN" bypass 3곳만). 73 passed. ★**WS-A 통지**: 본 변경이 `test_require_perm_optional::test_should_allow_role_with_permission_when_token_mode`를 깸(OPERATOR 미배정→권한0, ADR대로 정답). **WS-B가 `_seed`에 group_id 배정(op/viewer 2줄) 수정해 green 복구**(WS-A 테스트지만 제 변경의 기계적 결과). 이의 시 조정요망. |
-| **R10③** | 시드 최소화(ADMIN 그룹+admin) | **조율(담당 미정)** | ★실위치 `app/utils/init_db.py:120` (ADR엔 init_sample_data 표기) | name==role 시드 루프 = `init_db.py:120`. ⚠️부수효과: admin 사용자에 `group_id`=ADMIN그룹 미배정 시 **로그인 응답 permissions 빈값**(서버 ADMIN bypass 정상이라 기능 무영향, 클라 UI 표시만). 편집 전 담당 표시 요망. |
+| **R10③** | 시드 최소화(ADMIN 그룹+admin) | **조율(담당 미정)** | ★실위치 `app/utils/init_db.py:120` (ADR엔 init_sample_data 표기) | name==role 시드 루프 = `init_db.py:120`. ⚠️부수효과: admin 사용자에 `group_id`=ADMIN그룹 미배정 시 **로그인 응답 permissions 빈값**(서버 ADMIN bypass 정상이라 기능 무영향, 클라 UI 표시만). 편집 전 담당 표시 요망. **★WS-A 제안**: 본 시드는 `init_db.py`(WS-B가 최근 편집 영역과 인접) → **WS-B가 R4/시드 작업 시 함께** 처리 권장(파일 충돌 회피). WS-A는 명세서/가이드로 받음. |
+| **R10④** | 명세서/가이드 권한모델 § 동기화 | ✅ **WS-A 완료(spec+GUIDE)** | spec doc · `GUIDE_RBAC_Activation_v5.2.md` | ✅ R10① 코드(`83a90ab`) 반영: GUIDE §6 = "권한원천=배정 group_id+grant, role=ADMIN만 특권, 비-ADMIN 배정 전 권한0" 재작성 + OPERATOR 정책 해소(R8) 반영. 명세서 §9.9·§9.2.6 "등급 매트릭스"→"배정 그룹 매트릭스" 정정. spec=code 정합. |
 
 **즉시 착수 가능(무차단)**: WS-B = R4·R5 / WS-A = R7·R9데코정리(R9-V 통과 → 보안갭 없음). **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라). **조율 선행**: R10③ 시드(담당 미정).
 

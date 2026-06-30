@@ -104,20 +104,24 @@
 
 ---
 
-## 6. 역할 기본 권한 매트릭스 (2026-06-30 라이브 실측)
+## 6. 권한 모델 & 기본 제공 그룹 매트릭스 (ADR_Permission_Model_v5.2 반영, R10)
 
-역할명 등급 그룹(`UserGroup.name==role`)의 현재 매트릭스. **클라 UI 게이팅은 이 표와 동일하게** 구성.
-write 집행 관점(POST/PATCH/PUT=`edit`, DELETE=`delete`, servers PATCH=ADMIN전용)으로 정리:
+★ **권한 모델(2026-06-30 확정·구현 `83a90ab`)**:
+- **권한 원천 = 사용자에게 배정된 그룹(`group_id`) + 현재 유효한 grant** 의 매트릭스 **합집합**. `name==role` 자동해석은 **폐기**됨.
+- **role(등급)은 `ADMIN`만 특권**(매트릭스 무관 bypass + 계정/그룹/세션 관리 `require_admin`). 비-ADMIN role(MAINTAINER/OPERATOR/VIEWER)은 **표시용 라벨** — 기능 권한은 **배정된 그룹**에서만 나옴.
+- **그룹 미배정 비-ADMIN = 권한 0**(명시·안전). → 사용자 생성 시 그룹 배정(또는 grant) 필요.
+- 클라 UI 게이팅은 **사용자의 실제 유효권한(`GET /api/auth/me/permissions`)** 을 기준으로(아래 표는 기본 제공 그룹의 예시 매트릭스).
 
-| 역할 | cameras | devices(sensor/controller) | events | servers | reports | 비고 |
+아래는 **기본 제공 그룹**(관리자가 사용자에게 배정·grant 가능)의 현재 매트릭스. write 관점(POST/PATCH/PUT=`edit`, DELETE=`delete`, servers PATCH=ADMIN전용):
+
+| 기본 그룹(예시) | cameras | devices(sensor/controller) | events | servers | reports | 비고 |
 |---|---|---|---|---|---|---|
-| **ADMIN** | 전체(bypass) | 전체 | 전체 | 전체 | 전체 | 매트릭스 무관 통과 |
-| **MAINTAINER** | view+edit+delete+control | view+edit+delete | view+edit+delete | **view만** | view+edit | 장비 관리 O, 서버 쓰기 X |
-| **OPERATOR** | view+**control**(edit/delete X) | **view만** | view+**control**(edit/delete X) | X | view+edit | ⚠️ 장비/이벤트 **생성·수정 403** |
-| **VIEWER** | view만 | view만 | view만 | X | view만 | 읽기 전용 |
-| (GUEST 그룹 존재하나 EnumUserRole에 GUEST 없음 → 고아) | | | | | | OQ-PG-06 |
+| **ADMIN**(특권 role) | 전체(bypass) | 전체 | 전체 | 전체 | 전체 | role=ADMIN → 매트릭스 무관 통과 |
+| **MAINTAINER** 그룹 | view+edit+delete+control | view+edit+delete | view+edit+delete | **view만** | view+edit | 장비 관리 O, 서버 쓰기 X |
+| **OPERATOR** 그룹 | view+control(edit/delete X) | view만 | view+control(edit/delete X) | X | view+edit | 제어·조회 중심(매트릭스 데이터 — 런타임 편집 가능) |
+| **VIEWER** 그룹 | view만 | view만 | view만 | X | view만 | 읽기 전용 |
 
-> ⚠️ **PM 확인 필요(OPERATOR 쓰기 정책)**: OPERATOR가 cameras/devices/events `edit=false` → P5 플립 시 운영자의 장비·이벤트 **생성/수정이 403**. 현 public 모드에선 통과하므로 **플립 순간 동작이 바뀜**. "운영자는 control(제어)만, 편집 불가"가 의도면 OK.
+> **OPERATOR 쓰기 정책(해소, R8)**: "운영자 업무는 매트릭스에 따라 처리, 매트릭스=미들웨어"(차장님 결정) — 코드 특별취급 0. OPERATOR 사용자의 권한은 **그가 배정된 그룹의 매트릭스**가 결정하며, `POST /api/user-groups/{id}/permissions` 로 **런타임 편집** 가능. (자동 role-매칭 폐기 → group 12를 쓰려면 OPERATOR 사용자에게 group_id=12 배정.)
 
 ### PM 결정 대기 (Open Questions)
 | 항목 | 내용 |

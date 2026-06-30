@@ -18,14 +18,8 @@ from app.utils.enums import (
 # UserGroup Schemas (AC-2.3)
 # ============================================================
 
-class PermissionsSchema(BaseModel):
-    """
-    Permissions structure for UserGroup
-    PRD: PRD_Account_Design.md Section 4.1
-    """
-    modules: Optional[List[str]] = None
-    device_groups: Optional[List[int]] = None
-    time_restriction: Optional[Dict[str, Any]] = None
+# NOTE: 과거 List[str] modules 의 PermissionsSchema(v4.x) 는 v4.9 Phase 3 에서
+# 강타입 Dict 구조(아래 PermissionsSchema)로 대체됨. 죽은 중복 정의 제거(R4, WS-B 2026-06-30).
 
 
 class ModulePermission(BaseModel):

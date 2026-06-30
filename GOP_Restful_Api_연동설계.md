@@ -67,6 +67,7 @@
    - 9.6 [Audit Logs API](#96-audit-logs-api) *(v3.1 신규)*
    - 9.7 [Config Change Logs API](#97-config-change-logs-api) *(v3.2 신규)*
    - 9.8 [Session Settings API](#98-session-settings-api-v52-신규) *(v5.2 신규)*
+   - 9.9 [권한그룹 부여(Grant) API](#99-권한그룹-부여grant-api-v52-신규) *(v5.2 신규)*
 10. [Report API 설계](#10-report-api-설계-v33-신규) *(v3.3 신규)*
     - 10.1 [개요](#101-개요)
     - 10.2 [Report Components API](#102-report-components-api)
@@ -14111,6 +14112,7 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 | POST | `/api/auth/logout` | 로그아웃 | 9.2.3 |
 | POST | `/api/auth/refresh` | 토큰 갱신 | 9.2.4 |
 | GET | `/api/auth/me` | 현재 사용자 정보 | 9.2.5 |
+| GET | `/api/auth/me/permissions` | 유효권한 스냅샷(grant 병합) *(v5.2)* | 9.2.6 |
 
 #### 9.2.2 POST `/api/auth/login`
 
@@ -14235,6 +14237,34 @@ Authorization: Bearer {access_token}
   "updated_at": "2026-01-19T08:30:00+09:00"
 }
 ```
+
+#### 9.2.6 GET `/api/auth/me/permissions` *(v5.2)*
+
+현재 사용자의 **유효권한 스냅샷**을 조회한다(인증 필요). 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant 매트릭스(§9.9). 클라(Dotnet.Monitoring)가 grant 만료/변경으로 stale 된 권한을 재평가하는 경로. 로그인 응답 `data.user.permissions` 와 동일 계산.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "modules": {
+      "events": {"view": true, "edit": true, "delete": false, "control": true},
+      "cameras": {"view": true, "edit": false, "delete": false, "control": true}
+    },
+    "device_groups": [1, 2, 3],
+    "valid_until": "2026-07-01T14:00:00+09:00",
+    "server_time": "2026-06-30T12:00:00+09:00"
+  }
+}
+```
+| 필드 | 설명 |
+|------|------|
+| modules | 모듈별 권한(view/edit/delete/control), 등급 ∪ grant 합집합(OR) |
+| device_groups | 접근 가능 디바이스 그룹 ID(합집합) |
+| valid_until | 활성 grant 중 **가장 임박한 만료**(KST, null=상시) — 클라 캐시 만료시점 |
+| server_time | 서버 현재 시각(KST) — 폐쇄망 클라-서버 시계 편차 보정 |
+
+> 클라 패턴: 로그인 시 permissions+`valid_until` 캐시 → `valid_until` 도달 또는 NATS `permissions_changed`(per-user subject) 수신 시 재조회. **실동작은 서버 응답(403)이 권위**, UI 게이팅은 보조.
 
 ### 9.3 User API
 
@@ -14979,6 +15009,64 @@ Accept: application/json
 **Error**:
 - `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422.
 - `401`/`403` — 미인증 / 비-ADMIN.
+
+---
+
+### 9.9 권한그룹 부여(Grant) API *(v5.2 신규)*
+
+권한그룹(UserGroup)을 사용자에게 **기간을 정해 부여**한다(상시=`valid_until` 생략, 한시=만료 지정). 유효권한 = **등급 매트릭스 ∪ 현재 유효 grant 매트릭스**(요청시점 계산이 권위, sweep 미실행에도 만료 차단). 참조 PRD: `PRD_Permission_Group_Scheduling.md`. ⚠ 집행은 휴면 RBAC와 함께 `AUTH_MODE=token` 플립 시 활성(부여/조회/회수 관리 API는 AUTH_MODE 무관 즉시 동작).
+
+#### 9.9.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 인가 | 섹션 |
+|--------|----------|------|------|------|
+| POST | `/api/users/{user_id}/grants` | 그룹 부여 | ADMIN | 9.9.2 |
+| GET | `/api/users/{user_id}/grants` | 부여 목록(+status) | ADMIN | 9.9.3 |
+| DELETE | `/api/grants/{grant_id}` | 부여 회수(soft) | ADMIN | 9.9.4 |
+
+> 사용자 본인 유효권한 재조회는 §9.2.6 `GET /api/auth/me/permissions`.
+
+#### 9.9.2 POST `/api/users/{user_id}/grants`
+
+**Request Body** (`GrantCreate`, extra 금지):
+```json
+{
+  "group_id": 3,
+  "valid_from": "2026-06-30T13:00:00+09:00",
+  "valid_until": "2026-07-01T14:00:00+09:00"
+}
+```
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| group_id | int | Y | 부여할 권한그룹 ID |
+| valid_from | datetime(KST) | Y | 유효 시작 일시 |
+| valid_until | datetime(KST) | N | 만료 일시. **생략/null = 상시(무기한)** |
+
+**Response (201 Created)** — `data`(`GrantResponse`):
+```json
+{
+  "success": true,
+  "data": {
+    "id": 12, "user_id": 7, "group_id": 3, "group_name": "유지보수팀",
+    "valid_from": "2026-06-30T13:00:00+09:00",
+    "valid_until": "2026-07-01T14:00:00+09:00",
+    "is_active": true, "status": "ACTIVE",
+    "granted_by": 1, "revoked_at": null,
+    "created_at": "2026-06-30T12:00:00+09:00"
+  }
+}
+```
+- **status**(파생): `ACTIVE`(유효) / `PENDING`(now<valid_from) / `EXPIRED`(valid_until≤now) / `REVOKED`(회수됨). 우선순위 REVOKED>PENDING>EXPIRED>ACTIVE.
+- **is_active**: sweep 비정규화 표시 플래그 — **인가 권위는 status(요청시점)**.
+- **Error**: `404`(user/group 없음) / `422`(`valid_until ≤ valid_from` 또는 과거 `valid_until`) / `401`·`403`.
+
+#### 9.9.3 GET `/api/users/{user_id}/grants`
+
+해당 사용자의 모든 부여를 `status` 파생값과 함께 배열로 반환(ADMIN). `data`: `GrantResponse[]`.
+
+#### 9.9.4 DELETE `/api/grants/{grant_id}`
+
+부여 **회수**(물리삭제 아님 — `revoked_at` 기록, 감사 `GRANT_REVOKED`). 회수 즉시 유효권한에서 제외(요청시점 판정). `data: null`.
 
 ---
 

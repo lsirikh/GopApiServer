@@ -8,11 +8,11 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v5.2** (2026-06-30, 안정성 hotfix + **강제로그아웃 전파 P1** + **세션설정 런타임 관리 P2**) / v5.1 (2026-06-29, 서버 RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한 endpoint) |
-| **HEAD commit** | `73ecc5e` (feat(v5.2): 세션 설정 런타임 관리 API — Session_Settings FR-SVS-01~06) |
-| **branch** | `feature/tracking-gis-ingest` (local) — ★ v5.2 커밋 4건 **미푸시** (gitea/origin push 잔여) |
-| **Container** | ⚠️ 본 세션은 **로컬 코드/테스트만** — 도커 재빌드·컨테이너 반영(5-sync) 미수행. Swagger version 여전히 `5.0.0`(v5.1/v5.2 미반영, 팀 관행) |
-| **DB** | PostgreSQL 16 / app_settings 테이블 신설(v55 마이그레이션 — psql 적용 잔여) |
+| **차수** | **v5.2** (2026-06-30, hotfix + **Force-Logout P1** + **Session-Settings P2** + **휴면 RBAC 부착** + **5-sync 배포**) / v5.1 (2026-06-29, RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한) |
+| **HEAD commit** | `4e26a0b` (chore(v5.2): Swagger version bump 5.0.0 → 5.2.0) |
+| **branch** | `feature/tracking-gis-ingest` — ✅ **origin push 완료**(전 커밋), ⬜ **gitea만 잔여**(인증). 태그 `v5.2-pre-deploy`·`v5.2-deployed` |
+| **Container** | ✅ **5-sync 배포 완료**(2026-06-30) — `docker compose build/up api-server`, 컨테이너 healthy, **Swagger version=5.2.0** 라이브 확인. 롤백 이미지 `api-test-server:pre-v5.2`. ⬜ 명세서(GOP_Restful_Api_연동설계.md) 본문 동기화 잔여 |
+| **DB** | PostgreSQL 16 / **app_settings 테이블 라이브 생성 확인**(startup create_all, v55 멱등). |
 
 ---
 
@@ -49,7 +49,7 @@
 | **B** | **Force-Logout 활성화 (FR-SVF-08 + 게이트)** | 인프라+조율 | NATS 발행 ACL(서버만 account.> publish, 클라 subscribe-only) + 클라 subject 매칭 확인(V-SVF-05) → 확인 후 `.env NATS_REVOKE_ENABLED=true` + 실 REVOKE_SIGNING_KEY 배포. **계약 §6 B-1~B-3에 명시** |
 | ~~**C**~~ | ~~클라 회신용 계약 스냅샷 문서~~ | ✅ **완료** | `docs/prds/CONTRACT_GOP_Server_v5.2.md` — C1 sid / C2 subject / C3 payload+골든벡터 V1·V2 / C4 401 / P2 GET·PUT 스키마. 클라 짝 PRD 통지 + §6 B-1(subject 매칭) 회신 요청 |
 | **D** | **푸시** | 소 | ✅ origin(GitHub) push 완료(7건). ⬜ **gitea 잔여** — 인증실패(http://192.168.202.160:3000). 차장님 직접: `! git push gitea feature/tracking-gis-ingest` |
-| **E** | **배포(5-sync)** | 중 | 도커 재빌드 + 컨테이너 반영 + v55 마이그레이션 psql 적용 + Swagger version bump + 안전점 태그(`v5.2-...`). 본 세션 미수행 |
+| ~~**E**~~ | ~~배포(5-sync)~~ | ✅ **완료** | 도커 재빌드(`api-server`) + 컨테이너 재기동(healthy) + app_settings 라이브 생성 + Swagger 5.2.0 라이브 + 태그 `v5.2-pre-deploy`/`v5.2-deployed` + 롤백이미지 `pre-v5.2`. ⬜ 명세서 본문 동기화(5중싱크 ⑤)만 잔여. |
 | **F** | (별도) 사전 테스트 실패 174건 | 별도 결정 | server_schema(pydantic AttributeError)·logs_router·config_change_log·test_config = pydantic 버전/환경 이슈, 본 작업 무관 |
 
 ---
@@ -162,7 +162,14 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 2026-06-25  v4.10 Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀 (복호화 경로 부재, 차장님 결재 "그냥 평문으로 보내", 6/6 PASS)
             v4.10 Phase 2 — HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS, 차장님 결재 "가장 간단·신뢰·폐쇄망")
             v4.10 Phase 2-add — PS2EXE Lite 인스톨러 2종 (certs/server_install.exe + client_install.exe, 차장님 결재 "두 개로 패키지해서 쉽게 쓸 수 있게")
+2026-06-30  권한그룹 스케쥴링 분석 + PRD(Draft) — 현행 권한그룹 구조 교차검증(등급↔그룹 Option A 연계 확인, time_restriction/기간컬럼/스케줄러 전무, require_perm 부착 0건) → 옵션B(user_group_grants 부여 테이블) 결재 → docs/prds/PRD_Permission_Group_Scheduling.md 작성. 선결=RBAC 집행(PRD_GOP_Server_RBAC_Enforcement). 승인 대기
 ```
+
+## 활성 PRD
+
+- **활성 PRD**: `docs/prds/PRD_Permission_Group_Scheduling.md` (Draft, Phase=prd, Track C)
+- **다음 할 일**: 사용자 승인(`advance-phase.js approve prd`) → plan 스킬로 구현 계획
+- **핵심 기술결정**: 스케쥴은 부여(grant)에 건다(그룹 정의 아님) / 권위판정=request-time `valid_until>now`(sweep 비의존) / 등급매트릭스 ∪ 유효grant 합집합 / 선결=RBAC 집행 0%→집행 활성화
 
 ---
 

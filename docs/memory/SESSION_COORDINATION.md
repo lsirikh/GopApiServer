@@ -68,6 +68,26 @@ def effective_permissions(db, user, now):
 
 ---
 
+## 잔여 작업 분장 (2026-06-30, WS-B 제안 — WS-A 확인/조정 요망)
+
+> 원칙: 파일 경계 무겹침(git 충돌 0). WS-A는 NATS·명세서·배포·RBAC잔여, WS-B는 grant 후속·클라가이드·schema정리.
+> WS-A가 이 표를 보고 **이의/조정 시 본 표를 직접 갱신**(소유 바꾸려면 여기 먼저).
+
+| # | 잔여 항목 | 담당 | 파일/경계 (무겹침) | 의존/비고 |
+|---|---|---|---|---|
+| R1 | **NATS `permissions_changed` 통지** | **WS-A 정의 → WS-B 통합** | WS-A: publisher 모듈 + subject 계약 / WS-B: `grants.py`·`grant_service.py`에서 **호출만** | WS-A가 subject(권고 `sensorway.{unit}.account.{user_id}.permissions.changed`) + 발행 헬퍼 시그니처 확정 → WS-B thin publish(생성/회수/sweep). publisher 파일은 WS-A 단독 |
+| R2 | **명세서 grant API 반영** (`GOP_Restful_Api_연동설계.md`) | **WS-A 통합** (WS-B 초안 제공) | spec doc **WS-A 단독**(동시편집 금지) | WS-B가 grant 4 endpoint(`POST/GET /users/{id}/grants`, `DELETE /grants/{id}`, `GET /auth/me/permissions`) 스펙 텍스트 제공(아래 R5 가이드에 동봉) |
+| R3 | **5중싱크 배포** (도커 재빌드+컨테이너+태그) + **v56 psql 적용** | **WS-A 배포 리드** (WS-B 명령 제공) | 병합 브랜치 **단일 배포 1회** | 양 WS 코드완료·리뷰 후. WS-B 제공: `docker exec api-test-postgres psql -U gop_user -d gop -f /app/migrations/v56_user_group_grants.sql` (단, ORM create_all로 신규DB 자동생성 — 기존 컨테이너만 필요) |
+| R4 | **schemas/user.py 중복 `PermissionsSchema` 정리** | **WS-B** | `app/schemas/user.py` **일시 WS-B 락**(단일 편집) | 사전실패 1건(`test_create_user_group_with_permissions`) unblock. line 21 죽은 정의 제거(line 46 strict governs). ★WS-A 동시편집 금지 요청 |
+| R5 | **클라(Dotnet.Monitoring) 스케쥴링 연동 가이드** | **WS-B** | **신규 문서**(WS-A `CONTRACT_*` 무접촉) | `/me/permissions`+`valid_until`+`server_time` 소비, 로그인 병합, (후속)NATS 패턴 + R2용 endpoint 스펙 포함 |
+| R6 | **AUTH_MODE=public→token 플립** | **공통(차단)** | `.env` | .NET 클라 3종 Bearer 동시배포 게이트. 스케쥴링·RBAC 동시 활성 |
+| R7 | **P7 FR-SV-11 RTSP 마스킹** | **WS-A** | `cameras.py` 등 | WS-A RBAC 잔여(스케쥴링 무관) |
+| R8 | **OPERATOR `edit=false` 정책** | **PM(차장님) 결정** | — | 활성화(R6) 전 의도 확인. WS-A 가이드 §6 |
+
+**즉시 착수 가능(무차단)**: WS-B = R4·R5 / WS-A = R1정의·R2·R7. **차단 대기**: R1통합(R1정의 후)·R3(코드완료 후)·R6(클라)·R8(PM).
+
+---
+
 ## 현재 상태 (live)
 
 - WS-A: 휴면 RBAC 배포 완료(Swagger 5.2.0 라이브, `v5.2-deployed`). 활성화(P5)는 클라 Bearer 동시배포 게이트. **추가 완료(2026-06-30)**: 명세서 본문 v5.2 동기화(`36379e3`, 5중싱크 5/5) + **FR-SV-09 종결(`de4266d`)** — `app/routers/user_groups.py` POST/PUT/DELETE/GET-members 에 `require_admin` 부착(권한그룹 관리 ADMIN 전용 통일). ★WS-B 알림: user_groups.py 데코레이터만 변경(핸들러 본문·grants 무관, 충돌 없음). P6 audit append-only는 `trg_audit_logs_immutable`(v51)로 **이미 DB레벨 충족**.

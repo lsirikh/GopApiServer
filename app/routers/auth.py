@@ -143,15 +143,31 @@ def require_role(*allowed_roles: str):
 require_admin = require_role("ADMIN")
 
 
+def _resolve_role_group(db: Session, user: AccountUser) -> UserGroup | None:
+    """권한 원천 그룹 해석(OQ-PG-01 Option A, login 도메인 정합 — auth.py 로그인 권한 유도와 동일).
+
+    1순위: user.role 명의 등급 그룹(`UserGroup.name == user.role`).
+    2순위(폴백): user.group_id 의 그룹.
+    """
+    group = db.query(UserGroup).filter(UserGroup.name == user.role).first()
+    if not group and user.group_id:
+        group = db.query(UserGroup).filter(UserGroup.id == user.group_id).first()
+    return group
+
+
+def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
+    """등급 그룹 permissions 매트릭스에서 modules[module][verb] 가 True 인지."""
+    perms = (group.permissions or {}) if group else {}
+    modules_perms = perms.get("modules", {}) if isinstance(perms, dict) else {}
+    verbs_perms = modules_perms.get(module, {}) if isinstance(modules_perms, dict) else {}
+    return isinstance(verbs_perms, dict) and bool(verbs_perms.get(verb))
+
+
 def require_perm(module: str, verb: str):
     """권한(module:verb) 기반 인가 의존성 팩토리 — v5.1 FR-SV-04 (PRD_GOP_Server_RBAC_Enforcement).
 
     인증된 AccountUser 의 역할(등급) 그룹 매트릭스에서 modules[module][verb]=True 확인 → 통과.
-    그 외 403. ADMIN 은 매트릭스 무관 bypass.
-
-    권한 원천(OQ-PG-01 Option A, login 도메인 정합 — auth.py:298~305):
-    - 1순위: user.role 명의 등급 그룹(`UserGroup.name == user.role`) permissions JSONB
-    - 2순위(폴백): user.group_id 의 그룹 permissions
+    그 외 403. ADMIN 은 매트릭스 무관 bypass. **토큰 필수**(get_current_account_user).
 
     Args:
         module: EnumPermissionModule 키 (예: 'devices', 'events', 'cameras', 'reports', ...)
@@ -160,7 +176,8 @@ def require_perm(module: str, verb: str):
     Note:
         - jti 블랙리스트 검사는 get_current_account_user 가 이미 수행 (의존 chain).
         - FR-SV-05 enums 선행: 미정의 모듈/verb를 require_perm 인자로 받으면 권한이 영구 부재 → 의도적 차단.
-        - 비계정 도메인(cameras/sensors/devices/...) write 라우터에 순차 부착 권고 (FR-SV-04 본 차수 + 다음 차수).
+        - AUTH_MODE 무관 토큰 강제가 필요한 도메인(reports)에 사용. 비계정 도메인의 점진 롤아웃은
+          require_perm_optional(휴면형) 사용.
     """
     async def _perm_checker(
         db: Session = Depends(get_db),
@@ -169,17 +186,7 @@ def require_perm(module: str, verb: str):
         # ADMIN bypass — 매트릭스 무관
         if current_user.role == "ADMIN":
             return current_user
-
-        # 역할명 등급 그룹 우선, 폴백으로 user.group_id
-        group = db.query(UserGroup).filter(UserGroup.name == current_user.role).first()
-        if not group and current_user.group_id:
-            group = db.query(UserGroup).filter(UserGroup.id == current_user.group_id).first()
-
-        perms = (group.permissions or {}) if group else {}
-        modules_perms = perms.get("modules", {}) if isinstance(perms, dict) else {}
-        verbs_perms = modules_perms.get(module, {}) if isinstance(modules_perms, dict) else {}
-
-        if not isinstance(verbs_perms, dict) or not verbs_perms.get(verb):
+        if not _role_group_allows(_resolve_role_group(db, current_user), module, verb):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",

@@ -145,15 +145,15 @@ require_admin = require_role("ADMIN")
 
 
 def _resolve_role_group(db: Session, user: AccountUser) -> UserGroup | None:
-    """권한 원천 그룹 해석(OQ-PG-01 Option A, login 도메인 정합 — auth.py 로그인 권한 유도와 동일).
+    """권한 원천 그룹 = 사용자에게 **명시 배정된 그룹(group_id)** — ADR_Permission_Model_v5.2 (R10①).
 
-    1순위: user.role 명의 등급 그룹(`UserGroup.name == user.role`).
-    2순위(폴백): user.group_id 의 그룹.
+    ★ `name==role` 자동해석 **폐기**(임시 등급상승·rename 붕괴 위험 제거).
+    role 은 ADMIN 특권 라벨일 뿐 권한 원천이 아니다(기능권한 = 배정 그룹 + grant).
+    배정(group_id) 안 한 비-ADMIN 은 권한 0(명시·안전). ADMIN bypass 는 호출 측(require_perm 등).
     """
-    group = db.query(UserGroup).filter(UserGroup.name == user.role).first()
-    if not group and user.group_id:
-        group = db.query(UserGroup).filter(UserGroup.id == user.group_id).first()
-    return group
+    if user.group_id:
+        return db.query(UserGroup).filter(UserGroup.id == user.group_id).first()
+    return None
 
 
 def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:

@@ -146,6 +146,107 @@ def require_role(*allowed_roles: str):
 require_admin = require_role("ADMIN")
 
 
+def require_perm(module: str, verb: str):
+    """권한(module:verb) 기반 인가 의존성 팩토리 — v5.1 FR-SV-04 (PRD_GOP_Server_RBAC_Enforcement).
+
+    인증된 AccountUser 의 역할(등급) 그룹 매트릭스에서 modules[module][verb]=True 확인 → 통과.
+    그 외 403. ADMIN 은 매트릭스 무관 bypass.
+
+    권한 원천(OQ-PG-01 Option A, login 도메인 정합 — auth.py:298~305):
+    - 1순위: user.role 명의 등급 그룹(`UserGroup.name == user.role`) permissions JSONB
+    - 2순위(폴백): user.group_id 의 그룹 permissions
+
+    Args:
+        module: EnumPermissionModule 키 (예: 'devices', 'events', 'cameras', 'reports', ...)
+        verb: EnumPermissionVerb 키 ('view', 'edit', 'delete', 'control')
+
+    Note:
+        - jti 블랙리스트 검사는 get_current_account_user 가 이미 수행 (의존 chain).
+        - FR-SV-05 enums 선행: 미정의 모듈/verb를 require_perm 인자로 받으면 권한이 영구 부재 → 의도적 차단.
+        - 비계정 도메인(cameras/sensors/devices/...) write 라우터에 순차 부착 권고 (FR-SV-04 본 차수 + 다음 차수).
+    """
+    async def _perm_checker(
+        db: Session = Depends(get_db),
+        current_user: AccountUser = Depends(get_current_account_user),
+    ) -> AccountUser:
+        # ADMIN bypass — 매트릭스 무관
+        if current_user.role == "ADMIN":
+            return current_user
+
+        # 역할명 등급 그룹 우선, 폴백으로 user.group_id
+        group = db.query(UserGroup).filter(UserGroup.name == current_user.role).first()
+        if not group and current_user.group_id:
+            group = db.query(UserGroup).filter(UserGroup.id == current_user.group_id).first()
+
+        perms = (group.permissions or {}) if group else {}
+        modules_perms = perms.get("modules", {}) if isinstance(perms, dict) else {}
+        verbs_perms = modules_perms.get(module, {}) if isinstance(modules_perms, dict) else {}
+
+        if not isinstance(verbs_perms, dict) or not verbs_perms.get(verb):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
+            )
+        return current_user
+
+    return _perm_checker
+
+
+async def get_current_account_user_optional(
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> AccountUser | None:
+    """AUTH_MODE 의존 선택적 인증 의존성 — v5.1 FR-SV-03 (AccountUser 기반).
+
+    레거시 `get_current_user_optional`(Legacy User 모델 + jti 검사 없음)을 대체하는 신규 헬퍼.
+    비계정 도메인(cameras/sensors/devices/...) 라우터가 본 의존성으로 이주하면:
+    - AUTH_MODE=public 일 때 토큰 없으면 None (현재 동작 유지)
+    - AUTH_MODE=token 일 때 토큰 필수 (401)
+    - 토큰 있으면 AccountUser 객체 + jti 블랙리스트 검사 (logout/강등 후 즉시 차단)
+
+    ★ AUTH_MODE=public→token 전환은 본 헬퍼만으로는 발효 안 됨 — 비계정 라우터 의존성 교체(FR-SV-08) +
+    클라 Bearer 부착(상위 PRD GOP_Permission_Enforcement) **동시 배포** 필수.
+
+    Returns:
+        인증된 경우 AccountUser, AUTH_MODE=public + 토큰 없음 시 None.
+
+    Raises:
+        HTTPException 401: AUTH_MODE=token 인데 토큰 누락/무효 또는 jti 블랙리스트 등재.
+    """
+    from app.config import settings
+    from app.services.token_blacklist_service import is_blacklisted
+
+    token = credentials.credentials if credentials else None
+
+    # token 모드: 토큰 필수
+    if settings.AUTH_MODE == "token":
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await get_current_account_user(credentials=credentials, db=db)
+
+    # public 모드: 토큰 선택
+    if not token:
+        return None
+    try:
+        token_data = decode_token(token)
+        # jti 블랙리스트 검사 (logout/강등 즉시 무효화)
+        if token_data.jti and is_blacklisted(db, token_data.jti):
+            return None
+        login_id = token_data.username
+        if not login_id:
+            return None
+        user = db.query(AccountUser).filter(AccountUser.login_id == login_id).first()
+        if not user or not user.is_active or user.is_locked:
+            return None
+        return user
+    except JWTError:
+        return None
+
+
 async def get_current_user_optional(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)

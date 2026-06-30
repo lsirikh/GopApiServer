@@ -21,6 +21,8 @@ from urllib.parse import quote
 import os
 
 from app.dependencies import get_db
+from app.routers.auth import get_current_account_user
+from app.models.user import AccountUser
 from app.services.report_service import ReportService
 from app.config import settings
 from app.models.report import ReportTemplate, ReportGeneration
@@ -34,7 +36,12 @@ from app.schemas.report import (
 from app.schemas.common import ApiResponse
 from app.utils.enums import EnumReportComponent
 
-router = APIRouter()
+# v5.1 FR-SV-02 (PRD_GOP_Server_RBAC_Enforcement):
+# Router 레벨 의존성으로 모든 reports endpoint에 인증 강제 (이전 무인증 노출 LIVE 위험 차단).
+# - 12 endpoint(템플릿 CRUD/components/generate/generations/download/preview)이 토큰 없이도 PII 집계 노출 가능했음.
+# - get_current_account_user는 jti 블랙리스트도 검사 → 로그아웃/강등 즉시 차단.
+# - require_perm(reports, view/edit/delete) 도메인별 부착은 v5.2 권고 (FR-SV-04 비계정 라우터 적용 단계).
+router = APIRouter(dependencies=[Depends(get_current_account_user)])
 
 
 # ==============================================================================

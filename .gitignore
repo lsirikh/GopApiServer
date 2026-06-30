@@ -133,3 +133,4 @@ data/profiles/
 !data/profiles/.gitkeep
 # 외부 세션 backslash escape 사고 산출물 차단
 c:workspace_python*
+!docs/PRD_GOP_Server_RBAC_Enforcement.md

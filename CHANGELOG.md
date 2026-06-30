@@ -4,6 +4,48 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.1] — 2026-06-29
+
+> 외부 세션 시뮬레이션 `wf_52155656`(22 agent / 218 시나리오 / 99 발견) 결과 PRD 도입 → 서버 RBAC 집행률 0% 확진. P0 5건 + P1 일부(SV-06/09) 즉시 적용. AUTH_MODE=token 전환 + 비계정 라우터 require_perm 일괄 부착은 v5.2 권고.
+
+**PRD**: `docs/PRD_GOP_Server_RBAC_Enforcement.md`
+**안전점**: `pre-rbac-enforcement` @ `a699a6f`
+
+### Added (RBAC 인프라)
+
+- **FR-SV-05** — `EnumPermissionModule` 8→12종 확장 (`map`/`broadcast`/`setup_system`/`setup_feature` 추가, `cameras` 표기 통일).
+- **FR-SV-04** — `require_perm(module, verb)` 팩토리 신설 (`app/routers/auth.py`). ADMIN bypass + 역할명 등급 그룹 매트릭스 + jti 블랙리스트 검사.
+- **FR-SV-03 helper** — `get_current_account_user_optional` 신설. AccountUser 기반 + jti 검사 + AUTH_MODE 분기. **AUTH_MODE 전환 자체는 미실시** (v5.2).
+
+### Security (RBAC Enforcement)
+
+- **FR-SV-01 잔여** — `user_sessions.py` 4 endpoint `require_admin` 부착 + 벌크 force_logout에 access+refresh jti 블랙리스트.
+- **FR-SV-02** — `reports.py` 라우터 레벨 인증 강제 (12 endpoint 무인증 PII 노출 LIVE 차단).
+- **FR-SV-09** — `servers.py PATCH /{id}` + `user_groups.py GET` 2종 `require_admin`.
+
+### Fixed (Integrity)
+
+- **FR-SV-06** — 마지막 ADMIN 원자 가드 (`users.py` PUT + DELETE). `with_for_update().all() + len()` (PG `FOR UPDATE + count` 비호환). TOCTOU 차단.
+
+### Verified (12/12 PASS)
+
+- reports 무인증 401 / admin 200 / components 401
+- user_sessions admin 200 / OPERATOR 403 (GET + DELETE×2)
+- user_groups OPERATOR GET 403 (목록 + 상세)
+- servers OPERATOR PATCH 403
+- 마지막 ADMIN DELETE/PUT role 강등 → 409
+- Swagger EnumPermissionModule 12종 노출
+
+### Deferred (v5.2+)
+
+- FR-SV-03 ① AUTH_MODE 전환 (클라 Bearer 동시 배포)
+- FR-SV-04 require_perm 비계정 라우터 적용 (cameras/sensors/actions write endpoint)
+- FR-SV-07 감사 append-only DB 강제 (PostgreSQL RULE/RLS)
+- FR-SV-08 도메인 jti 통일 (`get_current_user_optional` 전수 교체)
+- FR-SV-10 비번 변경 세션 무효화
+- FR-SV-11 RTSP URL 마스킹 + NATS ACL
+- PRD §5-A V-SV-01~08 검증
+
 ## [v5.0] — 2026-06-29
 
 > 하루 1차수 묶음 원칙 — 2026-06-29 작업(외부 세션 그룹 권한 endpoint 신설 + 9중 정합 정리 + 외부 세션 미반영 항목 마감)을 단일 차수 v5.0으로 묶음. 외부 세션이 신규 권한 관리 endpoint를 `# PRD v5.0` 주석으로 마킹 → "권한 관리(Permission Management) 도메인" 본격 분리의 새 보안 핵심으로 보아 v4.12 후속 정합 정리와 함께 v5.0으로 승격 (차장님 결재 동의). v4.12 RBAC가 *endpoint-level 인가*(ADMIN 게이트)였다면, v5.0은 *group-level 권한 정책*(modules × verb 매트릭스) 관리.

@@ -16,7 +16,7 @@ from app.schemas.user import PermissionsSchema
 router = APIRouter(tags=["User Groups"])
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_admin)])
 async def get_user_groups(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -51,7 +51,7 @@ async def get_user_groups(
     }
 
 
-@router.get("/{group_id}")
+@router.get("/{group_id}", dependencies=[Depends(require_admin)])
 async def get_user_group_by_id(
     group_id: int,
     db: Session = Depends(get_db),

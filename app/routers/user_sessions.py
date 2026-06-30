@@ -8,7 +8,7 @@ from typing import Optional, List
 from app.dependencies import get_db
 from app.models.user import UserSession, AccountUser, UserLoginLog
 from app.schemas.user import UserSessionResponse
-from app.routers.auth import get_current_account_user
+from app.routers.auth import get_current_account_user, require_admin
 from app.services.audit_service import log_action
 
 router = APIRouter(tags=["User Sessions"])
@@ -36,7 +36,7 @@ def _session_to_response(session: UserSession) -> dict:
     return response
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_admin)])
 async def get_user_sessions(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -72,7 +72,7 @@ async def get_user_sessions(
     }
 
 
-@router.delete("/user/{user_id}")
+@router.delete("/user/{user_id}", dependencies=[Depends(require_admin)])
 async def force_logout_all_user_sessions(
     user_id: int,
     db: Session = Depends(get_db),
@@ -108,12 +108,51 @@ async def force_logout_all_user_sessions(
         UserSession.is_active == True
     ).all()
 
+    # v5.1 FR-SV-01: 벌크 force_logout 시 각 세션의 access+refresh jti 블랙리스트 등록
+    # — is_active=False 만으로는 발급된 JWT가 exp(24h)까지 통과해 강제 로그아웃 실효 없음.
+    # 단건(/{session_id}) 핸들러와 동일 패턴(commit 980abbc).
+    from jose import JWTError
+    from app.utils.auth import decode_token as _decode
+    from app.services.token_blacklist_service import add_to_blacklist
+    from datetime import timedelta as _td
+
     count = 0
     for session in active_sessions:
         session.is_active = False
         session.logout_reason = "FORCED"
         session.forced_by = current_user.id
         session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+
+        # access jti 블랙리스트
+        if session.token:
+            try:
+                td = _decode(session.token)
+                if td.jti:
+                    add_to_blacklist(
+                        db=db,
+                        jti=td.jti,
+                        token_type="access",
+                        user_id=user_id,
+                        reason="FORCE_LOGOUT_BULK",
+                        expires_in=_td(hours=24),
+                    )
+            except JWTError:
+                pass
+        # refresh jti 블랙리스트
+        if session.refresh_token:
+            try:
+                td = _decode(session.refresh_token)
+                if td.jti:
+                    add_to_blacklist(
+                        db=db,
+                        jti=td.jti,
+                        token_type="refresh",
+                        user_id=user_id,
+                        reason="FORCE_LOGOUT_BULK",
+                        expires_in=_td(days=7),
+                    )
+            except JWTError:
+                pass
 
         # Create a login log entry for each force logout
         log_entry = UserLoginLog(
@@ -233,7 +272,7 @@ async def delete_my_session(
     }
 
 
-@router.get("/{session_id}")
+@router.get("/{session_id}", dependencies=[Depends(require_admin)])
 async def get_user_session_by_id(
     session_id: int,
     db: Session = Depends(get_db),
@@ -269,7 +308,7 @@ async def get_user_session_by_id(
     }
 
 
-@router.delete("/{session_id}")
+@router.delete("/{session_id}", dependencies=[Depends(require_admin)])
 async def force_logout_session(
     session_id: int,
     db: Session = Depends(get_db),
@@ -307,6 +346,33 @@ async def force_logout_session(
     session.logout_reason = "FORCED"
     session.forced_by = current_user.id
     session.logged_out_at = datetime.now(settings.tz)
+
+    # ★ 토큰 즉시 무효화 — is_active=False 만으로는 이미 발급된 JWT가 exp(24h)까지 통과하여
+    #    강제 로그아웃이 실효 없음. access + refresh jti 를 블랙리스트에 등록해야:
+    #    (1) 그 토큰으로의 모든 요청 → 401 "Token has been revoked"
+    #    (2) refresh 도 거부(refresh 가 is_blacklisted 검사) → 클라가 재발급 못 받고 SessionExpired → 로그아웃.
+    from jose import JWTError
+    from app.utils.auth import decode_token as _decode
+    from app.services.token_blacklist_service import add_to_blacklist
+    from datetime import timedelta as _td
+    if session.token:
+        try:
+            _at = _decode(session.token)
+            if _at.jti:
+                add_to_blacklist(db=db, jti=_at.jti,
+                                 expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
+                                 reason="FORCED", user_id=session.user_id, token_type="access")
+        except JWTError:
+            pass
+    if session.refresh_token:
+        try:
+            _rt = _decode(session.refresh_token, expected_type="refresh")
+            if _rt.jti:
+                add_to_blacklist(db=db, jti=_rt.jti,
+                                 expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                                 reason="FORCED", user_id=session.user_id, token_type="refresh")
+        except JWTError:
+            pass
 
     # Create a login log entry for the force logout
     log_entry = UserLoginLog(

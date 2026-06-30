@@ -39,11 +39,13 @@
 
 ## 나머지 작업 (다음 세션) ★
 
-> **2026-06-30 추가 세션**: ✅ **D 부분완료**(origin push 7건 완료, **gitea만 인증실패로 잔여**) + ✅ **C 완료**([CONTRACT_GOP_Server_v5.2.md](../prds/CONTRACT_GOP_Server_v5.2.md) 작성, 골든벡터 실코드 계산).
+> **2026-06-30 추가 세션**: ✅ **D 부분완료**(origin push 완료, **gitea만 인증실패로 잔여**) + ✅ **C 완료**([CONTRACT_GOP_Server_v5.2.md](../prds/CONTRACT_GOP_Server_v5.2.md), 골든벡터 실코드 계산) + ✅ **A 안전분 FR-SV-10 완료**(`b2f80c8`).
+>
+> ★ **A 실상 재검증(2026-06-30)**: 코드가 세션컨텍스트보다 앞섬. **RBAC 인프라 전부 구축됨**(`require_perm`·`require_admin`·`get_current_account_user_optional`·jti 검사 auth.py). **FR-SV-01**(세션 require_admin 4종 + 벌크 jti)·**FR-SV-05**(enums)·**FR-SV-06**(마지막 ADMIN FOR UPDATE 가드, users.py:529) **이미 구현 확인**. **FR-SV-10 이번 세션 구현**. **남은 핵심=파괴적 부분**: require_perm 8도메인 부착 + 30 라우터 이주(현 `.env AUTH_MODE=public`이라 부착 즉시 Bearer 없는 클라 401). require_perm은 reports.py만 부착됨.
 
 | # | 작업 | 분량/유형 | 비고 |
 |---|------|---------|------|
-| **A** | **RBAC_Enforcement 잔여 (FR-SV-04/08)** | 대형 / plan 먼저 | `require_perm`을 비계정 write 8도메인(cameras/sensors/controllers/actions/detections/malfunctions/servers/audit_logs) 부착 + 30+ 라우터 `get_current_user_optional`→`get_current_account_user_optional` 이주. ★AUTH_MODE=token 전환은 **클라 Bearer 동시배포 필수**(분리 시 비계정 전원 401). FR-SV-05(map/broadcast) 이미 반영. FR-SV-07(audit DB레벨 DELETE RULE/RLS)·FR-SV-10(비번변경 세션무효화)·FR-SV-11(RTSP 마스킹) 미구현 |
+| **A** | **RBAC_Enforcement 파괴 핵심 (FR-SV-04/08)** | 대형 / **클라 Bearer 동시배포 필수** | `require_perm` 8도메인(cameras/sensors/controllers/actions/detections/malfunctions/servers/audit_logs) 부착 + 30 라우터 `get_current_user_optional`→`get_current_account_user_optional` 이주 + `AUTH_MODE=public→token`. ★현 public 모드에서 단독 부착 시 비계정 클라 전원 401 → **단독 배포 불가, 클라팀(.NET 3종) Bearer 동시배포 조율 필수**. 잔여: FR-SV-07(audit DB레벨 DELETE RULE/RLS, 마이그레이션)·FR-SV-11(RTSP 마스킹, 응답변경=반파괴)·FR-SV-09(user_groups GET 점검). ✅ FR-SV-10(비번변경 세션무효화)=`b2f80c8` 완료. |
 | **B** | **Force-Logout 활성화 (FR-SVF-08 + 게이트)** | 인프라+조율 | NATS 발행 ACL(서버만 account.> publish, 클라 subscribe-only) + 클라 subject 매칭 확인(V-SVF-05) → 확인 후 `.env NATS_REVOKE_ENABLED=true` + 실 REVOKE_SIGNING_KEY 배포. **계약 §6 B-1~B-3에 명시** |
 | ~~**C**~~ | ~~클라 회신용 계약 스냅샷 문서~~ | ✅ **완료** | `docs/prds/CONTRACT_GOP_Server_v5.2.md` — C1 sid / C2 subject / C3 payload+골든벡터 V1·V2 / C4 401 / P2 GET·PUT 스키마. 클라 짝 PRD 통지 + §6 B-1(subject 매칭) 회신 요청 |
 | **D** | **푸시** | 소 | ✅ origin(GitHub) push 완료(7건). ⬜ **gitea 잔여** — 인증실패(http://192.168.202.160:3000). 차장님 직접: `! git push gitea feature/tracking-gis-ingest` |
@@ -179,7 +181,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-54616
+- **현재 세션 ID**: ppid-79004
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-54616
+- **활성 세션 목록**: ppid-79004
 

@@ -38,6 +38,7 @@ from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
+from app.security.matrix_enforcer import enforce_matrix
 
 
 # OpenAPI 태그 메타데이터 정의
@@ -321,7 +322,9 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
     license_info={
         "name": "Proprietary",
     },
-    generate_unique_id_function=lambda route: f"{route.name}"
+    generate_unique_id_function=lambda route: f"{route.name}",
+    # 매트릭스 중앙 집행(미들웨어형) — 전역 단일 choke point. 휴면(public)에선 무집행.
+    dependencies=[Depends(enforce_matrix)],
 )
 
 # Jinja2 Templates for HTML rendering (PRD Section 10: Preview Page)
@@ -691,18 +694,22 @@ def report_preview_page(
     개발용 보고서 미리보기 페이지
     PRD Reference: PRD_Report_System.md Section 10
     """
+    from fastapi.responses import HTMLResponse
     from app.services.report_service import ReportService
+    from app.services.report_master_builder import build_master_data, build_report_meta
+    from app.services.report_html_renderer import render_report_html
 
     generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
 
-    # Get structured preview data from ReportService
+    # PRD_Report_Master_Redesign: 프리뷰 == PDF 동일 HTML (정형=전체, 비정형=template 컴포넌트 필터)
+    # 브라우저 기본은 compact(검토용), ?mode=full 로 전체 페이지네이션 확인 가능.
     service = ReportService(db)
-    preview_data = service.get_structured_preview_data()
-
-    return templates.TemplateResponse(request, "reports/preview.html", {
-        "report": generation,
-        "preview": preview_data
-    })
+    enabled = service.get_enabled_components(generation)
+    enabled_set = set(enabled) if enabled is not None else None
+    meta = build_report_meta(generation)
+    data = build_master_data(db, generation.start_date, generation.end_date, meta, enabled_set)
+    mode = "full" if request.query_params.get("mode") == "full" else "compact"
+    return HTMLResponse(render_report_html(data, mode=mode))

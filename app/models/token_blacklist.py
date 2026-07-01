@@ -6,6 +6,7 @@ PRD: v4.9 Phase 2-A4 (D1 결재: 잠정 DB 저장소)
 """
 from datetime import datetime
 from sqlalchemy import BigInteger, Column, ForeignKey, Integer, String, DateTime
+from sqlalchemy.dialects.sqlite import INTEGER as SQLITE_INTEGER
 from app.database import Base
 
 
@@ -18,7 +19,13 @@ class TokenBlacklist(Base):
     """
     __tablename__ = "token_blacklist"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    # BigInteger PK는 SQLite에서 ROWID 별칭이 아니라 autoincrement 불가(테스트 INSERT 시 NOT NULL 위반).
+    # repo 관용구(JSON().with_variant(JSONB(),"postgresql"))와 동일하게 SQLite엔 INTEGER 변형 적용.
+    # Postgres DDL은 BIGINT 그대로 유지(운영 스키마 불변).
+    id = Column(
+        BigInteger().with_variant(SQLITE_INTEGER(), "sqlite"),
+        primary_key=True, autoincrement=True,
+    )
     jti = Column(String(64), nullable=False, unique=True, index=True)
     user_id = Column(Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True, index=True)
     token_type = Column(String(20), nullable=False, default="access")  # 'access' or 'refresh'

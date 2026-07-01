@@ -8,9 +8,10 @@ from jose import JWTError
 from typing import Optional
 from datetime import datetime, timedelta
 
+from sqlalchemy import or_
 from app.dependencies import get_db
 # NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
-from app.models.user import User, AccountUser, UserSession, UserLoginLog, UserGroup
+from app.models.user import User, AccountUser, UserSession, UserLoginLog, UserGroup, UserGroupGrant
 from app.schemas.user import Token, UserResponse, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
 from app.utils.auth import verify_password, create_access_token, create_refresh_token, decode_token
 
@@ -107,14 +108,11 @@ async def get_current_account_user(
         if login_id is None:
             raise credentials_exception
 
-        # PRD v4.9 Phase 2-A4: jti 블랙리스트 검증
-        from app.services.token_blacklist_service import is_blacklisted
+        # PRD v4.9 Phase 2-A4: jti 블랙리스트 검증 / FR-SVF-10: 안정 코드 SESSION_REVOKED 노출
+        from app.services.token_blacklist_service import is_blacklisted, get_blacklist_reason
         if is_blacklisted(db, token_data.jti):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has been revoked",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            from app.exceptions import RevokedTokenError
+            raise RevokedTokenError(reason=get_blacklist_reason(db, token_data.jti))
 
     except JWTError:
         raise credentials_exception
@@ -146,15 +144,125 @@ def require_role(*allowed_roles: str):
 require_admin = require_role("ADMIN")
 
 
+def _resolve_role_group(db: Session, user: AccountUser) -> UserGroup | None:
+    """권한 원천 그룹 = 사용자에게 **명시 배정된 그룹(group_id)** — ADR_Permission_Model_v5.2 (R10①).
+
+    ★ `name==role` 자동해석 **폐기**(임시 등급상승·rename 붕괴 위험 제거).
+    role 은 ADMIN 특권 라벨일 뿐 권한 원천이 아니다(기능권한 = 배정 그룹 + grant).
+    배정(group_id) 안 한 비-ADMIN 은 권한 0(명시·안전). ADMIN bypass 는 호출 측(require_perm 등).
+    """
+    if user.group_id:
+        return db.query(UserGroup).filter(UserGroup.id == user.group_id).first()
+    return None
+
+
+def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
+    """등급 그룹 permissions 매트릭스에서 modules[module][verb] 가 True 인지."""
+    perms = (group.permissions or {}) if group else {}
+    modules_perms = perms.get("modules", {}) if isinstance(perms, dict) else {}
+    verbs_perms = modules_perms.get(module, {}) if isinstance(modules_perms, dict) else {}
+    return isinstance(verbs_perms, dict) and bool(verbs_perms.get(verb))
+
+
+def _kst_now() -> datetime:
+    """settings.tz(KST) 기준 naive now — grant 저장/비교 컨벤션 일치."""
+    from app.config import settings
+    return datetime.now(settings.tz).replace(tzinfo=None)
+
+
+def _active_grants(db: Session, user: AccountUser, now=None) -> list:
+    """현재 유효한(요청시점) grant 행 목록 — FR-02 (PRD_Permission_Group_Scheduling §3.2).
+
+    유효 = revoked_at IS NULL AND valid_from <= now AND (valid_until IS NULL OR valid_until > now).
+    ★ is_active(sweep 비정규화)는 **보지 않는다** — sweep 지연/미실행 시 보안구멍 방지(NFR-01).
+    """
+    if now is None:
+        now = _kst_now()
+    return db.query(UserGroupGrant).filter(
+        UserGroupGrant.user_id == user.id,
+        UserGroupGrant.revoked_at.is_(None),
+        UserGroupGrant.valid_from <= now,
+        or_(UserGroupGrant.valid_until.is_(None), UserGroupGrant.valid_until > now),
+    ).all()
+
+
+def _active_grant_groups(db: Session, user: AccountUser, now=None) -> list:
+    """현재 유효 grant 들의 권한그룹 목록(_active_grants 파생)."""
+    return [g.group for g in _active_grants(db, user, now) if g.group is not None]
+
+
+def _merge_modules(target: dict, src) -> None:
+    """src.modules 의 truthy verb 를 target.modules 에 OR 병합(합집합).
+
+    R11 가드: modules 가 dict 아니면(레거시 list 등) 무시 — 로그인 경로 500 회귀 방지.
+    (라이브 그룹은 strict schema라 전부 dict이나, 레거시/오염 데이터에도 견고하게.)
+    """
+    if not isinstance(src, dict):
+        return
+    modules = src.get("modules")
+    if not isinstance(modules, dict):
+        return
+    for module, verbs in modules.items():
+        if not isinstance(verbs, dict):
+            continue
+        tgt_verbs = target.setdefault("modules", {}).setdefault(module, {})
+        for verb, val in verbs.items():
+            if val:
+                tgt_verbs[verb] = True
+
+
+def effective_permissions_payload(db: Session, user: AccountUser, now=None) -> dict:
+    """클라 노출용 유효권한 페이로드 — FR-06/FR-07.
+
+    = 등급 매트릭스 ∪ 현재 유효 grant 그룹 매트릭스(modules OR, device_groups 합집합).
+    valid_until = 활성 grant 중 가장 임박한 만료(없으면 None=상시). 클라 캐시 만료시점.
+    """
+    if now is None:
+        now = _kst_now()
+    merged: dict = {"modules": {}, "device_groups": []}
+
+    def _add_device_groups(perms):
+        if isinstance(perms, dict):
+            for dg in (perms.get("device_groups") or []):
+                if dg not in merged["device_groups"]:
+                    merged["device_groups"].append(dg)
+
+    role_group = _resolve_role_group(db, user)
+    if role_group and isinstance(role_group.permissions, dict):
+        _merge_modules(merged, role_group.permissions)
+        _add_device_groups(role_group.permissions)
+
+    earliest_until = None
+    for grant in _active_grants(db, user, now):
+        grp = grant.group
+        if grp and isinstance(grp.permissions, dict):
+            _merge_modules(merged, grp.permissions)
+            _add_device_groups(grp.permissions)
+        if grant.valid_until is not None and (earliest_until is None or grant.valid_until < earliest_until):
+            earliest_until = grant.valid_until
+
+    merged["valid_until"] = earliest_until
+    return merged
+
+
+def _effective_allows(db: Session, user: AccountUser, module: str, verb: str, now=None) -> bool:
+    """유효권한 = 등급 매트릭스 ∪ 현재 유효 grant 그룹 매트릭스 — FR-02.
+
+    ADMIN bypass 는 호출 측(require_perm 등)에서 처리. 여기서는 비-ADMIN 합집합 판정만.
+    """
+    if _role_group_allows(_resolve_role_group(db, user), module, verb):
+        return True
+    for grant_group in _active_grant_groups(db, user, now):
+        if _role_group_allows(grant_group, module, verb):
+            return True
+    return False
+
+
 def require_perm(module: str, verb: str):
     """권한(module:verb) 기반 인가 의존성 팩토리 — v5.1 FR-SV-04 (PRD_GOP_Server_RBAC_Enforcement).
 
     인증된 AccountUser 의 역할(등급) 그룹 매트릭스에서 modules[module][verb]=True 확인 → 통과.
-    그 외 403. ADMIN 은 매트릭스 무관 bypass.
-
-    권한 원천(OQ-PG-01 Option A, login 도메인 정합 — auth.py:298~305):
-    - 1순위: user.role 명의 등급 그룹(`UserGroup.name == user.role`) permissions JSONB
-    - 2순위(폴백): user.group_id 의 그룹 permissions
+    그 외 403. ADMIN 은 매트릭스 무관 bypass. **토큰 필수**(get_current_account_user).
 
     Args:
         module: EnumPermissionModule 키 (예: 'devices', 'events', 'cameras', 'reports', ...)
@@ -163,7 +271,8 @@ def require_perm(module: str, verb: str):
     Note:
         - jti 블랙리스트 검사는 get_current_account_user 가 이미 수행 (의존 chain).
         - FR-SV-05 enums 선행: 미정의 모듈/verb를 require_perm 인자로 받으면 권한이 영구 부재 → 의도적 차단.
-        - 비계정 도메인(cameras/sensors/devices/...) write 라우터에 순차 부착 권고 (FR-SV-04 본 차수 + 다음 차수).
+        - AUTH_MODE 무관 토큰 강제가 필요한 도메인(reports)에 사용. 비계정 도메인의 점진 롤아웃은
+          require_perm_optional(휴면형) 사용.
     """
     async def _perm_checker(
         db: Session = Depends(get_db),
@@ -172,17 +281,8 @@ def require_perm(module: str, verb: str):
         # ADMIN bypass — 매트릭스 무관
         if current_user.role == "ADMIN":
             return current_user
-
-        # 역할명 등급 그룹 우선, 폴백으로 user.group_id
-        group = db.query(UserGroup).filter(UserGroup.name == current_user.role).first()
-        if not group and current_user.group_id:
-            group = db.query(UserGroup).filter(UserGroup.id == current_user.group_id).first()
-
-        perms = (group.permissions or {}) if group else {}
-        modules_perms = perms.get("modules", {}) if isinstance(perms, dict) else {}
-        verbs_perms = modules_perms.get(module, {}) if isinstance(modules_perms, dict) else {}
-
-        if not isinstance(verbs_perms, dict) or not verbs_perms.get(verb):
+        # 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-02, 요청시점 계산)
+        if not _effective_allows(db, current_user, module, verb):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
@@ -190,6 +290,50 @@ def require_perm(module: str, verb: str):
         return current_user
 
     return _perm_checker
+
+
+def require_perm_optional(module: str, verb: str):
+    """휴면(dormant) 권한 집행 의존성 팩토리 — v5.x FR-SV-04 (배포-대기형).
+
+    require_perm 과 동일한 등급 매트릭스 집행이지만 **AUTH_MODE=public 에서는 완전 무집행**(현 동작 보존).
+    비계정 도메인(cameras/sensors/controllers/actions/detections/malfunctions/servers) write 라우터에
+    지금 부착해도 public 모드에선 무해 → 클라(.NET 3종) Bearer 동시배포일에 `AUTH_MODE=token` 플립만으로
+    일괄 활성화(점진 롤아웃, FR-SV-03 ②①·클라 ③ 동시 배포 전제).
+
+    동작:
+    - **public 모드**: 항상 통과(토큰 유무·역할 무관). 현 라우터 동작과 100% 동일.
+    - **token 모드**: get_current_account_user_optional 가 토큰 없으면 401(+jti 블랙리스트 검사).
+        ADMIN bypass / 매트릭스 modules[module][verb] 없으면 403.
+
+    require_perm(엄격, 토큰 항상 필수)과의 차이: public 모드 무집행 여부. reports 처럼 AUTH_MODE 무관
+    강제가 필요하면 require_perm 사용.
+    """
+    async def _perm_checker_optional(
+        db: Session = Depends(get_db),
+        current_user: "AccountUser | None" = Depends(get_current_account_user_optional),
+    ) -> "AccountUser | None":
+        from app.config import settings
+        # public 모드: 전환 대기(미집행) — 현 동작 완전 보존
+        if settings.AUTH_MODE != "token":
+            return current_user
+        # token 모드: optional 이 토큰 필수/jti 검사를 이미 수행 → current_user 존재 보장
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if current_user.role == "ADMIN":
+            return current_user
+        # 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-02, 요청시점 계산)
+        if not _effective_allows(db, current_user, module, verb):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
+            )
+        return current_user
+
+    return _perm_checker_optional
 
 
 async def get_current_account_user_optional(
@@ -351,8 +495,11 @@ async def login(
         # Increment failed login count
         user.failed_login_count += 1
 
-        # Lock account after 5 failed attempts
-        if user.failed_login_count >= 5:
+        # FR-SVS-05: 잠금 임계를 런타임 설정에서 읽음(기존 하드코딩 >= 5 대체). 0이면 잠금 비활성.
+        from app.services import settings_service
+        from app.services.settings_service import SettingKey
+        _lockout_threshold = settings_service.get(db, SettingKey.LOCKOUT_THRESHOLD)
+        if _lockout_threshold and user.failed_login_count >= _lockout_threshold:
             user.is_locked = True
             user.lock_reason = "Too many failed login attempts"
             user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
@@ -364,25 +511,42 @@ async def login(
             detail="Incorrect login_id or password",
         )
 
-    # Create JWT tokens
-    access_token = create_access_token(data={"sub": user.login_id})
-    refresh_token = create_refresh_token(data={"sub": user.login_id})
-
     # Extract client info from request (US-2: PRD_UserSession_Improvement.md)
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("User-Agent")
 
-    # Create UserSession record
+    # FR-SVS-05: 토큰/세션 만료를 런타임 설정에서 읽음(시드 기본값 = .env 와 동일하므로 미설정 시 기존 동작).
+    from app.services import settings_service
+    from app.services.settings_service import SettingKey
+    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
+    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+
+    # FR-SVF-01/02: 세션 행을 먼저 flush 하여 id(= session_id)를 확보한 뒤,
+    # 그 id를 sid 클레임으로 박은 access+refresh 토큰을 발급한다(refresh로 회전하지 않는 식별자).
+    # token 컬럼은 NOT NULL+unique 이므로 임시 unique placeholder 로 flush → 발급 후 실제 토큰으로 갱신.
+    import uuid as _uuid
+    _placeholder = f"pending-{_uuid.uuid4()}"
     session = UserSession(
         user_id=user.id,
-        token=access_token,
-        refresh_token=refresh_token,
-        expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
+        token=_placeholder,
+        refresh_token=f"{_placeholder}-r",
+        expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=_timeout_hours),
         is_active=True,
         ip_address=client_ip,
         user_agent=user_agent
     )
     db.add(session)
+    db.flush()  # session.id 확보 (commit 전)
+
+    # Create JWT tokens — sid = UserSession.id, 만료는 런타임 설정 적용
+    access_token = create_access_token(
+        data={"sub": user.login_id, "sid": str(session.id)}, expires_delta=timedelta(hours=_timeout_hours))
+    refresh_token = create_refresh_token(
+        data={"sub": user.login_id, "sid": str(session.id)}, expires_delta=timedelta(days=_refresh_days))
+
+    # 실제 발급 토큰으로 placeholder 교체
+    session.token = access_token
+    session.refresh_token = refresh_token
 
     # Create UserLoginLog record
     login_log = UserLoginLog(
@@ -396,14 +560,13 @@ async def login(
     db.add(login_log)
     db.commit()
 
-    # 권한 = 역할(등급) 단위 (PRD-GOP-01 OQ-PG-01 = Option A): user.role 명의 등급 그룹 매트릭스를 사용.
-    # 등급 그룹이 없으면 레거시 group_id 그룹으로 폴백.
-    permissions = None
-    role_group = db.query(UserGroup).filter(UserGroup.name == user.role).first()
-    if role_group and role_group.permissions:
-        permissions = role_group.permissions
-    elif user.group and user.group.permissions:
-        permissions = user.group.permissions
+    # 권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-07, PRD_Permission_Group_Scheduling).
+    # effective_permissions_payload 가 역할명 그룹(Option A) + group_id 폴백 + grant 합집합 + valid_until 산출.
+    _perm_now = _kst_now()
+    permissions = effective_permissions_payload(db, user, _perm_now)
+    if permissions.get("valid_until") is not None:
+        # 클라 시계 보정용 — KST aware 로 직렬화(+09:00)
+        permissions["valid_until"] = permissions["valid_until"].replace(tzinfo=settings.tz)
 
     return {
         "success": True,
@@ -411,6 +574,7 @@ async def login(
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer",
+            "session_id": str(session.id),  # FR-SVF-01: 불변 세션 식별자(클라 강제로그아웃 매칭키)
             "user": {
                 "id": user.id,
                 "login_id": user.login_id,
@@ -503,6 +667,26 @@ async def logout(
             token_type="access",
         )
 
+    # FR-SVF-03: 토큰 패밀리 무효화 — paired refresh jti도 블랙리스트 등록.
+    # access만 등재하면 셀프 로그아웃 후 저장된 refresh_token으로 /refresh 호출 시
+    # 새 토큰을 발급받아 세션이 부활함. force_logout_session(user_sessions.py:368-376) 동일 패턴.
+    if session and session.refresh_token:
+        from app.services.token_blacklist_service import add_to_blacklist
+        from datetime import timedelta as _td
+        try:
+            refresh_data = decode_token(session.refresh_token, expected_type="refresh")
+            if refresh_data.jti:
+                add_to_blacklist(
+                    db=db,
+                    jti=refresh_data.jti,
+                    expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                    reason="LOGOUT",
+                    user_id=session.user_id,
+                    token_type="refresh",
+                )
+        except JWTError:
+            pass
+
     return {"success": True}
 
 
@@ -541,8 +725,10 @@ async def refresh(
     from app.services.token_blacklist_service import is_blacklisted, add_to_blacklist
     from datetime import timedelta as _td
     if is_blacklisted(db, token_data.jti):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+        from app.exceptions import RevokedTokenError
+        from app.services.token_blacklist_service import get_blacklist_reason
+        raise RevokedTokenError(
+            reason=get_blacklist_reason(db, token_data.jti),
             detail="Refresh token has been revoked",
         )
 
@@ -566,16 +752,42 @@ async def refresh(
             token_type="refresh",
         )
 
-    # Create new tokens
-    access_token = create_access_token(data={"sub": user.login_id})
-    new_refresh_token = create_refresh_token(data={"sub": user.login_id})
+    # FR-SVF-01/02: sid(세션 식별자)는 refresh로 회전하지 않는다 — 옛 토큰의 sid를 그대로 승계.
+    sid = token_data.sid
+    token_payload = {"sub": user.login_id}
+    if sid:
+        token_payload["sid"] = sid
+
+    # Create new tokens (sid 승계, jti만 회전). FR-SVS-05: 만료는 런타임 설정 적용.
+    from app.services import settings_service
+    from app.services.settings_service import SettingKey
+    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
+    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+    access_token = create_access_token(data=token_payload, expires_delta=timedelta(hours=_timeout_hours))
+    new_refresh_token = create_refresh_token(data=token_payload, expires_delta=timedelta(days=_refresh_days))
+
+    # FR-SVF-01: 세션 행을 새 토큰 쌍으로 재바인딩(orphan 방지) — force_logout이 현재 토큰의
+    # jti를 무효화하도록. sid 없는 레거시 토큰은 건너뜀(점진 롤아웃 호환).
+    if sid:
+        try:
+            session = db.query(UserSession).filter(
+                UserSession.id == int(sid),
+                UserSession.is_active == True,
+            ).first()
+        except (TypeError, ValueError):
+            session = None
+        if session:
+            session.token = access_token
+            session.refresh_token = new_refresh_token
+            db.commit()
 
     return {
         "success": True,
         "data": {
             "access_token": access_token,
             "refresh_token": new_refresh_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "session_id": sid
         }
     }
 
@@ -632,3 +844,37 @@ async def get_me(current_user: AccountUser = Depends(get_current_account_user)):
     - 401: 유효하지 않은 토큰
     """
     return current_user
+
+
+@router.get("/me/permissions")
+async def get_my_permissions(
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
+):
+    """현재 사용자의 유효권한 스냅샷 조회 — FR-06 (PRD_Permission_Group_Scheduling).
+
+    클라(Dotnet.Monitoring)가 grant 만료로 stale 된 권한을 재평가하는 경로.
+    로그인 스냅샷과 동일 계산(등급 매트릭스 ∪ 현재 유효 grant).
+
+    **Response data**:
+    - **modules**: 모듈별 권한(view/edit/delete/control)
+    - **device_groups**: 접근 가능 디바이스 그룹 ID
+    - **valid_until**: 가장 임박한 grant 만료(KST, 없으면 null=상시) — 클라 캐시 만료시점
+    - **server_time**: 서버 현재 시각(KST) — 클라-서버 시계 편차 보정용
+
+    **Error**: 401 (유효하지 않은 토큰)
+    """
+    from app.config import settings
+
+    now = _kst_now()
+    payload = effective_permissions_payload(db, current_user, now)
+    valid_until = payload.get("valid_until")
+    return {
+        "success": True,
+        "data": {
+            "modules": payload.get("modules", {}),
+            "device_groups": payload.get("device_groups", []),
+            "valid_until": valid_until.replace(tzinfo=settings.tz) if valid_until is not None else None,
+            "server_time": now.replace(tzinfo=settings.tz),
+        },
+    }

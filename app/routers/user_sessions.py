@@ -10,6 +10,8 @@ from app.models.user import UserSession, AccountUser, UserLoginLog
 from app.schemas.user import UserSessionResponse
 from app.routers.auth import get_current_account_user, require_admin
 from app.services.audit_service import log_action
+from app.services import nats_revoke_publisher
+from app.utils.enums import EnumLogoutReason
 
 router = APIRouter(tags=["User Sessions"])
 
@@ -34,6 +36,36 @@ def _session_to_response(session: UserSession) -> dict:
         "updated_at": session.updated_at,
     }
     return response
+
+
+def _remaining_active_admin_sessions(
+    db: Session,
+    exclude_session_id: Optional[int] = None,
+    exclude_user_id: Optional[int] = None,
+) -> int:
+    """FR-SVF-09: 강제 로그아웃 대상을 제외했을 때 남는 '활성 ADMIN 세션' 수.
+
+    활성 ADMIN 세션 = role=ADMIN · 계정 is_active · 세션 is_active. 이 값이 0이 되도록
+    강제 로그아웃하면 운영자가 전원 잠금되므로 호출부에서 409로 거부한다.
+    users.py 마지막 ADMIN 가드와 동일하게 ADMIN 계정 행을 FOR UPDATE 로 잠가 TOCTOU 방지.
+    """
+    admin_ids = [
+        u.id for u in db.query(AccountUser).filter(
+            AccountUser.role == "ADMIN",
+            AccountUser.is_active == True,
+        ).with_for_update().all()
+    ]
+    if not admin_ids:
+        return 0
+    query = db.query(UserSession).filter(
+        UserSession.user_id.in_(admin_ids),
+        UserSession.is_active == True,
+    )
+    if exclude_session_id is not None:
+        query = query.filter(UserSession.id != exclude_session_id)
+    if exclude_user_id is not None:
+        query = query.filter(UserSession.user_id != exclude_user_id)
+    return query.count()
 
 
 @router.get("", dependencies=[Depends(require_admin)])
@@ -108,6 +140,15 @@ async def force_logout_all_user_sessions(
         UserSession.is_active == True
     ).all()
 
+    # FR-SVF-09: 마지막 활성 ADMIN 보호 — 대상이 활성 ADMIN이고 종료할 활성 세션이 있는데
+    # 다른 ADMIN의 활성 세션이 하나도 없으면 거부(전원 잠금 방지).
+    if target_user.role == "ADMIN" and target_user.is_active and active_sessions:
+        if _remaining_active_admin_sessions(db, exclude_user_id=user_id) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot force-logout the last active ADMIN's sessions (at least one active ADMIN session must remain)",
+            )
+
     # v5.1 FR-SV-01: 벌크 force_logout 시 각 세션의 access+refresh jti 블랙리스트 등록
     # — is_active=False 만으로는 발급된 JWT가 exp(24h)까지 통과해 강제 로그아웃 실효 없음.
     # 단건(/{session_id}) 핸들러와 동일 패턴(commit 980abbc).
@@ -117,18 +158,22 @@ async def force_logout_all_user_sessions(
     from datetime import timedelta as _td
 
     count = 0
+    _revoke_targets = []  # (session_id, access_jti) — commit 후 best-effort NATS 발행용
     for session in active_sessions:
         session.is_active = False
         session.logout_reason = "FORCED"
         session.forced_by = current_user.id
         session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
 
+        _sess_id = session.id
+        _sess_access_jti = None
         # access jti 블랙리스트 — v5.2 hotfix: expires_in(부재) → expires_at(시그니처 일치)
         # 단건 핸들러(L362) 패턴과 동일하게 settings TTL 사용.
         if session.token:
             try:
                 td = _decode(session.token)
                 if td.jti:
+                    _sess_access_jti = td.jti
                     add_to_blacklist(
                         db=db,
                         jti=td.jti,
@@ -164,6 +209,7 @@ async def force_logout_all_user_sessions(
             ip_address=session.ip_address
         )
         db.add(log_entry)
+        _revoke_targets.append((_sess_id, _sess_access_jti))
         count += 1
 
     db.commit()
@@ -183,10 +229,17 @@ async def force_logout_all_user_sessions(
             description=f"전체 세션 강제 로그아웃: {target_user.login_id} ({count}개)"
         )
 
+    # FR-SVF-05/11: per-session NATS revoke 발행(세션마다 1건, best-effort). 게이트 off면 무동작.
+    # 광역 발행 금지 — 각 세션 전용 subject 로만 발행(계약 C2).
+    for _sid, _jti in _revoke_targets:
+        await nats_revoke_publisher.publish_session_revoke(
+            user_id=user_id, session_id=_sid, jti=_jti, reason=EnumLogoutReason.FORCED,
+        )
+
     return {
         "success": True,
         "message": f"User {user_id} sessions force-logged-out ({count} terminated)",
-        "data": None
+        "data": {"count": count}
     }
 
 
@@ -342,6 +395,15 @@ async def force_logout_session(
     # Get the user who owns this session (for logging)
     session_user = db.query(AccountUser).filter(AccountUser.id == session.user_id).first()
 
+    # FR-SVF-09: 마지막 활성 ADMIN 세션 보호 — 이 세션을 종료하면 활성 ADMIN 세션이
+    # 0이 되는 경우 거부(전원 잠금 방지). 비ADMIN/이미 비활성 세션은 가드 미적용.
+    if session.is_active and session_user and session_user.role == "ADMIN" and session_user.is_active:
+        if _remaining_active_admin_sessions(db, exclude_session_id=session_id) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot force-logout the last active ADMIN session (at least one active ADMIN session must remain)",
+            )
+
     # Force logout the session
     session.is_active = False
     session.logout_reason = "FORCED"
@@ -356,10 +418,13 @@ async def force_logout_session(
     from app.utils.auth import decode_token as _decode
     from app.services.token_blacklist_service import add_to_blacklist
     from datetime import timedelta as _td
+    _target_user_id = session.user_id  # commit 후 expiry 대비 캡처 (NATS 발행에 사용)
+    _access_jti = None
     if session.token:
         try:
             _at = _decode(session.token)
             if _at.jti:
+                _access_jti = _at.jti
                 add_to_blacklist(db=db, jti=_at.jti,
                                  expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
                                  reason="FORCED", user_id=session.user_id, token_type="access")
@@ -420,6 +485,13 @@ async def force_logout_session(
         resource_id=session_id,
         resource_name=f"Session {session_id} ({session_user.login_id if session_user else 'unknown'})",
         description=f"세션 강제 로그아웃: {session_user.login_id if session_user else 'unknown'}"
+    )
+
+    # FR-SVF-05/11: per-session NATS revoke 발행(best-effort). 블랙리스트 commit 이후 발행.
+    # 게이트(NATS_REVOKE_ENABLED) off면 무동작, 발행 실패해도 force_logout 성공 유지.
+    await nats_revoke_publisher.publish_session_revoke(
+        user_id=_target_user_id, session_id=session_id,
+        jti=_access_jti, reason=EnumLogoutReason.FORCED,
     )
 
     return {

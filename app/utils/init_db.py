@@ -126,6 +126,16 @@ def ensure_role_permission_groups(db: Session):
         db.commit()
     print(f"[OK] Role permission groups ensured (created {created}/5)")
 
+    # R10③ (ADR_Permission_Model_v5.2): admin 사용자를 ADMIN 그룹에 배정.
+    # name==role 폐기(R10①) 후 권한 원천 = group_id. 미배정 admin 은 로그인 payload permissions 빈값
+    # (서버 ADMIN bypass 는 정상이라 기능 무영향 — 클라 UI 표시 일관성 위해 배정). 멱등.
+    admin_group = db.query(UserGroup).filter(UserGroup.name == "ADMIN").first()
+    admin_user = db.query(AccountUser).filter(AccountUser.login_id == "admin").first()
+    if admin_group and admin_user and admin_user.group_id is None:
+        admin_user.group_id = admin_group.id
+        db.commit()
+        print(f"[OK] admin user assigned to ADMIN group (id={admin_group.id})")
+
 
 def initialize_database():
     """

@@ -14,7 +14,7 @@ from datetime import datetime
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_user_optional, require_perm_optional
 from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.schemas.event import DetectionEventCreate, DetectionEventReplace, DetectionEventResponse, DetectionEventUpdate, ActionEventResponse
@@ -328,7 +328,7 @@ async def get_detection_event(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def create_detection_event(
     event_data: DetectionEventCreate,
     current_user = Depends(get_current_user_optional),
@@ -428,7 +428,7 @@ async def create_detection_event(
     )
 
 
-@router.patch("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse], dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def update_detection_event(
     event_id: int,
     event_data: DetectionEventUpdate,
@@ -532,7 +532,7 @@ async def update_detection_event(
     )
 
 
-@router.put("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse], dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def replace_detection_event(
     event_id: int,
     event_data: DetectionEventReplace,
@@ -615,7 +615,7 @@ async def replace_detection_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[None])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("events", "delete"))])
 async def delete_detection_event(
     event_id: int,
     current_user = Depends(get_current_user_optional),

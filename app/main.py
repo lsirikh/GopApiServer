@@ -33,11 +33,12 @@ from app.database import engine
 from app.db_triggers import apply_triggers
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, grants, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking, settings as settings_router
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database
 from app.schemas.common import ApiResponse
+from app.security.matrix_enforcer import enforce_matrix
 
 
 # OpenAPI 태그 메타데이터 정의
@@ -230,9 +231,29 @@ async def lifespan(app: FastAPI):
     print(f"Authentication Mode: {settings.AUTH_MODE}")
     print("=" * 60)
 
+    # 경량 sweep 스케줄러 (FR-04, PRD_Permission_Group_Scheduling) — 만료 grant is_active=false.
+    # ★ 보안 비의존(요청시점 계산이 권위). APScheduler 미설치/시작실패가 앱 기동을 막지 않도록 방어적.
+    scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from app.services.grant_service import run_grant_sweep
+
+        scheduler = AsyncIOScheduler(timezone=settings.tz)
+        scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
+                          coalesce=True, max_instances=1)
+        scheduler.start()
+        print("Grant sweep scheduler started (interval 10m)")
+    except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
+        print(f"[WARN] grant sweep scheduler not started: {e}")
+
     yield
 
     # Shutdown
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
     print("GOP API Server Shutting down...")
 
 
@@ -284,11 +305,11 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- API Version: 5.0 (2026-06-29)
+- API Version: 5.2 (2026-06-30)
 - 명세: GOP_Restful_Api_연동설계.md v5.0
 - 주요 PRD: PRD_v5.0_Permission_Management.md (v5.0 그룹 권한 관리), PRD_Tracking_History_API.md (v4.11), PRD_v4.9_Followup_AccountIntegration.md (v4.12 RBAC), PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="5.0.0",
+    version="5.2.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -301,7 +322,9 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
     license_info={
         "name": "Proprietary",
     },
-    generate_unique_id_function=lambda route: f"{route.name}"
+    generate_unique_id_function=lambda route: f"{route.name}",
+    # 매트릭스 중앙 집행(미들웨어형) — 전역 단일 choke point. 휴면(public)에선 무집행.
+    dependencies=[Depends(enforce_matrix)],
 )
 
 # Jinja2 Templates for HTML rendering (PRD Section 10: Preview Page)
@@ -470,7 +493,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
       "meta": { "timestamp": "...", "request_id": "..." }
     }
     """
-    error_code = HTTP_ERROR_CODES.get(exc.status_code, "UNKNOWN_ERROR")
+    # FR-SVF-10: detection 지점이 부여한 안정 sub-code(예: SESSION_REVOKED)를 우선,
+    # 없으면 status→code 매핑으로 폴백. details 도 예외가 제공하면 노출.
+    error_code = getattr(exc, "code", None) or HTTP_ERROR_CODES.get(exc.status_code, "UNKNOWN_ERROR")
+    error_details = getattr(exc, "details", None)
 
     # PRD v4.9 Phase 2-B1: WWW-Authenticate 등 라우터에서 설정한 헤더 보존 (RFC 6750/7235)
     # 라우터의 HTTPException(headers={"WWW-Authenticate": "Bearer"}) 이 envelope 직렬화 시 손실되지 않도록 전달
@@ -483,7 +509,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "error": {
                 "code": error_code,
                 "message": exc.detail,
-                "details": None
+                "details": error_details
             },
             "meta": create_error_meta(request)
         },
@@ -583,9 +609,11 @@ async def add_utf8_charset(request: Request, call_next):
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(user_groups.router, prefix="/api/user-groups", tags=["User Groups"])
+app.include_router(grants.router, prefix="/api", tags=["User Group Grants"])
 app.include_router(user_sessions.router, prefix="/api/user-sessions", tags=["User Sessions"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
 app.include_router(config_change_logs.router, prefix="/api/config-change-logs", tags=["Config Change Logs"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
 app.include_router(controllers.router, prefix="/api/devices/controllers", tags=["Controllers"])
 app.include_router(sensors.router, prefix="/api/devices/sensors", tags=["Sensors"])
@@ -666,18 +694,22 @@ def report_preview_page(
     개발용 보고서 미리보기 페이지
     PRD Reference: PRD_Report_System.md Section 10
     """
+    from fastapi.responses import HTMLResponse
     from app.services.report_service import ReportService
+    from app.services.report_master_builder import build_master_data, build_report_meta
+    from app.services.report_html_renderer import render_report_html
 
     generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
 
-    # Get structured preview data from ReportService
+    # PRD_Report_Master_Redesign: 프리뷰 == PDF 동일 HTML (정형=전체, 비정형=template 컴포넌트 필터)
+    # 브라우저 기본은 compact(검토용), ?mode=full 로 전체 페이지네이션 확인 가능.
     service = ReportService(db)
-    preview_data = service.get_structured_preview_data()
-
-    return templates.TemplateResponse(request, "reports/preview.html", {
-        "report": generation,
-        "preview": preview_data
-    })
+    enabled = service.get_enabled_components(generation)
+    enabled_set = set(enabled) if enabled is not None else None
+    meta = build_report_meta(generation)
+    data = build_master_data(db, generation.start_date, generation.end_date, meta, enabled_set)
+    mode = "full" if request.query_params.get("mode") == "full" else "compact"
+    return HTMLResponse(render_report_html(data, mode=mode))

@@ -11,6 +11,31 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 **PRD**: `docs/PRD_v5.2_Stability_Hotfix.md`
 **안전점**: `pre-stability-hotfix` @ `6eced61`
 
+### Added (강제 로그아웃 전파 서버측 — Force_Logout PRD Phases 0-4)
+
+> .NET 클라 세션에서 이관된 `docs/prds/PRD_GOP_Server_Force_Logout.md` (FR-SVF-01~12). 클라가 강제 로그아웃을 실시간 수신·매칭하기 위한 서버 선결: 불변 session_id, 토큰 패밀리 무효화, 서명된 per-session NATS revoke. 클라↔서버 계약 4건 PM 확정(2026-06-30).
+
+- **Phase 0a (FR-SVF-03)** — `POST /auth/logout` 이 access jti 만이 아니라 **paired refresh jti 도 블랙리스트** 등록. 셀프 로그아웃 후 저장된 refresh_token 으로 `/refresh` 세션 부활하던 구멍 차단. `app/routers/auth.py`.
+- **Phase 0b (FR-SVF-09)** — `force_logout` 단건/벌크 양 경로에 **마지막 활성 ADMIN 세션 가드**(409, FOR UPDATE TOCTOU 안전). 벌크 응답 `data.count` 계약 복원. `app/routers/user_sessions.py`.
+- **Phase 1 (FR-SVF-01/02)** — access+refresh JWT 에 **`sid` 클레임(= UserSession.id)** + login/refresh 응답 `session_id`. 로그인 핸들러 재정렬(session flush→sid 박은 토큰 발급), refresh 는 sid 승계(불변)·jti 회전·UserSession 토큰 재바인딩(orphan 방지). `app/routers/auth.py`, `app/utils/auth.py`, `app/schemas/user.py`.
+- **Phase 2 (FR-SVF-06/07/12)** — `RevokePayload` 스키마(reason=`EnumLogoutReason` 재사용) + canonical(sorted·compact·UTF-8·null 명시) HMAC-SHA256 서명 유틸 + 전용 `REVOKE_SIGNING_KEY`(JWT_SECRET 분리 검증)·freshness 설정. `app/schemas/revoke.py`, `app/utils/revoke_signing.py`, `app/config.py`.
+- **Phase 3 (FR-SVF-05/08/11)** — per-session 전용 subject `sensorway.{unit}.account.{user_id}.session.{session_id}.revoke`(광역 `all.>` 금지) best-effort publisher, force_logout 단건/벌크 연결. **`NATS_REVOKE_ENABLED=False` 게이트** — subject 클라 확정(V-SVF-05) + 발행 ACL(FR-SVF-08) 후 활성화. `app/services/nats_revoke_publisher.py`.
+- **Phase 5 (FR-SVF-10)** — 폐기 세션 → 401 **안정 `error.code=SESSION_REVOKED`**(+`details.reason`) 통일. 전역 핸들러가 detection 지점의 sub-code 우선 렌더, 클라는 메시지 문자열 아닌 코드로 분기. 일반 무효 토큰은 `UNAUTHORIZED` 유지(구분). `RevokedTokenError`(`app/exceptions.py`), `app/main.py`, `app/routers/auth.py`, `token_blacklist_service.get_blacklist_reason`.
+
+**잔여**: FR-SVF-08 NATS 발행 ACL(인프라, repo 밖).
+**검증**: P1 로컬 테스트 27건 PASS(Phases 0-5) + 회귀 0(stash baseline 교차검증). ※ `tests/` 는 `.gitignore` 대상(로컬 검증 전용).
+
+### Added (세션 설정 런타임 관리 — Session_Settings PRD FR-SVS-01~06)
+
+> 운영 중 세션/인증 정책(세션만료·refresh만료·잠금임계·세션사용여부)을 서버 재시작 없이 조회·변경하는 ADMIN API. `docs/prds/PRD_GOP_Server_Session_Settings.md`. AUTH_MODE/JWT_SECRET 은 편집 제외(배포/.env 전용, UI 변경 시 전원 잠금/토큰 전체 무효 사고 방지).
+
+- **FR-SVS-01/02** — `app_settings` key-value 저장소(ORM + `v55_app_settings.sql`) + `settings_service`(메모리 캐시 + .env 기본값 시드 + get/put 캐시 무효화, 단일 인스턴스 가정). 시드 후 DB 권위. `app/models/app_settings.py`, `app/services/settings_service.py`.
+- **FR-SVS-03/04** — `GET/PUT /api/settings/session`(require_admin). GET 은 편집가능 + 읽기전용(auth_mode/jwt_algorithm) 반환, **jwt_secret 절대 미노출**(NFR-SVS-03). PUT 은 편집 부분집합만 수용, 경계 위반 422(session_timeout 1~168 / refresh 1~90 / lockout 0 또는 3~20 / session_enabled bool), `app_settings` UPSERT + **ConfigChangeLog 감사**(resource_type=SETTINGS, resource_id=0 sentinel) + 캐시 무효화. `app/routers/settings.py`, `app/schemas/settings.py`.
+- **FR-SVS-05/06** — `auth.py` 리팩터: 토큰 만료(access/refresh)·로그인 잠금 임계를 startup 상수/하드코딩(`>= 5`)이 아닌 `settings_service` 에서 읽음(threshold=0 이면 잠금 비활성). 변경이 재시작 없이 다음 토큰 발급/잠금 판정부터 반영(NFR-SVS-05). 기본 시드값 = .env 동일이라 미설정 시 기존 동작 유지.
+- **NFR-SVS-02** — `EnumConfigResourceType.SETTINGS` 추가(비-행 바운드 설정 감사용).
+
+**검증**: P2 로컬 테스트 11건 PASS(FR-SVS-01~06 + 런타임 적용/잠금 비활성). `tests/` 는 `.gitignore`.
+
 ### Security (v5.1 자가 버그 fix)
 
 - **Fix-2 (v5.1 본 세션 자가 버그)** — `force_logout_all_user_sessions` kwarg `expires_in` (실제 시그니처는 `expires_at`) → 벌크 force_logout 호출 시 `TypeError: unexpected keyword argument 'expires_in'` 500 회귀. `app/routers/user_sessions.py:131,146` 두 호출부 + 단건 force_logout `980abbc` 패턴 동일하게 `expires_at` 교체. settings TTL(`access_token_expire_minutes` / `refresh_token_expire_days`) 기반 `datetime.utcnow() + timedelta(...)` 계산값 전달. 실측 200 OK + `token_blacklist` `FORCE_LOGOUT_BULK` 행 등록 확인.

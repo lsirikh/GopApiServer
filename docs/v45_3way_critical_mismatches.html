@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>GOP API 3-way 정합 검증 — Critical Mismatch 10건 상세</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "맑은 고딕", "Malgun Gothic", "Segoe UI", sans-serif;
+  background: #f5f7fa;
+  color: #1a202c;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+  line-height: 1.6;
+}
+h1 {
+  font-size: 28px;
+  border-bottom: 4px solid #2563eb;
+  padding-bottom: 12px;
+  color: #1e3a8a;
+}
+h2 { font-size: 22px; color: #1e3a8a; margin-top: 36px; }
+.subtitle { color: #64748b; font-size: 14px; margin-top: -8px; }
+
+.summary-banner {
+  background: linear-gradient(135deg, #dc2626 0%, #f97316 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 12px;
+  margin: 16px 0;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.summary-banner h3 { margin: 0 0 8px 0; font-size: 24px; }
+.summary-banner p { margin: 4px 0; opacity: 0.95; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+.stat-card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid #e2e8f0;
+}
+.stat-card .num { font-size: 32px; font-weight: bold; }
+.stat-card .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+.stat-card.critical .num { color: #dc2626; }
+.stat-card.warn .num { color: #f59e0b; }
+.stat-card.aligned .num { color: #059669; }
+.stat-card.total .num { color: #1e40af; }
+
+.overview-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.overview-table th {
+  background: #1e3a8a;
+  color: white;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 13px;
+}
+.overview-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 13px;
+  vertical-align: middle;
+}
+.overview-table tr:hover { background: #f8fafc; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-p0 { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+.badge-p1 { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+.badge-method-get { background: #dbeafe; color: #1e40af; }
+.badge-method-post { background: #dcfce7; color: #14532d; }
+.badge-method-put { background: #fed7aa; color: #7c2d12; }
+.badge-method-delete { background: #fee2e2; color: #991b1b; }
+
+.mismatch-card {
+  background: white;
+  border-left: 6px solid #dc2626;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+.mismatch-card.p0 { border-left-color: #991b1b; background: linear-gradient(90deg, #fef2f2 0%, white 8%); }
+.mismatch-card.p1 { border-left-color: #f59e0b; }
+
+.mismatch-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.mismatch-id {
+  background: #1e3a8a;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 16px;
+}
+.mismatch-id.p0 { background: #991b1b; }
+.mismatch-endpoint {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: #1e293b;
+  font-size: 14px;
+}
+.mismatch-domain {
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mismatch-headline {
+  background: #fef9c3;
+  border-left: 4px solid #ca8a04;
+  padding: 12px 16px;
+  margin: 12px 0;
+  font-size: 15px;
+  color: #713f12;
+}
+
+.three-way {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin: 16px 0;
+}
+.three-way-col {
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  position: relative;
+}
+.three-way-col h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid;
+}
+.col-spec {
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+}
+.col-spec h4 { color: #1e40af; border-color: #93c5fd; }
+.col-code {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+}
+.col-code h4 { color: #166534; border-color: #86efac; }
+.col-swagger {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+}
+.col-swagger h4 { color: #9a3412; border-color: #fdba74; }
+.three-way-col code {
+  display: block;
+  background: rgba(0,0,0,0.04);
+  padding: 8px;
+  border-radius: 4px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 6px;
+  color: #1e293b;
+}
+
+.scenario {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  padding: 14px;
+  margin: 14px 0;
+}
+.scenario .label { font-weight: 700; color: #991b1b; margin-bottom: 6px; }
+.scenario .arrow {
+  display: inline-block;
+  background: #991b1b;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin: 0 8px;
+}
+.scenario code {
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: "Consolas", monospace;
+  font-size: 12px;
+  color: #7f1d1d;
+}
+
+.fix-box {
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 8px;
+  padding: 14px;
+  margin: 14px 0;
+}
+.fix-box .label {
+  color: #065f46;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.fix-box .fix-target {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 6px;
+}
+.fix-target.spec { background: #2563eb; color: white; }
+.fix-target.code { background: #059669; color: white; }
+
+.responsibility {
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: #475569;
+  border-left: 4px solid #94a3b8;
+}
+.responsibility strong { color: #1e293b; }
+.tag-ours { background: #dcfce7; color: #14532d; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+.tag-not-ours { background: #fef9c3; color: #713f12; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+.tag-v43 { background: #fed7aa; color: #7c2d12; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+
+.flow-diagram {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 14px 0;
+  font-family: "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre;
+  overflow-x: auto;
+  color: #1e293b;
+}
+
+footer {
+  margin-top: 48px;
+  padding-top: 16px;
+  border-top: 2px solid #e2e8f0;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+</style>
+</head>
+<body>
+
+<h1>🔍 GOP RESTful API — 3-way 정합 검증 결과</h1>
+<p class="subtitle">명세 (GOP_Restful_Api_연동설계.md) ↔ Swagger (OpenAPI) ↔ 코드 (FastAPI 라우터) 정합 분석<br>
+Workflow 28 agent / 1,996,464 token / 6분 — 2026-06-19 작성</p>
+
+<div class="summary-banner">
+  <h3>⚠️ Verdict: major drift — Manager 통합 unsafe</h3>
+  <p>전체 177 endpoint 중 <strong>52건 mismatch</strong> 발견 (<strong>치명적 10건</strong>, warn 48, noise 35)</p>
+  <p>💡 우리 v4.4/v4.5 작업이 만든 새 mismatch는 <strong>0건</strong>. 모두 옛 차수 (v1.x~v4.3) 잠복 부채.</p>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card total">
+    <div class="num">177</div>
+    <div class="label">총 Endpoint</div>
+  </div>
+  <div class="stat-card aligned">
+    <div class="num">125</div>
+    <div class="label">정합 (70.6%)</div>
+  </div>
+  <div class="stat-card warn">
+    <div class="num">48</div>
+    <div class="label">Warn (Swagger 미부착)</div>
+  </div>
+  <div class="stat-card critical">
+    <div class="num">10</div>
+    <div class="label">🚨 Critical Mismatch</div>
+  </div>
+</div>
+
+<h2>📋 Critical 10건 한눈에 보기</h2>
+<table class="overview-table">
+  <thead>
+    <tr>
+      <th style="width: 30px;">#</th>
+      <th style="width: 80px;">P</th>
+      <th style="width: 100px;">도메인</th>
+      <th>엔드포인트</th>
+      <th>핵심 문제</th>
+      <th style="width: 110px;">책임 차수</th>
+      <th style="width: 70px;">정정</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><span class="badge badge-p0">P0 🔥</span></td>
+      <td>D20</td>
+      <td><span class="badge badge-method-get">GET</span> /api/servers/categories/{category_id}</td>
+      <td>cpu_usage 등 존재하지 않는 4개 속성 접근 → <strong>500</strong></td>
+      <td>v1.6 (5e8ff25)</td>
+      <td><span class="fix-target code">코드</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D11</td>
+      <td><span class="badge badge-method-get">GET</span> /api/detection-logs</td>
+      <td>명세 <code>action</code> (1:1) ↔ 코드 <code>actions</code> (1:N)</td>
+      <td>v4.3 (aeb1074, 그제)</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D11</td>
+      <td><span class="badge badge-method-get">GET</span> /api/detection-logs/{event_id}</td>
+      <td>#2와 동일 1:N drift</td>
+      <td>v4.3 (그제)</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D09</td>
+      <td><span class="badge badge-method-get">GET</span> /api/enclosure-metrics</td>
+      <td>명세 <code>items/total/pagination</code> ↔ 코드 flat 리스트</td>
+      <td>v2.9 / v3.3</td>
+      <td><span class="fix-target code">코드</span></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D19</td>
+      <td><span class="badge badge-method-get">GET</span> /api/servers/{server_id}/metrics/latest</td>
+      <td>명세 <code>data.metrics</code> ↔ 코드 <code>data.latest_metrics</code></td>
+      <td>v2.9</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D26</td>
+      <td><span class="badge badge-method-get">GET</span> /api/reports/generations/{id}/download</td>
+      <td>명세 JSON ↔ 코드 PDF 바이너리</td>
+      <td>옛 차수</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D19</td>
+      <td><span class="badge badge-method-get">GET</span> /api/servers/{id}/system-events</td>
+      <td>명세 <code>data.items + pagination</code> ↔ 코드 단순 배열</td>
+      <td>v2.9</td>
+      <td><span class="fix-target code">코드</span></td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D12</td>
+      <td><span class="badge badge-method-put">PUT</span> /api/events/malfunctions/{event_id}</td>
+      <td>명세 <code>action_reported</code> 포함 ↔ 코드 자동관리 (v2.8 정책)</td>
+      <td>v1.3 / v2.8</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D13</td>
+      <td><span class="badge badge-method-get">GET</span> /api/events/actions</td>
+      <td>명세 <code>start_date</code> required ↔ 코드 Optional</td>
+      <td>옛 차수</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>D13</td>
+      <td><span class="badge badge-method-put">PUT</span> /api/events/actions/{event_id}</td>
+      <td>명세 2필드 ↔ 코드 4필드 → 422</td>
+      <td>v4.3 (그제)</td>
+      <td><span class="fix-target spec">명세</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>🔬 Critical Mismatch 상세 카드 10건</h2>
+
+<!-- ============================ #1 ============================ -->
+<div class="mismatch-card p0">
+  <div class="mismatch-header">
+    <span class="mismatch-id p0">#1 🔥 운영 500 버그</span>
+    <span class="mismatch-domain">D20 ServerCategory</span>
+    <span class="mismatch-endpoint">GET /api/servers/categories/{category_id}</span>
+  </div>
+  <div class="mismatch-headline">
+    🐛 <strong>존재하지 않는 4개 속성 접근으로 즉시 500 발생</strong> — 카테고리에 서버가 1건이라도 있으면 매니저가 호출 시 서비스 중단
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§8.2.2)</h4>
+      data.servers[]에 user_name / user_password / threshold_config 포함
+      <code>{
+  "data": {
+    "category": {...},
+    "servers": [{
+      "id": 1, "name": "VMS-1",
+      "user_name": "admin",
+      "user_password": "...",
+      "threshold_config": {...}
+    }]
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 (server_categories.py:124-138)</h4>
+      ServerResponse 생성 시 Server 모델에 없는 4개 인자 사용
+      <code>ServerResponse(
+  cpu_usage=s.cpu_usage,    # ❌
+  ram_usage=s.ram_usage,    # ❌
+  disk_usage=s.disk_usage,  # ❌
+  network_throughput=s.network_throughput,  # ❌
+  ...
+)</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      ApiSingleResponse_ServerCategoryWithServers_ ($ref 정상)<br><br>
+      <strong>다만 런타임에서 AttributeError 발생으로 200 응답 자체가 막힘</strong>
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시</div>
+    매니저 <span class="arrow">→ GET 호출 →</span> 서버 <span class="arrow">→ AttributeError</span> <strong>500 Internal Server Error</strong>
+    <br><br>
+    <code>'Server' object has no attribute 'cpu_usage'</code> (Server 모델에 cpu_usage는 없음 — ServerMetrics 테이블 소속, v2.9 분리됨)
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target code">코드 정정 P0</span>
+    <code>ServerResponse.model_validate(s)</code> 호출로 교체. 존재하지 않는 4개 인자 (<code>cpu_usage</code>, <code>ram_usage</code>, <code>disk_usage</code>, <code>network_throughput</code>) 제거. 정확한 필드 (<code>user_name</code>, <code>user_password</code>, <code>threshold_config</code>) 사용.
+    <br><br>
+    <strong>예상 분량</strong>: 1h
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>5e8ff25 "v1.6 was updated for servers"</code> (옛 차수)<br>
+    <strong>v2.9 ServerMetrics 분리 시점에 라우터 코드 미동기화로 잠복</strong>. 우리 v4.4/v4.5 작업과 무관 <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #2 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#2</span>
+    <span class="mismatch-domain">D11 Detection</span>
+    <span class="mismatch-endpoint">GET /api/detection-logs</span>
+  </div>
+  <div class="mismatch-headline">
+    📊 <strong>응답 구조가 1:1 → 1:N 으로 바뀌었으나 명세 미동기화</strong> — 매니저가 <code>log.action.content</code> 접근 시 KeyError
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§6.5.1)</h4>
+      <strong>action</strong> — 단일 객체 (1:1)
+      <code>{
+  "data": [{
+    "id": 1,
+    "action": {
+      "id": 10,
+      "content": "대응 완료",
+      "user": "admin"
+    }
+  }]
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 (PRD v2.0 1:N)</h4>
+      <strong>actions</strong> — 배열 (1:N)
+      <code>class DetectionLogResponse:
+  actions: list[ActionNested]
+  # 0건일 때 []
+  # 여러 액션 가능</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      DetectionLogResponse.actions: array
+      <code>"actions": {
+  "type": "array",
+  "items": {"$ref": "ActionNested"}
+}</code>
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시 (명세대로)</div>
+    매니저 <span class="arrow">→ data[0].action.content 접근</span> <strong>KeyError / None</strong>
+    <br><br>
+    실제 응답은 <code>data[0].actions[0].content</code> 또는 <code>actions: []</code>
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    §6.5.1 Response 본문을 <code>action: {...}</code> → <code>actions: [{...}]</code> 배열로 정정.<br>
+    <strong>이유</strong>: PRD_ActionEvent_1N_Refactoring v2.0의 1:N 관계가 코드/PRD에 반영되었으나 명세 본문만 갱신 누락.
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>aeb1074 "feat(integrations): bulk create/unassign + ActionEvent 1:N"</code> (그제 2026-06-17, v4.3)<br>
+    <strong>그제 v4.3에서 ActionEvent 1:N 코드 반영 시 명세 §6.5도 함께 정정해야 했으나 누락</strong> <span class="tag-v43">v4.3 잠복</span> <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #3 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#3</span>
+    <span class="mismatch-domain">D11 Detection</span>
+    <span class="mismatch-endpoint">GET /api/detection-logs/{event_id}</span>
+  </div>
+  <div class="mismatch-headline">
+    📊 <strong>#2와 동일한 1:N drift</strong> — 단건 조회 응답에서도 같은 문제
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§6.5.2)</h4>
+      action 필드 (ActionNested 또는 null)
+      <code>{
+  "data": {
+    "id": 1,
+    "action": null  // 또는 {...}
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드</h4>
+      actions 필드 (list, 0건이면 [])
+      <code>{
+  "data": {
+    "id": 1,
+    "actions": []  // 또는 [{...}, {...}]
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      ApiSingleResponse[DetectionLogResponse]<br>
+      actions: array<br>
+      (#2와 동일 스키마)
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시</div>
+    <code>data.action.content</code> 접근 → <strong>KeyError</strong>
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    §6.5.2를 #2와 동일 패턴으로 일괄 정정.
+  </div>
+  <div class="responsibility">
+    <strong>책임</strong>: #2와 동일 — v4.3 (그제) <span class="tag-v43">v4.3 잠복</span> <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #4 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#4</span>
+    <span class="mismatch-domain">D09 Enclosure</span>
+    <span class="mismatch-endpoint">GET /api/enclosure-metrics</span>
+  </div>
+  <div class="mismatch-headline">
+    📊 <strong>응답 envelope 구조 자체가 완전히 다름</strong> — 명세는 <code>items+total+pagination</code> 시계열, 코드는 함체별 grouped flat
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§5.5.13)</h4>
+      시계열 + 표준 pagination
+      <code>{
+  "data": {
+    "items": [
+      {"id": 1, "enclosure_id": 5,
+       "temperature": 22.5,
+       "created_at": "..."},
+      ...
+    ],
+    "total": 1000
+  },
+  "pagination": {
+    "page": 1, "limit": 20
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 (enclosure_metrics.py:333-367)</h4>
+      함체별 그룹화된 flat (items/total/pagination 모두 부재)
+      <code>{
+  "data": [
+    {"enclosure_id": 5,
+     "enclosure_name": "Box-1",
+     "latest_metrics": {...}},
+    {"enclosure_id": 6,
+     "enclosure_name": "Box-2",
+     "latest_metrics": {...}}
+  ]
+}</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      <strong>response_model 미지정</strong><br>
+      → 200 schema = {} (빈 객체)
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시</div>
+    매니저 <span class="arrow">→ data.items 접근</span> <strong>AttributeError</strong>
+    <br><br>
+    응답은 <code>data: [...]</code> 배열인데 <code>data.items</code> 시도 → 모듈별 처리 실패
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target code">코드 정정</span>
+    명세대로 시계열 flat + <code>items/total + pagination</code> 표준 envelope으로 재작성.<br>
+    또는 명세를 코드의 "함체별 최신 메트릭" 구조로 정정.<br><br>
+    <strong>권고</strong>: 코드 정정 (다른 list endpoint들과 일관성)
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>35e5092 "updated v2.9"</code> / <code>68c2451 "update v3.3"</code> (옛 차수)<br>
+    Enclosure 신설 시 명세-코드 의도 불일치 잠복 <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #5 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#5</span>
+    <span class="mismatch-domain">D19 Server</span>
+    <span class="mismatch-endpoint">GET /api/servers/{server_id}/metrics/latest</span>
+  </div>
+  <div class="mismatch-headline">
+    📊 <strong>응답 키 자체가 완전히 다름</strong> — 명세는 <code>metrics/threshold_config</code>, 코드는 <code>server_id/server_name/latest_metrics</code>
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§8.6.3)</h4>
+      두 키로 평탄화
+      <code>{
+  "data": {
+    "metrics": {
+      "cpu_usage": 45.0,
+      "ram_usage": 70.0
+    },
+    "threshold_config": {
+      "cpu": {"warning": 80}
+    }
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 ServerMetricsLatestResponse</h4>
+      서버 메타 + 중첩 메트릭
+      <code>{
+  "data": {
+    "server_id": 1,
+    "server_name": "VMS-1",
+    "latest_metrics": {
+      "cpu_usage": 45.0,
+      "ram_usage": 70.0,
+      "collected_at": "..."
+    }
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      ApiSingleResponse_ServerMetricsLatestResponse_<br>
+      (코드와 일치)
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시</div>
+    매니저 <span class="arrow">→ data.metrics.cpu_usage 접근</span> <strong>KeyError</strong>
+    <br><br>
+    실제는 <code>data.latest_metrics.cpu_usage</code>. 또한 <code>threshold_config</code> 키도 부재.
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    명세 §8.6.3 본문을 코드 스키마(<code>server_id/server_name/latest_metrics</code>)에 맞춰 갱신.<br><br>
+    <strong>이유</strong>: 코드가 실제 운영 중인 응답 구조 — 매니저가 이미 코드 응답으로 통합 가능. 명세 stale.
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>35e5092 "updated v2.9"</code> (ServerMetrics 분리 시점)<br>
+    <strong>v2.9 ServerMetrics 분리 + ApiSingleResponse 도입 시 명세 본문 미동기화</strong> <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #6 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#6</span>
+    <span class="mismatch-domain">D26 Report</span>
+    <span class="mismatch-endpoint">GET /api/reports/generations/{id}/download</span>
+  </div>
+  <div class="mismatch-headline">
+    📦 <strong>응답 형식 자체가 다름 — JSON vs 바이너리</strong> — 매니저가 JSON 파싱 시도 → 즉시 실패
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§10.4.4)</h4>
+      JSON envelope (메타 응답)
+      <code>{
+  "success": true,
+  "message": "...",
+  "data": {
+    "id": 1,
+    "pdf_file_path": "/files/r1.pdf"
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 (FileResponse)</h4>
+      바이너리 PDF 스트림
+      <code>return FileResponse(
+  path=pdf_path,
+  media_type="application/pdf",
+  headers={
+    "Content-Disposition":
+      'attachment; filename="..."'
+  }
+)</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      responses: ['200', '422']<br>
+      $ref 없음 (FileResponse는 OpenAPI 스키마 노출 안 됨)
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시 (명세대로)</div>
+    매니저 <span class="arrow">→ JSON.parse(response.body)</span> <strong>JSONDecodeError</strong>
+    <br><br>
+    응답은 PDF 바이너리 데이터 — JSON 파서가 magic header <code>%PDF-1.4...</code>에서 실패
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    §10.4.4를 <strong>"PDF 바이너리 스트림 (application/pdf, Content-Disposition 헤더)"</strong>으로 정정.<br><br>
+    매니저는 다운로드 URL로 호출 시 바이너리 응답 + 파일 저장.
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>035f776 "updated"</code> (옛 차수)<br>
+    Report 시스템 초기 구현 시 명세 ↔ 실제 동작 의도 불일치 잠복 <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #7 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#7</span>
+    <span class="mismatch-domain">D19 Server</span>
+    <span class="mismatch-endpoint">GET /api/servers/{server_id}/system-events</span>
+  </div>
+  <div class="mismatch-headline">
+    📊 <strong>명세는 표준 envelope, 코드는 단순 배열 + response_model 미부착</strong>
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§8.3.7)</h4>
+      표준 envelope + pagination
+      <code>{
+  "data": {
+    "items": [...],
+    "total": 50
+  },
+  "pagination": {
+    "page": 1, "limit": 20,
+    "total_pages": 3
+  }
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드</h4>
+      단순 배열, pagination 메타 없음, response_model 미부착
+      <code>return [
+  {"id": 1, "type": "...", ...},
+  {"id": 2, "type": "...", ...}
+]</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      <strong>response_model 부재</strong><br>
+      → 200 schema = {} (빈 객체)<br>
+      → SDK 자동 생성 시 정확한 타입 불가
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시</div>
+    매니저 <span class="arrow">→ data.items 접근</span> <strong>undefined</strong>
+    <br><br>
+    응답이 배열이라 <code>data</code> 자체가 배열 — items 키 부재
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target code">코드 정정</span>
+    <code>response_model=ApiResponse[list[SystemEventResponse]]</code> 부착 + <code>items/total/pagination</code> envelope 추가.<br><br>
+    명세대로 정합화 → Swagger 노출 + 매니저 호환.
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>35e5092 "v2.9"</code> / <code>2d50bce</code> (옛)<br>
+    v2.9 시점에 표준 envelope 미적용으로 잠복 <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #8 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#8</span>
+    <span class="mismatch-domain">D12 Malfunction</span>
+    <span class="mismatch-endpoint">PUT /api/events/malfunctions/{event_id}</span>
+  </div>
+  <div class="mismatch-headline">
+    📝 <strong>Request Body 정책 변경 미반영</strong> — 명세는 옛 정책, 코드는 v2.8 자동관리
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§6.2.5)</h4>
+      action_reported 명시 (옛 정책)
+      <code>{
+  "type_event": "Fault",
+  "device_id": 1,
+  "reason": "...",
+  "detail": {...},
+  "action_reported": "True"
+  // ↑ 옛 정책 잔존
+}</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 MalfunctionEventCreate</h4>
+      action_reported 부재 (시스템 자동관리)
+      <code>class MalfunctionEventCreate:
+  type_event: str
+  device_id: int
+  reason: str
+  detail: dict
+  # action_reported 없음
+  # → ActionEvent 생성/삭제 시
+  #   시스템이 자동 관리</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      MalfunctionEventCreate $ref<br>
+      action_reported 필드 없음<br>
+      (코드와 일치)
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시 (명세대로)</div>
+    매니저 <span class="arrow">→ action_reported 포함</span> Pydantic <code>extra='ignore'</code> → 코드가 무시
+    <br><br>
+    <strong>요청은 통과되지만 의미 차이</strong> — 매니저가 <code>action_reported</code> 설정한다고 생각하나 실제로는 시스템이 자동 관리
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    §6.2.5에서 <code>action_reported</code> 필드 제거하고 <strong>"시스템 자동 관리 (ActionEvent 생성/삭제 시)"</strong> 주석 추가.<br><br>
+    <strong>이유</strong>: PRD v2.8 자동관리 정책이 정답. 명세 stale.
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>908d373 "updated v1.3"</code> ~ v2.8 PRD 도입 시<br>
+    v2.8 자동관리 도입 시 명세 본문 미정정 <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #9 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#9</span>
+    <span class="mismatch-domain">D13 Action</span>
+    <span class="mismatch-endpoint">GET /api/events/actions</span>
+  </div>
+  <div class="mismatch-headline">
+    📝 <strong>Query parameter 정책 mismatch</strong> — 명세는 required, 코드는 Optional + 명세 미문서화 필터
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§6.4.2)</h4>
+      <code>start_date</code>, <code>end_date</code> <strong>required</strong>
+      <code>Query:
+  start_date  datetime  required
+  end_date    datetime  required
+  user        str       optional
+  page        int       optional
+  limit       int       optional</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 (actions.py:204-211)</h4>
+      모두 Optional + from_event_id 필터
+      <code>def list_actions(
+  start_date: Query(None),
+  end_date:   Query(None),
+  user:       Query(None),
+  page:       Query(None),
+  limit:      Query(None),
+  from_event_id: Query(None),
+  # ↑ 명세 미문서화
+)</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      모든 query parameter required=false<br>
+      from_event_id 노출됨
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시</div>
+    매니저 <span class="arrow">→ start_date/end_date 없이 호출</span> 실제 200 OK (전체 조회)
+    <br><br>
+    <strong>역호환</strong>: 명세대로 매번 1년 범위 강제하면 매니저 UX 저하. 코드 정책(optional + 1년 default)이 운영 의도.
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    §6.4.2 Query 표를 모두 <strong>optional</strong>로 변경 + <code>from_event_id</code> 행 추가.<br><br>
+    <strong>이유</strong>: 코드 정책이 운영 정답.
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>2d50bce "stabilize: pagination"</code> 시점에 query 정책 변경<br>
+    명세 §6.4.2는 옛 가정 그대로 <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ #10 ============================ -->
+<div class="mismatch-card p1">
+  <div class="mismatch-header">
+    <span class="mismatch-id">#10</span>
+    <span class="mismatch-domain">D13 Action</span>
+    <span class="mismatch-endpoint">PUT /api/events/actions/{event_id}</span>
+  </div>
+  <div class="mismatch-headline">
+    🚫 <strong>매니저가 명세대로 호출하면 즉시 422</strong> — 명세 예시 2필드, 코드 필요 4필드
+  </div>
+  <div class="three-way">
+    <div class="three-way-col col-spec">
+      <h4>📘 명세 (§6.4.5)</h4>
+      Request Body 예시 2필드만
+      <code>// 명세 예시 (옛)
+{
+  "content": "조치 완료",
+  "user": "operator"
+}
+// type_event / from_event_id 누락</code>
+    </div>
+    <div class="three-way-col col-code">
+      <h4>💻 코드 ActionEventCreate</h4>
+      4 required 필드
+      <code>class ActionEventCreate:
+  type_event:    str  # required
+  content:       str  # required
+  user:          str  # required
+  from_event_id: int  # required
+  created_at:    Optional</code>
+    </div>
+    <div class="three-way-col col-swagger">
+      <h4>🟧 Swagger</h4>
+      PUT requestBody: ActionEventCreate $ref<br>
+      4 required 필드 노출
+    </div>
+  </div>
+  <div class="scenario">
+    <div class="label">⚡ 매니저 호출 시 (명세대로)</div>
+    매니저 <span class="arrow">→ {content, user} 2필드 전송</span> <strong>422 Validation Error</strong>
+    <br><br>
+    <code>{"detail": [{"loc": ["body", "type_event"], "msg": "field required"}, {"loc": ["body", "from_event_id"], "msg": "field required"}]}</code>
+  </div>
+  <div class="fix-box">
+    <div class="label">✅ 정정 방향</div>
+    <span class="fix-target spec">명세 정정</span>
+    §6.4.5 Request Body 예시를 4 required 필드로 정정:
+    <code>{
+  "type_event": "manual_response",
+  "content": "조치 완료",
+  "user": "operator",
+  "from_event_id": 123
+}</code>
+  </div>
+  <div class="responsibility">
+    <strong>책임 commit</strong>: <code>aeb1074 "ActionEvent 1:N"</code> (그제 v4.3)<br>
+    <strong>그제 v4.3에서 ActionEvent 1:N 도입 시 from_event_id 필수화 + 명세 본문 동시 정정 누락</strong> <span class="tag-v43">v4.3 잠복</span> <span class="tag-not-ours">우리 책임 X</span>
+  </div>
+</div>
+
+<!-- ============================ 종합 ============================ -->
+<h2>📊 종합 — 책임 시점 분포</h2>
+<div class="flow-diagram">
+🔴 P0 (운영 500): 1건  ── v1.6 (5e8ff25)
+🟠 P1 (mismatch):  9건
+   ├─ 그제 v4.3 (aeb1074): 4건 ── ActionEvent 1:N 도입 시 명세 §6.4/§6.5 누락
+   ├─ v2.9 (35e5092):     3건 ── ServerMetrics 분리 + Enclosure 신설 시 envelope 미정합
+   ├─ v2.8 (908d373):     1건 ── action_reported 자동관리 정책 변경 미반영
+   └─ 옛 (035f776):       1건 ── Report download FileResponse 명세 stale
+
+💚 우리 v4.4/v4.5 책임: 0건
+   ├─ v4.4 작업 16 commit: 모두 backward-compatible 추가/보강
+   ├─ v4.5 작업 (오늘):    minimal 6 그룹 — 테스트 갱신 + EM DELETE 'data':{}
+   └─ 새 mismatch 생성:    0건
+</div>
+
+<h2>🛠 정정 작업 분량 추정</h2>
+<table class="overview-table">
+  <thead>
+    <tr>
+      <th>우선순위</th>
+      <th>작업</th>
+      <th>분량</th>
+      <th>차수</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-p0">P0</span></td>
+      <td>#1 ServerCategory cpu_usage 500 핫픽스</td>
+      <td>1h</td>
+      <td><strong>v4.6 진입 즉시</strong></td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>명세 정정 7건 (#2/#3/#5/#6/#8/#9/#10)</td>
+      <td>3~4h (텍스트 작업)</td>
+      <td>v4.6</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-p1">P1</span></td>
+      <td>코드 정정 2건 (#4 + #7 envelope 표준화)</td>
+      <td>3~4h</td>
+      <td>v4.6</td>
+    </tr>
+    <tr>
+      <td colspan="2" style="text-align: right;"><strong>합계</strong></td>
+      <td><strong>약 7~9h (≒ 1 인일)</strong></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>💡 향후 예방책</h2>
+<div class="flow-diagram">
+① 매 차수 종료 시: 명세 ↔ Swagger ↔ 코드 3-way grep 1회 (자동화 가능)
+② TDD 사이클: 코드 변경 시 명세 § 동시 정정 의무화 (CLAUDE.md 규약 추가)
+③ CI 추가 (장기): OpenAPI ↔ 명세 자동 diff → 잠복 부채 자동 감지
+④ 차수 commit 단위: "코드 + 명세 + Swagger 셋이 함께 변경" 원칙
+</div>
+
+<footer>
+GOP RESTful API 3-way 정합 검증 보고서 — v4.5 차수 / 2026-06-19<br>
+Workflow 28 agent / 1,996,464 token / 6분 / 26 도메인 검증<br>
+원본 데이터: <code>tasks/w2djj6ely.output</code> (266KB)
+</footer>
+
+</body>
+</html>

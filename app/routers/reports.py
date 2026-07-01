@@ -161,6 +161,69 @@ def get_components():
 
 
 # ==============================================================================
+# Report Engine Status (Busy / Ready)
+# ==============================================================================
+
+@router.get("/status")
+def get_report_engine_status(db: Session = Depends(get_db)):
+    """
+    보고서 엔진 Busy/Ready 상태 (read-only)
+
+    PRD: PRD_Report_Master_Redesign — 정형 전체는 Chromium 렌더가 무거워 비동기 생성된다.
+    클라이언트는 generation id 없이도 이 엔드포인트를 polling 하여 엔진이 작업 중인지 확인할 수 있다.
+
+    **응답 data**:
+    - **busy**: 진행 중(PENDING/GENERATING) 작업이 하나라도 있으면 true
+    - **ready**: busy 의 반대 (새 생성 즉시 처리 가능)
+    - **in_progress_count / in_progress**: 진행 중 작업 목록
+    - **last_completed**: 가장 최근 완료 보고서(다운로드 URL 포함) — 없으면 null
+    """
+    busy_statuses = ("PENDING", "GENERATING")
+    in_progress = (
+        db.query(ReportGeneration)
+        .filter(ReportGeneration.status.in_(busy_statuses))
+        .order_by(ReportGeneration.created_at.asc())
+        .all()
+    )
+    last = (
+        db.query(ReportGeneration)
+        .filter(ReportGeneration.status == "COMPLETED")
+        .order_by(ReportGeneration.completed_at.desc())
+        .first()
+    )
+    busy = len(in_progress) > 0
+
+    return ApiResponse(
+        success=True,
+        message="Report engine status retrieved successfully",
+        data={
+            "busy": busy,
+            "ready": not busy,
+            "in_progress_count": len(in_progress),
+            "in_progress": [
+                {
+                    "id": g.id,
+                    "title": g.title,
+                    "status": g.status,
+                    "created_at": g.created_at,
+                }
+                for g in in_progress
+            ],
+            "last_completed": (
+                {
+                    "id": last.id,
+                    "title": last.title,
+                    "completed_at": last.completed_at,
+                    "pdf_download_url": f"/api/reports/generations/{last.id}/download",
+                }
+                if last and last.pdf_file_path
+                else None
+            ),
+        },
+    )
+
+
+# ==============================================================================
 # Report Templates Endpoints
 # ==============================================================================
 

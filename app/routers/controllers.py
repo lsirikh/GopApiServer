@@ -7,7 +7,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_user_optional, require_perm_optional
 from app.models.device import Controller, Sensor, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
@@ -261,7 +261,7 @@ async def get_controller(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[ControllerResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ControllerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("devices", "edit"))])
 async def create_controller(
     controller_data: ControllerCreate,
     current_user = Depends(get_current_user_optional),
@@ -340,7 +340,7 @@ async def create_controller(
     )
 
 
-@router.patch("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse])
+@router.patch("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse], dependencies=[Depends(require_perm_optional("devices", "edit"))])
 async def update_controller(
     controller_id: int,
     controller_data: ControllerUpdate,
@@ -448,7 +448,7 @@ async def update_controller(
     )
 
 
-@router.put("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse])
+@router.put("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse], dependencies=[Depends(require_perm_optional("devices", "edit"))])
 async def replace_controller(
     controller_id: int,
     controller_data: ControllerCreate,
@@ -527,7 +527,7 @@ async def replace_controller(
     )
 
 
-@router.delete("/{controller_id}", response_model=ApiSingleResponse[None])
+@router.delete("/{controller_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("devices", "delete"))])
 async def delete_controller(
     controller_id: int,
     current_user = Depends(get_current_user_optional),

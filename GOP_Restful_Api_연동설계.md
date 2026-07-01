@@ -66,6 +66,8 @@
    - 9.5 [UserSession API](#95-usersession-api)
    - 9.6 [Audit Logs API](#96-audit-logs-api) *(v3.1 신규)*
    - 9.7 [Config Change Logs API](#97-config-change-logs-api) *(v3.2 신규)*
+   - 9.8 [Session Settings API](#98-session-settings-api-v52-신규) *(v5.2 신규)*
+   - 9.9 [권한그룹 부여(Grant) API](#99-권한그룹-부여grant-api-v52-신규) *(v5.2 신규)*
 10. [Report API 설계](#10-report-api-설계-v33-신규) *(v3.3 신규)*
     - 10.1 [개요](#101-개요)
     - 10.2 [Report Components API](#102-report-components-api)
@@ -14110,6 +14112,7 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 | POST | `/api/auth/logout` | 로그아웃 | 9.2.3 |
 | POST | `/api/auth/refresh` | 토큰 갱신 | 9.2.4 |
 | GET | `/api/auth/me` | 현재 사용자 정보 | 9.2.5 |
+| GET | `/api/auth/me/permissions` | 유효권한 스냅샷(grant 병합) *(v5.2)* | 9.2.6 |
 
 #### 9.2.2 POST `/api/auth/login`
 
@@ -14129,6 +14132,7 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
     "access_token": "eyJhbGciOiJIUzI1NiIs...",
     "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
     "token_type": "bearer",
+    "session_id": "42",
     "user": {
       "id": 1,
       "login_id": "operator01",
@@ -14146,6 +14150,8 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 }
 ```
 
+> **`session_id` (v5.2, Force-Logout FR-SVF-01)**: JWT `sid` 클레임(=UserSession.id)과 동일한 불변 세션 식별자. 클라는 이 값을 보관하여 강제 로그아웃 매칭(per-session NATS revoke subject)·세션 관리에 사용한다. refresh 시 **sid는 고정**되고 jti만 회전한다. 상세 계약: `docs/prds/CONTRACT_GOP_Server_v5.2.md`.
+
 #### 9.2.3 POST `/api/auth/logout`
 
 **Request Header**:
@@ -14159,6 +14165,8 @@ Authorization: Bearer {access_token}
   "success": true
 }
 ```
+
+> **세션 무효화 (v5.2, Force-Logout)**: logout 은 현재 세션의 **access + refresh 패밀리 jti를 모두 블랙리스트**에 등록한다(발급된 토큰이 exp까지 통과하던 구멍 차단). 이후 해당 토큰으로 보호 자원 접근 시 **401 `error.code=SESSION_REVOKED`** — 403(권한부족)과 구분되며, 클라는 즉시 재로그인 플로우로 전환한다(재시도 금지). 관리자 강제 로그아웃(`DELETE /api/user-sessions/{id}`·`/user/{user_id}`)도 동일하게 대상 세션 jti를 블랙리스트한다.
 
 #### 9.2.4 POST `/api/auth/refresh`
 
@@ -14182,10 +14190,13 @@ Refresh token을 사용하여 새로운 access token을 발급합니다.
   "data": {
     "access_token": "eyJhbGciOiJIUzI1NiIs...",
     "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
-    "token_type": "bearer"
+    "token_type": "bearer",
+    "session_id": "42"
   }
 }
 ```
+
+> **(v5.2)** refresh 시 `session_id`(=`sid`)는 **그대로 승계**되고 access·refresh의 `jti`만 회전한다. 이전 refresh 토큰의 jti는 회전과 함께 블랙리스트된다(재사용 차단).
 
 **Error Response (401 Unauthorized)**:
 ```json
@@ -14226,6 +14237,34 @@ Authorization: Bearer {access_token}
   "updated_at": "2026-01-19T08:30:00+09:00"
 }
 ```
+
+#### 9.2.6 GET `/api/auth/me/permissions` *(v5.2)*
+
+현재 사용자의 **유효권한 스냅샷**을 조회한다(인증 필요). 유효권한 = **배정 그룹(`group_id`) 매트릭스 ∪ 현재 유효 grant 매트릭스**(§9.9). role 은 ADMIN만 특권(bypass), 비-ADMIN은 라벨 — 권한 원천은 배정 그룹(ADR_Permission_Model_v5.2). 클라(Dotnet.Monitoring)가 grant 만료/변경으로 stale 된 권한을 재평가하는 경로. 로그인 응답 `data.user.permissions` 와 동일 계산.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "modules": {
+      "events": {"view": true, "edit": true, "delete": false, "control": true},
+      "cameras": {"view": true, "edit": false, "delete": false, "control": true}
+    },
+    "device_groups": [1, 2, 3],
+    "valid_until": "2026-07-01T14:00:00+09:00",
+    "server_time": "2026-06-30T12:00:00+09:00"
+  }
+}
+```
+| 필드 | 설명 |
+|------|------|
+| modules | 모듈별 권한(view/edit/delete/control), 등급 ∪ grant 합집합(OR) |
+| device_groups | 접근 가능 디바이스 그룹 ID(합집합) |
+| valid_until | 활성 grant 중 **가장 임박한 만료**(KST, null=상시) — 클라 캐시 만료시점 |
+| server_time | 서버 현재 시각(KST) — 폐쇄망 클라-서버 시계 편차 보정 |
+
+> 클라 패턴: 로그인 시 permissions+`valid_until` 캐시 → `valid_until` 도달 또는 NATS `permissions_changed`(per-user subject) 수신 시 재조회. **실동작은 서버 응답(403)이 권위**, UI 게이팅은 보조.
 
 ### 9.3 User API
 
@@ -14914,6 +14953,123 @@ Accept: application/json
 
 ---
 
+### 9.8 Session Settings API *(v5.2 신규)*
+
+세션/인증 정책 **런타임 관리** API. `app_settings` 테이블에 저장되며 DB가 권위(.env는 최초 1회 기본값). 모두 **ADMIN 전용**(`require_admin`). 참조 PRD: `PRD_GOP_Server_Session_Settings.md`.
+
+#### 9.8.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 인가 | 섹션 |
+|--------|----------|------|------|------|
+| GET | `/api/settings/session` | 세션/인증 정책 조회 | ADMIN | 9.8.2 |
+| PUT | `/api/settings/session` | 세션/인증 정책 변경(부분) | ADMIN | 9.8.3 |
+
+#### 9.8.2 GET `/api/settings/session`
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "session_timeout_hours": 24,
+    "refresh_expiration_days": 7,
+    "lockout_threshold": 5,
+    "session_enabled": true,
+    "auth_mode": "public",
+    "jwt_algorithm": "HS256"
+  }
+}
+```
+
+| 필드 | 타입 | 편집 | 제약 |
+|------|------|------|------|
+| session_timeout_hours | int | ✅ | 1 ~ 168 |
+| refresh_expiration_days | int | ✅ | 1 ~ 90 |
+| lockout_threshold | int | ✅ | **0(비활성) 또는 3 ~ 20** (1~2 금지) |
+| session_enabled | bool | ✅ | — |
+| auth_mode | string | ❌ 읽기전용 | 배포(.env) 전용 |
+| jwt_algorithm | string | ❌ 읽기전용 | 배포 전용 |
+
+> `jwt_secret`은 **절대 응답에 노출되지 않는다**(NFR-SVS-03).
+
+#### 9.8.3 PUT `/api/settings/session`
+
+편집 가능 필드의 **부분집합만** 수용(미지정 필드 불변). 변경분은 `ConfigChangeLog` 감사 + 캐시 무효화 + 런타임 만료/잠금 즉시 반영.
+
+**Request Body** (예: 일부만):
+```json
+{
+  "session_timeout_hours": 8,
+  "lockout_threshold": 5
+}
+```
+
+**Response (200 OK)**: GET과 동일한 전체 스냅샷(`data`).
+
+**Error**:
+- `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422.
+- `401`/`403` — 미인증 / 비-ADMIN.
+
+---
+
+### 9.9 권한그룹 부여(Grant) API *(v5.2 신규)*
+
+권한그룹(UserGroup)을 사용자에게 **기간을 정해 부여**한다(상시=`valid_until` 생략, 한시=만료 지정). 유효권한 = **배정 그룹(`group_id`) 매트릭스 ∪ 현재 유효 grant 매트릭스**(요청시점 계산이 권위, sweep 미실행에도 만료 차단). role 은 ADMIN만 특권(bypass), 기능권한은 배정 그룹에서 — `name==role` 자동해석 폐기(ADR_Permission_Model_v5.2). 참조 PRD: `PRD_Permission_Group_Scheduling.md`. ⚠ 집행은 휴면 RBAC와 함께 `AUTH_MODE=token` 플립 시 활성(부여/조회/회수 관리 API는 AUTH_MODE 무관 즉시 동작).
+
+#### 9.9.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 인가 | 섹션 |
+|--------|----------|------|------|------|
+| POST | `/api/users/{user_id}/grants` | 그룹 부여 | ADMIN | 9.9.2 |
+| GET | `/api/users/{user_id}/grants` | 부여 목록(+status) | ADMIN | 9.9.3 |
+| DELETE | `/api/grants/{grant_id}` | 부여 회수(soft) | ADMIN | 9.9.4 |
+
+> 사용자 본인 유효권한 재조회는 §9.2.6 `GET /api/auth/me/permissions`.
+
+#### 9.9.2 POST `/api/users/{user_id}/grants`
+
+**Request Body** (`GrantCreate`, extra 금지):
+```json
+{
+  "group_id": 3,
+  "valid_from": "2026-06-30T13:00:00+09:00",
+  "valid_until": "2026-07-01T14:00:00+09:00"
+}
+```
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| group_id | int | Y | 부여할 권한그룹 ID |
+| valid_from | datetime(KST) | Y | 유효 시작 일시 |
+| valid_until | datetime(KST) | N | 만료 일시. **생략/null = 상시(무기한)** |
+
+**Response (201 Created)** — `data`(`GrantResponse`):
+```json
+{
+  "success": true,
+  "data": {
+    "id": 12, "user_id": 7, "group_id": 3, "group_name": "유지보수팀",
+    "valid_from": "2026-06-30T13:00:00+09:00",
+    "valid_until": "2026-07-01T14:00:00+09:00",
+    "is_active": true, "status": "ACTIVE",
+    "granted_by": 1, "revoked_at": null,
+    "created_at": "2026-06-30T12:00:00+09:00"
+  }
+}
+```
+- **status**(파생): `ACTIVE`(유효) / `PENDING`(now<valid_from) / `EXPIRED`(valid_until≤now) / `REVOKED`(회수됨). 우선순위 REVOKED>PENDING>EXPIRED>ACTIVE.
+- **is_active**: sweep 비정규화 표시 플래그 — **인가 권위는 status(요청시점)**.
+- **Error**: `404`(user/group 없음) / `422`(`valid_until ≤ valid_from` 또는 과거 `valid_until`) / `401`·`403`.
+
+#### 9.9.3 GET `/api/users/{user_id}/grants`
+
+해당 사용자의 모든 부여를 `status` 파생값과 함께 배열로 반환(ADMIN). `data`: `GrantResponse[]`.
+
+#### 9.9.4 DELETE `/api/grants/{grant_id}`
+
+부여 **회수**(물리삭제 아님 — `revoked_at` 기록, 감사 `GRANT_REVOKED`). 회수 즉시 유효권한에서 제외(요청시점 판정). `data: null`.
+
+---
+
 ## 10. Report API 설계 (v3.3 신규)
 
 > **PRD 참조**: PRD_Report_System.md
@@ -15177,6 +15333,7 @@ Report API는 정형/비정형 보고서의 생성 및 관리 기능을 제공�
 | Method | Endpoint | 설명 |
 |--------|----------|------|
 | POST | `/api/reports/generate` | 보고서 생성 요청 |
+| GET | `/api/reports/status` | 보고서 엔진 Busy/Ready 상태 (read-only) |
 | GET | `/api/reports/generations` | 생성 이력 목록 조회 |
 | GET | `/api/reports/generations/{id}` | 생성 이력 상세 조회 |
 | GET | `/api/reports/generations/{id}/download` | PDF 다운로드 |
@@ -15311,6 +15468,41 @@ PDF 파일을 직접 다운로드합니다 — JSON envelope 아님, **PDF 바�
   }
 }
 ```
+
+#### 10.4.6 GET `/api/reports/status`
+
+보고서 엔진의 Busy/Ready 상태를 조회합니다 (read-only). 정형 보고서는 전체 페이지네이션으로 Chromium 렌더가 무거워 비동기 생성되므로, 클라이언트는 generation id 없이 본 엔드포인트를 polling 하여 진행 여부를 판단할 수 있습니다.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Report engine status retrieved successfully",
+  "data": {
+    "busy": false,
+    "ready": true,
+    "in_progress_count": 0,
+    "in_progress": [],
+    "last_completed": {
+      "id": 4,
+      "title": "2026년 6월 운영 보고서",
+      "completed_at": "2026-06-30T17:42:00+09:00",
+      "pdf_download_url": "/api/reports/generations/4/download"
+    }
+  }
+}
+```
+
+**필드 설명**:
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| busy | bool | 진행 중(PENDING/GENERATING) 작업 존재 여부 |
+| ready | bool | `busy` 의 반대 (새 생성 즉시 처리 가능) |
+| in_progress_count | int | 진행 중 작업 수 |
+| in_progress[] | array | 진행 중 작업 목록 (id, title, status, created_at) |
+| last_completed | object\|null | 최근 완료 보고서 (id, title, completed_at, pdf_download_url) |
+
+> **참조**: PRD_Report_Master_Redesign — 보고서 PDF는 HTML(Chart.js)→Chromium 렌더 + PyMuPDF 무손실 재압축(~85% 축소). 정형=전 섹션 전체 페이지네이션, 비정형=template 컴포넌트(`enabled_components`) 선택. 본 status·download·preview 모두 동일 비동기 파이프라인 기준.
 
 ### 10.5 Report Preview Page
 
@@ -15869,6 +16061,7 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 
 **Report Generations**:
 - `POST /api/reports/generate` - 보고서 생성 요청
+- `GET /api/reports/status` - 보고서 엔진 Busy/Ready 상태 (read-only)
 - `GET /api/reports/generations` - 생성 이력 목록 조회
 - `GET /api/reports/generations/{id}` - 생성 이력 상세 조회
 - `GET /api/reports/generations/{id}/download` - PDF 다운로드
@@ -16094,7 +16287,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v5.2 | 2026-06-30 | **하루 일괄 — 서버 안정성 hotfix ("가끔 죽는" 원인 추적 + 즉시 5건 적용, Workflow 7 agent 감사 / 5/5 PASS)**<br><br>**[차수 배경]** 차장님 보고 "API 서버가 가끔 죽는데 원인 모름" → **Workflow 7 agent 정밀 감사**(498K token / 6.5분, 6 dimension A~F) 즉시 발주. 결과 **Health Score 58/100**(A 컨테이너 이벤트 55, B 메모리 누수 62, C DB 연결 72, D async 패턴 42, E 시작 의존 62, F 엔드포인트 스트레스 55 — 총 발견 42건 / 추정 죽음 원인 13건). 동시에 호스트 Windows Event 로그 분석에서 **Kernel-Power Event ID 41 + 6008**(unexpected shutdown) 패턴 확정: 2026-06-29 09:30 / 06-24 08:38 / 06-20 09:55 — 5~9일 간격 비정상 종료, 형제 4 컨테이너 09:32 KST 일제 재기동 = **Docker daemon 단위 재시작**(컨테이너 개별 crash 아님). 본 차수는 **TOP 5 죽음 원인**(high confidence) 중 즉시 적용 가능한 5건을 묶어 hotfix, 코드 광범위 수정이 필요한 항목(bcrypt async / APScheduler 청소 / 미들웨어 비동기 큐 등)은 **v5.3+ 별도 PR 권고**로 분리.<br><br>**[TOP 5 죽음 원인 (high confidence)]**:<br>- ① **async login 안 sync bcrypt** — 동시 30건 요청 4170ms 270배 폭증 + CPU 95% pin (`auth.py:303, 609` / `users.py:184`) → bcrypt CPU bound을 async 핸들러에서 직접 호출, 이벤트 루프 stall<br>- ② **호스트 C: 99% 디스크** — Docker images 99GB + build cache 45GB 누적 → 로그 쓰기/이미지 풀 실패로 daemon 불안정<br>- ③ **★본 세션 v5.1 자가 버그**: `force_logout_all_user_sessions` 벌크 핸들러 `add_to_token_blacklist` kwarg `expires_in`(실제 시그니처는 `expires_at`) → `TypeError 500` (`user_sessions.py:131, 146`). v5.1에서 단건 980abbc 패턴은 정상이나 벌크 경로만 누락<br>- ④ **PG `statement_timeout=0` + `idle_in_transaction_session_timeout=0`** — runaway tx가 connection을 무한 점유, 풀 고갈<br>- ⑤ **APILoggingMiddleware 매 요청 DB 세션 신규 생성** — 요청당 별도 SessionLocal(), 정상 풀 2배 소모<br><br>**[Fix-1 / 디스크 회수]** — `docker builder prune -af` + image prune 일괄 → **45.63GB + 444MB 회수**, C: 사용률 98.1% 까지 하강(이전 99% 임계). docker system df `Build Cache 0B` 확인(이전 45.63GB). ★ 정기 cron(주 1회)는 v5.3+ Deferred (별도 PR 권고).<br><br>**[Fix-2 / v5.1 자가 버그 fix — 투명성 명시]** — `app/routers/user_sessions.py:131, 146` 벌크 force_logout 경로 `expires_in=...` → `expires_at=...` 정정(단건 980abbc 패턴과 시그니처 일치). settings TTL(`SECURITY_ACCESS_TOKEN_EXPIRE_MINUTES` / `SECURITY_REFRESH_TOKEN_EXPIRE_DAYS`) 기반 `datetime.utcnow() + timedelta(...)` 계산식 통일. 실측: 벌크 force_logout 호출 **200 OK** + `token_blacklist` `reason='FORCE_LOGOUT_BULK'` 등록 확인. **v5.1 PRD 자체에 명시된 reason 라벨은 정상, kwarg만 누락된 회귀**(LIVE 직전 발견).<br><br>**[Fix-3 / PG 트랜잭션 타임아웃]** — `ALTER DATABASE gop SET statement_timeout='60s'` + `ALTER DATABASE gop SET idle_in_transaction_session_timeout='5min'`. 실측 `SHOW statement_timeout` → **60s**, `SHOW idle_in_transaction_session_timeout` → **300s**. runaway tx가 connection을 무한 점유하던 1순위 죽음 경로 차단(특히 db_monitor NATS callback 내 DB 연산 실패 시 미회수 잔존 tx).<br><br>**[Fix-4 / Docker 로그 회전]** — `docker-compose.yml` YAML anchor `&default-logging` 도입(driver: `json-file`, options: `max-size: 10m` / `max-file: 3`) + 모든 서비스(api/db_monitor/gis_ingest/postgres/redis/nats)에 `logging: *default-logging` 적용. 실측 `docker inspect ... LogConfig` → `{Type: json-file, max-file: 3, max-size: 10m}` 확인. 미회전 컨테이너 로그가 호스트 C: 잠식하던 경로 차단(이전 컨테이너당 GB 단위 누적).<br><br>**[Fix-5 / Healthcheck 엔드포인트 경량화]** — `docker-compose.yml` api 서비스 healthcheck `/docs`(3.6KB Swagger HTML, 인증 우회·정적 자원 의존) → **`/api/tracking/health`**(약 30B JSON `{"status":"ok"}`, 무인증 / v4.11 추적 라우터에 신설된 무의존 헬스 엔드포인트). 실측 `docker inspect ... Healthcheck.Test` → `curl /api/tracking/health` 확인. 매 30초 healthcheck 비용 100배 절감 + 정적 자원 응답 실패 false-positive 제거.<br><br>**[호스트 절전 가설 확정 / 운영 권고]** — Windows Event ID 41(Kernel-Power) + 6008(Unexpected shutdown) 3건 패턴 확정(2026-06-29 09:30 / 06-24 08:38 / 06-20 09:55). 컨테이너 4종 동시 재기동 = Docker daemon 단위 재시작 = **호스트 절전(슬립/하이브리드 절전) 진입 후 깨우기 실패** 시나리오와 정합. ★ **차장님 PC 절전 비활성화**(제어판 → 전원 옵션 → 절전 안 함 / USB selective suspend off) 운영 권고 — 본 차수 코드 fix는 daemon 재시작 자체를 막을 수 없으므로 **호스트 정책 변경이 단일 가장 큰 영향(High Impact)**. v5.3+ `uptime_watch.ps1` 매분 `docker inspect` 스냅샷 → 재기동 시점 자동 캡처.<br><br>**[실측 검증 5/5 PASS]**:<br>- ① Fix-2 벌크 force_logout 200 OK + `token_blacklist FORCE_LOGOUT_BULK` row 등록 확인<br>- ② Fix-3 `SHOW statement_timeout` → 60s, `SHOW idle_in_transaction_session_timeout` → 300s<br>- ③ Fix-4 `docker inspect LogConfig` → `{max-file: 3, max-size: 10m}` 모든 서비스<br>- ④ Fix-5 `docker inspect Healthcheck.Test` → `curl /api/tracking/health` + 응답 본문 `{"status":"ok"}` 200 OK<br>- ⑤ Fix-1 `docker system df` Build Cache 0B(이전 45.63GB) + C: 사용률 98.1% 하강<br><br>**[안전점/롤백]**: `pre-stability-hotfix` @ `6eced61`(본 차수 진입 직전 HEAD). 롤백 `git reset --hard pre-stability-hotfix`(v5.1 상태 복원, RBAC enforcement는 보존됨).<br><br>**[v5.3+ Deferred (별도 PR 권고)]**:<br>- ⓐ **bcrypt async 전환** (`asyncio.to_thread`) — login + login_oauth2 + password change 3곳 일괄, 동시성 부하 시험(현재 30건/4170ms → 목표 30건/300ms 이하)<br>- ⓑ **APScheduler + cachetools 도입** — `token_blacklist`(만료된 jti) / `api_logs`(90일) / `user_sessions`(만료 세션) / `track_points`(180일) 자동 청소 cron, 보존 정책 PRD 결재 선결<br>- ⓒ **트랜잭션 안전망 표준화** — `get_db()` 의존성 generator에 `rollback` on exception 명시(현재 일부 라우터만 `try/except` 수동)<br>- ⓓ **APILoggingMiddleware 비동기 큐 분리** — 요청당 DB 세션 신규 생성을 background task + 단일 큐 워커로 전환<br>- ⓔ **db_monitor 재시도 + autoheal 컨테이너** (`willfarrell/autoheal`) — healthcheck unhealthy 자동 재기동<br>- ⓕ **uptime_watch.ps1** 매분 `docker inspect` 스냅샷 — 재기동 시점 캡처 + Event ID 41/6008 상관 분석<br>- ⓖ **차장님 PC 절전 비활성화** 운영 권고(코드 외 운영 조치 / High Impact)<br>- ⓗ **events / api_logs / audit_logs 보존 정책**(90일 / 180일 / 영구) PRD 결재 — APScheduler purge 가동 전 보존 기간 합의 필수<br><br>**원칙 준수**: 하루 1차수 묶음 — 본 v5.2는 2026-06-30 단일 차수. **★ v5.1 자가 버그(Fix-2)는 동일 차수에 투명하게 명기**(별도 hotfix 차수로 분리하지 않음 — 원칙: "발견 즉시 동일 hotfix 묶음에 명시"). 추적성: `PRD_Stability_Hotfix.md`(workflow 7 agent 6 dimension 감사 보고서 첨부) + 본 row + `pre-stability-hotfix` 태그 3중 잠금. |
+| v5.2 | 2026-06-30 | **하루 일괄 — 서버 안정성 hotfix ("가끔 죽는" 원인 추적 + 즉시 5건 적용, Workflow 7 agent 감사 / 5/5 PASS)**<br><br>**[차수 배경]** 차장님 보고 "API 서버가 가끔 죽는데 원인 모름" → **Workflow 7 agent 정밀 감사**(498K token / 6.5분, 6 dimension A~F) 즉시 발주. 결과 **Health Score 58/100**(A 컨테이너 이벤트 55, B 메모리 누수 62, C DB 연결 72, D async 패턴 42, E 시작 의존 62, F 엔드포인트 스트레스 55 — 총 발견 42건 / 추정 죽음 원인 13건). 동시에 호스트 Windows Event 로그 분석에서 **Kernel-Power Event ID 41 + 6008**(unexpected shutdown) 패턴 확정: 2026-06-29 09:30 / 06-24 08:38 / 06-20 09:55 — 5~9일 간격 비정상 종료, 형제 4 컨테이너 09:32 KST 일제 재기동 = **Docker daemon 단위 재시작**(컨테이너 개별 crash 아님). 본 차수는 **TOP 5 죽음 원인**(high confidence) 중 즉시 적용 가능한 5건을 묶어 hotfix, 코드 광범위 수정이 필요한 항목(bcrypt async / APScheduler 청소 / 미들웨어 비동기 큐 등)은 **v5.3+ 별도 PR 권고**로 분리.<br><br>**[TOP 5 죽음 원인 (high confidence)]**:<br>- ① **async login 안 sync bcrypt** — 동시 30건 요청 4170ms 270배 폭증 + CPU 95% pin (`auth.py:303, 609` / `users.py:184`) → bcrypt CPU bound을 async 핸들러에서 직접 호출, 이벤트 루프 stall<br>- ② **호스트 C: 99% 디스크** — Docker images 99GB + build cache 45GB 누적 → 로그 쓰기/이미지 풀 실패로 daemon 불안정<br>- ③ **★본 세션 v5.1 자가 버그**: `force_logout_all_user_sessions` 벌크 핸들러 `add_to_token_blacklist` kwarg `expires_in`(실제 시그니처는 `expires_at`) → `TypeError 500` (`user_sessions.py:131, 146`). v5.1에서 단건 980abbc 패턴은 정상이나 벌크 경로만 누락<br>- ④ **PG `statement_timeout=0` + `idle_in_transaction_session_timeout=0`** — runaway tx가 connection을 무한 점유, 풀 고갈<br>- ⑤ **APILoggingMiddleware 매 요청 DB 세션 신규 생성** — 요청당 별도 SessionLocal(), 정상 풀 2배 소모<br><br>**[Fix-1 / 디스크 회수]** — `docker builder prune -af` + image prune 일괄 → **45.63GB + 444MB 회수**, C: 사용률 98.1% 까지 하강(이전 99% 임계). docker system df `Build Cache 0B` 확인(이전 45.63GB). ★ 정기 cron(주 1회)는 v5.3+ Deferred (별도 PR 권고).<br><br>**[Fix-2 / v5.1 자가 버그 fix — 투명성 명시]** — `app/routers/user_sessions.py:131, 146` 벌크 force_logout 경로 `expires_in=...` → `expires_at=...` 정정(단건 980abbc 패턴과 시그니처 일치). settings TTL(`SECURITY_ACCESS_TOKEN_EXPIRE_MINUTES` / `SECURITY_REFRESH_TOKEN_EXPIRE_DAYS`) 기반 `datetime.utcnow() + timedelta(...)` 계산식 통일. 실측: 벌크 force_logout 호출 **200 OK** + `token_blacklist` `reason='FORCE_LOGOUT_BULK'` 등록 확인. **v5.1 PRD 자체에 명시된 reason 라벨은 정상, kwarg만 누락된 회귀**(LIVE 직전 발견).<br><br>**[Fix-3 / PG 트랜잭션 타임아웃]** — `ALTER DATABASE gop SET statement_timeout='60s'` + `ALTER DATABASE gop SET idle_in_transaction_session_timeout='5min'`. 실측 `SHOW statement_timeout` → **60s**, `SHOW idle_in_transaction_session_timeout` → **300s**. runaway tx가 connection을 무한 점유하던 1순위 죽음 경로 차단(특히 db_monitor NATS callback 내 DB 연산 실패 시 미회수 잔존 tx).<br><br>**[Fix-4 / Docker 로그 회전]** — `docker-compose.yml` YAML anchor `&default-logging` 도입(driver: `json-file`, options: `max-size: 10m` / `max-file: 3`) + 모든 서비스(api/db_monitor/gis_ingest/postgres/redis/nats)에 `logging: *default-logging` 적용. 실측 `docker inspect ... LogConfig` → `{Type: json-file, max-file: 3, max-size: 10m}` 확인. 미회전 컨테이너 로그가 호스트 C: 잠식하던 경로 차단(이전 컨테이너당 GB 단위 누적).<br><br>**[Fix-5 / Healthcheck 엔드포인트 경량화]** — `docker-compose.yml` api 서비스 healthcheck `/docs`(3.6KB Swagger HTML, 인증 우회·정적 자원 의존) → **`/api/tracking/health`**(약 30B JSON `{"status":"ok"}`, 무인증 / v4.11 추적 라우터에 신설된 무의존 헬스 엔드포인트). 실측 `docker inspect ... Healthcheck.Test` → `curl /api/tracking/health` 확인. 매 30초 healthcheck 비용 100배 절감 + 정적 자원 응답 실패 false-positive 제거.<br><br>**[호스트 절전 가설 확정 / 운영 권고]** — Windows Event ID 41(Kernel-Power) + 6008(Unexpected shutdown) 3건 패턴 확정(2026-06-29 09:30 / 06-24 08:38 / 06-20 09:55). 컨테이너 4종 동시 재기동 = Docker daemon 단위 재시작 = **호스트 절전(슬립/하이브리드 절전) 진입 후 깨우기 실패** 시나리오와 정합. ★ **차장님 PC 절전 비활성화**(제어판 → 전원 옵션 → 절전 안 함 / USB selective suspend off) 운영 권고 — 본 차수 코드 fix는 daemon 재시작 자체를 막을 수 없으므로 **호스트 정책 변경이 단일 가장 큰 영향(High Impact)**. v5.3+ `uptime_watch.ps1` 매분 `docker inspect` 스냅샷 → 재기동 시점 자동 캡처.<br><br>**[실측 검증 5/5 PASS]**:<br>- ① Fix-2 벌크 force_logout 200 OK + `token_blacklist FORCE_LOGOUT_BULK` row 등록 확인<br>- ② Fix-3 `SHOW statement_timeout` → 60s, `SHOW idle_in_transaction_session_timeout` → 300s<br>- ③ Fix-4 `docker inspect LogConfig` → `{max-file: 3, max-size: 10m}` 모든 서비스<br>- ④ Fix-5 `docker inspect Healthcheck.Test` → `curl /api/tracking/health` + 응답 본문 `{"status":"ok"}` 200 OK<br>- ⑤ Fix-1 `docker system df` Build Cache 0B(이전 45.63GB) + C: 사용률 98.1% 하강<br><br>**[안전점/롤백]**: `pre-stability-hotfix` @ `6eced61`(본 차수 진입 직전 HEAD). 롤백 `git reset --hard pre-stability-hotfix`(v5.1 상태 복원, RBAC enforcement는 보존됨).<br><br>**[v5.3+ Deferred (별도 PR 권고)]**:<br>- ⓐ **bcrypt async 전환** (`asyncio.to_thread`) — login + login_oauth2 + password change 3곳 일괄, 동시성 부하 시험(현재 30건/4170ms → 목표 30건/300ms 이하)<br>- ⓑ **APScheduler + cachetools 도입** — `token_blacklist`(만료된 jti) / `api_logs`(90일) / `user_sessions`(만료 세션) / `track_points`(180일) 자동 청소 cron, 보존 정책 PRD 결재 선결<br>- ⓒ **트랜잭션 안전망 표준화** — `get_db()` 의존성 generator에 `rollback` on exception 명시(현재 일부 라우터만 `try/except` 수동)<br>- ⓓ **APILoggingMiddleware 비동기 큐 분리** — 요청당 DB 세션 신규 생성을 background task + 단일 큐 워커로 전환<br>- ⓔ **db_monitor 재시도 + autoheal 컨테이너** (`willfarrell/autoheal`) — healthcheck unhealthy 자동 재기동<br>- ⓕ **uptime_watch.ps1** 매분 `docker inspect` 스냅샷 — 재기동 시점 캡처 + Event ID 41/6008 상관 분석<br>- ⓖ **차장님 PC 절전 비활성화** 운영 권고(코드 외 운영 조치 / High Impact)<br>- ⓗ **events / api_logs / audit_logs 보존 정책**(90일 / 180일 / 영구) PRD 결재 — APScheduler purge 가동 전 보존 기간 합의 필수<br><br>**원칙 준수**: 하루 1차수 묶음 — 본 v5.2는 2026-06-30 단일 차수. **★ v5.1 자가 버그(Fix-2)는 동일 차수에 투명하게 명기**(별도 hotfix 차수로 분리하지 않음 — 원칙: "발견 즉시 동일 hotfix 묶음에 명시"). 추적성: `PRD_Stability_Hotfix.md`(workflow 7 agent 6 dimension 감사 보고서 첨부) + 본 row + `pre-stability-hotfix` 태그 3중 잠금.<br><br>**━━━ [2026-06-30 동일 차수 추가 — .NET 이관 PRD 실행: Force-Logout P1 + Session-Settings P2 + 휴면 RBAC + FR-SV-10 + 5-sync 배포] ━━━**<br><br>**[P1 Force-Logout (FR-SVF-01~12)]** (`f00f7ca`·`4ff9a05`·`785c313`) — logout 시 access+refresh **패밀리 일괄 무효화**(구멍 차단) / JWT **`sid` 클레임**(=UserSession.id) + login·refresh 응답 `data.session_id` 동봉(refresh 시 sid 고정·jti만 회전) / force_logout last-ADMIN 가드 / **per-session NATS revoke**(`sensorway.{unit}.account.{uid}.session.{sid}.revoke`, HMAC-SHA256 서명, 게이트 `NATS_REVOKE_ENABLED=False` 기본 OFF) / revoked 세션 접근 → **401 `error.code=SESSION_REVOKED`**(403 권한부족과 구분). 로컬 27건 PASS.<br><br>**[P2 Session-Settings (FR-SVS-01~06)]** (`73ecc5e`) — `app_settings` 테이블 신설(v55 마이그레이션, startup create_all 멱등) + **`GET`/`PUT /api/settings/session`**(require_admin): 편집 가능 `session_timeout_hours`(1~168)/`refresh_expiration_days`(1~90)/`lockout_threshold`(0 또는 3~20)/`session_enabled`, 읽기전용 `auth_mode`/`jwt_algorithm`(jwt_secret 미노출). auth.py 런타임 만료·잠금임계 적용 + ConfigChangeLog 감사. 로컬 11건 PASS.<br><br>**[휴면 RBAC — FR-SV-04/08 부분]** (`c49f0a4` 구조 헬퍼 → `require_perm_optional` → `9a6624c` 부착) — `require_perm_optional(module,verb)` 신설: **AUTH_MODE=public 무집행(현 동작 100% 보존)**, token 플립 시 활성. 비계정 write **27개**(cameras=`cameras`/sensors·controllers=`devices`/actions·detections·malfunctions=`events`/servers=`servers`; POST·PATCH·PUT=edit, DELETE=delete)에 데코레이터 부착. servers PATCH 기존 require_admin 유지. 도메인 회귀 0(사전실패 카운트 전후 동일), 단위 5/5 PASS. ★활성화(AUTH_MODE=token)는 클라 3종 Bearer 동시배포 게이트 — `docs/prds/GUIDE_RBAC_Activation_v5.2.md` 참조.<br><br>**[FR-SV-10 비번변경 세션 무효화]** (`b2f80c8`) — `PUT /api/users/me/password` 성공 시 본인 다른 활성 세션의 access+refresh jti 블랙리스트 + 비활성화(현재 세션 sid 보존). F07-01 구멍(발급 JWT가 exp까지 통과) 차단.<br><br>**[5-sync 배포]** — `docker compose build/up api-server` 재빌드·재기동(healthy), **Swagger version 5.0.0→5.2.0 라이브 확인**, app_settings 라이브 생성, 안전점 태그 `v5.2-pre-deploy`/`v5.2-deployed` + 롤백 이미지 `api-test-server:pre-v5.2`.<br><br>**[클라 배포용 산출물]** — `docs/prds/CONTRACT_GOP_Server_v5.2.md`(계약 4건 + canonical 골든벡터 V1·V2 + P2 스키마) / `docs/prds/GUIDE_RBAC_Activation_v5.2.md`(P5 활성화 절차 + 역할 매트릭스 + 클라 체크리스트) / `docs/memory/SESSION_COORDINATION.md`(멀티세션 협업 조율판).<br><br>**[본문 동기화]** — 본 차수에 §9.2 Auth(login/refresh `session_id` + 401 `SESSION_REVOKED`) + §9.8 Session Settings API 신설 반영(아래 본문 파트).<br><br>**[v5.2 잔존]** — P5 AUTH_MODE=token 플립(클라 Bearer 동시배포 게이트) / Force-Logout 활성화(`NATS_REVOKE_ENABLED=true`, 클라 subject 매칭 V-SVF-05) / FR-SV-07 audit append-only DB(RULE/RLS) / FR-SV-11 RTSP 마스킹 / gitea push(인증). **권한그룹 시간 스케쥴링**은 별도 PRD(`PRD_Permission_Group_Scheduling.md`, WS-B 세션) 진행 중 — 본 휴면 RBAC 헬퍼에 grant 합집합으로 올라탐.<br><br>**원칙 준수**: 하루 1차수 묶음 — 2026-06-30 hotfix + 본 추가 작업 **모두 동일 v5.2 단일 행에 append**(별도 차수 분리 금지). |
 | v5.1 | 2026-06-29 | **하루 추가 일괄 — 서버 RBAC Enforcement 본격 도입 (`PRD_GOP_Server_RBAC_Enforcement.md` 8 FR 적용, 12/12 PASS)**<br><br>**[차수 배경]** 외부 세션 .NET 시뮬레이션 `wf_52155656`(22 agent / 218 시나리오 / 99 발견) 결과 PRD 도입 → 서버 RBAC 집행률 0% 확진(계정 외 도메인 전부 RBAC 부재 + reports 완전 무인증 + AUTH_MODE=public + 비계정 jti 미검사). 본 차수는 P0 5건 + P1 일부(SV-06/09) 즉시 적용. **AUTH_MODE=token 전환 + 비계정 라우터 require_perm 일괄 부착은 v5.2 권고** (.NET 클라 Bearer 동시 배포 조율 필수).<br><br>**[FR-SV-05] enums 모듈 확장 (선행 필수)** — `app/utils/enums.py:779` `EnumPermissionModule` 8종 → **12종** 확장: `MAP`('map') / `BROADCAST`('broadcast') / `SETUP_SYSTEM`('setup_system') / `SETUP_FEATURE`('setup_feature') 추가. 'cameras' 통일(클라 'cam' 오기 방지). PermissionsSchema/시드/JSONB는 기존 호환(미정의 모듈 422 자동 차단, v4.9 Phase 3 정책 유지).<br><br>**[FR-SV-04] `require_perm(module, verb)` 팩토리 신설** (`app/routers/auth.py:148~`) — `require_role` 확장형, jti 블랙리스트 검사 포함(get_current_account_user 의존 chain). **ADMIN bypass** + 역할명 등급 그룹 매트릭스(OQ-PG-01 Option A, login 정합 `auth.py:298~305`) 기반. 권한 부재 시 403 `Insufficient permission: requires {module}:{verb}`. 비계정 라우터 부착은 다음 차수 단계 적용.<br><br>**[FR-SV-03] `get_current_account_user_optional` 신설** (`app/routers/auth.py:175~`) — 레거시 `get_current_user_optional`(Legacy User 모델 + jti 미검사) 대체 헬퍼. AccountUser 기반 + jti 블랙리스트 검사 + AUTH_MODE 분기(public None 허용 / token 401 강제). 비계정 라우터 의존성 교체 시 사용 — **AUTH_MODE=token 전환 자체는 미실시** (클라 Bearer 동시 배포 후 v5.2).<br><br>**[FR-SV-01 잔여] user_sessions RBAC + 벌크 jti 블랙리스트** — `app/routers/user_sessions.py` GET '/' + GET '/{session_id}' + DELETE '/{session_id}' + DELETE '/user/{user_id}' 4건에 `dependencies=[Depends(require_admin)]` 부착. 벌크 force_logout 핸들러(L75)에 access+refresh jti 블랙리스트 등록(reason='FORCE_LOGOUT_BULK', 단건 980abbc 패턴 일관). T4 LIVE 위험 차단 — VIEWER가 ADMIN 세션 종료 시도 → 403. /me 계열은 self-service 유지.<br><br>**[FR-SV-02] reports.py 전 endpoint 인증** — `app/routers/reports.py:37` `router = APIRouter(dependencies=[Depends(get_current_account_user)])` 라우터 레벨 인증 강제. 12 endpoint(templates CRUD/components/generate/generations/download/preview) 무인증 PII 집계 노출 LIVE 차단. require_perm(reports, view/edit/delete) 도메인별 부착은 v5.2.<br><br>**[FR-SV-06] 마지막 ADMIN 원자 가드** — `app/routers/users.py:492` DELETE + `:381` PUT 핸들러에 `SELECT ... FOR UPDATE` 행 잠금 + 잔여 활성 ADMIN 카운트(`.with_for_update().all()` + `len()` PostgreSQL 호환). 마지막 ADMIN 삭제 또는 강등/비활성화 시도 → 409 `Cannot delete/demote the last ADMIN user`. TOCTOU 차단(동시 두 ADMIN 삭제 시도해도 1명 보존).<br><br>**[FR-SV-09] 누락 인가 보강** — `app/routers/servers.py:328` `PATCH /servers/{id}` + `app/routers/user_groups.py:19,54` GET 2종에 `dependencies=[Depends(require_admin)]` 부착. VIEWER/OPERATOR 권한 그룹 조회 + 인프라 설정 변경 차단.<br><br>**[실측 12/12 PASS]**:<br>- ① reports 무인증 → 401, ② reports admin → 200, ③ reports components 무인증 → 401<br>- ④ /user-sessions admin → 200, ⑤ /user-sessions OPERATOR → 403, ⑥~⑦ DELETE /user-sessions OPERATOR → 403 (2건)<br>- ⑧~⑨ /user-groups GET OPERATOR → 403 (목록+상세)<br>- ⑩ PATCH /servers/1 OPERATOR → 403<br>- ⑪ DELETE /users/1 (마지막 ADMIN) → 409, ⑫ PUT /users/1 role=OPERATOR (강등) → 409<br>- EnumPermissionModule Swagger 12종 노출 확인<br><br>**[안전점/롤백]**: `pre-rbac-enforcement` @ `40f926f`(본 차수 진입 직전). 롤백 `git reset --hard pre-rbac-enforcement` (v5.0 상태 복원).<br><br>**[v5.2 잔존 (Out of Scope)]**:<br>- FR-SV-03 ① `.env AUTH_MODE=public→token` 전환 (클라 Bearer 동시 배포 필요)<br>- FR-SV-04 require_perm 비계정 라우터 적용 (cameras/sensors/controllers/actions/detections/malfunctions write endpoint)<br>- FR-SV-07 감사 append-only DB 강제 (PostgreSQL RULE/RLS + 별도 app 계정 분리 + APScheduler purge)<br>- FR-SV-08 비계정 도메인 jti 검사 통일 (`get_current_user_optional` → `get_current_account_user_optional` 라우터 전수 교체)<br>- FR-SV-10 비번 변경 시 본인 타기기 세션 jti 무효화<br>- FR-SV-11 RTSP URL 마스킹 + NATS subject ACL<br>- PRD §5-A V-SV-01~08 검증 (이주율 / OQ-PG-04~07 PM 결정 / get_current_user_optional 사용처 전수)<br><br>**원칙 준수**: 하루 1차수 묶음 — 본 v5.1은 같은 2026-06-29 작업이지만 v5.0(권한 관리 endpoint + v4.12 정합 정리) 마감 후 별도 PRD(`PRD_GOP_Server_RBAC_Enforcement.md`) 도입에 따른 **차수 분리** (서로 다른 PRD 범위 + 독립 시뮬레이션 근거 + 별도 안전점). |
 | v5.0 | 2026-06-29 | **하루 일괄 — 그룹 권한 관리 endpoint 신설(POST /api/user-groups/{id}/permissions, ADMIN 전용) + v4.12 후속 정합 정리 일괄 sweep**<br><br>**[권한 관리 §9.4.7]** `POST /api/user-groups/{group_id}/permissions` 신설(ADMIN 전용). 일반 `PUT /api/user-groups/{id}`은 v4.8 Phase 12-7a 영구 정책에 따라 `permissions` 필드 쓰기를 **차단**(메타만 갱신) — 일반 수정 경로로 권한 변경을 허용하면 **권한 상승 공격면**이 노출되므로, 권한 정책 갱신을 **별도 ADMIN endpoint로 분리**해 인가 집중·감사 일원화. `dependencies=[Depends(require_admin)]`(v4.12 §9.3.1 동일 패턴) 강제 — 비-ADMIN 호출은 라우팅 단계에서 **403**(`Insufficient role`).<br>- **Request**: `PermissionsSchema`(v4.9 Phase 3 도입, strict input) — `modules: Dict[EnumPermissionModule, ModulePermission]` + `device_groups: List[int]`(선택). `EnumPermissionModule` 8종(`devices`/`events`/`reports`/`cameras`/`users`/`user_groups`/`audit_logs`/`servers`), `ModulePermission` 4 verb `StrictBool`(`view`/`edit`/`delete`/`control`), `model_config = ConfigDict(extra='forbid')` → **미정의 모듈/verb는 422 자동 차단**(오탈자·신규 권한 누락 컴파일타임급 검출).<br>- **Response**: `UserGroupResponse`(갱신된 그룹, `permissions` 반영). **Error**: 403(RBAC) / 404(그룹 없음) / 422(스키마 위반).<br>- **JSONB 직렬화**: `permissions = schema.model_dump(mode='json', exclude_none=True)` — `user_groups.permissions` JSONB 컬럼 호환(EnumPermissionModule→string key 정규화, `None`은 누락 보존).<br>- **감사 로그 자동 기록**: `action_type='PERMISSION_CHANGED'`, `resource_type='USER_GROUP'`, `resource_id=group_id`, `resource_name=group.name`, `changes={'before': old_permissions, 'after': new_permissions}`(전/후 스냅샷), `actor_*`(login_id/id/name/role) 채움. **append-only 트리거**(v51.1, FK 익명화 예외 유지) 적용 — UPDATE/DELETE 차단, ACTOR_DELETED/RESOURCE_DELETED 익명화만 허용.<br>- **실측 검증**: admin POST → **200**(group.permissions 갱신, audit_logs 1행 `PERMISSION_CHANGED at 2026-06-29 10:23:29`), 비-ADMIN(VIEWER/USER) POST → **403**, 정의되지 않은 verb(`{"devices":{"view":true,"hack":true}}`) → **422**, 존재하지 않는 그룹 → **404**, Swagger `/docs` `operationId=update_user_group_permissions` + `schema=#/components/schemas/PermissionsSchema` `$ref` 노출 확인.<br>- 코드: `app/routers/user_groups.py:270` `@router.post("/{group_id}/permissions", dependencies=[Depends(require_admin)])`, 주석 `# PRD v5.0`. ⚠ 장비/이벤트/맵 쓰기 RBAC는 **v5.x 후속**(AUTH_MODE token 승격·.NET 클라 Bearer 부착 선결).<br><br>**[v4.12 후속 정합 정리 §부록]** 본 세션 2026-06-29 일괄 sweep — v4.12 차수 마감 후 누적된 운영·정합·보안 항목을 동일 차수에 묶어 처리(하루 1차수 묶음 원칙).<br>- **PII 차단**: `data/profiles/` `.gitignore` 등록(사용자 사진 3건 commit 방지) + `.gitkeep` 유지(디렉터리 영속). `c:workspace_python...txt`(경로 슬래시 누락으로 워크트리 루트에 생성된 사고 파일) 삭제 + 패턴 차단.<br>- **admin 계정 복구**: `failed_login_count=0` 리셋 + bcrypt `admin123` 재발급(평문 미저장, v4.10 user_password 평문 정책은 Camera/Lamp/Server 디바이스 자격증명에만 적용 — User 비밀번호는 bcrypt 해시 유지).<br>- **Swagger/PRD 정합**: Swagger `version` `1.6.0→4.12.0`, API Version `2.10→4.12`, PRD 목록 갱신(미반영 PRD 67건은 archive 후속).<br>- **이미지·컨테이너 재배포**: Image rebuild + Container force-recreate(`Created 2026-06-29T00:59:01`, v4.11 추적 이력 영속·v4.12 RBAC 코드 반영 확인).<br>- **token_blacklist 정리**: 17 row cleanup(외부 세션 잔재 jti 누적, collision/오탐 위험 제거). ⚠ 자동 청소 cron은 **v5.x 후속**.<br>- **메모리/세션 컨텍스트 갱신**: `session-context.md` 차수 `v4.10→v4.12`, HEAD/branch/안전점 표 갱신, `final-stable` 태그 4건 신설(v4.9/v4.10/v4.11/v4.12), 메모리 4건 신설(RBAC ADMIN 게이트·Tracking cursor·프로필 사진 정책·audit FK 익명화).<br>- **잔존 후속**: 장비/이벤트/맵 쓰기 RBAC(v5.x, AUTH_MODE token 승격 선결), `token_blacklist` 자동 청소 cron(v5.x), `before-*` 신규 3 태그 → `pre-*` 컨벤션 재명명, 67건 untracked PRD archive 정리.<br>- **안전점/롤백**: 본 차수 진입 직전 `pre-v5-spec-sync` 태그. 롤백 — 본 명세 commit 회귀 `git reset --hard pre-v5-spec-sync`(명세 v4.12 상태), 외부 세션 endpoint 자체 회귀 `git reset --hard v4.12-final-stable`, v4.12 정합 정리 회귀 `git reset --hard pre-v412-sync-cleanup`. |
 | v4.12 | 2026-06-27 | **하루 일괄 — 계정 관리 RBAC(ADMIN 게이트·권한상승 T1 차단) + 추적 이력 인제스트 워커(gis-ingest) 구축**<br><br>**[User API §9.3.1]** 계정 CRUD/lock/unlock/reset-password 8개 엔드포인트에 `require_admin`(=`require_role("ADMIN")`, `app/routers/auth.py` 신설) 의존성 추가. 이전엔 인증(Bearer)만 검증하고 `role`을 인가에 미사용 → **임의 인증사용자가 `PUT /api/users/{id}` 본문에 `role=ADMIN`을 실어 자기/타인을 ADMIN으로 격상(권한상승 T1)** 가능했음. role 미달 시 **403**(`Insufficient role`). 본인 자원(`/me`·`/me/password`·`/me/photo`) self-service 유지, `GET /api/users/photo/{file_name}` 인증불요 유지.<br>- `require_role` 의존성 팩토리 신설(auth.py) + users.py 8개 데코레이터 `dependencies=[Depends(require_admin)]`<br>- E2E 검증: VIEWER GET/PUT/DELETE → 403, T1 격상 → 403, admin → 200, /me → 200, 테스트계정 정리<br>- 서버측 RBAC가 권위 집행 지점(클라 UI 게이팅은 보조·우회 가능). ⚠ 장비/이벤트/맵 쓰기 RBAC는 **후속 차수** — AUTH_MODE token 승격·인증 의존성 통일·.NET 클라 Bearer 부착이 선결(미선결 시 앱 쓰기 전면 401)<br>- 안전점 `before-account-rbac`, 브랜치 `feature/server-account-rbac`<br><br>**[② 추적 이력 인제스트 워커 §11 / gis-ingest]** TRACKING_STATUS(신 `targets[]`)를 NATS 구독→`track_points` 영속하는 워커 신설 — §11(v4.11)에서 "후속"으로 둔 저장 경로 실현. 독립 compose 서비스 `api-test-gis-ingest`(`db_monitor` 역방향 미러, asyncpg+nats-py, `nats_external` 망 연결). `sensorway.*.gis.tracking-status` 구독 → `tracking=="active"` targets[]만 행으로 `INSERT ... ON CONFLICT (track_id, observed_at) DO NOTHING`(멱등). `observed_at`(UTC)→naive KST 변환(읽기 API KSTDatetime 정합), 구버전 단일 `target` 방어 파싱 포함. **mock E2E 검증**: NATS 발행→인제스트→멱등(중복 발행 2회=1행)→`/points`·`/sessions` 조회 정상, 테스트 데이터 정리. 발행 시 `created_at` NOT-NULL(raw asyncpg는 ORM Python default 미적용) 명시 지정 버그 E2E로 발견·수정. ⚠ 실 `AiAnalysis`가 신 `targets[]` 포맷 발행하도록 **합의 미결**(방어 파싱으로 구버전 호환). (`gis_ingest/main.py`·`Dockerfile`·`requirements.txt`, `docker-compose.yml` gis-ingest 서비스, 브랜치 `feature/tracking-gis-ingest`) |

@@ -8,7 +8,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional, require_admin
+from app.routers.auth import get_current_user_optional, require_admin, require_perm_optional
 from app.models.server import ServerCategory, Server
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumServerStatus
@@ -264,7 +264,7 @@ async def get_server_system_events(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[ServerResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ServerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("servers", "edit"))])
 async def create_server(
     server_data: ServerCreate,
     current_user=Depends(get_current_user_optional),
@@ -389,7 +389,7 @@ async def update_server(
     )
 
 
-@router.put("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
+@router.put("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_perm_optional("servers", "edit"))])
 async def replace_server(
     server_id: int,
     server_data: ServerCreate,
@@ -458,7 +458,7 @@ async def replace_server(
     )
 
 
-@router.delete("/{server_id}", response_model=ApiSingleResponse[None])
+@router.delete("/{server_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("servers", "delete"))])
 async def delete_server(
     server_id: int,
     current_user=Depends(get_current_user_optional),

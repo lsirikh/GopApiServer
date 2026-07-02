@@ -2,7 +2,11 @@
 
 > **목적**: 동시에 도는 두 작업 세션이 **같은 파일 충돌 없이** 협업하도록 소유권·경계·확장훅을 못박는다.
 > 두 세션 모두 작업 시작 전 이 파일을 읽고, 경계를 바꾸려면 여기 먼저 갱신한다.
-> **갱신**: 2026-07-02 / HEAD at write: `fc512b3`
+> **갱신**: 2026-07-02 / HEAD at write: `97f72be`
+>
+> ✅ **v5.3 Phase 2 마감 통지 (2026-07-02, 차장님 지시 대응)**: Role 축소(EnumUserRole 5→2, ADMIN/USER) + 등급 그룹 → Preset Group 정리 완료. v5.2 R10① 정신 스키마 완성. 실측 6/6 PASS. auth.py 편집 없음(enums + init_db + init_sample_data + main.py만 변경, WS-B 소유권 무영향). DB `v57_role_simplification.sql` 실 적용. Swagger 5.3.5 + EnumUserRole=["ADMIN","USER"] 확정. Gitea/origin push 완료. 태그 `pre-role-simplification` + `v5.3-final-stable` (Phase 1+2 통합 마감).
+>
+> ⚠️ **원칙 재확립 (feedback_one_day_one_version)**: 2026-07-02 초기 v5.4로 별도 차수 만들었으나 하루 1차수 묶음 원칙 위배 확인 → v5.3 Phase 2로 통합 정정. `v5.4-final-stable` 태그 삭제 완료(local + Gitea + origin). 명세/CHANGELOG/PRD/Plan/NOTIFY 모두 v5.3 Phase 2 표기로 통합.
 >
 > ✅ **v5.3 마감 통지 (2026-07-02, WS-C = Legacy User Removal, 차장님 승인 "걍 고고")**: GIS 팀 요청 대응 — Legacy `User` 모델 완전 삭제 + `AccountUser` 통일. **auth.py 대규모 편집(3함수 삭제 + import 정리)** 수행 — WS-B 스케쥴링 세션이 이미 커밋된 후 auth.py 워크트리 diff 0건 확인 후 진입. 30 라우터 sweep(`get_current_user_optional` → `get_current_account_user_optional`) + `class User` + `UserCreate`/`UserResponse` schemas + `create_admin_user()` + DB `users` 테이블 DROP(v56) 모두 완료. 실측 14/14 PASS + Swagger 5.3.0. 안전점 `pre-legacy-user-removal` + 마감 `v5.3-final-stable`. **push 완료**: Gitea `v4.8` = `fc512b3`, origin `feature/report-master-redesign` = `fc512b3`. 세션간 파일 충돌 0건.
 >

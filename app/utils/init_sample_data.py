@@ -149,7 +149,7 @@ def _create_user_groups(db: Session) -> dict:
 
 # ── Users ────────────────────────────────────────────────
 
-# v5.4 (2026-07-02): role = "USER" 통일 (Role 축소, PRD_Role_Simplification).
+# v5.3 Phase 2 (2026-07-02): role = "USER" 통일 (Role 축소, PRD_Role_Simplification).
 # 권한은 group_key로 배정된 그룹의 매트릭스에서 산출 — role은 특권 라벨(ADMIN 여부)만.
 SAMPLE_USERS = [
     {"login_id": "operator1", "name": "김운영", "role": "USER",

@@ -358,7 +358,7 @@ class EnumSystemEventSeverity(str, Enum):
 
 class EnumUserRole(str, Enum):
     """
-    User role enumeration (v5.4: 2종 — role 축소 완료)
+    User role enumeration (v5.3 Phase 2: 2종 — role 축소 완료)
     PRD: PRD_Role_Simplification.md
 
     v5.2 R10① 정신 완성: role은 특권 라벨만, 실 권한은 group_id로 명시 배정된 그룹 매트릭스.
@@ -366,7 +366,7 @@ class EnumUserRole(str, Enum):
     - ADMIN: 시스템 관리자 (require_admin bypass, 그룹 매트릭스 무관)
     - USER : 일반 사용자 (권한 = 배정 group_id 매트릭스 + 유효 grant 합집합)
 
-    ★ Legacy 4종(MAINTAINER/OPERATOR/VIEWER/GUEST)은 v5.4에서 삭제됨.
+    ★ Legacy 4종(MAINTAINER/OPERATOR/VIEWER/GUEST)은 v5.3 Phase 2에서 삭제됨.
        기존 등급 그룹은 Preset 권한 그룹으로 이관:
        - user_groups "Preset - 유지보수자" (id=11)
        - user_groups "Preset - 운영자"     (id=12)

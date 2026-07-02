@@ -4,50 +4,6 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
-## [v5.4] — 2026-07-02
-
-> Role 축소 (5→2) + 등급 그룹 → Preset Group 정리. 차장님 지시 대응. v5.2 R10① 정신 스키마 완성. 6/6 PASS.
-
-**PRD**: `docs/prds/PRD_Role_Simplification.md` (Approved)  
-**Plan**: `docs/plans/Role_Simplification-prd-plan.md`  
-**안전점**: `pre-role-simplification`
-
-### Changed
-
-- **`EnumUserRole` 축소** (`app/utils/enums.py:359`) — 5종(ADMIN/MAINTAINER/OPERATOR/VIEWER/GUEST) → **2종**(ADMIN/USER). role은 특권 라벨(ADMIN 여부), 실 권한은 group_id 매트릭스.
-- **`user_groups` 4건 정리** (마이그레이션 v57):
-  - id=11 MAINTAINER → **"Preset - 유지보수자"**
-  - id=12 OPERATOR → **"Preset - 운영자"**
-  - id=13 VIEWER → **"Preset - 조회자"**
-  - id=10 ADMIN 그룹 **삭제** (bypass라 매트릭스 무의미)
-  - id=14 GUEST 그룹 **삭제** (배정 사용자 0명)
-- **`account_users.role`** — 7건 UPDATE (MAINTAINER/OPERATOR/VIEWER → USER, admin 유지)
-- **admin.group_id = NULL** — ADMIN bypass라 그룹 매트릭스 무관
-- **`app/utils/init_db.py`** `ensure_role_permission_groups()` — Preset 3건 시드 코드
-- **`app/utils/init_sample_data.py`** `SAMPLE_USERS` — role="USER" 통일
-- **Swagger `info.version`** 5.3.0 → **5.4.0** + API Version 5.4
-
-### Migration
-
-- `app/migrations/v57_role_simplification.sql` — role UPDATE + group rename + delete + 검증 DO block
-- `app/migrations/v57_role_simplification_reverse.sql` — 롤백용 (Enum 5종 재정의 시 필요)
-
-### Verified (6/6 PASS)
-
-- admin login 200 + role=ADMIN + group_id=None (bypass)
-- gop_maint login 200 + role=USER + group_id=11 (Preset-유지보수자) + modules 10건 매트릭스 유지
-- gop_op / op_tester login 200 + role=USER + group_id=12 (Preset-운영자)
-- gop_viewer login 200 + role=USER + group_id=13 (Preset-조회자)
-- monitor2 login 200 + role=USER + group_id=2 (관제팀) + modules 8건 매트릭스 유지
-- Swagger `EnumUserRole.enum` = `["ADMIN", "USER"]` 확정
-- 14 endpoint 응답 코드 유지 (AUTH_MODE=public 무영향)
-
-### Deferred (v5.5+)
-
-- AUTH_MODE 전환 (public → token)
-- require_perm 활성화 (27 라우터)
-- audit append-only DB RULE/RLS
-
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.
@@ -80,7 +36,43 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 admin login + /me + tracking(2) + users + user-groups + audit-logs + reports + servers + user-sessions + cameras + actions + detections + controllers + sensors 모두 200. Swagger UserResponse/UserCreate/oauth2 endpoint 제거 확정. FK 파괴 0.
 
-### Deferred (v5.4+)
+### Phase 2 — Role 축소 (5→2) + 등급 그룹 → Preset Group 정리
+
+> 하루 1차수 묶음 원칙 준수 (2026-07-02 동일 일자 작업 통합). Phase 1(Legacy User Removal) 마감 후 차장님 지시 대응.
+
+#### Changed (Phase 2)
+
+- **`EnumUserRole` 축소** (`app/utils/enums.py`) — 5종 → 2종 (ADMIN/USER)
+- **`user_groups` 정리** (마이그레이션 v57):
+  - id=11 MAINTAINER → "Preset - 유지보수자"
+  - id=12 OPERATOR → "Preset - 운영자"
+  - id=13 VIEWER → "Preset - 조회자"
+  - id=10 ADMIN 그룹 삭제 (bypass라 매트릭스 무의미)
+  - id=14 GUEST 그룹 삭제 (배정 사용자 0명)
+- **`account_users.role`** — 7건 UPDATE (admin 외 → USER)
+- **admin.group_id = NULL** — ADMIN bypass
+- **Swagger `info.version`** 5.3.0 → **5.3.5** (Phase 2 반영)
+
+#### Migration (Phase 2)
+
+- `app/migrations/v57_role_simplification.sql`
+- `app/migrations/v57_role_simplification_reverse.sql`
+
+#### Verified (Phase 2, 6/6 PASS)
+
+- admin login 200 + role=ADMIN + group_id=None
+- gop_maint/gop_op/op_tester/gop_viewer/monitor2 각 login 200 + role=USER + 매트릭스 유지
+- Swagger `EnumUserRole.enum` = `["ADMIN", "USER"]` 확정
+- 14 endpoint 응답 코드 유지
+
+#### 관련 산출물 (Phase 2)
+
+- **PRD**: `docs/prds/PRD_Role_Simplification.md`
+- **Plan**: `docs/plans/Role_Simplification-prd-plan.md`
+- **NOTIFY**: `docs/GOP_Server_API_v5.3_Phase2_Role_Simplification_NOTIFY.md`
+- **안전점**: `pre-role-simplification`
+
+### Deferred (v5.5+)
 
 - AUTH_MODE 전환 (public → token) — .NET 클라 Bearer 동시 배포 필수
 - require_perm 활성화 (27 라우터 부착)

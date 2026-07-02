@@ -8,7 +8,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional, require_admin, require_perm_optional
+from app.routers.auth import get_current_account_user_optional, require_admin, require_perm_optional
 from app.models.server import ServerCategory, Server
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumServerStatus
@@ -43,7 +43,7 @@ def _server_to_response(server: Server) -> ServerResponse:
 
 @router.get("/summary", response_model=ApiSingleResponse[list[ServerCategorySummary]])
 async def get_server_summary(
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -103,7 +103,7 @@ async def get_servers(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     category_id: Optional[int] = Query(None, description="카테고리 ID로 필터링"),
     status: Optional[str] = Query(None, description="서버 상태로 필터링 (NORMAL, WARNING, ERROR)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -158,7 +158,7 @@ async def get_servers(
 @router.get("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
 async def get_server(
     server_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -197,7 +197,7 @@ async def get_server_system_events(
     server_id: int,
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -267,7 +267,7 @@ async def get_server_system_events(
 @router.post("", response_model=ApiSingleResponse[ServerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("servers", "edit"))])
 async def create_server(
     server_data: ServerCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -329,7 +329,7 @@ async def create_server(
 async def update_server(
     server_id: int,
     server_data: ServerUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -393,7 +393,7 @@ async def update_server(
 async def replace_server(
     server_id: int,
     server_data: ServerCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -461,7 +461,7 @@ async def replace_server(
 @router.delete("/{server_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("servers", "delete"))])
 async def delete_server(
     server_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

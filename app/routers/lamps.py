@@ -9,7 +9,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.device import Lamp
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -101,7 +101,7 @@ async def get_lamps(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
     is_enable: Optional[bool] = Query(None, description="활성화 여부 필터링"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -154,7 +154,7 @@ async def get_lamps(
 @router.get("/{lamp_id}", response_model=ApiSingleResponse[LampResponse])
 async def get_lamp(
     lamp_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -181,7 +181,7 @@ async def get_lamp(
 @router.post("", response_model=ApiSingleResponse[LampResponse], status_code=status.HTTP_201_CREATED)
 async def create_lamp(
     lamp_data: LampCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -252,7 +252,7 @@ async def create_lamp(
 async def patch_lamp(
     lamp_id: int,
     lamp_data: LampUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -328,7 +328,7 @@ async def patch_lamp(
 async def put_lamp(
     lamp_id: int,
     lamp_data: LampCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -409,7 +409,7 @@ async def put_lamp(
 @router.delete("/{lamp_id}", response_model=ApiSingleResponse[None])
 async def delete_lamp(
     lamp_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

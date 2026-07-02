@@ -166,3 +166,11 @@ install.js
 claude-skill-harness*/
 .skill-set-backup*
 # ── /Claude Skill Harness ──
+
+!docs/prds/PRD_Legacy_User_Removal.md
+!docs/plans/Legacy_User_Removal-prd-plan.md
+!docs/GOP_Server_API_v5.3_Legacy_User_Removal_NOTIFY.md
+!docs/prds/PRD_Role_Simplification.md
+!docs/prds/PRD_Role_Simplification.md
+!docs/plans/Role_Simplification-prd-plan.md
+!docs/GOP_Server_API_v5.4_Role_Simplification_NOTIFY.md

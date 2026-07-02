@@ -2,11 +2,23 @@
 
 > **목적**: 동시에 도는 두 작업 세션이 **같은 파일 충돌 없이** 협업하도록 소유권·경계·확장훅을 못박는다.
 > 두 세션 모두 작업 시작 전 이 파일을 읽고, 경계를 바꾸려면 여기 먼저 갱신한다.
-> **갱신**: 2026-06-30 / HEAD at write: `59711cd`
+> **갱신**: 2026-07-02 / HEAD at write: `97f72be`
+>
+> ✅ **v5.3 Phase 2 마감 통지 (2026-07-02, 차장님 지시 대응)**: Role 축소(EnumUserRole 5→2, ADMIN/USER) + 등급 그룹 → Preset Group 정리 완료. v5.2 R10① 정신 스키마 완성. 실측 6/6 PASS. auth.py 편집 없음(enums + init_db + init_sample_data + main.py만 변경, WS-B 소유권 무영향). DB `v57_role_simplification.sql` 실 적용. Swagger 5.3.5 + EnumUserRole=["ADMIN","USER"] 확정. Gitea/origin push 완료. 태그 `pre-role-simplification` + `v5.3-final-stable` (Phase 1+2 통합 마감).
+>
+> ⚠️ **원칙 재확립 (feedback_one_day_one_version)**: 2026-07-02 초기 v5.4로 별도 차수 만들었으나 하루 1차수 묶음 원칙 위배 확인 → v5.3 Phase 2로 통합 정정. `v5.4-final-stable` 태그 삭제 완료(local + Gitea + origin). 명세/CHANGELOG/PRD/Plan/NOTIFY 모두 v5.3 Phase 2 표기로 통합.
+>
+> ✅ **v5.3 마감 통지 (2026-07-02, WS-C = Legacy User Removal, 차장님 승인 "걍 고고")**: GIS 팀 요청 대응 — Legacy `User` 모델 완전 삭제 + `AccountUser` 통일. **auth.py 대규모 편집(3함수 삭제 + import 정리)** 수행 — WS-B 스케쥴링 세션이 이미 커밋된 후 auth.py 워크트리 diff 0건 확인 후 진입. 30 라우터 sweep(`get_current_user_optional` → `get_current_account_user_optional`) + `class User` + `UserCreate`/`UserResponse` schemas + `create_admin_user()` + DB `users` 테이블 DROP(v56) 모두 완료. 실측 14/14 PASS + Swagger 5.3.0. 안전점 `pre-legacy-user-removal` + 마감 `v5.3-final-stable`. **push 완료**: Gitea `v4.8` = `fc512b3`, origin `feature/report-master-redesign` = `fc512b3`. 세션간 파일 충돌 0건.
+>
+> 📋 **v5.3 산출물**: PRD_Legacy_User_Removal.md + Legacy_User_Removal-prd-plan.md + GOP_Server_API_v5.3_Legacy_User_Removal_NOTIFY.md (.NET/GIS 팀 통지) + v56_drop_users_table.sql + v56_drop_users_table_reverse.sql (롤백용).
+>
+> **★ auth.py 소유권 재해제 (2026-07-02)**: 본 WS-C 마감으로 auth.py 편집 완료. 후속 세션이 auth.py 편집 필요 시 이 조율판을 먼저 갱신할 것.
 >
 > ⚠️ **브랜치 현황(2026-06-30 정정)**: 공유 작업트리의 **활성 브랜치 = `feature/report-master-redesign`** (보고서 세션이 `tracking-gis-ingest`에서 분기). 이 브랜치가 **모든 작업의 superset**(선형): v5.2 RBAC/scheduling(WS-B R1·R10③·R11) + 보고서재설계(`3ae5aa7`). ✅ **origin 백업 완료**(`origin/feature/report-master-redesign`). ★**모든 세션: 커밋 전 `git branch` 로 활성 브랜치 확인**(공유 트리라 한 세션이 바꾸면 다른 세션 커밋도 그 브랜치로 감).
 >
 > ✅ **권한쪽 머지 완료(2026-06-30, WS-B, 차장님 지시)**: 분리 전략 채택 — `1a35d72` 이후 report-master-redesign에 섞여있던 **권한 코드 3건(R1 `5969c7f`·R10③ `9e98c6a`·R11 `dd7dffb`)을 `feature/tracking-gis-ingest`로 cherry-pick**(격리 worktree, 공유트리 무영향). 결과 tracking-gis-ingest = **완전한 권한 브랜치**(FR-01~07·R9·R10①②③·R4·R1·R11), 신규 SHA `9e2043d`→`b9fe35f`→`209cbc8`. ✅**검증**: 권한 8파일 `git diff tracking..report-master-redesign` = **비어있음(100% 동일)** → 보고서 스트림과 깨끗이 분리. 보고서(`3ae5aa7`,`d468011`)는 report-master-redesign에만 잔류. ⬜ tracking-gis-ingest **push 미수행**(커밋만, 차장님 지시 "커밋"). main 머지/push는 차장님 결정.
+>
+> ✅ **5중 싱크 검증 + CHANGELOG 마감(2026-06-30, WS-B, 차장님 점검 지적 대응)**: 차장님이 "싱크룰 지키나" 점검 → 실측 결과 ①코드 ②Swagger ③명세서(WS-A R2/R10④) ④Docker Image(컨테이너에 R11가드·R10③ 존재 확인) ⑤Container(라이브 DB `user_group_grants` 테이블 적용 확인) **5/5 싱크됨**(WS-A R3 배포가 ~18분 전 수행, 내 최신변경까지 반영). **단 CHANGELOG가 권한 작업 미반영이었음 → `[v5.2]`에 스케쥴링/R9/R10 추가**(report-master-redesign `05a18ca` + tracking-gis-ingest `8f31de7` 양쪽, diff 비어있음 일치). ★자기반성: 배포측 싱크를 R3에 위임하고 확인 안 한 채 진행 = 규율 미흡. 이후 변경은 5중싱크 상태 명시 추적.
 
 ---
 

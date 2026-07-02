@@ -27,7 +27,7 @@ from app.schemas.integration import (
     EventMappingSpeakerBulkUnassignResponse,
 )
 from app.schemas.common import ApiSingleResponse
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
@@ -95,7 +95,7 @@ def _build_response(ems: EventMappingSpeaker) -> EventMappingSpeakerResponse:
 def list_event_mapping_speakers(
     mapping_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """GET /api/event-mappings/{mapping_id}/speakers"""
     # Check EventMapping exists
@@ -133,7 +133,7 @@ def get_event_mapping_speaker(
     mapping_id: int,
     config_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """GET /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
@@ -174,7 +174,7 @@ def create_event_mapping_speaker(
     mapping_id: int,
     speaker_data: EventMappingSpeakerCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """POST /api/event-mappings/{mapping_id}/speakers"""
     # Check EventMapping exists
@@ -244,7 +244,7 @@ def update_event_mapping_speaker(
     config_id: int,
     speaker_data: EventMappingSpeakerUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """PATCH /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
@@ -311,7 +311,7 @@ def replace_event_mapping_speaker(
     config_id: int,
     speaker_data: EventMappingSpeakerReplace,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """PUT /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
@@ -361,7 +361,7 @@ def delete_event_mapping_speaker(
     mapping_id: int,
     config_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """DELETE /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
@@ -428,7 +428,7 @@ def list_all_mapping_speakers(
     speaker_id: Optional[int] = None,
     is_enable: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """GET /api/integrations/mapping-speakers"""
     query = db.query(EventMappingSpeaker)
@@ -470,7 +470,7 @@ def bulk_create_event_mapping_speakers(
     mapping_id: int,
     request: EventMappingSpeakerBulkCreateRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
 ):
     """POST /api/event-mappings/{mapping_id}/speakers/bulk"""
     # Check EventMapping exists
@@ -587,7 +587,7 @@ def bulk_delete_event_mapping_speakers(
     mapping_id: int,
     request: EventMappingSpeakerBulkUnassignRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
 ):
     """DELETE /api/event-mappings/{mapping_id}/speakers"""
     # Check EventMapping exists

@@ -14,7 +14,7 @@ from datetime import datetime
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.event import ConnectionEvent
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.schemas.event import ConnectionEventCreate, ConnectionEventReplace, ConnectionEventResponse, ConnectionEventUpdate
@@ -184,7 +184,7 @@ async def get_connection_events(
     device_id: Optional[int] = Query(None, description="장치 ID로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -264,7 +264,7 @@ async def get_connection_events(
 @router.get("/{event_id}", response_model=ApiSingleResponse[ConnectionEventResponse])
 async def get_connection_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -312,7 +312,7 @@ async def get_connection_event(
 @router.post("", response_model=ApiSingleResponse[ConnectionEventResponse], status_code=status.HTTP_201_CREATED)
 async def create_connection_event(
     event_data: ConnectionEventCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -392,7 +392,7 @@ async def create_connection_event(
 async def update_connection_event(
     event_id: int,
     event_data: ConnectionEventUpdate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -475,7 +475,7 @@ async def update_connection_event(
 async def replace_connection_event(
     event_id: int,
     event_data: ConnectionEventReplace,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -540,7 +540,7 @@ async def replace_connection_event(
 @router.delete("/{event_id}", response_model=ApiSingleResponse[None])
 async def delete_connection_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

@@ -351,31 +351,12 @@ class UserLoginLogResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ============================================================
-# [LEGACY] Legacy User Schemas (users 테이블용 — Deprecated 예정)
-# → 신규 코드는 AccountUser 스키마 사용 (AccountUserCreate, AccountUserResponse 등)
-# ============================================================
-
-class UserCreate(BaseModel):
-    """[LEGACY] Schema for creating a legacy User (users 테이블)"""
-    username: str = Field(..., min_length=3, max_length=50)
-    password: str = Field(..., min_length=6)
-    role: Optional[str] = "user"
-
-
-class UserResponse(BaseModel):
-    """[LEGACY] Schema for legacy User response (users 테이블, excludes password)"""
-    id: int
-    username: str
-    role: EnumUserRole
-    created_at: Optional[KSTDatetime] = None
-    updated_at: Optional[KSTDatetime] = None
-
-    model_config = {"from_attributes": True}
+# v5.3 (2026-07-02): Legacy UserCreate / UserResponse 삭제 (users 테이블 폐기)
+# → AccountUserCreate / AccountUserResponse 사용
 
 
 class Token(BaseModel):
-    """[LEGACY] Schema for JWT token response (Legacy OAuth2 로그인용)"""
+    """Schema for JWT token response (access_token + token_type)"""
     access_token: str
     token_type: str
 

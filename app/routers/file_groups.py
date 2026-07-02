@@ -10,7 +10,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.file_group import FileGroup
 from app.models.server import Server
 from app.schemas.file_group import FileGroupCreate, FileGroupUpdate, FileGroupResponse
@@ -31,7 +31,7 @@ async def get_file_groups(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     skip: int = Query(0, ge=0, description="건너뛸 항목 수"),
     server_id: Optional[int] = Query(None, description="서버 ID로 필터링"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -89,7 +89,7 @@ async def get_file_groups(
 @router.get("/{file_group_id}", response_model=ApiSingleResponse[FileGroupResponse])
 async def get_file_group(
     file_group_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -122,7 +122,7 @@ async def get_file_group(
 @router.post("", response_model=ApiSingleResponse[FileGroupResponse], status_code=status.HTTP_201_CREATED)
 async def create_file_group(
     file_group_data: FileGroupCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -189,7 +189,7 @@ async def create_file_group(
 async def patch_file_group(
     file_group_id: int,
     file_group_data: FileGroupUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -251,7 +251,7 @@ async def patch_file_group(
 async def put_file_group(
     file_group_id: int,
     file_group_data: FileGroupCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -306,7 +306,7 @@ async def put_file_group(
 @router.delete("/{file_group_id}", response_model=ApiSingleResponse)
 async def delete_file_group(
     file_group_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

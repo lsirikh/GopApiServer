@@ -7,7 +7,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional, require_perm_optional
+from app.routers.auth import get_current_account_user_optional, require_perm_optional
 from app.models.device import Sensor, Controller, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -135,7 +135,7 @@ async def get_sensors(
     type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
     status: Optional[str] = Query(None, description="상태로 필터링"),
     include_controller: bool = Query(False, description="컨트롤러 정보 포함 여부"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -210,7 +210,7 @@ async def get_sensors(
 async def get_sensor(
     sensor_id: int,
     include_controller: bool = Query(False, description="컨트롤러 정보 포함 여부"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -247,7 +247,7 @@ async def get_sensor(
 @router.post("", response_model=ApiSingleResponse[SensorResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("devices", "edit"))])
 async def create_sensor(
     sensor_data: SensorCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -335,7 +335,7 @@ async def update_sensor(
     sensor_id: int,
     sensor_data: SensorUpdate,
     include_controller: bool = Query(default=False, description="컨트롤러 정보 포함 여부"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -451,7 +451,7 @@ async def replace_sensor(
     sensor_id: int,
     sensor_data: SensorCreate,
     include_controller: bool = Query(default=False, description="컨트롤러 정보 포함 여부"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -534,7 +534,7 @@ async def replace_sensor(
 @router.delete("/{sensor_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("devices", "delete"))])
 async def delete_sensor(
     sensor_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

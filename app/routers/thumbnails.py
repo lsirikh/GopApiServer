@@ -21,7 +21,7 @@ import os
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.thumbnail import Thumbnail
 from app.schemas.thumbnail import ThumbnailResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -48,7 +48,7 @@ ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 async def upload_thumbnail(
     file: UploadFile = File(..., description="이미지 파일 (image/jpeg, image/png, image/gif, image/webp)"),
     file_name: str = Form(..., description="저장할 파일명 (클라이언트 지정, 예: CAM-001_2026-02-19_14-30-25-123.jpg)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """
@@ -143,7 +143,7 @@ async def list_thumbnails(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜 필터 (ISO 8601)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜 필터 (ISO 8601)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """
@@ -248,7 +248,7 @@ async def get_thumbnail_image_by_file_name(
 )
 async def get_thumbnail(
     thumbnail_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """
@@ -336,7 +336,7 @@ async def get_thumbnail_image(
 )
 async def delete_thumbnail(
     thumbnail_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """

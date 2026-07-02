@@ -26,7 +26,7 @@ from app.schemas.integration import (
     EventMappingLampBulkUnassignResponse,
 )
 from app.schemas.common import ApiSingleResponse
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
@@ -93,7 +93,7 @@ def _build_response(eml: EventMappingLamp) -> EventMappingLampResponse:
 def list_event_mapping_lamps(
     mapping_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """GET /api/event-mappings/{mapping_id}/lamps"""
     # Check EventMapping exists
@@ -131,7 +131,7 @@ def get_event_mapping_lamp(
     mapping_id: int,
     config_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """GET /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
@@ -172,7 +172,7 @@ def create_event_mapping_lamp(
     mapping_id: int,
     lamp_data: EventMappingLampCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """POST /api/event-mappings/{mapping_id}/lamps"""
     # Check EventMapping exists
@@ -235,7 +235,7 @@ def update_event_mapping_lamp(
     config_id: int,
     lamp_data: EventMappingLampUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """PATCH /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
@@ -302,7 +302,7 @@ def replace_event_mapping_lamp(
     config_id: int,
     lamp_data: EventMappingLampReplace,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """PUT /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
@@ -354,7 +354,7 @@ def delete_event_mapping_lamp(
     mapping_id: int,
     config_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """DELETE /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
@@ -421,7 +421,7 @@ def list_all_mapping_lamps(
     lamp_id: Optional[int] = None,
     is_enable: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """GET /api/integrations/mapping-lamps"""
     query = db.query(EventMappingLamp)
@@ -463,7 +463,7 @@ def bulk_create_event_mapping_lamps(
     mapping_id: int,
     request: EventMappingLampBulkCreateRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
 ):
     """POST /api/event-mappings/{mapping_id}/lamps/bulk"""
     # Check EventMapping exists
@@ -570,7 +570,7 @@ def bulk_delete_event_mapping_lamps(
     mapping_id: int,
     request: EventMappingLampBulkUnassignRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
 ):
     """DELETE /api/event-mappings/{mapping_id}/lamps"""
     # Check EventMapping exists

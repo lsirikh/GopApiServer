@@ -9,7 +9,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.device import Enclosure
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -122,7 +122,7 @@ async def get_enclosures(
     door_status: Optional[str] = Query(None, description="도어 상태 필터 (CLOSED/OPEN)"),
     status: Optional[str] = Query(None, description="장비 상태 필터 (ACTIVATED/DEACTIVATED/ERROR)"),
     name_device: Optional[str] = Query(None, description="장비명 검색"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -180,7 +180,7 @@ async def get_enclosures(
 @router.get("/{enclosure_id}", response_model=ApiSingleResponse[EnclosureResponse])
 async def get_enclosure(
     enclosure_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -215,7 +215,7 @@ async def get_enclosure(
 @router.post("", response_model=ApiSingleResponse[EnclosureResponse], status_code=status.HTTP_201_CREATED)
 async def create_enclosure(
     enclosure_data: EnclosureCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -285,7 +285,7 @@ async def create_enclosure(
 async def update_enclosure(
     enclosure_id: int,
     enclosure_data: EnclosureUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -368,7 +368,7 @@ async def update_enclosure(
 async def replace_enclosure(
     enclosure_id: int,
     enclosure_data: EnclosureCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -428,7 +428,7 @@ async def replace_enclosure(
 @router.delete("/{enclosure_id}", response_model=ApiSingleResponse[None])
 async def delete_enclosure(
     enclosure_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -491,7 +491,7 @@ async def delete_enclosure(
 async def update_enclosure_status(
     enclosure_id: int,
     status_data: EnclosureStatusUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -557,7 +557,7 @@ async def update_enclosure_status(
 async def control_enclosure(
     enclosure_id: int,
     control_data: EnclosureControl,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

@@ -4,6 +4,81 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.3] — 2026-07-02
+
+> GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.
+
+**PRD**: `docs/prds/PRD_Legacy_User_Removal.md`  
+**Plan**: `docs/plans/Legacy_User_Removal-prd-plan.md`  
+**안전점**: `pre-legacy-user-removal`
+
+### Removed
+
+- **Legacy `User` 클래스** (`app/models/user.py:221~`)
+- **Legacy auth 함수 3건** (`app/routers/auth.py`) — `get_current_user` / `get_current_user_optional` / `login_oauth2`
+- **Legacy schema 2건** (`app/schemas/user.py`) — `UserCreate` / `UserResponse` (Token은 신규 login 사용 유지)
+- **`create_admin_user()` Legacy 함수** (`app/utils/init_db.py`)
+- **`POST /api/auth/login/oauth2` endpoint** (Swagger에서 사라짐)
+- **DB `users` 테이블** — `DROP TABLE users CASCADE` (v56 마이그레이션)
+
+### Changed
+
+- **30 라우터 auth helper 이주** — `get_current_user_optional` → `get_current_account_user_optional` (AUTH_MODE=public에서 응답 무영향)
+- **Swagger `info.version`** 5.2.0 → **5.3.0** + API Version 5.3
+- `tests/conftest.py` — User import 정리
+
+### Migration
+
+- **`app/migrations/v56_drop_users_table.sql`** — FK 참조 0 검증 + DROP TABLE + 완료 검증
+- **`app/migrations/v56_drop_users_table_reverse.sql`** — 롤백용 (구조만 재생성)
+
+### Verified (14/14 PASS)
+
+admin login + /me + tracking(2) + users + user-groups + audit-logs + reports + servers + user-sessions + cameras + actions + detections + controllers + sensors 모두 200. Swagger UserResponse/UserCreate/oauth2 endpoint 제거 확정. FK 파괴 0.
+
+### Phase 2 — Role 축소 (5→2) + 등급 그룹 → Preset Group 정리
+
+> 하루 1차수 묶음 원칙 준수 (2026-07-02 동일 일자 작업 통합). Phase 1(Legacy User Removal) 마감 후 차장님 지시 대응.
+
+#### Changed (Phase 2)
+
+- **`EnumUserRole` 축소** (`app/utils/enums.py`) — 5종 → 2종 (ADMIN/USER)
+- **`user_groups` 정리** (마이그레이션 v57):
+  - id=11 MAINTAINER → "Preset - 유지보수자"
+  - id=12 OPERATOR → "Preset - 운영자"
+  - id=13 VIEWER → "Preset - 조회자"
+  - id=10 ADMIN 그룹 삭제 (bypass라 매트릭스 무의미)
+  - id=14 GUEST 그룹 삭제 (배정 사용자 0명)
+- **`account_users.role`** — 7건 UPDATE (admin 외 → USER)
+- **admin.group_id = NULL** — ADMIN bypass
+- **Swagger `info.version`** 5.3.0 → **5.3.5** (Phase 2 반영)
+
+#### Migration (Phase 2)
+
+- `app/migrations/v57_role_simplification.sql`
+- `app/migrations/v57_role_simplification_reverse.sql`
+
+#### Verified (Phase 2, 6/6 PASS)
+
+- admin login 200 + role=ADMIN + group_id=None
+- gop_maint/gop_op/op_tester/gop_viewer/monitor2 각 login 200 + role=USER + 매트릭스 유지
+- Swagger `EnumUserRole.enum` = `["ADMIN", "USER"]` 확정
+- 14 endpoint 응답 코드 유지
+
+#### 관련 산출물 (Phase 2)
+
+- **PRD**: `docs/prds/PRD_Role_Simplification.md`
+- **Plan**: `docs/plans/Role_Simplification-prd-plan.md`
+- **NOTIFY**: `docs/GOP_Server_API_v5.3_Phase2_Role_Simplification_NOTIFY.md`
+- **안전점**: `pre-role-simplification`
+
+### Deferred (v5.5+)
+
+- AUTH_MODE 전환 (public → token) — .NET 클라 Bearer 동시 배포 필수
+- require_perm 활성화 (27 라우터 부착)
+- audit append-only DB RULE/RLS
+- .NET 클라 팀 통지 문서
+
 ## [v5.2] — 2026-06-30
 
 > 차장님 보고 "API 서버가 가끔 죽는데 원인 모름" → Workflow 7 agent 정밀 감사(498K token / 6.5분) 완료. Health 58/100, TOP 5 사망 원인 + 호스트 절전 가설 확정(Windows Event ID 41/6008, 5~9일 간격 비정상 종료). 5건 hot-fix 즉시 적용 + 실측 5/5 PASS. 본 세션 v5.1 자가 버그(force_logout kwarg 오타 → TypeError 500) 동시 fix. bcrypt async / APScheduler 청소 / db_monitor autoheal 등은 v5.3+ 권고.
@@ -35,6 +110,27 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - **NFR-SVS-02** — `EnumConfigResourceType.SETTINGS` 추가(비-행 바운드 설정 감사용).
 
 **검증**: P2 로컬 테스트 11건 PASS(FR-SVS-01~06 + 런타임 적용/잠금 비활성). `tests/` 는 `.gitignore`.
+
+### Added (권한그룹 시간기반 스케쥴링 — PRD_Permission_Group_Scheduling FR-01~07)
+
+> 권한그룹을 사용자에게 **기간(valid_from~valid_until)을 정해 부여**하고 만료 시 자동 무효화. 외부 수리기사 한시 권한(예: 오늘13:00~내일14:00) / 부서 상시 권한(valid_until NULL). 휴면(public)이라 행동 무변, AUTH_MODE=token 플립 시 RBAC과 함께 활성. 차장님 시나리오 결재(2026-06-30, 옵션B 부여 테이블).
+
+- **FR-01** — `UserGroupGrant` 모델(user_id/group_id CASCADE, valid_from/until, is_active, granted_by, revoked_at) + `v56_user_group_grants.sql`(멱등, 인덱스 2종). `app/models/user.py`.
+- **FR-02** — `auth.py` `_active_grants`/`_effective_allows`: 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant. **요청시점 `valid_until>now` 계산이 권위**(is_active/sweep 비의존 — 만료 grant 즉시 차단, NFR-01). require_perm/optional 배선.
+- **FR-03/05** — 부여 관리 API `app/routers/grants.py`(prefix `/api`): `POST/GET /users/{id}/grants`·`DELETE /grants/{id}`(ADMIN, soft 회수) + 파생 status(ACTIVE/PENDING/EXPIRED/REVOKED, `grant_service.py`) + 감사 `GRANT_CREATED/REVOKED/EXPIRED`.
+- **FR-04** — 경량 sweep 스케줄러(`main.py` lifespan APScheduler 10분, 방어적 — 미설치/실패가 기동 안 막음). 만료 grant `is_active=false`. `requirements.txt` APScheduler.
+- **FR-06/07** — `GET /api/auth/me/permissions`({modules, device_groups, valid_until, server_time}) + 로그인 응답 permissions 를 grant 병합 + valid_until 동봉. 클라(Dotnet.Monitoring) 재평가·시계보정. 클라 가이드 `docs/prds/GUIDE_Grant_Scheduling_Client_v5.2.md`.
+- **R1** — grant 생성/회수/만료 시 NATS `permissions_changed` 통지(`publish_permissions_changed`, best-effort, `NATS_REVOKE_ENABLED` 게이트 off 기본).
+
+**검증**: 로컬 스케쥴링 스위트 31 PASS + 회귀 0. 라이브 컨테이너에 `user_group_grants` 테이블 적용 확인.
+
+### Added (매트릭스 중앙 집행 + 권한모델 단순화 — R9 / ADR_Permission_Model_v5.2)
+
+> 차장님 결정 "권한 매트릭스=미들웨어"(R9) + "권한모델 단순화"(R10, 리스크 최소안). 휴면(public)이라 행동 무변.
+
+- **R9 매트릭스 중앙 집행** — `app/security/permission_map.py`(경로→module:verb 중앙맵, 기존 27 데코레이터 1:1) + `matrix_enforcer.py`(전역 단일 choke point, `main.py` `FastAPI(dependencies=[...])`). 휴면/ADMIN bypass/grant 합집합. 신규 write 라우트 보호를 한 곳에 등록 → 데코레이터 누락 사고 구조적 차단.
+- **R10①②③ 권한원천 변경** — `_resolve_role_group` 의 `name==role` 자동해석 **폐기** → 권한 = **배정 그룹(group_id) + grant**. role 은 ADMIN만 특권(라벨화), `require_admin` 25곳·ADMIN bypass·마지막ADMIN 가드 불변. 시드: admin 사용자를 ADMIN 그룹에 배정(`init_db.py`). 임시 등급상승·프리셋 rename 붕괴 위험 제거.
+- **R4** — 죽은 중복 `PermissionsSchema`(구 List[str] modules) 제거, v4.9 강타입 Dict 가 지배. `app/schemas/user.py`.
 
 ### Security (v5.1 자가 버그 fix)
 

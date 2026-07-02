@@ -9,7 +9,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp
@@ -82,7 +82,7 @@ async def get_device_groups(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     name: Optional[str] = Query(None, description="이름으로 필터링 (부분 검색)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -271,7 +271,7 @@ async def get_device_groups(
 async def get_device_group(
     group_id: int,
     include_devices: bool = Query(True, description="디바이스 목록 포함 여부 (기본값: true)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -412,7 +412,7 @@ async def get_device_group(
 @router.post("", response_model=ApiSingleResponse[DeviceGroupResponse], status_code=status.HTTP_201_CREATED)
 async def create_device_group(
     group_data: DeviceGroupCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -472,7 +472,7 @@ async def create_device_group(
 async def patch_device_group(
     group_id: int,
     group_data: DeviceGroupUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -551,7 +551,7 @@ async def patch_device_group(
 async def put_device_group(
     group_id: int,
     group_data: DeviceGroupCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -608,7 +608,7 @@ async def put_device_group(
 @router.delete("/{group_id}", response_model=ApiSingleResponse[None])
 async def delete_device_group(
     group_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -658,7 +658,7 @@ async def delete_device_group(
 async def assign_devices_to_group(
     group_id: int,
     request: DeviceAssignRequest,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -748,7 +748,7 @@ async def assign_devices_to_group(
 async def bulk_unassign_devices_from_group(
     group_id: int,
     request: DeviceUnassignRequest,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """
@@ -840,7 +840,7 @@ async def bulk_unassign_devices_from_group(
 async def remove_device_from_group(
     group_id: int,
     device_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

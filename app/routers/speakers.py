@@ -10,7 +10,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.device import Speaker
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.models.server import Server
@@ -120,7 +120,7 @@ async def get_speakers(
     server_id: Optional[int] = Query(None, description="서버 ID로 필터링"),
     status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
     speaker_type: Optional[str] = Query(None, description="스피커 타입으로 필터링 (EnumSpeakerType)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -178,7 +178,7 @@ async def get_speakers(
 @router.get("/{speaker_id}", response_model=ApiSingleResponse[SpeakerResponse])
 async def get_speaker(
     speaker_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -213,7 +213,7 @@ async def get_speaker(
 @router.post("", response_model=ApiSingleResponse[SpeakerResponse], status_code=status.HTTP_201_CREATED)
 async def create_speaker(
     speaker_data: SpeakerCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -296,7 +296,7 @@ async def create_speaker(
 async def update_speaker(
     speaker_id: int,
     speaker_data: SpeakerUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -387,7 +387,7 @@ async def update_speaker(
 async def replace_speaker(
     speaker_id: int,
     speaker_data: SpeakerCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -460,7 +460,7 @@ async def replace_speaker(
 @router.delete("/{speaker_id}", response_model=ApiSingleResponse[None])
 async def delete_speaker(
     speaker_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

@@ -4,8 +4,8 @@ Database initialization utilities
 from sqlalchemy.orm import Session
 
 from app.database import engine, SessionLocal, Base
-# NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
-from app.models.user import User, AccountUser, UserGroup
+# v5.3 (2026-07-02): Legacy User 삭제. AccountUser (account_users)로 완전 통일.
+from app.models.user import AccountUser, UserGroup
 from app.models.log import ApiLog
 from app.utils.auth import hash_password
 from app.utils.init_server_data import initialize_server_data
@@ -20,35 +20,6 @@ def create_tables():
     """
     Base.metadata.create_all(bind=engine)
     print("[OK] Database tables created")
-
-
-def create_admin_user(db: Session):
-    """
-    [LEGACY] Create initial admin user if not exists (Legacy User / users 테이블)
-    → 신규 admin은 create_admin_account_user()에서 생성 (AccountUser / account_users 테이블)
-
-    Args:
-        db: Database session
-    """
-    # Check if admin user already exists
-    existing_admin = db.query(User).filter(User.username == "admin").first()
-
-    if existing_admin:
-        print("[OK] Admin user already exists")
-        return
-
-    # Create admin user
-    admin_user = User(
-        username="admin",
-        hashed_password=hash_password("admin123"),
-        role="admin"
-    )
-
-    db.add(admin_user)
-    db.commit()
-    db.refresh(admin_user)
-
-    print("[OK] Admin user created (username: admin, password: admin123)")
 
 
 def create_admin_account_user(db: Session):
@@ -83,58 +54,62 @@ def create_admin_account_user(db: Session):
 
 
 def ensure_role_permission_groups(db: Session):
-    """역할(등급) = 권한 단위 모델 (PRD-GOP-01 OQ-PG-01 = Option A).
+    """Preset 권한 그룹(3건) idempotent 보장 — v5.3 Phase 2 (Role 축소).
 
-    5개 역할명 등급 그룹(ADMIN/MAINTAINER/OPERATOR/VIEWER/GUEST)을 idempotent 보장한다.
-    - 없으면 PRD §6-1 기반 기본 매트릭스(8모듈×4동작)로 생성, 있으면 유지(ADMIN 편집분 보존).
-    - 로그인은 user.role 명으로 이 그룹의 매트릭스를 사용(auth.py). 기존 임의 팀그룹은 건드리지 않음(비파괴).
+    v5.3 Phase 2 변경 (PRD_Role_Simplification):
+    - EnumUserRole 축소 (5종 → 2종: ADMIN/USER).
+    - 등급 그룹 5건 → Preset 그룹 3건 + ADMIN/GUEST 삭제.
+    - 신규 생성 이름: "Preset - 유지보수자/운영자/조회자" (v5.2 R10① name==role 폐기 반영).
+    - admin 사용자는 group_id=NULL (bypass라 그룹 매트릭스 무관).
+    - 팀 그룹(운영팀/관제팀/유지보수팀)은 별도 시드에서 관리.
     - audit_logs 는 append-only → delete 항상 false.
+
+    ★ 신규 down -v 후 재시드 시에도 v5.4 이름/매트릭스로 생성 보장.
+    ★ 기존 그룹(v5.3 이전 이름)이 있으면 유지(편집분 보존, 마이그레이션 v57에서 rename 처리).
     """
     FULL = {"view": True,  "edit": True,  "delete": True,  "control": True}
-    RWC  = {"view": True,  "edit": True,  "delete": False, "control": True}
     RC   = {"view": True,  "edit": False, "delete": False, "control": True}
     RW   = {"view": True,  "edit": True,  "delete": False, "control": False}
     R    = {"view": True,  "edit": False, "delete": False, "control": False}
     NO   = {"view": False, "edit": False, "delete": False, "control": False}
-    AUDIT_ADMIN = {"view": True, "edit": True,  "delete": False, "control": True}   # append-only(삭제 금지)
     AUDIT_VIEW  = {"view": True, "edit": False, "delete": False, "control": False}
 
-    # 8 modules: devices, events, reports, cameras, users, user_groups, audit_logs, servers
-    role_perms = {
-        "ADMIN":      {"devices": FULL, "events": FULL, "reports": FULL, "cameras": FULL,
-                       "users": FULL, "user_groups": FULL, "audit_logs": AUDIT_ADMIN, "servers": FULL},
-        "MAINTAINER": {"devices": FULL, "events": FULL, "reports": RW,   "cameras": FULL,
-                       "users": NO,   "user_groups": NO,   "audit_logs": AUDIT_VIEW,  "servers": NO},
-        "OPERATOR":   {"devices": R,    "events": RC,   "reports": RW,   "cameras": RC,
-                       "users": NO,   "user_groups": NO,   "audit_logs": NO,          "servers": NO},
-        "VIEWER":     {"devices": R,    "events": R,    "reports": R,    "cameras": R,
-                       "users": NO,   "user_groups": NO,   "audit_logs": NO,          "servers": NO},
-        "GUEST":      {"devices": NO,   "events": NO,   "reports": NO,   "cameras": R,
-                       "users": NO,   "user_groups": NO,   "audit_logs": NO,          "servers": NO},
+    # v5.3 Phase 2: Preset 3건 (팀 그룹은 별도 시드)
+    preset_perms = {
+        "Preset - 유지보수자": {"devices": FULL, "events": FULL, "reports": RW,   "cameras": FULL,
+                                "users": NO,   "user_groups": NO,   "audit_logs": AUDIT_VIEW,  "servers": NO},
+        "Preset - 운영자":     {"devices": R,    "events": RC,   "reports": RW,   "cameras": RC,
+                                "users": NO,   "user_groups": NO,   "audit_logs": NO,          "servers": NO},
+        "Preset - 조회자":     {"devices": R,    "events": R,    "reports": R,    "cameras": R,
+                                "users": NO,   "user_groups": NO,   "audit_logs": NO,          "servers": NO},
     }
-    desc = {"ADMIN": "관리자(전체)", "MAINTAINER": "유지보수자", "OPERATOR": "운영자",
-            "VIEWER": "조회자", "GUEST": "게스트"}
+    desc = {
+        "Preset - 유지보수자": "표준 프리셋 — 유지보수자 권한 매트릭스 (참고 배정용)",
+        "Preset - 운영자":     "표준 프리셋 — 운영자 권한 매트릭스 (참고 배정용)",
+        "Preset - 조회자":     "표준 프리셋 — 조회자 권한 매트릭스 (참고 배정용)",
+    }
 
     created = 0
-    for role, mods in role_perms.items():
-        if db.query(UserGroup).filter(UserGroup.name == role).first():
-            continue  # 이미 존재 → 유지(편집분 보존)
-        db.add(UserGroup(name=role, description=f"권한 등급 — {desc[role]}",
+    for name, mods in preset_perms.items():
+        if db.query(UserGroup).filter(UserGroup.name == name).first():
+            continue  # 이미 존재 → 유지 (편집분 보존)
+        db.add(UserGroup(name=name, description=desc[name],
                          permissions={"modules": mods}, is_active=True))
         created += 1
     if created:
         db.commit()
-    print(f"[OK] Role permission groups ensured (created {created}/5)")
+    print(f"[OK] Preset permission groups ensured (created {created}/3)")
 
-    # R10③ (ADR_Permission_Model_v5.2): admin 사용자를 ADMIN 그룹에 배정.
-    # name==role 폐기(R10①) 후 권한 원천 = group_id. 미배정 admin 은 로그인 payload permissions 빈값
-    # (서버 ADMIN bypass 는 정상이라 기능 무영향 — 클라 UI 표시 일관성 위해 배정). 멱등.
-    admin_group = db.query(UserGroup).filter(UserGroup.name == "ADMIN").first()
+    # v5.3 Phase 2: ADMIN 사용자는 group_id=NULL (bypass라 매트릭스 무관).
+    # v5.3 Phase 1까지 admin.group_id=10(ADMIN 그룹)이었으나 v5.3 Phase 2에서 ADMIN 등급 그룹 삭제 → NULL.
+    # 마이그레이션 v57에서 이미 처리하지만 idempotent 보장.
     admin_user = db.query(AccountUser).filter(AccountUser.login_id == "admin").first()
-    if admin_group and admin_user and admin_user.group_id is None:
-        admin_user.group_id = admin_group.id
-        db.commit()
-        print(f"[OK] admin user assigned to ADMIN group (id={admin_group.id})")
+    if admin_user and admin_user.group_id is not None:
+        # ADMIN 등급 그룹(id=10)이 이미 삭제된 상태라면 group_id 참조 무효 → NULL
+        if not db.query(UserGroup).filter(UserGroup.id == admin_user.group_id).first():
+            admin_user.group_id = None
+            db.commit()
+            print(f"[OK] admin user group_id set to NULL (ADMIN bypass, no group needed)")
 
 
 def initialize_database():
@@ -149,7 +124,6 @@ def initialize_database():
     # Create admin user and initialize server data
     db = SessionLocal()
     try:
-        create_admin_user(db)
         create_admin_account_user(db)
         ensure_role_permission_groups(db)
         initialize_server_data(db)

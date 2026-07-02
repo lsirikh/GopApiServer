@@ -10,7 +10,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.integration import EventMapping
 from app.schemas.integration import EventMappingCreate, EventMappingResponse, EventMappingUpdate
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -28,7 +28,7 @@ async def get_event_mappings(
     device_group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링"),
     category_event_mapping: Optional[EnumMappingEventCategory] = Query(None, description="이벤트 매핑 카테고리로 필터링"),
     status_filter: Optional[bool] = Query(None, alias="status", description="상태로 필터링"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -105,7 +105,7 @@ async def get_event_mappings(
 @router.get("/{mapping_id}", response_model=ApiSingleResponse[EventMappingResponse])
 async def get_event_mapping(
     mapping_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -151,7 +151,7 @@ async def get_event_mapping(
 @router.post("", response_model=ApiSingleResponse[EventMappingResponse], status_code=status.HTTP_201_CREATED)
 async def create_event_mapping(
     mapping: EventMappingCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -217,7 +217,7 @@ async def create_event_mapping(
 async def update_event_mapping_partial(
     mapping_id: int,
     mapping: EventMappingUpdate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -300,7 +300,7 @@ async def update_event_mapping_partial(
 async def update_event_mapping_full(
     mapping_id: int,
     mapping: EventMappingCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -366,7 +366,7 @@ async def update_event_mapping_full(
 @router.delete("/{mapping_id}", response_model=ApiSingleResponse[None])
 async def delete_event_mapping(
     mapping_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

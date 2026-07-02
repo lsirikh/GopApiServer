@@ -11,7 +11,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.device import Enclosure, EnclosureMetric
 from app.schemas.device import EnclosureMetricCreate, EnclosureMetricResponse, EnclosureMetricLatestResponse
 
@@ -48,7 +48,7 @@ def create_enclosure_metric(
     enclosure_id: int,
     metric_data: EnclosureMetricCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """
     POST /api/devices/enclosures/{enclosure_id}/metrics
@@ -183,7 +183,7 @@ def get_enclosure_metrics(
     start_time: Optional[datetime] = Query(None, description="시작 시간 필터"),
     end_time: Optional[datetime] = Query(None, description="종료 시간 필터"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """
     GET /api/devices/enclosures/{enclosure_id}/metrics
@@ -233,7 +233,7 @@ def get_enclosure_metrics(
 def get_enclosure_metrics_latest(
     enclosure_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """
     GET /api/devices/enclosures/{enclosure_id}/metrics/latest
@@ -281,7 +281,7 @@ def delete_enclosure_metrics(
     enclosure_id: int,
     before_date: Optional[datetime] = Query(None, description="이 날짜 이전 메트릭만 삭제"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """
     DELETE /api/devices/enclosures/{enclosure_id}/metrics
@@ -332,7 +332,7 @@ def delete_enclosure_metrics(
 )
 def get_all_enclosure_metrics(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user_optional)
+    current_user=Depends(get_current_account_user_optional)
 ):
     """
     GET /api/enclosure-metrics

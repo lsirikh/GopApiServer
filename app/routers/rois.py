@@ -8,7 +8,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.schemas.camera_preset import (
     ROICreate,
@@ -31,7 +31,7 @@ async def get_rois(
     limit: int = Query(10, ge=1, le=100, description="Max items per page"),
     include_points: bool = Query(False, description="Include points in response"),
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Get list of ROIs for a specific preset
@@ -106,7 +106,7 @@ async def get_roi(
     preset_id: int,
     roi_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Get a specific ROI with points
@@ -163,7 +163,7 @@ async def create_roi(
     preset_id: int,
     roi_data: ROICreate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Create a new ROI
@@ -236,7 +236,7 @@ async def update_roi(
     roi_id: int,
     roi_data: ROIUpdate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Partially update an ROI
@@ -309,7 +309,7 @@ async def replace_roi(
     roi_id: int,
     roi_data: ROICreate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Replace an ROI completely
@@ -394,7 +394,7 @@ async def delete_roi(
     preset_id: int,
     roi_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Delete an ROI and its points (cascade)

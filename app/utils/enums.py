@@ -358,16 +358,22 @@ class EnumSystemEventSeverity(str, Enum):
 
 class EnumUserRole(str, Enum):
     """
-    User role enumeration (5종)
-    PRD: PRD_Account_Design.md Section 3.2
+    User role enumeration (v5.4: 2종 — role 축소 완료)
+    PRD: PRD_Role_Simplification.md
 
-    사용자 등급 (권한 높은 순)
+    v5.2 R10① 정신 완성: role은 특권 라벨만, 실 권한은 group_id로 명시 배정된 그룹 매트릭스.
+
+    - ADMIN: 시스템 관리자 (require_admin bypass, 그룹 매트릭스 무관)
+    - USER : 일반 사용자 (권한 = 배정 group_id 매트릭스 + 유효 grant 합집합)
+
+    ★ Legacy 4종(MAINTAINER/OPERATOR/VIEWER/GUEST)은 v5.4에서 삭제됨.
+       기존 등급 그룹은 Preset 권한 그룹으로 이관:
+       - user_groups "Preset - 유지보수자" (id=11)
+       - user_groups "Preset - 운영자"     (id=12)
+       - user_groups "Preset - 조회자"     (id=13)
     """
-    ADMIN = "ADMIN"               # 관리자 - 시스템 전체 관리
-    MAINTAINER = "MAINTAINER"     # 유지보수자 - 장비/시스템 관리
-    OPERATOR = "OPERATOR"         # 운영자 - 일반 운영
-    VIEWER = "VIEWER"             # 조회자 - 조회 전용
-    GUEST = "GUEST"               # 게스트 - 제한된 접근
+    ADMIN = "ADMIN"
+    USER = "USER"
 
 
 class EnumLogoutReason(str, Enum):

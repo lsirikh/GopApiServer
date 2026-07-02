@@ -149,20 +149,22 @@ def _create_user_groups(db: Session) -> dict:
 
 # ── Users ────────────────────────────────────────────────
 
+# v5.4 (2026-07-02): role = "USER" 통일 (Role 축소, PRD_Role_Simplification).
+# 권한은 group_key로 배정된 그룹의 매트릭스에서 산출 — role은 특권 라벨(ADMIN 여부)만.
 SAMPLE_USERS = [
-    {"login_id": "operator1", "name": "김운영", "role": "OPERATOR",
+    {"login_id": "operator1", "name": "김운영", "role": "USER",
      "email": "operator1@gop.kr", "department": "운영부", "position": "주임",
      "employee_number": "EMP001", "phone": "010-1234-5001", "group_key": "운영팀"},
-    {"login_id": "operator2", "name": "이운영", "role": "OPERATOR",
+    {"login_id": "operator2", "name": "이운영", "role": "USER",
      "email": "operator2@gop.kr", "department": "운영부", "position": "대리",
      "employee_number": "EMP002", "phone": "010-1234-5002", "group_key": "운영팀"},
-    {"login_id": "monitor1", "name": "박관제", "role": "VIEWER",
+    {"login_id": "monitor1", "name": "박관제", "role": "USER",
      "email": "monitor1@gop.kr", "department": "관제센터", "position": "사원",
      "employee_number": "EMP003", "phone": "010-1234-5003", "group_key": "관제팀"},
-    {"login_id": "monitor2", "name": "최관제", "role": "VIEWER",
+    {"login_id": "monitor2", "name": "최관제", "role": "USER",
      "email": "monitor2@gop.kr", "department": "관제센터", "position": "사원",
      "employee_number": "EMP004", "phone": "010-1234-5004", "group_key": "관제팀"},
-    {"login_id": "maintainer1", "name": "정유지", "role": "MAINTAINER",
+    {"login_id": "maintainer1", "name": "정유지", "role": "USER",
      "email": "maintainer1@gop.kr", "department": "기술부", "position": "과장",
      "employee_number": "EMP005", "phone": "010-1234-5005", "group_key": "유지보수팀"},
 ]

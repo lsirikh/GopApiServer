@@ -10,11 +10,11 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v5.2** (2026-06-30, hotfix + **Force-Logout P1** + **Session-Settings P2** + **휴면 RBAC 부착** + **5-sync 배포**) / v5.1 (2026-06-29, RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한) |
-| **HEAD commit** | `36379e3` (docs(v5.2): [WS-A] 명세서 본문 v5.2 동기화) |
-| **branch** | `feature/tracking-gis-ingest` — ✅ **origin push 완료**(전 커밋), ⬜ **gitea만 잔여**(인증). 태그 `v5.2-pre-deploy`·`v5.2-deployed` |
-| **Container** | ✅ **5-sync 배포 완료**(2026-06-30) — `docker compose build/up api-server`, 컨테이너 healthy, **Swagger version=5.2.0** 라이브 확인. 롤백 이미지 `api-test-server:pre-v5.2`. ✅ **명세서 본문 v5.2 동기화 완료**(`36379e3`: ChangeLog append + §9.2 Auth session_id/SESSION_REVOKED + §9.8 Session Settings API) — **5중싱크 5/5 완료** |
-| **DB** | PostgreSQL 16 / **app_settings 테이블 라이브 생성 확인**(startup create_all, v55 멱등). |
+| **차수** | **v5.3** (2026-07-02, **Legacy User 완전 삭제 + AccountUser 통일** — GIS 팀 요청 대응, 14/14 PASS) / v5.2 (2026-06-30, hotfix + Force-Logout P1 + Session-Settings P2 + 휴면 RBAC 부착) / v5.1 (2026-06-29, RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한) |
+| **HEAD commit** | `fc512b3` (docs(v5.3): .NET/GIS 팀 통지 문서 — DOC-03) |
+| **branch** | `feature/report-master-redesign` (공유 작업트리) — ✅ **Gitea v4.8 + origin 모두 push 완료** (v5.3 마감 fc512b3 반영). 태그 `v5.3-final-stable`(b757325a) + `pre-legacy-user-removal` |
+| **Container** | ✅ **v5.3 5-sync 완료** (2026-07-02) — Image rebuild + healthy + **Swagger version=5.3.0** 라이브 + API Version 5.3. **DB `users` 테이블 DROP 완료** (v56 마이그레이션). |
+| **DB** | PostgreSQL 16 / **`users` 테이블 DROP** (v5.3 v56 마이그레이션, FK 파괴 0) + `account_users` 8건 유지 + `app_settings` 등 v5.2 이전 상태 유지. |
 
 ---
 
@@ -190,7 +190,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-88392
+- **현재 세션 ID**: ppid-86536
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-88392
+- **활성 세션 목록**: ppid-86536
 

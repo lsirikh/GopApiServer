@@ -2,7 +2,13 @@
 
 > **목적**: 동시에 도는 두 작업 세션이 **같은 파일 충돌 없이** 협업하도록 소유권·경계·확장훅을 못박는다.
 > 두 세션 모두 작업 시작 전 이 파일을 읽고, 경계를 바꾸려면 여기 먼저 갱신한다.
-> **갱신**: 2026-06-30 / HEAD at write: `59711cd`
+> **갱신**: 2026-07-02 / HEAD at write: `fc512b3`
+>
+> ✅ **v5.3 마감 통지 (2026-07-02, WS-C = Legacy User Removal, 차장님 승인 "걍 고고")**: GIS 팀 요청 대응 — Legacy `User` 모델 완전 삭제 + `AccountUser` 통일. **auth.py 대규모 편집(3함수 삭제 + import 정리)** 수행 — WS-B 스케쥴링 세션이 이미 커밋된 후 auth.py 워크트리 diff 0건 확인 후 진입. 30 라우터 sweep(`get_current_user_optional` → `get_current_account_user_optional`) + `class User` + `UserCreate`/`UserResponse` schemas + `create_admin_user()` + DB `users` 테이블 DROP(v56) 모두 완료. 실측 14/14 PASS + Swagger 5.3.0. 안전점 `pre-legacy-user-removal` + 마감 `v5.3-final-stable`. **push 완료**: Gitea `v4.8` = `fc512b3`, origin `feature/report-master-redesign` = `fc512b3`. 세션간 파일 충돌 0건.
+>
+> 📋 **v5.3 산출물**: PRD_Legacy_User_Removal.md + Legacy_User_Removal-prd-plan.md + GOP_Server_API_v5.3_Legacy_User_Removal_NOTIFY.md (.NET/GIS 팀 통지) + v56_drop_users_table.sql + v56_drop_users_table_reverse.sql (롤백용).
+>
+> **★ auth.py 소유권 재해제 (2026-07-02)**: 본 WS-C 마감으로 auth.py 편집 완료. 후속 세션이 auth.py 편집 필요 시 이 조율판을 먼저 갱신할 것.
 >
 > ⚠️ **브랜치 현황(2026-06-30 정정)**: 공유 작업트리의 **활성 브랜치 = `feature/report-master-redesign`** (보고서 세션이 `tracking-gis-ingest`에서 분기). 이 브랜치가 **모든 작업의 superset**(선형): v5.2 RBAC/scheduling(WS-B R1·R10③·R11) + 보고서재설계(`3ae5aa7`). ✅ **origin 백업 완료**(`origin/feature/report-master-redesign`). ★**모든 세션: 커밋 전 `git branch` 로 활성 브랜치 확인**(공유 트리라 한 세션이 바꾸면 다른 세션 커밋도 그 브랜치로 감).
 >

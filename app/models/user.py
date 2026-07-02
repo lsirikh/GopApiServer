@@ -215,23 +215,5 @@ class UserLoginLog(Base):
         return f"<UserLoginLog(login_id='{self.login_id}', action='{self.action}', result='{self.result}')>"
 
 
-# [LEGACY] Legacy User 모델 (users 테이블) — Deprecated 예정
-# → AccountUser (account_users 테이블)로 완전 대체 후 제거 예정
-# → 참조: auth.py (get_current_user, login_oauth2), init_db.py (create_admin_user), schemas/user.py (UserCreate, Token)
-class User(Base):
-    """
-    [LEGACY] Legacy User model for authentication (users 테이블).
-    신규 코드는 AccountUser (account_users 테이블) 사용할 것.
-    TODO: AccountUser로 완전 마이그레이션 후 이 클래스 제거.
-    """
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    username = Column(String(50), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
-    role = Column(String(20), default="user", nullable=False)  # "admin" or "user"
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-
-    def __repr__(self):
-        return f"<User(username='{self.username}', role='{self.role}')>"
+# v5.3 (2026-07-02): Legacy User 모델 삭제 (GIS 팀 요청 대응, PRD_Legacy_User_Removal)
+# → AccountUser (account_users 테이블)로 완전 통일. FK 참조 0건 확인 후 DB DROP TABLE users.

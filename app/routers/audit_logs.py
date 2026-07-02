@@ -9,7 +9,7 @@ from datetime import datetime
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.audit_log import AuditLog
 from app.schemas.audit_log import (
     AuditLogResponse,
@@ -81,7 +81,7 @@ async def get_audit_logs(
     action_status: Optional[str] = Query(None, description="행위 결과 필터 (SUCCESS, FAILURE)"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜 필터"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜 필터"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -193,7 +193,7 @@ async def get_audit_logs(
 )
 async def get_audit_log_detail(
     audit_log_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

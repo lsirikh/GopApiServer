@@ -14,7 +14,7 @@ from datetime import datetime
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional, require_perm_optional
+from app.routers.auth import get_current_account_user_optional, require_perm_optional
 from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.schemas.event import DetectionEventCreate, DetectionEventReplace, DetectionEventResponse, DetectionEventUpdate, ActionEventResponse
@@ -188,7 +188,7 @@ async def get_detection_events(
     result: Optional[str] = Query(None, description="결과 유형으로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -278,7 +278,7 @@ async def get_detection_events(
 @router.get("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
 async def get_detection_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -331,7 +331,7 @@ async def get_detection_event(
 @router.post("", response_model=ApiSingleResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def create_detection_event(
     event_data: DetectionEventCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -432,7 +432,7 @@ async def create_detection_event(
 async def update_detection_event(
     event_id: int,
     event_data: DetectionEventUpdate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -536,7 +536,7 @@ async def update_detection_event(
 async def replace_detection_event(
     event_id: int,
     event_data: DetectionEventReplace,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -618,7 +618,7 @@ async def replace_detection_event(
 @router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("events", "delete"))])
 async def delete_detection_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -679,7 +679,7 @@ async def delete_detection_event(
 @router.get("/{event_id}/actions", response_model=ApiResponse[list[ActionEventResponse]])
 async def get_action_events_for_detection(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

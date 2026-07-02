@@ -2,7 +2,7 @@
 Authentication API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from jose import JWTError
 from typing import Optional
@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_
 from app.dependencies import get_db
 # NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
-from app.models.user import User, AccountUser, UserSession, UserLoginLog, UserGroup, UserGroupGrant
-from app.schemas.user import Token, UserResponse, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
+from app.models.user import AccountUser, UserSession, UserLoginLog, UserGroup, UserGroupGrant
+from app.schemas.user import Token, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
 from app.utils.auth import verify_password, create_access_token, create_refresh_token, decode_token
 
 router = APIRouter(tags=[])
@@ -27,55 +27,6 @@ bearer_scheme = HTTPBearer(
 # Legacy OAuth2 scheme (for backward compatibility)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login/oauth2", auto_error=False)
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login/oauth2", auto_error=False)
-
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: Session = Depends(get_db)
-) -> User:
-    """
-    [LEGACY] JWT 토큰에서 현재 인증된 사용자를 가져오는 의존성 (Legacy User 모델)
-    → 신규 코드는 get_current_account_user() 사용할 것.
-
-    Args:
-        credentials: HTTPBearer 인증 정보
-        db: 데이터베이스 세션
-
-    Returns:
-        인증된 사용자의 User 객체
-
-    Raises:
-        HTTPException 401: 토큰이 유효하지 않거나 사용자가 존재하지 않음
-    """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    if not credentials:
-        raise credentials_exception
-
-    token = credentials.credentials
-
-    try:
-        # Decode token and get username
-        token_data = decode_token(token)
-        username = token_data.username
-
-        if username is None:
-            raise credentials_exception
-
-    except JWTError:
-        raise credentials_exception
-
-    # Get user from database
-    user = db.query(User).filter(User.username == username).first()
-
-    if user is None:
-        raise credentials_exception
-
-    return user
 
 
 async def get_current_account_user(
@@ -389,58 +340,6 @@ async def get_current_account_user_optional(
         return user
     except JWTError:
         return None
-
-
-async def get_current_user_optional(
-    db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
-) -> User | None:
-    """
-    [LEGACY] AUTH_MODE 설정에 따른 선택적 인증 의존성 (Legacy User 모델)
-    → 내부적으로 get_current_user()를 호출하므로 Legacy User 조회를 수행함.
-
-    Args:
-        credentials: HTTPBearer 인증 정보 (AUTH_MODE=public인 경우 선택)
-        db: 데이터베이스 세션
-
-    Returns:
-        인증된 경우 User 객체, AUTH_MODE=public이고 토큰이 없는 경우 None
-
-    Raises:
-        HTTPException 401: AUTH_MODE=token이고 토큰이 유효하지 않거나 누락됨
-    """
-    # Import settings inside function to allow test mocking
-    from app.config import settings
-
-    token = credentials.credentials if credentials else None
-
-    # In token mode, authentication is required
-    if settings.AUTH_MODE == "token":
-        # Token is required in token mode
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        # Validate token
-        return await get_current_user(credentials=credentials, db=db)
-
-    # In public mode, authentication is optional
-    if token:
-        # If token is provided, try to authenticate
-        try:
-            token_data = decode_token(token)
-            username = token_data.username
-            if username:
-                user = db.query(User).filter(User.username == username).first()
-                if user:
-                    return user
-        except JWTError:
-            pass
-
-    # No token or invalid token in public mode - return None
-    return None
 
 
 @router.post("/login")
@@ -790,45 +689,6 @@ async def refresh(
             "session_id": sid
         }
     }
-
-
-@router.post("/login/oauth2", response_model=Token, deprecated=True)
-async def login_oauth2(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-    """
-    [DEPRECATED] 로그인 (Legacy OAuth2)
-
-    ⚠️ 이 엔드포인트는 레거시 호환성을 위해 유지됩니다.
-    새로운 클라이언트는 POST /api/auth/login 을 사용하세요.
-
-    레거시 User 모델을 사용하는 OAuth2 폼 기반 로그인입니다.
-
-    **Request Body** (OAuth2 폼 형식):
-    - **username**: 사용자 이름 (필수)
-    - **password**: 비밀번호 (필수)
-
-    **Response**: access_token과 token_type이 포함된 Token 객체
-
-    **Error**:
-    - 401: 잘못된 사용자 이름 또는 비밀번호
-    """
-    # [LEGACY] OAuth2 폼 기반 로그인 — Legacy User (users 테이블) 조회
-    user = db.query(User).filter(User.username == form_data.username).first()
-
-    # Verify user exists and password is correct
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Create JWT token
-    access_token = create_access_token(data={"sub": user.username})
-
-    return Token(access_token=access_token, token_type="bearer")
 
 
 @router.get("/me", response_model=AccountUserResponse)

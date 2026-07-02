@@ -8,7 +8,7 @@ from typing import Optional
 from datetime import datetime
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.server import Server, ServerMetrics
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
@@ -157,7 +157,7 @@ def _create_threshold_events(
 async def create_server_metrics(
     server_id: int,
     metrics_data: ServerMetricsCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -240,7 +240,7 @@ async def get_server_metrics(
     limit: int = Query(100, ge=1, le=1000, description="조회할 메트릭 수 (기본값: 100, 최대: 1000)"),
     start_time: Optional[datetime] = Query(None, description="시작 시간 (ISO 8601)"),
     end_time: Optional[datetime] = Query(None, description="종료 시간 (ISO 8601)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -291,7 +291,7 @@ async def get_server_metrics(
 )
 async def get_server_metrics_latest(
     server_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -343,7 +343,7 @@ async def get_server_metrics_latest(
 async def delete_old_server_metrics(
     server_id: int,
     older_than_days: int = Query(30, ge=1, description="삭제할 메트릭의 기준 일수 (기본값: 30일 이전)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

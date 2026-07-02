@@ -8,7 +8,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.device import Camera
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.schemas.camera_preset import (
@@ -33,7 +33,7 @@ async def get_camera_presets(
     limit: int = Query(10, ge=1, le=100, description="Max items per page"),
     include_rois: bool = Query(False, description="Include ROIs in response"),
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Get list of camera presets for a specific camera
@@ -107,7 +107,7 @@ async def get_camera_preset(
     camera_id: int,
     preset_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Get a specific camera preset with ROIs and points
@@ -175,7 +175,7 @@ async def create_camera_preset(
     camera_id: int,
     preset_data: CameraPresetCreate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Create a new camera preset
@@ -245,7 +245,7 @@ async def update_camera_preset(
     preset_id: int,
     preset_data: CameraPresetUpdate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Partially update a camera preset
@@ -331,7 +331,7 @@ async def replace_camera_preset(
     preset_id: int,
     preset_data: CameraPresetCreate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Replace a camera preset completely
@@ -398,7 +398,7 @@ async def delete_camera_preset(
     camera_id: int,
     preset_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Delete a camera preset and its ROIs/points (cascade)

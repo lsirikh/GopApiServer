@@ -9,7 +9,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.camera_preset import ROI, XyPoint
 from app.schemas.camera_preset import XyPointCreate, XyPointResponse, XyPointListData, XyPointListItem, XyPointBulkReplaceData
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -32,7 +32,7 @@ async def get_points(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(100, ge=1, le=100, description="Max items per page"),
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Get list of XyPoints for a specific ROI, ordered by order field
@@ -91,7 +91,7 @@ async def create_point(
     roi_id: int,
     point_data: XyPointCreate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Create a new XyPoint
@@ -157,7 +157,7 @@ async def replace_points(
     roi_id: int,
     bulk_data: XyPointBulkUpdate,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Replace all points for an ROI (bulk update)
@@ -221,7 +221,7 @@ async def delete_point(
     roi_id: int,
     point_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user_optional)
+    current_user: Optional[dict] = Depends(get_current_account_user_optional)
 ):
     """
     Delete a specific XyPoint

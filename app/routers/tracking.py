@@ -17,7 +17,7 @@ from datetime import datetime
 import base64
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.tracking import TrackPoint
 from app.schemas.tracking import (
     TrackPointResponse, TrackPointListResponse, CursorMeta, TrackSessionResponse,
@@ -79,7 +79,7 @@ async def get_track_points(
     track_id: Optional[str] = Query(None, description="단일 트랙 필터"),
     cursor: Optional[str] = Query(None, description="직전 응답의 next_cursor"),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="페이지 크기(기본 1000, 최대 5000)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """
@@ -147,7 +147,7 @@ async def get_track_sessions(
     from_: Optional[datetime] = Query(None, alias="from", description="구간 시작(ISO8601)"),
     to: Optional[datetime] = Query(None, description="구간 종료(ISO8601)"),
     camera_id: Optional[int] = Query(None, description="카메라 필터"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """

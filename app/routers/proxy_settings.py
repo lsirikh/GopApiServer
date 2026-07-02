@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.server import Server
 from app.models.device_setting import ProxySetting
 from app.schemas.device_setting import ProxySettingCreate, ProxySettingUpdate, ProxySettingResponse
@@ -23,7 +23,7 @@ router = APIRouter(tags=["Proxy Settings"])
 )
 async def get_proxy_settings(
     server_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """서버 Proxy 설정 조회 (없으면 기본값으로 Lazy 생성)"""
@@ -55,7 +55,7 @@ async def get_proxy_settings(
 async def update_proxy_settings(
     server_id: int,
     update_data: ProxySettingUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """서버 Proxy 설정 부분 수정 (없으면 Upsert)"""
@@ -92,7 +92,7 @@ async def update_proxy_settings(
 async def replace_proxy_settings(
     server_id: int,
     create_data: ProxySettingCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db),
 ):
     """서버 Proxy 설정 전체 교체 (없으면 Upsert)"""

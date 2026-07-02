@@ -26,7 +26,7 @@ def _to_kst_naive(dt_val: datetime | None) -> datetime | None:
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional, require_perm_optional
+from app.routers.auth import get_current_account_user_optional, require_perm_optional
 from sqlalchemy.orm import selectin_polymorphic
 from app.models.event import ActionEvent, Event, DetectionEvent, MalfunctionEvent, ConnectionEvent
 from app.models.device import Device
@@ -207,7 +207,7 @@ async def get_action_events(
     from_event_id: Optional[int] = Query(None, description="원본 이벤트 ID로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -312,7 +312,7 @@ async def get_action_events(
 @router.get("/{event_id}", response_model=ApiSingleResponse[ActionEventResponse])
 async def get_action_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -368,7 +368,7 @@ async def get_action_event(
 @router.post("", response_model=ApiSingleResponse[ActionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("events", "edit"))])
 async def create_action_event(
     event_data: ActionEventCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -456,7 +456,7 @@ async def create_action_event(
 async def update_action_event(
     event_id: int,
     event_data: ActionEventUpdate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -549,7 +549,7 @@ async def update_action_event(
 async def replace_action_event(
     event_id: int,
     event_data: ActionEventReplace,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -625,7 +625,7 @@ async def replace_action_event(
 @router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("events", "delete"))])
 async def delete_action_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

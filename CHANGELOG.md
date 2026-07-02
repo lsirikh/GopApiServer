@@ -4,6 +4,45 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.3] — 2026-07-02
+
+> GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.
+
+**PRD**: `docs/prds/PRD_Legacy_User_Removal.md`  
+**Plan**: `docs/plans/Legacy_User_Removal-prd-plan.md`  
+**안전점**: `pre-legacy-user-removal`
+
+### Removed
+
+- **Legacy `User` 클래스** (`app/models/user.py:221~`)
+- **Legacy auth 함수 3건** (`app/routers/auth.py`) — `get_current_user` / `get_current_user_optional` / `login_oauth2`
+- **Legacy schema 2건** (`app/schemas/user.py`) — `UserCreate` / `UserResponse` (Token은 신규 login 사용 유지)
+- **`create_admin_user()` Legacy 함수** (`app/utils/init_db.py`)
+- **`POST /api/auth/login/oauth2` endpoint** (Swagger에서 사라짐)
+- **DB `users` 테이블** — `DROP TABLE users CASCADE` (v56 마이그레이션)
+
+### Changed
+
+- **30 라우터 auth helper 이주** — `get_current_user_optional` → `get_current_account_user_optional` (AUTH_MODE=public에서 응답 무영향)
+- **Swagger `info.version`** 5.2.0 → **5.3.0** + API Version 5.3
+- `tests/conftest.py` — User import 정리
+
+### Migration
+
+- **`app/migrations/v56_drop_users_table.sql`** — FK 참조 0 검증 + DROP TABLE + 완료 검증
+- **`app/migrations/v56_drop_users_table_reverse.sql`** — 롤백용 (구조만 재생성)
+
+### Verified (14/14 PASS)
+
+admin login + /me + tracking(2) + users + user-groups + audit-logs + reports + servers + user-sessions + cameras + actions + detections + controllers + sensors 모두 200. Swagger UserResponse/UserCreate/oauth2 endpoint 제거 확정. FK 파괴 0.
+
+### Deferred (v5.4+)
+
+- AUTH_MODE 전환 (public → token) — .NET 클라 Bearer 동시 배포 필수
+- require_perm 활성화 (27 라우터 부착)
+- audit append-only DB RULE/RLS
+- .NET 클라 팀 통지 문서
+
 ## [v5.2] — 2026-06-30
 
 > 차장님 보고 "API 서버가 가끔 죽는데 원인 모름" → Workflow 7 agent 정밀 감사(498K token / 6.5분) 완료. Health 58/100, TOP 5 사망 원인 + 호스트 절전 가설 확정(Windows Event ID 41/6008, 5~9일 간격 비정상 종료). 5건 hot-fix 즉시 적용 + 실측 5/5 PASS. 본 세션 v5.1 자가 버그(force_logout kwarg 오타 → TypeError 500) 동시 fix. bcrypt async / APScheduler 청소 / db_monitor autoheal 등은 v5.3+ 권고.

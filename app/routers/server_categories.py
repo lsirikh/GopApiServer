@@ -8,7 +8,7 @@ from typing import Optional
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.routers.auth import get_current_account_user_optional
 from app.models.server import ServerCategory, Server
 from app.utils.enums import EnumServerType, EnumServerStatus
 from app.schemas.server import (
@@ -28,7 +28,7 @@ async def get_server_categories(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     type_server: Optional[str] = Query(None, description="서버 타입으로 필터링 (EnumServerType)"),
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -94,7 +94,7 @@ async def get_server_categories(
 @router.get("/{category_id}", response_model=ApiSingleResponse[ServerCategoryWithServers])
 async def get_server_category(
     category_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -159,7 +159,7 @@ async def get_server_category(
 @router.post("", response_model=ApiSingleResponse[ServerCategoryResponse], status_code=status.HTTP_201_CREATED)
 async def create_server_category(
     category_data: ServerCategoryCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -223,7 +223,7 @@ async def create_server_category(
 async def update_server_category(
     category_id: int,
     category_data: ServerCategoryUpdate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -297,7 +297,7 @@ async def update_server_category(
 async def replace_server_category(
     category_id: int,
     category_data: ServerCategoryCreate,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -370,7 +370,7 @@ async def replace_server_category(
 @router.delete("/{category_id}", response_model=ApiSingleResponse[None])
 async def delete_server_category(
     category_id: int,
-    current_user=Depends(get_current_user_optional),
+    current_user=Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

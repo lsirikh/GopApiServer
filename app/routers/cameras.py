@@ -7,7 +7,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional, require_perm_optional
+from app.routers.auth import get_current_account_user_optional, require_perm_optional
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -120,7 +120,7 @@ async def get_cameras(
     status: Optional[str] = Query(None, description="상태로 필터링"),
     mode: Optional[str] = Query(None, description="카메라 모드로 필터링"),
     category: Optional[str] = Query(None, description="카메라 카테고리로 필터링"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -195,7 +195,7 @@ async def get_camera(
     camera_id: int,
     include_presets: bool = Query(False, description="프리셋 정보 포함 여부 (기본값: false)"),
     include_rois: bool = Query(False, description="ROI 정보 포함 여부 (기본값: false, include_presets=true 필요)"),
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -288,7 +288,7 @@ def _get_camera_presets_nested(db: Session, camera_id: int, include_rois: bool =
 @router.post("", response_model=ApiSingleResponse[CameraResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("cameras", "edit"))])
 async def create_camera(
     camera_data: CameraCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -386,7 +386,7 @@ async def create_camera(
 async def update_camera(
     camera_id: int,
     camera_data: CameraUpdate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -511,7 +511,7 @@ async def update_camera(
 async def replace_camera(
     camera_id: int,
     camera_data: CameraCreate,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -606,7 +606,7 @@ async def replace_camera(
 @router.delete("/{camera_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("cameras", "delete"))])
 async def delete_camera(
     camera_id: int,
-    current_user = Depends(get_current_user_optional),
+    current_user = Depends(get_current_account_user_optional),
     db: Session = Depends(get_db)
 ):
     """

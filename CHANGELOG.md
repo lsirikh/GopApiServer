@@ -4,6 +4,41 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.4] — 2026-07-03
+
+> 클라(.NET GIS) 요청서 대응 — GET /api/grants 신설 (관리자 대시보드용 단일 호출 + 페이지네이션 + 필터). 12/12 PASS.
+
+**REQ**: `docs/REQ_Server_Grants_ListAll.md`
+**안전점**: `pre-grants-list-all`
+
+### Added
+
+- **GET /api/grants** (`app/routers/grants.py`, ADMIN 전용) — 전체 부여 목록
+  - 쿼리 6종: page (기본 1), size (기본 20, 1~100), user_id, group_id, status (ACTIVE/PENDING/EXPIRED/REVOKED), active_only
+  - 응답 `{success, data: [GrantResponse...], total}`
+  - 정렬 created_at DESC
+- **GrantResponse 보강**: user_login_id + user_name (group_name과 대칭)
+- **Swagger** 5.3.5 → **5.4.0**
+
+### Verified (12/12 PASS)
+
+무인증 401 / admin GET 200 + user_login_id/user_name 채워짐 / 페이지네이션 / user_id·group_id·status·active_only 필터 / 422 validation 2건 / Swagger 노출 / 비-ADMIN 403 / 기존 API 회귀 없음.
+
+### Migration
+
+없음 (읽기 전용 신규 endpoint).
+
+### Notify (클라 후속)
+
+- LoadAllGrantsAsync 계정 순회 → 단일 GET /api/grants 호출로 교체
+- UserLabel 태깅 로직 제거 (user_login_id/user_name 필드 대체)
+
+### Deferred (v5.5+)
+
+- AUTH_MODE 전환 (public → token)
+- require_perm 활성화
+- audit append-only DB RULE/RLS
+
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.

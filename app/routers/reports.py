@@ -17,10 +17,16 @@ v6.0 P8 VeryComplex — 라우터 async 전환:
 - 응답 스키마 완전 유지 (v5.4 P0-1/P0-5/P1-2/P1-3/P1-4 유지)
 - Dependency: get_async_db / get_current_account_user_async / require_perm_optional_async
 - Query: select() + await db.execute(...).scalars() 패턴
-- 서비스 계층(ReportService, report_master_builder, report_html_renderer)은 sync 유지 (v6.1 이월).
-  라우터에서 sync 서비스 호출 필요 시 별도 SessionLocal() 로컬 세션 개시.
-- background_tasks.add_task(_run_report_generation, gid) 는 sync 서비스 background 유지.
+
+v6.0 P8-b (SessionLocal 완전 제거):
+- 라우터/백그라운드 전체를 AsyncSession 으로 통일 — sync SessionLocal 3곳 제거.
+- 백그라운드 생성: AsyncSessionLocal + ReportServiceAsync + build_master_data_async
+  + render_report_html_async + asyncio.to_thread(html_to_pdf_bytes) 조합으로
+  이벤트루프 논블로킹 실행.
+- Preview (JSON) / Preview page (HTML): 요청 AsyncSession 위에서 ReportServiceAsync
+  및 async 마스터 빌더/렌더러 사용.
 """
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from sqlalchemy import select, func
@@ -33,7 +39,7 @@ import os
 from app.dependencies import get_async_db
 from app.routers.auth import get_current_account_user_async, require_perm_optional_async
 from app.models.user import AccountUser
-from app.services.report_service import ReportService
+from app.services.report_service import ReportServiceAsync
 from app.config import settings
 from app.models.report import ReportTemplate, ReportGeneration
 from app.schemas.report import (
@@ -472,21 +478,74 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
     return response
 
 
-def _run_report_generation(generation_id: int):
-    """BackgroundTasks에서 실행되는 보고서 생성 함수.
+async def _run_report_generation(generation_id: int) -> None:
+    """BackgroundTasks에서 실행되는 보고서 생성 함수 (async).
 
-    v6.0 P8: sync SessionLocal 유지 — ReportService 는 sync 서비스이며,
-    background_tasks 컨텍스트에서 이벤트루프 블로킹 걱정 없이 실행된다.
-    v6.1 batch queue 리팩터 시 async 전환 예정.
+    v6.0 P8-b: sync SessionLocal 제거 — 전 파이프라인 async 화.
+    - AsyncSessionLocal 로 별도 세션 개시 (요청 세션 라이프사이클 밖에서 실행).
+    - ReportServiceAsync.get_enabled_components → build_master_data_async
+      → render_report_html_async → asyncio.to_thread(html_to_pdf_bytes) 체인.
+    - Chromium PDF 렌더링(Playwright sync API)은 여전히 blocking 이므로
+      asyncio.to_thread 로 오프로드해 이벤트루프 보호.
+
+    FastAPI BackgroundTasks 는 async 함수 자동 감지 → await 로 실행.
     """
-    from app.database import SessionLocal
+    from app.database import AsyncSessionLocal
+    from app.services.report_master_builder import build_master_data_async, build_report_meta
+    from app.services.report_html_renderer import render_report_html_async
+    from app.utils.html_to_pdf import html_to_pdf_bytes
 
-    db = SessionLocal()
-    try:
-        service = ReportService(db)
-        service.generate_report_async(generation_id)
-    finally:
-        db.close()
+    async with AsyncSessionLocal() as db:
+        generation = (
+            await db.execute(
+                select(ReportGeneration).where(ReportGeneration.id == generation_id)
+            )
+        ).scalars().first()
+        if not generation:
+            return
+
+        try:
+            generation.status = "GENERATING"
+            await db.commit()
+
+            service = ReportServiceAsync(db)
+            enabled = await service.get_enabled_components(generation)
+            enabled_set = set(enabled) if enabled is not None else None
+            kind = "비정형" if generation.report_type == "CUSTOM" else "정형"
+            meta = build_report_meta(generation)
+
+            # v6.0 Phase 3 hotfix: asyncpg는 tz-aware/naive datetime 혼용 거부.
+            # start_date/end_date는 timestamptz(+09:00), events.created_at은 naive → tzinfo 제거로 정합.
+            _start_naive = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
+            _end_naive = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
+            data = await build_master_data_async(
+                db, _start_naive, _end_naive, meta, enabled_set,
+                severity_filter=generation.severity_filter,
+            )
+            html = await render_report_html_async(data, mode="full")
+            pdf_bytes = await asyncio.to_thread(html_to_pdf_bytes, html)
+
+            reports_dir = os.path.join(os.getcwd(), "reports")
+            os.makedirs(reports_dir, exist_ok=True)
+            filename = f"report_{generation.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            file_path = os.path.join(reports_dir, filename)
+            with open(file_path, "wb") as f:
+                f.write(pdf_bytes)
+
+            generation.status = "COMPLETED"
+            generation.pdf_file_path = file_path
+            generation.pdf_file_size = len(pdf_bytes)
+            generation.completed_at = datetime.now()
+            generation.summary_data = {
+                "section_count": len(data["sections"]),
+                "report_kind": kind,
+            }
+            await db.commit()
+
+        except Exception as e:
+            generation.status = "FAILED"
+            generation.error_message = str(e)
+            await db.commit()
 
 
 @router.post("/generate", status_code=202,
@@ -762,18 +821,12 @@ async def preview_report(
                 if c.get("enabled", True)
             ]
 
-    # v6.0 P8: ReportService 는 sync — 별도 SessionLocal() 로 호출.
-    # (v6.1 이월: 서비스 async 리팩터 시 제거 예정, 현재는 이벤트루프 블로킹 감수)
-    from app.database import SessionLocal
-    sync_db = SessionLocal()
-    try:
-        service = ReportService(sync_db)
-        # Calculate days from period_type
-        period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
-        days = period_days.get(generation.period_type, 7)
-        structured_data = service.get_structured_preview_data(days, enabled_components)
-    finally:
-        sync_db.close()
+    # v6.0 P8-b: sync SessionLocal 제거 — 요청 AsyncSession 위에서 ReportServiceAsync 사용.
+    service = ReportServiceAsync(db)
+    # Calculate days from period_type
+    period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+    days = period_days.get(generation.period_type, 7)
+    structured_data = await service.get_structured_preview_data(days, enabled_components)
 
     return ApiResponse(
         success=True,
@@ -843,25 +896,23 @@ async def report_preview_page(
 
     # PRD_Report_Master_Redesign: 프리뷰 == PDF 동일 HTML (정형=전체, 비정형=template 컴포넌트 필터)
     # 브라우저 기본은 compact(검토용), ?mode=full 로 전체 페이지네이션 확인 가능.
-    from app.services.report_master_builder import build_master_data, build_report_meta
-    from app.services.report_html_renderer import render_report_html
+    # v6.0 P8-b: sync SessionLocal 제거 — 요청 AsyncSession + async 마스터 빌더/렌더러.
+    from app.services.report_master_builder import build_master_data_async, build_report_meta
+    from app.services.report_html_renderer import render_report_html_async
 
-    # v6.0 P8: ReportService / build_master_data 는 sync — 별도 SessionLocal() 로 호출.
-    # (v6.1 이월: 서비스 async 리팩터 시 제거 예정)
-    from app.database import SessionLocal
-    sync_db = SessionLocal()
-    try:
-        service = ReportService(sync_db)
-        enabled = service.get_enabled_components(generation)
-        enabled_set = set(enabled) if enabled is not None else None
-        meta = build_report_meta(generation)
-        # v5.4 P1-3: 프리뷰도 severity_filter 반영 (PDF와 동일 HTML 유지)
-        data = build_master_data(
-            sync_db, generation.start_date, generation.end_date, meta, enabled_set,
-            severity_filter=generation.severity_filter,
-        )
-    finally:
-        sync_db.close()
+    service = ReportServiceAsync(db)
+    enabled = await service.get_enabled_components(generation)
+    enabled_set = set(enabled) if enabled is not None else None
+    meta = build_report_meta(generation)
+    # v5.4 P1-3: 프리뷰도 severity_filter 반영 (PDF와 동일 HTML 유지)
+    # v6.0 Phase 3 hotfix: tz-aware → naive 정합 (asyncpg 엄격 검사)
+    _start_naive = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
+    _end_naive = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
+    data = await build_master_data_async(
+        db, _start_naive, _end_naive, meta, enabled_set,
+        severity_filter=generation.severity_filter,
+    )
 
     mode = "full" if request.query_params.get("mode") == "full" else "compact"
-    return HTMLResponse(render_report_html(data, mode=mode))
+    html = await render_report_html_async(data, mode=mode)
+    return HTMLResponse(html)

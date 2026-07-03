@@ -3,10 +3,14 @@ Report Service
 PRD: PRD_Report_System.md Section 8
 
 데이터 수집 및 처리 서비스
+
+v6.0 Phase 3: ReportServiceAsync 신설 — AsyncSession 기반 완전 async 구현.
+기존 sync ReportService는 dual-stack 유지(기존 caller 호환).
 """
 import os
-from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, cast, Date, select, text, case, and_, or_
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
@@ -996,3 +1000,802 @@ class ReportService:
             generation.status = "FAILED"
             generation.error_message = str(e)
             self.db.commit()
+
+
+# ======================================================================
+# v6.0 Phase 3: ReportServiceAsync — AsyncSession 기반 완전 async 구현
+# ======================================================================
+
+
+class ReportServiceAsync:
+    """보고서 데이터 수집 및 처리 서비스 (async).
+
+    ReportService 와 동일 시그니처를 async 로 재작성.
+    dual-stack: 기존 sync caller 는 ReportService, async caller 는 이 클래스.
+    """
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_enabled_components(self, generation: ReportGeneration) -> Optional[List[str]]:
+        """ReportGeneration 에서 활성화된 컴포넌트 ID 목록 추출."""
+        if generation.report_type != "CUSTOM" or not generation.template_id:
+            return None
+
+        result = await self.db.execute(
+            select(ReportTemplate).where(ReportTemplate.id == generation.template_id)
+        )
+        template = result.scalars().first()
+
+        if not template or not template.components:
+            return None
+
+        return [
+            c["id"] for c in template.components
+            if c.get("enabled", True)
+        ]
+
+    async def get_device_statistics(self) -> Dict[str, Any]:
+        """장비 통계 수집."""
+        # Status counts
+        status_counts: Dict[str, int] = {}
+        status_result = await self.db.execute(
+            select(Device.status, func.count(Device.id)).group_by(Device.status)
+        )
+        for status, count in status_result.all():
+            status_counts[status.value if hasattr(status, 'value') else status] = count
+
+        # Type (category_device) counts
+        type_counts: Dict[str, int] = {}
+        type_result = await self.db.execute(
+            select(Device.category_device, func.count(Device.id)).group_by(Device.category_device)
+        )
+        for category, count in type_result.all():
+            type_counts[category.value if hasattr(category, 'value') else category] = count
+
+        return {
+            "status_counts": status_counts,
+            "type_counts": type_counts,
+        }
+
+    async def get_device_category_summary(self) -> List[Dict]:
+        """카테고리별 장비 정상/전체 현황."""
+        result = await self.db.execute(
+            select(
+                Device.category_device,
+                func.count(Device.id).label('total'),
+                func.sum(case((Device.status == 'ACTIVATED', 1), else_=0)).label('normal'),
+            ).group_by(Device.category_device)
+        )
+        results = result.all()
+        return [
+            {
+                "category": r.category_device.value if hasattr(r.category_device, 'value') else str(r.category_device),
+                "total": r.total,
+                "normal": int(r.normal or 0),
+                "status": "all-normal" if int(r.normal or 0) == r.total else "has-issue",
+            }
+            for r in results
+        ]
+
+    async def get_server_status_summary(self) -> List[Dict]:
+        """서버 카테고리별 상태 요약."""
+        from app.models.server import ServerCategory, Server
+
+        cat_result = await self.db.execute(
+            select(ServerCategory).order_by(ServerCategory.sort_order)
+        )
+        categories = cat_result.scalars().all()
+
+        result: List[Dict] = []
+        for cat in categories:
+            srv_result = await self.db.execute(
+                select(Server).where(Server.category_id == cat.id)
+            )
+            servers = srv_result.scalars().all()
+            worst_status = "normal"
+            for s in servers:
+                status_val = s.status.value if hasattr(s.status, 'value') else str(s.status) if s.status else ""
+                if status_val == "ERROR":
+                    worst_status = "error"
+                    break
+                elif status_val == "WARNING" and worst_status != "error":
+                    worst_status = "warning"
+            result.append({
+                "name": cat.name,
+                "status": worst_status,
+                "count": len(servers),
+            })
+        return result
+
+    async def get_event_statistics(self, days: int = 7) -> Dict[str, Any]:
+        """이벤트 통계 수집."""
+        start_date = datetime.now() - timedelta(days=days)
+
+        # Category-based counts
+        detection_count = (await self.db.execute(
+            select(func.count(DetectionEvent.id)).where(DetectionEvent.created_at >= start_date)
+        )).scalar() or 0
+
+        malfunction_count = (await self.db.execute(
+            select(func.count(MalfunctionEvent.id)).where(MalfunctionEvent.created_at >= start_date)
+        )).scalar() or 0
+
+        action_count = (await self.db.execute(
+            select(func.count(ActionEvent.id)).where(ActionEvent.created_at >= start_date)
+        )).scalar() or 0
+
+        event_type_counts = {
+            "detection": detection_count,
+            "malfunction": malfunction_count,
+            "action": action_count,
+        }
+
+        # Date labels
+        dates: List[str] = []
+        for i in range(days):
+            d = start_date + timedelta(days=i)
+            dates.append(str(d.date()) if hasattr(d, 'date') else str(d)[:10])
+
+        # Detection daily trend
+        detection_daily: Dict[str, int] = {}
+        det_result = await self.db.execute(
+            select(
+                func.date(DetectionEvent.created_at).label("date"),
+                func.count(DetectionEvent.id).label("count"),
+            )
+            .where(DetectionEvent.created_at >= start_date)
+            .group_by(func.date(DetectionEvent.created_at))
+        )
+        for row in det_result.all():
+            detection_daily[str(row.date)] = row.count
+
+        # Malfunction daily trend
+        malfunction_daily: Dict[str, int] = {}
+        mal_result = await self.db.execute(
+            select(
+                func.date(MalfunctionEvent.created_at).label("date"),
+                func.count(MalfunctionEvent.id).label("count"),
+            )
+            .where(MalfunctionEvent.created_at >= start_date)
+            .group_by(func.date(MalfunctionEvent.created_at))
+        )
+        for row in mal_result.all():
+            malfunction_daily[str(row.date)] = row.count
+
+        # Action daily trend
+        action_daily: Dict[str, int] = {}
+        act_result = await self.db.execute(
+            select(
+                func.date(ActionEvent.created_at).label("date"),
+                func.count(ActionEvent.id).label("count"),
+            )
+            .where(ActionEvent.created_at >= start_date)
+            .group_by(func.date(ActionEvent.created_at))
+        )
+        for row in act_result.all():
+            action_daily[str(row.date)] = row.count
+
+        daily_trend = [
+            {"label": "탐지", "values": [detection_daily.get(d, 0) for d in dates]},
+            {"label": "장애", "values": [malfunction_daily.get(d, 0) for d in dates]},
+            {"label": "조치", "values": [action_daily.get(d, 0) for d in dates]},
+        ]
+
+        return {
+            "event_type_counts": event_type_counts,
+            "daily_trend": daily_trend,
+            "daily_labels": dates,
+        }
+
+    async def get_system_statistics(self, days: int = 7) -> Dict[str, Any]:
+        """시스템 이벤트 통계 수집."""
+        # Severity counts
+        severity_counts: Dict[str, int] = {}
+        sev_result = await self.db.execute(
+            select(SystemEvent.severity, func.count(SystemEvent.id)).group_by(SystemEvent.severity)
+        )
+        for severity, count in sev_result.all():
+            key = severity.value if hasattr(severity, 'value') else severity
+            severity_counts[key] = count
+
+        # Daily trend
+        start_date = datetime.now() - timedelta(days=days)
+        daily_trend: List[Dict] = []
+        daily_result = await self.db.execute(
+            select(
+                func.date(SystemEvent.created_at).label("date"),
+                func.count(SystemEvent.id).label("count"),
+            )
+            .where(SystemEvent.created_at >= start_date)
+            .group_by(func.date(SystemEvent.created_at))
+            .order_by(func.date(SystemEvent.created_at))
+        )
+        for row in daily_result.all():
+            daily_trend.append({
+                "date": str(row.date) if row.date else None,
+                "count": row.count,
+            })
+
+        return {
+            "severity_counts": severity_counts,
+            "daily_trend": daily_trend,
+        }
+
+    async def get_user_statistics(self, days: int = 7) -> Dict[str, Any]:
+        """사용자 통계 수집."""
+        # Role distribution
+        role_counts: Dict[str, int] = {}
+        role_result = await self.db.execute(
+            select(AccountUser.role, func.count(AccountUser.id)).group_by(AccountUser.role)
+        )
+        for role, count in role_result.all():
+            role_counts[role] = count
+
+        # Login daily trend
+        start_date = datetime.now() - timedelta(days=days)
+        login_daily_trend: List[Dict] = []
+        login_result = await self.db.execute(
+            select(
+                func.date(UserLoginLog.created_at).label("date"),
+                func.count(UserLoginLog.id).label("count"),
+            )
+            .where(UserLoginLog.created_at >= start_date)
+            .group_by(func.date(UserLoginLog.created_at))
+            .order_by(func.date(UserLoginLog.created_at))
+        )
+        for row in login_result.all():
+            login_daily_trend.append({
+                "date": str(row.date) if row.date else None,
+                "count": row.count,
+            })
+
+        # Login result distribution
+        login_result_counts: Dict[str, int] = {}
+        result_res = await self.db.execute(
+            select(UserLoginLog.result, func.count(UserLoginLog.id)).group_by(UserLoginLog.result)
+        )
+        for result_val, count in result_res.all():
+            login_result_counts[result_val] = count
+
+        return {
+            "role_counts": role_counts,
+            "login_daily_trend": login_daily_trend,
+            "login_result_counts": login_result_counts,
+        }
+
+    async def get_device_grid_data(self) -> Dict[str, Any]:
+        """장비 목록 그리드 데이터."""
+        columns = ["ID", "장비명", "장비유형", "버전", "상태", "활성"]
+        result = await self.db.execute(select(Device))
+        devices = result.scalars().all()
+        rows = []
+        for d in devices:
+            rows.append([
+                d.id,
+                d.name_device or "",
+                d.type_device.value if hasattr(d.type_device, 'value') else str(d.type_device) if d.type_device else d.category_device.value if hasattr(d.category_device, 'value') else "",
+                d.version or "",
+                d.status.value if hasattr(d.status, 'value') else str(d.status) if d.status else "",
+                d.is_enable,
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_detection_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """탐지 이벤트 그리드 데이터."""
+        columns = ["ID", "일시", "탐지유형", "장비유형", "장비명",
+                   "조치보고일자", "조치자", "조치내용"]
+        start_date = datetime.now() - timedelta(days=days)
+        events_result = await self.db.execute(
+            select(DetectionEvent)
+            .options(selectinload(DetectionEvent.device))
+            .outerjoin(Device, DetectionEvent.device_id == Device.id)
+            .where(DetectionEvent.created_at >= start_date)
+            .order_by(DetectionEvent.created_at.desc())
+        )
+        events = events_result.scalars().all()
+        rows = []
+        for e in events:
+            act_result = await self.db.execute(
+                select(ActionEvent).where(ActionEvent.from_event_id == e.id)
+            )
+            action = act_result.scalars().first()
+            rows.append([
+                e.id,
+                e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
+                e.result.value if hasattr(e.result, 'value') else str(e.result) if e.result else "",
+                e.device.category_device.value if e.device and hasattr(e.device.category_device, 'value') else "",
+                e.device.name_device if e.device else "",
+                action.created_at.strftime('%Y-%m-%d %H:%M:%S') if action and action.created_at else "-",
+                action.user if action else "-",
+                action.content if action else "-",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_malfunction_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """장애 이벤트 그리드 데이터."""
+        columns = ["ID", "일시", "장애유형", "장비유형", "장비명",
+                   "조치보고일자", "조치자", "조치내용"]
+        start_date = datetime.now() - timedelta(days=days)
+        events_result = await self.db.execute(
+            select(MalfunctionEvent)
+            .options(selectinload(MalfunctionEvent.device))
+            .outerjoin(Device, MalfunctionEvent.device_id == Device.id)
+            .where(MalfunctionEvent.created_at >= start_date)
+            .order_by(MalfunctionEvent.created_at.desc())
+        )
+        events = events_result.scalars().all()
+        rows = []
+        for e in events:
+            act_result = await self.db.execute(
+                select(ActionEvent).where(ActionEvent.from_event_id == e.id)
+            )
+            action = act_result.scalars().first()
+            rows.append([
+                e.id,
+                e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
+                e.reason.value if hasattr(e.reason, 'value') else str(e.reason) if e.reason else "",
+                e.device.category_device.value if e.device and hasattr(e.device.category_device, 'value') else "",
+                e.device.name_device if e.device else "",
+                action.created_at.strftime('%Y-%m-%d %H:%M:%S') if action and action.created_at else "-",
+                action.user if action else "-",
+                action.content if action else "-",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_action_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """조치 이벤트 그리드 데이터."""
+        columns = ["ID", "일시", "이벤트유형", "내용", "조치자"]
+        start_date = datetime.now() - timedelta(days=days)
+        result = await self.db.execute(
+            select(ActionEvent)
+            .where(ActionEvent.created_at >= start_date)
+            .order_by(ActionEvent.created_at.desc())
+            .limit(100)
+        )
+        events = result.scalars().all()
+        rows = []
+        for e in events:
+            rows.append([
+                e.id,
+                e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
+                e.type_event or "",
+                getattr(e, 'content', "") or "",
+                getattr(e, 'user', "") or "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_system_event_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """시스템 이벤트 그리드 데이터."""
+        columns = ["ID", "일시", "유형", "심각도", "메시지"]
+        start_date = datetime.now() - timedelta(days=days)
+        result = await self.db.execute(
+            select(SystemEvent)
+            .where(SystemEvent.created_at >= start_date)
+            .order_by(SystemEvent.created_at.desc())
+            .limit(100)
+        )
+        events = result.scalars().all()
+        rows = []
+        for e in events:
+            rows.append([
+                e.id,
+                e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
+                e.type_event.value if hasattr(e.type_event, 'value') else str(e.type_event) if e.type_event else "",
+                e.severity.value if hasattr(e.severity, 'value') else str(e.severity) if e.severity else "",
+                e.message or "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_config_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """설정 변경 이력 그리드 데이터."""
+        columns = ["ID", "일시", "리소스유형", "액션", "리소스ID"]
+        start_date = datetime.now() - timedelta(days=days)
+        result = await self.db.execute(
+            select(ConfigChangeLog)
+            .where(ConfigChangeLog.created_at >= start_date)
+            .order_by(ConfigChangeLog.created_at.desc())
+            .limit(100)
+        )
+        logs = result.scalars().all()
+        rows = []
+        for log in logs:
+            rows.append([
+                log.id,
+                log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
+                log.resource_type.value if hasattr(log.resource_type, 'value') else (log.resource_type or ""),
+                log.action.value if hasattr(log.action, 'value') else (log.action or ""),
+                log.resource_id if hasattr(log, 'resource_id') else "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_audit_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """감사 로그 그리드 데이터."""
+        columns = ["ID", "일시", "액션", "상태", "리소스", "행위자"]
+        start_date = datetime.now() - timedelta(days=days)
+        result = await self.db.execute(
+            select(AuditLog)
+            .where(AuditLog.created_at >= start_date)
+            .order_by(AuditLog.created_at.desc())
+            .limit(100)
+        )
+        logs = result.scalars().all()
+        rows = []
+        for log in logs:
+            rows.append([
+                log.id,
+                log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
+                log.action_type or "",
+                log.action_status or "",
+                log.resource_type or "",
+                log.actor_name or "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_user_grid_data(self) -> Dict[str, Any]:
+        """사용자 목록 그리드 데이터."""
+        columns = ["ID", "로그인ID", "이름", "역할", "이메일"]
+        result = await self.db.execute(select(AccountUser))
+        users = result.scalars().all()
+        rows = []
+        for u in users:
+            rows.append([
+                u.id,
+                u.login_id or "",
+                u.name or "",
+                u.role or "",
+                u.email or "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_user_login_grid_data(self, days: int = 7) -> Dict[str, Any]:
+        """로그인 이력 그리드 데이터."""
+        columns = ["ID", "일시", "로그인ID", "액션", "결과", "IP"]
+        start_date = datetime.now() - timedelta(days=days)
+        result = await self.db.execute(
+            select(UserLoginLog)
+            .where(UserLoginLog.created_at >= start_date)
+            .order_by(UserLoginLog.created_at.desc())
+            .limit(100)
+        )
+        logs = result.scalars().all()
+        rows = []
+        for log in logs:
+            rows.append([
+                log.id,
+                log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
+                log.login_id or "",
+                log.action or "",
+                log.result or "",
+                log.ip_address or "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_user_session_grid_data(self) -> Dict[str, Any]:
+        """사용자 세션 그리드 데이터."""
+        columns = ["ID", "사용자ID", "IP", "생성일", "만료일"]
+        result = await self.db.execute(
+            select(UserSession)
+            .order_by(UserSession.created_at.desc())
+            .limit(100)
+        )
+        sessions = result.scalars().all()
+        rows = []
+        for s in sessions:
+            rows.append([
+                s.id,
+                s.user_id,
+                s.ip_address or "",
+                s.created_at.strftime('%Y-%m-%d %H:%M:%S') if s.created_at else "",
+                s.expires_at.strftime('%Y-%m-%d %H:%M:%S') if s.expires_at else "",
+            ])
+        return {"columns": columns, "rows": rows, "total_rows": len(rows)}
+
+    async def get_structured_preview_data(
+        self,
+        days: int = 7,
+        enabled_components: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """구조화된 보고서 미리보기 데이터 생성 (11섹션)."""
+        device_stats = await self.get_device_statistics()
+        event_stats = await self.get_event_statistics(days)
+        system_stats = await self.get_system_statistics(days)
+        user_stats = await self.get_user_statistics(days)
+        device_categories = await self.get_device_category_summary()
+        server_status = await self.get_server_status_summary()
+
+        device_grid = await self.get_device_grid_data()
+        detection_grid = await self.get_detection_grid_data(days)
+        malfunction_grid = await self.get_malfunction_grid_data(days)
+        action_grid = await self.get_action_grid_data(days)
+        system_event_grid = await self.get_system_event_grid_data(days)
+        config_grid = await self.get_config_grid_data(days)
+        audit_grid = await self.get_audit_grid_data(days)
+        user_grid = await self.get_user_grid_data()
+        user_login_grid = await self.get_user_login_grid_data(days)
+        user_session_grid = await self.get_user_session_grid_data()
+
+        sections = [
+            # ─── 1. 요약 ───
+            {
+                "name": "summary",
+                "title": "1. 요약",
+                "charts": [
+                    {
+                        "id": "SUMMARY_CARD",
+                        "title": "전체 요약",
+                        "type": "SUMMARY",
+                        "data": {
+                            "labels": ["장비", "이벤트", "시스템"],
+                            "values": [
+                                sum(device_stats["type_counts"].values()),
+                                sum(event_stats["event_type_counts"].values()),
+                                sum(system_stats["severity_counts"].values()),
+                            ],
+                        },
+                    }
+                ],
+                "grids": [],
+                "summary_data": {
+                    "device_categories": device_categories,
+                    "event_counts": event_stats["event_type_counts"],
+                    "server_status": server_status,
+                },
+            },
+            # ─── 2. 장비 현황 ───
+            {
+                "name": "device_charts",
+                "title": "2. 장비 현황",
+                "charts": [
+                    {
+                        "id": "DEVICE_STATUS_PIE",
+                        "title": "장비 상태 분포",
+                        "type": "PIE",
+                        "data": {
+                            "labels": list(device_stats["status_counts"].keys()),
+                            "values": list(device_stats["status_counts"].values()),
+                            "colors": ["#4CAF50", "#F44336", "#9E9E9E"],
+                        },
+                    },
+                    {
+                        "id": "DEVICE_TYPE_BAR",
+                        "title": "유형별 장비 현황",
+                        "type": "BAR",
+                        "data": {
+                            "labels": list(device_stats["type_counts"].keys()),
+                            "values": list(device_stats["type_counts"].values()),
+                        },
+                    },
+                ],
+                "grids": [],
+            },
+            # ─── 3. 이벤트 현황 ───
+            {
+                "name": "event_charts",
+                "title": "3. 이벤트 현황",
+                "charts": [
+                    {
+                        "id": "EVENT_SUMMARY_PIE",
+                        "title": "이벤트 유형 분포",
+                        "type": "PIE",
+                        "data": {
+                            "labels": list(event_stats["event_type_counts"].keys()),
+                            "values": list(event_stats["event_type_counts"].values()),
+                        },
+                    },
+                    {
+                        "id": "EVENT_TREND_LINE",
+                        "title": "이벤트 발생 추이",
+                        "type": "LINE",
+                        "data": {
+                            "labels": event_stats.get("daily_labels", []),
+                            "values": [],
+                            "datasets": event_stats["daily_trend"],
+                        },
+                    },
+                ],
+                "grids": [],
+            },
+            # ─── 4. 시스템 현황 ───
+            {
+                "name": "system_charts",
+                "title": "4. 시스템 현황",
+                "charts": [
+                    {
+                        "id": "SYSTEM_SEVERITY_BAR",
+                        "title": "심각도별 시스템 이벤트",
+                        "type": "BAR",
+                        "data": {
+                            "labels": list(system_stats["severity_counts"].keys()),
+                            "values": list(system_stats["severity_counts"].values()),
+                        },
+                    },
+                    {
+                        "id": "SYSTEM_TREND_LINE",
+                        "title": "시스템 이벤트 추이",
+                        "type": "LINE",
+                        "data": {
+                            "labels": [d["date"] for d in system_stats["daily_trend"]],
+                            "values": [d["count"] for d in system_stats["daily_trend"]],
+                        },
+                    },
+                ],
+                "grids": [],
+            },
+            # ─── 5. 사용자 현황 ───
+            {
+                "name": "user_charts",
+                "title": "5. 사용자 현황",
+                "charts": [
+                    {
+                        "id": "USER_ROLE_PIE",
+                        "title": "역할별 사용자 분포",
+                        "type": "PIE",
+                        "data": {
+                            "labels": list(user_stats["role_counts"].keys()),
+                            "values": list(user_stats["role_counts"].values()),
+                        },
+                    },
+                    {
+                        "id": "USER_LOGIN_TREND_LINE",
+                        "title": "일별 로그인 추이",
+                        "type": "LINE",
+                        "data": {
+                            "labels": [d["date"] for d in user_stats["login_daily_trend"]],
+                            "values": [d["count"] for d in user_stats["login_daily_trend"]],
+                        },
+                    },
+                    {
+                        "id": "USER_LOGIN_RESULT_PIE",
+                        "title": "로그인 성공/실패 분포",
+                        "type": "PIE",
+                        "data": {
+                            "labels": list(user_stats["login_result_counts"].keys()),
+                            "values": list(user_stats["login_result_counts"].values()),
+                        },
+                    },
+                ],
+                "grids": [],
+            },
+            # ─── 6. 장비 목록 ───
+            {
+                "name": "device_grid",
+                "title": "6. 장비 목록",
+                "charts": [],
+                "grids": [
+                    {**device_grid, "id": "DEVICE_GRID", "title": "장비 목록"},
+                ],
+            },
+            # ─── 7. 이벤트 상세 ───
+            {
+                "name": "event_grids",
+                "title": "7. 이벤트 상세",
+                "charts": [],
+                "grids": [
+                    {**detection_grid, "id": "EVENT_DETECTION_GRID", "title": "탐지 이벤트 목록"},
+                    {**malfunction_grid, "id": "EVENT_MALFUNCTION_GRID", "title": "장애 이벤트 목록"},
+                    {**action_grid, "id": "EVENT_ACTION_GRID", "title": "조치 이벤트 목록"},
+                ],
+            },
+            # ─── 8. 시스템 이벤트 ───
+            {
+                "name": "system_event_grid",
+                "title": "8. 시스템 이벤트",
+                "charts": [],
+                "grids": [
+                    {**system_event_grid, "id": "SYSTEM_EVENT_GRID", "title": "시스템 이벤트 목록"},
+                ],
+            },
+            # ─── 9. 설정 변경 이력 ───
+            {
+                "name": "config_grid",
+                "title": "9. 설정 변경 이력",
+                "charts": [],
+                "grids": [
+                    {**config_grid, "id": "SYSTEM_CONFIG_GRID", "title": "설정 변경 이력"},
+                ],
+            },
+            # ─── 10. 감사 로그 ───
+            {
+                "name": "audit_grid",
+                "title": "10. 감사 로그",
+                "charts": [],
+                "grids": [
+                    {**audit_grid, "id": "SYSTEM_AUDIT_GRID", "title": "감사 로그"},
+                ],
+            },
+            # ─── 11. 사용자 상세 ───
+            {
+                "name": "user_grids",
+                "title": "11. 사용자 상세",
+                "charts": [],
+                "grids": [
+                    {**user_grid, "id": "USER_GRID", "title": "사용자 목록"},
+                    {**user_login_grid, "id": "USER_LOGIN_GRID", "title": "로그인 이력"},
+                    {**user_session_grid, "id": "USER_SESSION_GRID", "title": "세션 목록"},
+                ],
+            },
+        ]
+
+        # 비정형 보고서 필터링
+        if enabled_components is not None:
+            filtered = []
+            for section in sections:
+                charts = [c for c in section.get("charts", []) if c.get("id") in enabled_components]
+                grids = [g for g in section.get("grids", []) if g.get("id") in enabled_components]
+                has_summary = section.get("summary_data") and "SUMMARY_CARD" in enabled_components
+                if charts or grids or has_summary:
+                    new_section = {
+                        "name": section["name"],
+                        "title": section["title"],
+                        "charts": charts,
+                        "grids": grids,
+                    }
+                    if section.get("summary_data") and has_summary:
+                        new_section["summary_data"] = section["summary_data"]
+                    filtered.append(new_section)
+            sections = filtered
+
+        return {"sections": sections}
+
+    async def get_preview_data(self, days: int = 7) -> Dict[str, Any]:
+        """보고서 미리보기 데이터 생성 (legacy 4섹션)."""
+        device_stats = await self.get_device_statistics()
+        event_stats = await self.get_event_statistics(days)
+        system_stats = await self.get_system_statistics(days)
+
+        sections = [
+            {
+                "title": "요약",
+                "charts": [
+                    {
+                        "type": "SUMMARY_CARD",
+                        "data": {
+                            "device_count": sum(device_stats["type_counts"].values()),
+                            "event_count": sum(event_stats["event_type_counts"].values()),
+                            "system_event_count": sum(system_stats["severity_counts"].values()),
+                        },
+                    }
+                ],
+            },
+            {
+                "title": "장비 현황",
+                "charts": [
+                    {"type": "DEVICE_STATUS_PIE", "data": device_stats["status_counts"]},
+                    {"type": "DEVICE_TYPE_BAR", "data": device_stats["type_counts"]},
+                ],
+                "grids": [{"type": "DEVICE_GRID", "data": []}],
+            },
+            {
+                "title": "이벤트 현황",
+                "charts": [
+                    {"type": "EVENT_SUMMARY_PIE", "data": event_stats["event_type_counts"]},
+                    {"type": "EVENT_TREND_LINE", "data": event_stats["daily_trend"]},
+                ],
+                "grids": [{"type": "EVENT_DETECTION_GRID", "data": []}],
+            },
+            {
+                "title": "시스템 현황",
+                "charts": [
+                    {"type": "SYSTEM_SEVERITY_BAR", "data": system_stats["severity_counts"]},
+                    {"type": "SYSTEM_TREND_LINE", "data": system_stats["daily_trend"]},
+                ],
+                "grids": [{"type": "SYSTEM_EVENT_GRID", "data": []}],
+            },
+        ]
+
+        return {"sections": sections}
+
+    async def generate_report(self, generation_id: int) -> None:
+        """보고서 비동기 생성 — 마스터 디자인(HTML→PDF).
+
+        NOTE: build_master_data 는 현재 sync Session 기반. Phase 3 범위에서는
+        AsyncSession 만으로 대체 불가하여, 이 메서드는 async caller 에서 별도
+        sync bridge (run_in_executor 등) 로 처리해야 함. 여기서는 async 파사드만
+        제공하고, 실제 sync 구현은 ReportService.generate_report_async 를 재사용
+        하지 않고 상위 라우터에서 BackgroundTasks 로 sync 함수 스케쥴을 유지한다.
+        """
+        raise NotImplementedError(
+            "generate_report_async(sync) 를 BackgroundTasks 로 스케쥴하십시오. "
+            "master builder 완전 async 화는 별도 Phase."
+        )

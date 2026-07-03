@@ -4,12 +4,13 @@ PRD: PRD_Enclosure_Device.md v1.1 - Section 5.1
 URL Pattern: /api/devices/enclosures (Device 하위 리소스)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Enclosure
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDoorStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -30,46 +31,59 @@ from app.services.config_log_service import log_config_change, get_identifier, g
 router = APIRouter(tags=["Enclosures"])
 
 
-def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.ENCLOSURE) -> List[DeviceGroupNestedResponse]:
+async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.ENCLOSURE) -> List[DeviceGroupNestedResponse]:
     """Get device groups for an enclosure (PRD_DeviceGroup_Support_Completion.md)"""
-    mappings = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )).scalars().all()
 
     if not mappings:
         return []
 
     group_ids = [m.group_id for m in mappings]
-    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+    groups = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id.in_(group_ids))
+    )).scalars().all()
 
-    return [
-        DeviceGroupNestedResponse(
-            id=g.id,
-            name=g.name,
-            description=g.description,
-            device_count=db.query(DeviceGroupMapping).filter(
+    result: List[DeviceGroupNestedResponse] = []
+    for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
                 DeviceGroupMapping.group_id == g.id
-            ).count()
+            )
+        )).scalar()
+        result.append(
+            DeviceGroupNestedResponse(
+                id=g.id,
+                name=g.name,
+                description=g.description,
+                device_count=device_count
+            )
         )
-        for g in groups
-    ]
+    return result
 
 
-def _update_device_group_mappings(
-    db: Session,
+async def _update_device_group_mappings(
+    db: AsyncSession,
     device_id: int,
     group_ids: List[int],
     category_device: EnumDeviceCategory = EnumDeviceCategory.ENCLOSURE
 ):
     """Update device group mappings for an enclosure (PRD_DeviceGroup_Support_Completion.md)"""
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )
 
     for group_id in group_ids:
-        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == group_id)
+        )).scalars().first()
         if group:
             mapping = DeviceGroupMapping(
                 device_id=device_id,
@@ -79,7 +93,7 @@ def _update_device_group_mappings(
             db.add(mapping)
 
 
-def _enclosure_to_response(enclosure: Enclosure, db: Session) -> EnclosureResponse:
+async def _enclosure_to_response(enclosure: Enclosure, db: AsyncSession) -> EnclosureResponse:
     """Convert Enclosure model to EnclosureResponse schema"""
     # Convert JSONB to Pydantic schemas
     # detail_info 제거됨 → enclosure_metrics API 사용 (PRD_Enclosure_Metrics_Separation.md v1.0)
@@ -93,7 +107,7 @@ def _enclosure_to_response(enclosure: Enclosure, db: Session) -> EnclosureRespon
         threshold_config = EnclosureThresholdConfig(**enclosure.threshold_config)
 
     # PRD_DeviceGroup_Support_Completion.md: device_groups 조회
-    device_groups = _get_device_groups_nested(db, enclosure.id, EnumDeviceCategory.ENCLOSURE)
+    device_groups = await _get_device_groups_nested(db, enclosure.id, EnumDeviceCategory.ENCLOSURE)
 
     return EnclosureResponse(
         id=enclosure.id,
@@ -122,8 +136,8 @@ async def get_enclosures(
     door_status: Optional[str] = Query(None, description="도어 상태 필터 (CLOSED/OPEN)"),
     status: Optional[str] = Query(None, description="장비 상태 필터 (ACTIVATED/DEACTIVATED/ERROR)"),
     name_device: Optional[str] = Query(None, description="장비명 검색"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 목록 조회 (페이지네이션)
@@ -139,28 +153,34 @@ async def get_enclosures(
     **Response**: 함체 목록 및 페이지네이션 정보
     """
     # Build query
-    query = db.query(Enclosure)
+    stmt = select(Enclosure)
+    count_stmt = select(func.count()).select_from(Enclosure)
 
     # Apply filters
     if door_status is not None:
-        query = query.filter(Enclosure.door_status == door_status)
+        stmt = stmt.where(Enclosure.door_status == door_status)
+        count_stmt = count_stmt.where(Enclosure.door_status == door_status)
     if status is not None:
-        query = query.filter(Enclosure.status == status)
+        stmt = stmt.where(Enclosure.status == status)
+        count_stmt = count_stmt.where(Enclosure.status == status)
     if name_device is not None:
-        query = query.filter(Enclosure.name_device.contains(name_device))
+        stmt = stmt.where(Enclosure.name_device.contains(name_device))
+        count_stmt = count_stmt.where(Enclosure.name_device.contains(name_device))
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by id for stable pagination)
-    enclosures = query.order_by(Enclosure.id).offset(skip).limit(limit).all()
+    enclosures = (await db.execute(
+        stmt.order_by(Enclosure.id).offset(skip).limit(limit)
+    )).scalars().all()
 
     # Convert to response format
-    enclosure_responses = [_enclosure_to_response(e, db) for e in enclosures]
+    enclosure_responses = [await _enclosure_to_response(e, db) for e in enclosures]
 
     pagination = PaginationMeta(
         page=page,
@@ -180,8 +200,8 @@ async def get_enclosures(
 @router.get("/{enclosure_id}", response_model=ApiSingleResponse[EnclosureResponse])
 async def get_enclosure(
     enclosure_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 단건 조회
@@ -195,7 +215,9 @@ async def get_enclosure(
     **Error**:
     - 404: 함체를 찾을 수 없음
     """
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(
+        select(Enclosure).where(Enclosure.id == enclosure_id)
+    )).scalars().first()
 
     if not enclosure:
         raise HTTPException(
@@ -203,7 +225,7 @@ async def get_enclosure(
             detail=f"Enclosure with id {enclosure_id} not found"
         )
 
-    enclosure_response = _enclosure_to_response(enclosure, db)
+    enclosure_response = await _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -215,8 +237,8 @@ async def get_enclosure(
 @router.post("", response_model=ApiSingleResponse[EnclosureResponse], status_code=status.HTTP_201_CREATED)
 async def create_enclosure(
     enclosure_data: EnclosureCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 생성
@@ -253,13 +275,13 @@ async def create_enclosure(
     )
 
     db.add(new_enclosure)
-    db.commit()
-    db.refresh(new_enclosure)
+    await db.commit()
+    await db.refresh(new_enclosure)
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if enclosure_data.group_ids is not None:
-        _update_device_group_mappings(db, new_enclosure.id, enclosure_data.group_ids, EnumDeviceCategory.ENCLOSURE)
-        db.commit()
+        await _update_device_group_mappings(db, new_enclosure.id, enclosure_data.group_ids, EnumDeviceCategory.ENCLOSURE)
+        await db.commit()
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
     log_config_change(
@@ -272,7 +294,7 @@ async def create_enclosure(
         description="Enclosure 생성"
     )
 
-    enclosure_response = _enclosure_to_response(new_enclosure, db)
+    enclosure_response = await _enclosure_to_response(new_enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -285,8 +307,8 @@ async def create_enclosure(
 async def update_enclosure(
     enclosure_id: int,
     enclosure_data: EnclosureUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 부분 수정 (PATCH)
@@ -309,7 +331,9 @@ async def update_enclosure(
     **Error**:
     - 404: 함체를 찾을 수 없음
     """
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(
+        select(Enclosure).where(Enclosure.id == enclosure_id)
+    )).scalars().first()
 
     if not enclosure:
         raise HTTPException(
@@ -335,10 +359,10 @@ async def update_enclosure(
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if group_ids is not None:
-        _update_device_group_mappings(db, enclosure.id, group_ids, EnumDeviceCategory.ENCLOSURE)
+        await _update_device_group_mappings(db, enclosure.id, group_ids, EnumDeviceCategory.ENCLOSURE)
 
-    db.commit()
-    db.refresh(enclosure)
+    await db.commit()
+    await db.refresh(enclosure)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(enclosure)
@@ -355,7 +379,7 @@ async def update_enclosure(
             description="Enclosure 수정"
         )
 
-    enclosure_response = _enclosure_to_response(enclosure, db)
+    enclosure_response = await _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -368,8 +392,8 @@ async def update_enclosure(
 async def replace_enclosure(
     enclosure_id: int,
     enclosure_data: EnclosureCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 전체 수정 (PUT)
@@ -387,7 +411,9 @@ async def replace_enclosure(
     **Error**:
     - 404: 함체를 찾을 수 없음
     """
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(
+        select(Enclosure).where(Enclosure.id == enclosure_id)
+    )).scalars().first()
 
     if not enclosure:
         raise HTTPException(
@@ -411,12 +437,12 @@ async def replace_enclosure(
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if enclosure_data.group_ids is not None:
-        _update_device_group_mappings(db, enclosure.id, enclosure_data.group_ids, EnumDeviceCategory.ENCLOSURE)
+        await _update_device_group_mappings(db, enclosure.id, enclosure_data.group_ids, EnumDeviceCategory.ENCLOSURE)
 
-    db.commit()
-    db.refresh(enclosure)
+    await db.commit()
+    await db.refresh(enclosure)
 
-    enclosure_response = _enclosure_to_response(enclosure, db)
+    enclosure_response = await _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -428,8 +454,8 @@ async def replace_enclosure(
 @router.delete("/{enclosure_id}", response_model=ApiSingleResponse[None])
 async def delete_enclosure(
     enclosure_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 삭제
@@ -443,7 +469,9 @@ async def delete_enclosure(
     **Error**:
     - 404: 함체를 찾을 수 없음
     """
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(
+        select(Enclosure).where(Enclosure.id == enclosure_id)
+    )).scalars().first()
 
     if not enclosure:
         raise HTTPException(
@@ -457,13 +485,15 @@ async def delete_enclosure(
     deleted_name = f"Enclosure-{enclosure.id} ({enclosure.name_device})"
 
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == enclosure_id,
-        DeviceGroupMapping.category_device == EnumDeviceCategory.ENCLOSURE
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == enclosure_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.ENCLOSURE
+        )
+    )
 
-    db.delete(enclosure)
-    db.commit()
+    await db.delete(enclosure)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
     log_config_change(
@@ -491,8 +521,8 @@ async def delete_enclosure(
 async def update_enclosure_status(
     enclosure_id: int,
     status_data: EnclosureStatusUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 도어 상태 업데이트
@@ -513,7 +543,9 @@ async def update_enclosure_status(
     **Error**:
     - 404: 함체를 찾을 수 없음
     """
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(
+        select(Enclosure).where(Enclosure.id == enclosure_id)
+    )).scalars().first()
 
     if not enclosure:
         raise HTTPException(
@@ -528,8 +560,8 @@ async def update_enclosure_status(
     if status_data.door_status is not None:
         enclosure.door_status = status_data.door_status
 
-    db.commit()
-    db.refresh(enclosure)
+    await db.commit()
+    await db.refresh(enclosure)
 
     # ConfigChangeLog: STATUS_CHANGED 로그 기록 (PRD v1.2)
     if old_door_status != enclosure.door_status:
@@ -544,7 +576,7 @@ async def update_enclosure_status(
             description=f"Enclosure 상태 변경: {old_door_status} → {enclosure.door_status}"
         )
 
-    enclosure_response = _enclosure_to_response(enclosure, db)
+    enclosure_response = await _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,
@@ -557,8 +589,8 @@ async def update_enclosure_status(
 async def control_enclosure(
     enclosure_id: int,
     control_data: EnclosureControl,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     함체 히터/팬 제어
@@ -578,7 +610,9 @@ async def control_enclosure(
     **Error**:
     - 404: 함체를 찾을 수 없음
     """
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(
+        select(Enclosure).where(Enclosure.id == enclosure_id)
+    )).scalars().first()
 
     if not enclosure:
         raise HTTPException(
@@ -593,10 +627,10 @@ async def control_enclosure(
     if control_data.fan_enabled is not None:
         enclosure.fan_enabled = control_data.fan_enabled
 
-    db.commit()
-    db.refresh(enclosure)
+    await db.commit()
+    await db.refresh(enclosure)
 
-    enclosure_response = _enclosure_to_response(enclosure, db)
+    enclosure_response = await _enclosure_to_response(enclosure, db)
 
     return ApiSingleResponse(
         success=True,

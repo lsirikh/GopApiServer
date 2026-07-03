@@ -3,12 +3,17 @@ Servers API endpoints
 Based on PRD_Server_Monitoring.md
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional, require_admin, require_perm_optional
+from app.dependencies import get_async_db
+from app.routers.auth import (
+    get_current_account_user_optional_async,
+    require_admin_async,
+    require_perm_optional_async,
+)
 from app.models.server import ServerCategory, Server
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumServerStatus
@@ -43,8 +48,8 @@ def _server_to_response(server: Server) -> ServerResponse:
 
 @router.get("/summary", response_model=ApiSingleResponse[list[ServerCategorySummary]])
 async def get_server_summary(
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     대시보드 서버 요약 조회
@@ -63,12 +68,16 @@ async def get_server_summary(
     - **servers**: 서버 목록
     """
     # Get all categories ordered by sort_order
-    categories = db.query(ServerCategory).order_by(ServerCategory.sort_order).all()
+    categories = (
+        await db.execute(select(ServerCategory).order_by(ServerCategory.sort_order))
+    ).scalars().all()
 
     summaries = []
     for category in categories:
         # Get servers for this category
-        servers = db.query(Server).filter(Server.category_id == category.id).all()
+        servers = (
+            await db.execute(select(Server).where(Server.category_id == category.id))
+        ).scalars().all()
 
         # Count by status
         normal_count = sum(1 for s in servers if s.status == EnumServerStatus.NORMAL)
@@ -103,8 +112,8 @@ async def get_servers(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     category_id: Optional[int] = Query(None, description="카테고리 ID로 필터링"),
     status: Optional[str] = Query(None, description="서버 상태로 필터링 (NORMAL, WARNING, ERROR)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 목록 조회 (페이지네이션)
@@ -119,23 +128,28 @@ async def get_servers(
 
     **Response**: 서버 목록 및 페이지네이션 정보
     """
-    query = db.query(Server)
+    stmt = select(Server)
+    count_stmt = select(func.count()).select_from(Server)
 
     # Apply filters
     if category_id is not None:
-        query = query.filter(Server.category_id == category_id)
+        stmt = stmt.where(Server.category_id == category_id)
+        count_stmt = count_stmt.where(Server.category_id == category_id)
     if status is not None:
-        query = query.filter(Server.status == status)
+        stmt = stmt.where(Server.status == status)
+        count_stmt = count_stmt.where(Server.status == status)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by id for stable pagination)
-    servers = query.order_by(Server.id).offset(skip).limit(limit).all()
+    servers = (
+        await db.execute(stmt.order_by(Server.id).offset(skip).limit(limit))
+    ).scalars().all()
 
     # Convert to response format
     server_responses = [_server_to_response(s) for s in servers]
@@ -158,8 +172,8 @@ async def get_servers(
 @router.get("/{server_id}", response_model=ApiSingleResponse[ServerResponse])
 async def get_server(
     server_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 단건 조회
@@ -173,7 +187,9 @@ async def get_server(
     **Error**:
     - 404: 서버를 찾을 수 없음
     """
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (
+        await db.execute(select(Server).where(Server.id == server_id))
+    ).scalars().first()
 
     if not server:
         raise HTTPException(
@@ -197,8 +213,8 @@ async def get_server_system_events(
     server_id: int,
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버별 시스템 이벤트 조회
@@ -215,7 +231,9 @@ async def get_server_system_events(
     - 404: 서버를 찾을 수 없음
     """
     # 서버 존재 확인
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (
+        await db.execute(select(Server).where(Server.id == server_id))
+    ).scalars().first()
     if not server:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -223,11 +241,16 @@ async def get_server_system_events(
         )
 
     # 해당 서버의 시스템 이벤트 조회
-    query = db.query(SystemEvent).filter(SystemEvent.server_id == server_id)
-    query = query.order_by(SystemEvent.created_at.desc())
-
     offset = (page - 1) * limit
-    events = query.offset(offset).limit(limit).all()
+    events = (
+        await db.execute(
+            select(SystemEvent)
+            .where(SystemEvent.server_id == server_id)
+            .order_by(SystemEvent.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
 
     # 응답 변환
     event_responses = []
@@ -248,7 +271,11 @@ async def get_server_system_events(
         })
 
     # v4.6 M07 정정: data:{items, total} + pagination envelope 표준화
-    total = query.count()
+    total = (
+        await db.execute(
+            select(func.count()).select_from(SystemEvent).where(SystemEvent.server_id == server_id)
+        )
+    ).scalar() or 0
     return ApiSingleResponse(
         success=True,
         message="Server system events retrieved successfully",
@@ -264,11 +291,11 @@ async def get_server_system_events(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[ServerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("servers", "edit"))])
+@router.post("", response_model=ApiSingleResponse[ServerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional_async("servers", "edit"))])
 async def create_server(
     server_data: ServerCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 생성
@@ -291,9 +318,11 @@ async def create_server(
     - 404: 카테고리를 찾을 수 없음
     """
     # Verify category exists
-    category = db.query(ServerCategory).filter(
-        ServerCategory.id == server_data.category_id
-    ).first()
+    category = (
+        await db.execute(
+            select(ServerCategory).where(ServerCategory.id == server_data.category_id)
+        )
+    ).scalars().first()
 
     if not category:
         raise HTTPException(
@@ -315,8 +344,8 @@ async def create_server(
     )
 
     db.add(new_server)
-    db.commit()
-    db.refresh(new_server)
+    await db.commit()
+    await db.refresh(new_server)
 
     return ApiSingleResponse(
         success=True,
@@ -325,12 +354,12 @@ async def create_server(
     )
 
 
-@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_admin)])
+@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_admin_async)])
 async def update_server(
     server_id: int,
     server_data: ServerUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 부분 수정 (PATCH)
@@ -354,7 +383,9 @@ async def update_server(
     **Error**:
     - 404: 서버 또는 카테고리를 찾을 수 없음
     """
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (
+        await db.execute(select(Server).where(Server.id == server_id))
+    ).scalars().first()
 
     if not server:
         raise HTTPException(
@@ -364,9 +395,11 @@ async def update_server(
 
     # Verify category if being changed
     if server_data.category_id is not None:
-        category = db.query(ServerCategory).filter(
-            ServerCategory.id == server_data.category_id
-        ).first()
+        category = (
+            await db.execute(
+                select(ServerCategory).where(ServerCategory.id == server_data.category_id)
+            )
+        ).scalars().first()
         if not category:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -379,8 +412,8 @@ async def update_server(
     for field, value in update_data.items():
         setattr(server, field, value)
 
-    db.commit()
-    db.refresh(server)
+    await db.commit()
+    await db.refresh(server)
 
     return ApiSingleResponse(
         success=True,
@@ -389,12 +422,12 @@ async def update_server(
     )
 
 
-@router.put("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_perm_optional("servers", "edit"))])
+@router.put("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_perm_optional_async("servers", "edit"))])
 async def replace_server(
     server_id: int,
     server_data: ServerCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 전체 수정 (PUT)
@@ -418,7 +451,9 @@ async def replace_server(
     **Error**:
     - 404: 서버 또는 카테고리를 찾을 수 없음
     """
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (
+        await db.execute(select(Server).where(Server.id == server_id))
+    ).scalars().first()
 
     if not server:
         raise HTTPException(
@@ -427,9 +462,11 @@ async def replace_server(
         )
 
     # Verify category exists
-    category = db.query(ServerCategory).filter(
-        ServerCategory.id == server_data.category_id
-    ).first()
+    category = (
+        await db.execute(
+            select(ServerCategory).where(ServerCategory.id == server_data.category_id)
+        )
+    ).scalars().first()
 
     if not category:
         raise HTTPException(
@@ -448,8 +485,8 @@ async def replace_server(
     server.user_password = server_data.user_password
     server.threshold_config = server_data.threshold_config
 
-    db.commit()
-    db.refresh(server)
+    await db.commit()
+    await db.refresh(server)
 
     return ApiSingleResponse(
         success=True,
@@ -458,11 +495,11 @@ async def replace_server(
     )
 
 
-@router.delete("/{server_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("servers", "delete"))])
+@router.delete("/{server_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional_async("servers", "delete"))])
 async def delete_server(
     server_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 삭제
@@ -476,7 +513,9 @@ async def delete_server(
     **Error**:
     - 404: 서버를 찾을 수 없음
     """
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (
+        await db.execute(select(Server).where(Server.id == server_id))
+    ).scalars().first()
 
     if not server:
         raise HTTPException(
@@ -484,8 +523,8 @@ async def delete_server(
             detail=f"Server with id {server_id} not found"
         )
 
-    db.delete(server)
-    db.commit()
+    await db.delete(server)
+    await db.commit()
 
     return ApiSingleResponse(
         success=True,

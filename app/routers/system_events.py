@@ -12,12 +12,13 @@ Endpoints:
 - GET /api/system-events/summary - 요약 통계
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 
 from app.config import settings
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.system_event import SystemEvent
 from app.models.server import Server
 from app.schemas.system_event import (
@@ -62,7 +63,7 @@ def _system_event_to_response(event: SystemEvent) -> dict:
 # ==============================================================================
 
 @router.get("/summary")
-def get_system_events_summary(db: Session = Depends(get_db)):
+async def get_system_events_summary(db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 요약 통계 조회
 
@@ -75,38 +76,37 @@ def get_system_events_summary(db: Session = Depends(get_db)):
 
     PRD Reference: PRD_System_Event.md Section 3
     """
-    from sqlalchemy import func
-
     # 전체 이벤트 수
-    total_count = db.query(func.count(SystemEvent.id)).scalar()
+    total_count = (await db.execute(select(func.count(SystemEvent.id)))).scalar()
 
     # 미확인 이벤트 수
-    unacknowledged_count = db.query(func.count(SystemEvent.id)).filter(
-        SystemEvent.is_acknowledged == False
-    ).scalar()
+    unacknowledged_count = (await db.execute(
+        select(func.count(SystemEvent.id)).where(SystemEvent.is_acknowledged == False)
+    )).scalar()
 
     # 심각도별 이벤트 수
     by_severity = {}
-    severity_counts = db.query(
-        SystemEvent.severity,
-        func.count(SystemEvent.id)
-    ).group_by(SystemEvent.severity).all()
+    severity_counts = (await db.execute(
+        select(SystemEvent.severity, func.count(SystemEvent.id)).group_by(SystemEvent.severity)
+    )).all()
     for sev, count in severity_counts:
         by_severity[sev.value] = count
 
     # 유형별 이벤트 수
     by_type = {}
-    type_counts = db.query(
-        SystemEvent.type_event,
-        func.count(SystemEvent.id)
-    ).group_by(SystemEvent.type_event).all()
+    type_counts = (await db.execute(
+        select(SystemEvent.type_event, func.count(SystemEvent.id)).group_by(SystemEvent.type_event)
+    )).all()
     for type_event, count in type_counts:
         by_type[type_event.value] = count
 
     # 최근 CRITICAL 이벤트 (최대 5개)
-    critical_events = db.query(SystemEvent).filter(
-        SystemEvent.severity == EnumSystemEventSeverity.CRITICAL
-    ).order_by(SystemEvent.created_at.desc()).limit(5).all()
+    critical_events = (await db.execute(
+        select(SystemEvent)
+        .where(SystemEvent.severity == EnumSystemEventSeverity.CRITICAL)
+        .order_by(SystemEvent.created_at.desc())
+        .limit(5)
+    )).scalars().all()
     recent_critical = [_system_event_to_response(e) for e in critical_events]
 
     return ApiResponse(
@@ -123,7 +123,7 @@ def get_system_events_summary(db: Session = Depends(get_db)):
 
 
 @router.get("")
-def get_system_events(
+async def get_system_events(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
     server_id: Optional[int] = Query(None, description="서버 ID 필터"),
@@ -132,7 +132,7 @@ def get_system_events(
     is_acknowledged: Optional[bool] = Query(None, description="확인 여부 필터"),
     start_date: Optional[datetime] = Query(None, description="시작 일시"),
     end_date: Optional[datetime] = Query(None, description="종료 일시"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     시스템 이벤트 목록 조회
@@ -149,39 +149,40 @@ def get_system_events(
 
     PRD Reference: PRD_System_Event.md Section 3
     """
-    query = db.query(SystemEvent)
+    stmt = select(SystemEvent)
 
     # 필터 적용
     if server_id is not None:
-        query = query.filter(SystemEvent.server_id == server_id)
+        stmt = stmt.where(SystemEvent.server_id == server_id)
 
     if type_event:
         try:
             type_enum = EnumSystemEventType(type_event)
-            query = query.filter(SystemEvent.type_event == type_enum)
+            stmt = stmt.where(SystemEvent.type_event == type_enum)
         except ValueError:
             pass  # 유효하지 않은 값은 무시
 
     if severity:
         try:
             severity_enum = EnumSystemEventSeverity(severity)
-            query = query.filter(SystemEvent.severity == severity_enum)
+            stmt = stmt.where(SystemEvent.severity == severity_enum)
         except ValueError:
             pass
 
     if is_acknowledged is not None:
-        query = query.filter(SystemEvent.is_acknowledged == is_acknowledged)
+        stmt = stmt.where(SystemEvent.is_acknowledged == is_acknowledged)
 
     if start_date:
-        query = query.filter(SystemEvent.created_at >= start_date)
+        stmt = stmt.where(SystemEvent.created_at >= start_date)
 
     if end_date:
-        query = query.filter(SystemEvent.created_at <= end_date)
+        stmt = stmt.where(SystemEvent.created_at <= end_date)
 
     # 정렬 및 페이지네이션
-    query = query.order_by(SystemEvent.created_at.desc())
+    stmt = stmt.order_by(SystemEvent.created_at.desc())
     offset = (page - 1) * limit
-    events = query.offset(offset).limit(limit).all()
+    stmt = stmt.offset(offset).limit(limit)
+    events = (await db.execute(stmt)).scalars().all()
 
     return ApiResponse(
         success=True,
@@ -191,7 +192,7 @@ def get_system_events(
 
 
 @router.get("/{event_id}")
-def get_system_event(event_id: int, db: Session = Depends(get_db)):
+async def get_system_event(event_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 단건 조회
 
@@ -200,7 +201,9 @@ def get_system_event(event_id: int, db: Session = Depends(get_db)):
 
     PRD Reference: PRD_System_Event.md Section 3
     """
-    event = db.query(SystemEvent).filter(SystemEvent.id == event_id).first()
+    event = (await db.execute(
+        select(SystemEvent).where(SystemEvent.id == event_id)
+    )).scalars().first()
     if not event:
         raise HTTPException(status_code=404, detail=f"SystemEvent with id {event_id} not found")
 
@@ -216,7 +219,7 @@ def get_system_event(event_id: int, db: Session = Depends(get_db)):
 # ==============================================================================
 
 @router.post("", status_code=201)
-def create_system_event(event_data: SystemEventCreate, db: Session = Depends(get_db)):
+async def create_system_event(event_data: SystemEventCreate, db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 생성
 
@@ -227,7 +230,9 @@ def create_system_event(event_data: SystemEventCreate, db: Session = Depends(get
     """
     # server_id 유효성 검사
     if event_data.server_id:
-        server = db.query(Server).filter(Server.id == event_data.server_id).first()
+        server = (await db.execute(
+            select(Server).where(Server.id == event_data.server_id)
+        )).scalars().first()
         if not server:
             raise HTTPException(
                 status_code=400,
@@ -251,8 +256,8 @@ def create_system_event(event_data: SystemEventCreate, db: Session = Depends(get
     )
 
     db.add(event)
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     return ApiResponse(
         success=True,
@@ -262,10 +267,10 @@ def create_system_event(event_data: SystemEventCreate, db: Session = Depends(get
 
 
 @router.post("/{event_id}/acknowledge")
-def acknowledge_system_event(
+async def acknowledge_system_event(
     event_id: int,
     ack_data: SystemEventAcknowledge,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     시스템 이벤트 확인 처리
@@ -276,7 +281,9 @@ def acknowledge_system_event(
 
     PRD Reference: PRD_System_Event.md Section 3
     """
-    event = db.query(SystemEvent).filter(SystemEvent.id == event_id).first()
+    event = (await db.execute(
+        select(SystemEvent).where(SystemEvent.id == event_id)
+    )).scalars().first()
     if not event:
         raise HTTPException(status_code=404, detail=f"SystemEvent with id {event_id} not found")
 
@@ -289,8 +296,8 @@ def acknowledge_system_event(
     event.acknowledged_by = ack_data.acknowledged_by
     event.acknowledged_at = datetime.now(settings.tz).replace(tzinfo=None)
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     return ApiResponse(
         success=True,
@@ -304,10 +311,10 @@ def acknowledge_system_event(
 # ==============================================================================
 
 @router.patch("/{event_id}")
-def update_system_event(
+async def update_system_event(
     event_id: int,
     update_data: SystemEventUpdate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     시스템 이벤트 수정
@@ -318,7 +325,9 @@ def update_system_event(
 
     PRD Reference: PRD_System_Event.md Section 3
     """
-    event = db.query(SystemEvent).filter(SystemEvent.id == event_id).first()
+    event = (await db.execute(
+        select(SystemEvent).where(SystemEvent.id == event_id)
+    )).scalars().first()
     if not event:
         raise HTTPException(status_code=404, detail=f"SystemEvent with id {event_id} not found")
 
@@ -327,8 +336,8 @@ def update_system_event(
     for field, value in update_dict.items():
         setattr(event, field, value)
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     return ApiResponse(
         success=True,
@@ -342,7 +351,7 @@ def update_system_event(
 # ==============================================================================
 
 @router.delete("/{event_id}")
-def delete_system_event(event_id: int, db: Session = Depends(get_db)):
+async def delete_system_event(event_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 삭제
 
@@ -351,12 +360,14 @@ def delete_system_event(event_id: int, db: Session = Depends(get_db)):
 
     PRD Reference: PRD_System_Event.md Section 3
     """
-    event = db.query(SystemEvent).filter(SystemEvent.id == event_id).first()
+    event = (await db.execute(
+        select(SystemEvent).where(SystemEvent.id == event_id)
+    )).scalars().first()
     if not event:
         raise HTTPException(status_code=404, detail=f"SystemEvent with id {event_id} not found")
 
-    db.delete(event)
-    db.commit()
+    await db.delete(event)
+    await db.commit()
 
     return ApiResponse(
         success=True,

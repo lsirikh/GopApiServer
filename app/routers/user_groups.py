@@ -2,27 +2,28 @@
 UserGroup API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.user import UserGroup, AccountUser
 from app.schemas.user import UserGroupResponse, UserGroupCreate, UserGroupUpdate, AccountUserResponse
-from app.routers.auth import get_current_account_user, require_admin
+from app.routers.auth import get_current_account_user_async, require_admin_async
 from app.services.audit_service import log_action, get_changes
 from app.schemas.user import PermissionsSchema
 
 router = APIRouter(tags=["User Groups"])
 
 
-@router.get("", dependencies=[Depends(require_admin)])
+@router.get("", dependencies=[Depends(require_admin_async)])
 async def get_user_groups(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
     is_active: Optional[bool] = Query(None, description="활성화 상태 필터"),
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 그룹 목록 조회
@@ -36,14 +37,15 @@ async def get_user_groups(
 
     **Response**: success, data (사용자 그룹 목록)
     """
-    query = db.query(UserGroup)
+    stmt = select(UserGroup)
 
     # Apply filters
     if is_active is not None:
-        query = query.filter(UserGroup.is_active == is_active)
+        stmt = stmt.where(UserGroup.is_active == is_active)
 
     offset = (page - 1) * limit
-    groups = query.offset(offset).limit(limit).all()
+    stmt = stmt.offset(offset).limit(limit)
+    groups = (await db.execute(stmt)).scalars().all()
 
     return {
         "success": True,
@@ -51,11 +53,11 @@ async def get_user_groups(
     }
 
 
-@router.get("/{group_id}", dependencies=[Depends(require_admin)])
+@router.get("/{group_id}", dependencies=[Depends(require_admin_async)])
 async def get_user_group_by_id(
     group_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 그룹 상세 조회
@@ -70,7 +72,9 @@ async def get_user_group_by_id(
     **Error**:
     - 404: 그룹을 찾을 수 없음
     """
-    group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
+    group = (await db.execute(
+        select(UserGroup).where(UserGroup.id == group_id)
+    )).scalars().first()
 
     if not group:
         raise HTTPException(
@@ -79,7 +83,9 @@ async def get_user_group_by_id(
         )
 
     # Count users in this group
-    user_count = db.query(AccountUser).filter(AccountUser.group_id == group_id).count()
+    user_count = (await db.execute(
+        select(func.count()).select_from(AccountUser).where(AccountUser.group_id == group_id)
+    )).scalar()
 
     # Create response with user_count
     group_data = UserGroupResponse.model_validate(group)
@@ -92,11 +98,11 @@ async def get_user_group_by_id(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin_async)])
 async def create_user_group(
     group_data: UserGroupCreate,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 그룹 생성
@@ -112,7 +118,9 @@ async def create_user_group(
     **Response**: success, data (생성된 그룹 정보)
     """
     # Check if name already exists
-    existing = db.query(UserGroup).filter(UserGroup.name == group_data.name).first()
+    existing = (await db.execute(
+        select(UserGroup).where(UserGroup.name == group_data.name)
+    )).scalars().first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -131,10 +139,10 @@ async def create_user_group(
     db.add(new_group)
 
     try:
-        db.commit()
-        db.refresh(new_group)
+        await db.commit()
+        await db.refresh(new_group)
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"User group with name '{group_data.name}' already exists"
@@ -160,12 +168,12 @@ async def create_user_group(
     }
 
 
-@router.put("/{group_id}", dependencies=[Depends(require_admin)])
+@router.put("/{group_id}", dependencies=[Depends(require_admin_async)])
 async def update_user_group(
     group_id: int,
     group_data: UserGroupUpdate,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 그룹 수정
@@ -191,7 +199,9 @@ async def update_user_group(
     - 404: 그룹을 찾을 수 없음
     - 422: `permissions` 또는 알 수 없는 필드 전송 시
     """
-    group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
+    group = (await db.execute(
+        select(UserGroup).where(UserGroup.id == group_id)
+    )).scalars().first()
 
     if not group:
         raise HTTPException(
@@ -208,10 +218,12 @@ async def update_user_group(
 
     # Check if name already exists (when updating name)
     if group_data.name is not None and group_data.name != group.name:
-        existing = db.query(UserGroup).filter(
-            UserGroup.name == group_data.name,
-            UserGroup.id != group_id
-        ).first()
+        existing = (await db.execute(
+            select(UserGroup).where(
+                UserGroup.name == group_data.name,
+                UserGroup.id != group_id
+            )
+        )).scalars().first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -227,10 +239,10 @@ async def update_user_group(
         group.is_active = group_data.is_active
 
     try:
-        db.commit()
-        db.refresh(group)
+        await db.commit()
+        await db.refresh(group)
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"User group with name '{group_data.name}' already exists"
@@ -267,12 +279,12 @@ async def update_user_group(
     }
 
 
-@router.post("/{group_id}/permissions", dependencies=[Depends(require_admin)])
+@router.post("/{group_id}/permissions", dependencies=[Depends(require_admin_async)])
 async def update_user_group_permissions(
     group_id: int,
     permissions: PermissionsSchema,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 그룹 권한 수정 (ADMIN 전용) — PRD v5.0
@@ -296,7 +308,9 @@ async def update_user_group_permissions(
     - 404: 그룹을 찾을 수 없음
     - 422: 잘못된 권한 구조 (미정의 모듈/verb, truthy 문자열 등)
     """
-    group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
+    group = (await db.execute(
+        select(UserGroup).where(UserGroup.id == group_id)
+    )).scalars().first()
 
     if not group:
         raise HTTPException(
@@ -309,8 +323,8 @@ async def update_user_group_permissions(
 
     # PermissionsSchema → JSON dict 직렬화 (JSONB 컬럼 호환). 전체 교체(부분 병합 아님).
     group.permissions = permissions.model_dump(mode="json", exclude_none=True)
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
 
     changes = get_changes(
         {"permissions": before_perms},
@@ -338,11 +352,11 @@ async def update_user_group_permissions(
     }
 
 
-@router.delete("/{group_id}", dependencies=[Depends(require_admin)])
+@router.delete("/{group_id}", dependencies=[Depends(require_admin_async)])
 async def delete_user_group(
     group_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 그룹 삭제
@@ -357,7 +371,9 @@ async def delete_user_group(
     **Error**:
     - 404: 그룹을 찾을 수 없음
     """
-    group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
+    group = (await db.execute(
+        select(UserGroup).where(UserGroup.id == group_id)
+    )).scalars().first()
 
     if not group:
         raise HTTPException(
@@ -370,10 +386,12 @@ async def delete_user_group(
     group_description = group.description
 
     # Set group_id to NULL for all users in this group
-    db.query(AccountUser).filter(AccountUser.group_id == group_id).update({"group_id": None})
+    await db.execute(
+        update(AccountUser).where(AccountUser.group_id == group_id).values(group_id=None)
+    )
 
-    db.delete(group)
-    db.commit()
+    await db.delete(group)
+    await db.commit()
 
     # 감사 로그 기록: GROUP_DELETED
     await log_action(
@@ -396,11 +414,11 @@ async def delete_user_group(
     }
 
 
-@router.get("/{group_id}/users", dependencies=[Depends(require_admin)])
+@router.get("/{group_id}/users", dependencies=[Depends(require_admin_async)])
 async def get_user_group_users(
     group_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     그룹 소속 사용자 목록 조회
@@ -415,7 +433,9 @@ async def get_user_group_users(
     **Error**:
     - 404: 그룹을 찾을 수 없음
     """
-    group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
+    group = (await db.execute(
+        select(UserGroup).where(UserGroup.id == group_id)
+    )).scalars().first()
 
     if not group:
         raise HTTPException(
@@ -423,7 +443,9 @@ async def get_user_group_users(
             detail="User group not found"
         )
 
-    users = db.query(AccountUser).filter(AccountUser.group_id == group_id).all()
+    users = (await db.execute(
+        select(AccountUser).where(AccountUser.group_id == group_id)
+    )).scalars().all()
 
     return {
         "success": True,

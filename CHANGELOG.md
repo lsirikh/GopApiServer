@@ -67,6 +67,60 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - audit append-only DB RULE/RLS
 - require_perm 세분화 (control 등)
 
+### v5.4 후속 — 클라 지적 계정 항목 4건 (같은 날, 하루 1버전 통합)
+
+**클라 지적**: v5.4 태그 직후 클라팀이 계정 항목 미완 4건 지적 → 즉시 후속 반영.
+
+- **P0-B** `PUT /api/users/{id}` group_id=null 해제 지원 — `is not None` 체크 제거, `model_fields_set` 기반 필드 판정.
+  요청 body에 `{"group_id": null}` 명시 시 group_id 실제로 null로 갱신됨(구성원 해제).
+- **P1-A** UserSession sweep 스케줄러 신설 — `app/services/session_sweep_service.py`. 5분 간격으로 `expires_at < now AND is_active=true` 세션에 `is_active=false + logout_reason=EXPIRED` 마킹. `app/main.py` startup에 `session_sweep` job 등록.
+- **P1-B** SUPERSEDED 핸들러 — `POST /api/auth/login`에서 동일 계정 활성 세션들 자동 evict:
+  1. `is_active=false + logout_reason=DUPLICATE + logged_out_at`
+  2. 각 세션 access token jti → `token_blacklist` 등재 (reason=DUPLICATE)
+  3. `publish_session_revoke()` NATS 발행 (best-effort, 게이트 off 시 무동작)
+  결과: 이전 로그인의 토큰 즉시 401 (블랙리스트 hit).
+- **P0-A** `GET /api/audit-logs?action_status=…` 500 재확인 — v5.4 AUTH_MODE=token 전환 후 200 정상 응답(실측 SUCCESS/FAILURE 필터 모두 통과). 클라 콘솔 500은 AUTH_MODE 이전 상태에서 발생한 것으로 판단.
+
+**실측 검증 (SUPERSEDED)**:
+```
+로그인1 → TOKEN_A → /api/users = 200
+로그인2 → TOKEN_B → /api/users = 200 (fresh)
+                → TOKEN_A → /api/users = 401 (blacklist hit)
+DB user_sessions: 이전 활성 세션 is_active=f logout_reason=DUPLICATE
+```
+
+**실측 검증 (group_id=null 해제)**:
+```
+BEFORE  probe user group_id=1
+PUT {"group_id": null} → 200
+AFTER   probe user group_id=NULL (해제 확인)
+```
+
+### v5.4 후속 (2) — 클라 REQ Reports verb-RBAC 서버 집행 (2026-07-03)
+
+**요청서**: `docs/REQUEST_Reports_Verb_RBAC_Enforcement.md` (Dotnet.Monitoring.Solution 세션).
+
+**배경**: v5.4 P2-2에서 `PERMISSION_MAP`에 reports 10경로를 등록했으나 중앙 `enforce_matrix`가 실제 게이팅을 못함(`perm=None` default-allow). 무권한 USER가 보고서 생성/삭제/PII 조회 가능한 상태였음.
+
+**조치 — 요청서 §4.2 A안 채택**: `controllers.py`의 검증된 패턴(`require_perm_optional`) 재사용.
+- `app/routers/reports.py` 9개 endpoint에 `dependencies=[Depends(require_perm_optional("reports", verb))]` 부착:
+  - **edit (3)**: `POST /templates`, `PATCH /templates/{id}`, `POST /generate`
+  - **delete (2)**: `DELETE /templates/{id}`, `DELETE /generations/{id}`
+  - **view (4)**: `GET /preview/{id}`, `GET /generations/{id}/download`, `GET /generations/{id}/preview`, `GET /generations/{id}/preview-page`
+  (요청서 §4.2의 PUT /templates/{id}는 코드에 존재하지 않아 제외 → 총 9개)
+- ADMIN bypass · jti 블랙리스트 · 403 응답 모두 `require_perm_optional` 헬퍼가 담당.
+
+**실측 검증 (요청서 §6 완료 기준)** — 무권한 USER(`group_id=null`) 토큰:
+```
+POST   /reports/generate           → 403 ✅
+GET    /reports/preview/{id}       → 403 ✅
+DELETE /reports/templates/{id}     → 403 ✅
+DELETE /reports/generations/{id}   → 403 ✅
+GET    /reports/generations/{id}/download → 403 ✅
+[대조] ADMIN 토큰 POST /generate     → 202 (bypass 확인)
+[대조] ADMIN 토큰 GET /preview/9999 → 404 (핸들러 도달)
+```
+
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.

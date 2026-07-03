@@ -21,7 +21,7 @@ from urllib.parse import quote
 import os
 
 from app.dependencies import get_db
-from app.routers.auth import get_current_account_user
+from app.routers.auth import get_current_account_user, require_perm_optional
 from app.models.user import AccountUser
 from app.services.report_service import ReportService
 from app.config import settings
@@ -142,7 +142,8 @@ def _template_to_list_response(template: ReportTemplate) -> dict:
 # Report Components Endpoints
 # ==============================================================================
 
-@router.get("/components")
+@router.get("/components",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_components():
     """
     보고서 컴포넌트 목록 조회
@@ -164,7 +165,8 @@ def get_components():
 # Report Engine Status (Busy / Ready)
 # ==============================================================================
 
-@router.get("/status")
+@router.get("/status",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_report_engine_status(db: Session = Depends(get_db)):
     """
     보고서 엔진 Busy/Ready 상태 (read-only)
@@ -227,7 +229,8 @@ def get_report_engine_status(db: Session = Depends(get_db)):
 # Report Templates Endpoints
 # ==============================================================================
 
-@router.get("/templates")
+@router.get("/templates",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_templates(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
@@ -256,7 +259,8 @@ def get_templates(
     )
 
 
-@router.post("/templates", status_code=201)
+@router.post("/templates", status_code=201,
+             dependencies=[Depends(require_perm_optional("reports", "edit"))])
 def create_template(
     template_data: ReportTemplateCreate,
     db: Session = Depends(get_db)
@@ -293,7 +297,8 @@ def create_template(
     )
 
 
-@router.get("/templates/{template_id}")
+@router.get("/templates/{template_id}",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_template(
     template_id: int,
     db: Session = Depends(get_db)
@@ -318,7 +323,8 @@ def get_template(
     )
 
 
-@router.patch("/templates/{template_id}")
+@router.patch("/templates/{template_id}",
+              dependencies=[Depends(require_perm_optional("reports", "edit"))])
 def update_template(
     template_id: int,
     template_data: ReportTemplateUpdate,
@@ -360,7 +366,8 @@ def update_template(
     )
 
 
-@router.delete("/templates/{template_id}")
+@router.delete("/templates/{template_id}",
+               dependencies=[Depends(require_perm_optional("reports", "delete"))])
 def delete_template(
     template_id: int,
     db: Session = Depends(get_db)
@@ -449,7 +456,8 @@ def _run_report_generation(generation_id: int):
         db.close()
 
 
-@router.post("/generate", status_code=202)
+@router.post("/generate", status_code=202,
+             dependencies=[Depends(require_perm_optional("reports", "edit"))])
 def generate_report(
     request_data: ReportGenerateRequest,
     background_tasks: BackgroundTasks,
@@ -517,7 +525,8 @@ def generate_report(
     )
 
 
-@router.get("/generations")
+@router.get("/generations",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_generations(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
@@ -552,7 +561,8 @@ def get_generations(
     )
 
 
-@router.get("/generations/{generation_id}")
+@router.get("/generations/{generation_id}",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_generation(
     generation_id: int,
     db: Session = Depends(get_db)
@@ -577,7 +587,8 @@ def get_generation(
     )
 
 
-@router.delete("/generations/{generation_id}")
+@router.delete("/generations/{generation_id}",
+               dependencies=[Depends(require_perm_optional("reports", "delete"))])
 def delete_generation(
     generation_id: int,
     db: Session = Depends(get_db),
@@ -614,7 +625,8 @@ def delete_generation(
     )
 
 
-@router.get("/generations/{generation_id}/download")
+@router.get("/generations/{generation_id}/download",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def download_report(
     generation_id: int,
     db: Session = Depends(get_db)
@@ -656,7 +668,8 @@ def download_report(
     )
 
 
-@router.get("/generations/{generation_id}/preview")
+@router.get("/generations/{generation_id}/preview",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def preview_report(
     generation_id: int,
     db: Session = Depends(get_db)
@@ -715,7 +728,8 @@ def preview_report(
     )
 
 
-@router.get("/generations/{generation_id}/preview-page")
+@router.get("/generations/{generation_id}/preview-page",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
     """
     보고서 미리보기 (HTML 페이지로 이동)
@@ -734,7 +748,8 @@ def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(url=f"/api/reports/preview/{generation_id}")
 
 
-@router.get("/preview/{generation_id}", response_class=HTMLResponse)
+@router.get("/preview/{generation_id}", response_class=HTMLResponse,
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def report_preview_page(
     request: Request,
     generation_id: int,

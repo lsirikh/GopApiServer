@@ -22,7 +22,13 @@ router = APIRouter(tags=["Cameras"])
 
 
 def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA) -> List[DeviceGroupNestedResponse]:
-    """Get device groups for a camera (v2.4: timestamp 제외)"""
+    """Get device groups for a single camera (v2.4: timestamp 제외).
+
+    ⚠ v5.4 후속 (문서 A-7 #3): 목록(get_cameras)에서 카메라마다 이 함수를 호출하면
+    N × (M+1) 쿼리 폭발 → 이벤트루프 블로킹의 방아쇠. 목록은 `_build_device_groups_index()`
+    로 배치 인덱스를 만들어 `_get_device_groups_from_index()`로 O(1) 조회할 것.
+    이 함수는 **단건 조회(GET /cameras/{id}, PATCH/POST 응답)** 전용.
+    """
     mappings = db.query(DeviceGroupMapping).filter(
         DeviceGroupMapping.device_id == device_id,
         DeviceGroupMapping.category_device == category_device
@@ -42,6 +48,61 @@ def _get_device_groups_nested(db: Session, device_id: int, category_device: Enum
                 device_count=device_count
             ))
     return groups
+
+
+def _build_device_groups_index(
+    db: Session,
+    device_ids: List[int],
+    category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA,
+) -> dict:
+    """v5.4 후속 (문서 A-7 #3): N+1 폭발 방지용 배치 인덱스.
+
+    반환: `{device_id: [DeviceGroupNestedResponse, ...]}`. 쿼리 총 3회 (device_ids 크기 무관):
+      1) 대상 카메라들의 mappings — device_id IN (…) AND category=…
+      2) 매핑 대상 그룹들 — DeviceGroup.id IN (해당 group_ids)
+      3) 그룹별 device_count — group_id IN (…) GROUP BY group_id
+
+    이후 in-memory 조립 → 요청당 DB 라운드트립을 O(N)에서 O(1)로 축소.
+    """
+    if not device_ids:
+        return {}
+
+    # 1) 대상 카메라들의 매핑 일괄 조회
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id.in_(device_ids),
+        DeviceGroupMapping.category_device == category_device,
+    ).all()
+    if not mappings:
+        return {did: [] for did in device_ids}
+
+    # 2) 매핑된 group_id 집합 → 그룹 일괄 조회 (id → group)
+    group_ids = {m.group_id for m in mappings}
+    groups_by_id: dict = {
+        g.id: g for g in db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+    }
+
+    # 3) 그룹별 device_count 일괄 조회 — 그룹 GROUP BY count
+    from sqlalchemy import func as _func
+    count_rows = db.query(
+        DeviceGroupMapping.group_id, _func.count(DeviceGroupMapping.id)
+    ).filter(
+        DeviceGroupMapping.group_id.in_(group_ids)
+    ).group_by(DeviceGroupMapping.group_id).all()
+    device_count_by_group: dict = {gid: cnt for gid, cnt in count_rows}
+
+    # 4) in-memory 조립 — device_id → [DeviceGroupNestedResponse]
+    index: dict = {did: [] for did in device_ids}
+    for m in mappings:
+        group = groups_by_id.get(m.group_id)
+        if group is None:
+            continue
+        index[m.device_id].append(DeviceGroupNestedResponse(
+            id=group.id,
+            name=group.name,
+            description=group.description,
+            device_count=device_count_by_group.get(group.id, 0),
+        ))
+    return index
 
 
 def _update_device_group_mappings(db: Session, device_id: int, group_ids: List[int], category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA):
@@ -83,6 +144,7 @@ def _camera_to_response(camera: Camera, db: Session) -> CameraResponse:
         urls = CameraUrls(**camera.urls)
 
     # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
+    # v5.4 후속 (문서 A-7 #3): 단건 응답에만 이 헬퍼 사용. 목록은 배치 인덱스 사용.
     device_groups = _get_device_groups_nested(db, camera.id, EnumDeviceCategory.CAMERA)
 
     return CameraResponse(
@@ -172,8 +234,20 @@ async def get_cameras(
     # Get paginated results (order by id for stable pagination)
     cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
 
-    # Convert to response format using helper function
-    camera_responses = [_camera_to_response(c, db) for c in cameras]
+    # v5.4 후속 (문서 A-7 #3): device_groups 배치 인덱스 — N+1 폭발 방지.
+    # 이전: 카메라마다 _get_device_groups_nested() 호출 → 매 카메라 (M+1) 쿼리.
+    # 지금: 3-쿼리 배치 인덱스 1회로 dict 완성 → 각 카메라는 O(1) 조회.
+    _dg_index = _build_device_groups_index(
+        db, [c.id for c in cameras], EnumDeviceCategory.CAMERA
+    )
+
+    # Convert to response format — 단건 헬퍼를 그대로 재사용하되 device_groups만 인덱스에서 취함.
+    camera_responses = []
+    for c in cameras:
+        resp = _camera_to_response(c, db)
+        # device_groups 필드만 인덱스로 대체(단건 헬퍼가 부른 _get_device_groups_nested 결과 덮어씀).
+        resp.device_groups = _dg_index.get(c.id, [])
+        camera_responses.append(resp)
 
     pagination = PaginationMeta(
         page=page,

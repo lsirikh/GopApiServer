@@ -420,6 +420,40 @@ async def login(
     _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
     _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
 
+    # v5.4 클라 지적 P1-B: SUPERSEDED — 로그인 시 같은 계정의 활성 세션들을 evict.
+    # 1) is_active=False + logout_reason=DUPLICATE 마킹
+    # 2) 각 세션 access token jti → 블랙리스트 등록 (revoke 즉시 발효)
+    # 3) NATS auth.revoke 발행 (best-effort, 게이트 off 시 무동작)
+    #
+    # 이렇게 하지 않으면 로그인마다 user_sessions 누적 + 이전 토큰 계속 유효(취약).
+    from app.services.token_blacklist_service import add_to_blacklist as _add_to_blacklist
+    from app.services.nats_revoke_publisher import publish_session_revoke as _publish_revoke
+    from app.utils.enums import EnumLogoutReason as _EnumLogoutReason
+    _superseded_sessions = db.query(UserSession).filter(
+        UserSession.user_id == user.id,
+        UserSession.is_active == True,
+    ).all()
+    _revoke_targets = []  # (session_id, jti) — commit 후 NATS 발행용
+    _now_naive = datetime.now(settings.tz).replace(tzinfo=None)
+    for _old in _superseded_sessions:
+        _old.is_active = False
+        _old.logout_reason = _EnumLogoutReason.DUPLICATE.value  # SUPERSEDED == DUPLICATE
+        _old.logged_out_at = _now_naive
+        # jti 추출 → 블랙리스트 (revoke 발효는 jti 블랙리스트 hit로 즉시)
+        try:
+            _td = decode_token(_old.token)
+            if _td.jti:
+                _add_to_blacklist(
+                    db, jti=_td.jti,
+                    expires_at=_old.expires_at,
+                    reason="DUPLICATE",
+                    user_id=user.id,
+                    token_type="access",
+                )
+                _revoke_targets.append((_old.id, _td.jti))
+        except Exception:
+            _revoke_targets.append((_old.id, None))  # jti 파싱 실패해도 세션 자체는 마킹됨
+
     # FR-SVF-01/02: 세션 행을 먼저 flush 하여 id(= session_id)를 확보한 뒤,
     # 그 id를 sid 클레임으로 박은 access+refresh 토큰을 발급한다(refresh로 회전하지 않는 식별자).
     # token 컬럼은 NOT NULL+unique 이므로 임시 unique placeholder 로 flush → 발급 후 실제 토큰으로 갱신.
@@ -458,6 +492,18 @@ async def login(
     )
     db.add(login_log)
     db.commit()
+
+    # v5.4 P1-B: SUPERSEDED 세션들에 대해 NATS revoke 발행 (best-effort, commit 이후 순서)
+    for _sid, _jti in _revoke_targets:
+        try:
+            await _publish_revoke(
+                user_id=user.id,
+                session_id=_sid,
+                jti=_jti,
+                reason=_EnumLogoutReason.DUPLICATE,
+            )
+        except Exception:
+            pass  # best-effort — 발행 실패가 로그인을 막지 않음
 
     # 권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-07, PRD_Permission_Group_Scheduling).
     # effective_permissions_payload 가 역할명 그룹(Option A) + group_id 폴백 + grant 합집합 + valid_until 산출.

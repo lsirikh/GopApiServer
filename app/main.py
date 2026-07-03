@@ -11,7 +11,7 @@ General Outpost(GOP) 통합 관제 시스템을 위한 RESTful API 서버입니�
 
 Version: 1.5.0
 """
-from fastapi import FastAPI, Request, status, Depends
+from fastapi import FastAPI, Request, Response, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -233,18 +233,28 @@ async def lifespan(app: FastAPI):
 
     # 경량 sweep 스케줄러 (FR-04, PRD_Permission_Group_Scheduling) — 만료 grant is_active=false.
     # ★ 보안 비의존(요청시점 계산이 권위). APScheduler 미설치/시작실패가 앱 기동을 막지 않도록 방어적.
+    # v5.4 P1-A: session sweep 추가 (만료된 활성 user_sessions 정리).
     scheduler = None
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from app.services.grant_service import run_grant_sweep
+        from app.services.session_sweep_service import run_session_sweep
+        from app.services.api_logs_sweep_service import run_api_logs_sweep
 
         scheduler = AsyncIOScheduler(timezone=settings.tz)
         scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
                           coalesce=True, max_instances=1)
+        scheduler.add_job(run_session_sweep, "interval", minutes=5, id="session_sweep",
+                          coalesce=True, max_instances=1)
+        # v5.4 후속 (문서 A-7 #6): api_logs 무제한 성장 방지 — 일 1회(정오) 30일 이상 삭제
+        scheduler.add_job(run_api_logs_sweep, "cron", hour=12, minute=0, id="api_logs_sweep",
+                          coalesce=True, max_instances=1)
         scheduler.start()
         print("Grant sweep scheduler started (interval 10m)")
+        print("Session sweep scheduler started (interval 5m)")
+        print("API logs sweep scheduler started (cron 12:00 daily, retention 30d)")
     except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
-        print(f"[WARN] grant sweep scheduler not started: {e}")
+        print(f"[WARN] sweep schedulers not started: {e}")
 
     yield
 
@@ -668,14 +678,44 @@ async def root():
 
 # Health check endpoint
 @app.get("/health", tags=["Health"])
-async def health_check():
+async def health_check(response: Response):
     """
-    Health check endpoint for monitoring
+    Health check endpoint — v5.4 후속: silent failure 감지 강화.
+
+    - DB `SELECT 1` 실행 → 커넥션 풀이 살아있는지 실제 검사
+    - 실패 시 **503** 반환 → Docker healthcheck가 unhealthy 감지 가능
+    - 이전 정적 응답은 이벤트루프 정지·풀 데드락을 못 잡아냄(문서 A-7 #5)
+
+    Note: async def이지만 DB 검사는 asyncio.to_thread로 threadpool 이관 →
+    이벤트루프 정지 상황에서는 timeout으로 걸린다(threadpool도 정지된 경우).
     """
-    return {
-        "status": "healthy",
-        "auth_mode": settings.AUTH_MODE
-    }
+    import asyncio
+    from sqlalchemy import text as _text
+    from app.database import SessionLocal as _SessionLocal
+
+    def _probe_db() -> None:
+        db = _SessionLocal()
+        try:
+            db.execute(_text("SELECT 1")).scalar()
+        finally:
+            db.close()
+
+    try:
+        # 짧은 timeout (2초). 초과하면 db 문제로 간주.
+        await asyncio.wait_for(asyncio.to_thread(_probe_db), timeout=2.0)
+        return {
+            "status": "healthy",
+            "auth_mode": settings.AUTH_MODE,
+            "db": "ok",
+        }
+    except Exception as e:
+        response.status_code = 503
+        return {
+            "status": "unhealthy",
+            "auth_mode": settings.AUTH_MODE,
+            "db": "error",
+            "detail": str(e)[:200],
+        }
 
 
 # ==============================================================================

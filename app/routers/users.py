@@ -515,26 +515,32 @@ async def update_user(
         "is_active": user.is_active
     }
 
-    # Update fields if provided
-    if user_data.name is not None:
+    # v5.4 클라 지적 P0-B: 요청 body에 포함된 필드는 값이 null 이어도 반영(해제 지원).
+    # `is not None` → `field in model_fields_set` 로 변경 → 명시적 null 처리 활성.
+    # 특히 group_id=null: 구성원 그룹 해제 (기존 is_not_none 필터로 no-op였음).
+    provided = user_data.model_fields_set
+    if "name" in provided:
         user.name = user_data.name
-    if user_data.email is not None:
+    if "email" in provided:
         user.email = user_data.email
-    if user_data.department is not None:
+    if "department" in provided:
         user.department = user_data.department
-    if user_data.position is not None:
+    if "position" in provided:
         user.position = user_data.position
-    if user_data.employee_number is not None:
+    if "employee_number" in provided:
         user.employee_number = user_data.employee_number
-    if user_data.photo_url is not None:
+    if "photo_url" in provided:
         user.photo_url = user_data.photo_url
-    if user_data.phone is not None:
+    if "phone" in provided:
         user.phone = user_data.phone
-    if user_data.role is not None:
+    if "role" in provided and user_data.role is not None:
+        # role은 null 허용 안 함 (EnumUserRole 강제 — v5.4 P0-2)
         user.role = user_data.role
-    if user_data.group_id is not None:
+    if "group_id" in provided:
+        # v5.4 P0-B: null 허용 → 그룹 해제
         user.group_id = user_data.group_id
-    if user_data.is_active is not None:
+    if "is_active" in provided and user_data.is_active is not None:
+        # is_active는 null 허용 안 함 (Boolean 강제)
         user.is_active = user_data.is_active
 
     db.commit()

@@ -7,6 +7,7 @@ PRD: PRD_Report_Master_Redesign
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections import defaultdict
@@ -223,3 +224,11 @@ def render_report_html(data: dict, mode: str = "full") -> str:
             f'<script>{chartjs}</script><script>{jslib}'
             f'window.addEventListener("load",function(){{{"".join(charts_js)}window.__READY__=true;}});'
             f'</script></body></html>')
+
+
+async def render_report_html_async(data: dict, mode: str = "full") -> str:
+    """CPU-bound Jinja/문자열 렌더링을 asyncio.to_thread로 오프로드해 이벤트루프 블로킹 방지.
+
+    async 라우터/서비스에서 호출 시 사용. 기존 sync render_report_html 시그니처/동작 완전 유지.
+    """
+    return await asyncio.to_thread(render_report_html, data, mode)

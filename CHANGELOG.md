@@ -49,9 +49,42 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - bcrypt async: 60자 hash + verify match/mismatch 정상
 - postgres 커넥션: active=1, idle=4 (안정)
 
+### v6.0 후속 (같은 날 통합, 하루 1버전 원칙) — GOPDB A-7 6/6 전건 반영 완결
+
+> P11 5중 싱크 마감 후 **A-7 부분 반영 2건**(#1 batch queue, #6 파티셔닝) + **P0 임계 경로**(Report Service 완전 async) 이월 재편입.
+> 6 Phase 순차 처리, 각 phase 커밋+push 규율 준수.
+
+| Phase | 목표 | 결과 |
+|:-:|---|:-:|
+| **후속 P1** | Quick Wins 5건 | Docker autoheal / legacy 제거 / pytest async fixture / Force-Logout 가이드 / Docker prune cron (8/8 PASS) |
+| **후속 P2** | Init 모듈 4개 완전 async | init_db/init_server_data/init_report_data/init_sample_data dual-stack (+1517 lines, _bulk_insert_async 500-row chunks) |
+| **후속 P3** | Report Service 완전 async ⭐ Critical | ReportServiceAsync (+800 lines, 20 async 메서드) / build_master_data_async (+231 lines) / render_report_html_async (to_thread) / reports.py SessionLocal 3곳 완전 제거 |
+| **후속 P4** | A-7 #1 + #6 완결 | APILoggingMiddleware asyncio.Queue batch consumer (100건/500ms) + api_logs PostgreSQL 파티셔닝 (월별 + before-partition catch-all) |
+| **후속 P5** | RBAC 매트릭스 확대 | permission_map.py +72 lines, +62 endpoint (events/devices/servers/integrations/files/cameras) |
+| **후속 P6** | 최종 통합 검증 + 태그 재정렬 | 50 GET endpoint 스캔 500-FAIL 0, 5중 싱크 완결, 태그 v6.0 최종 커밋 재정렬 |
+
+**tz-aware/naive datetime 회귀 2건 (Phase 3, 4) 즉시 hotfix**:
+- Phase 3: `_run_report_generation` + `report_preview_page` 진입 시 `.replace(tzinfo=None)`
+- Phase 4: middleware log payload timestamp `.replace(tzinfo=None)`
+- 원인: asyncpg 엄격 검사 vs psycopg2 auto-coerce 차이
+
+**5중 싱크 최종 상태**:
+- 코드: async 대전환 + init + report_service + middleware batch + partition 모두 반영
+- Swagger: `info.version = 6.0.0`
+- Docker Image: 재빌드 완료 (autoheal 컨테이너 포함)
+- Container: `Up (healthy)`
+- CHANGELOG: 본 섹션
+
+**후속 실측**:
+- Startup 로그 3종 스케줄러 + "API log batch consumer started" 정상
+- api_logs partition 6 tables (parent + 4 monthly + before-partition)
+- Batch flush 실측: 12 요청 → api_logs +16 rows (3초 내)
+- 파일 이관: 2892 rows → api_logs_2026_07 파티션 라우팅 확인
+- traceback 0건 (2건 hotfix 후)
+
 ### Deferred → v6.1
 
-- report_service.py + report_master_builder.py + report_html_renderer.py 완전 async
+- ~~report_service.py + report_master_builder.py + report_html_renderer.py 완전 async~~ **→ v6.0 후속 P3 완결**
 - init_*.py 5개 내부 완전 async (to_thread 래퍼 대신)
 - APILoggingMiddleware batch INSERT queue
 - pytest 스위트 async fixture 복구

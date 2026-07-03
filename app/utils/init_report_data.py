@@ -9,6 +9,8 @@ Based on PRD_Report_System.md Section 3.1
 4. 보안 감사 보고서 - 시스템/사용자 보안 감사
 5. 월간 종합 보고서 - 전체 컴포넌트 포함
 """
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.models.report import ReportTemplate
@@ -140,4 +142,43 @@ def initialize_report_data(db: Session):
     """
     print("Initializing report data...")
     create_sample_report_templates(db)
+    print("[OK] Report data initialization complete")
+
+
+# ============================================================
+# Async variants (v6.0 P8 dual-stack)
+# ============================================================
+
+async def create_sample_report_templates_async(db: AsyncSession) -> None:
+    """
+    Create sample report templates if none exist (async variant).
+
+    Args:
+        db: Async database session
+    """
+    result = await db.execute(select(func.count()).select_from(ReportTemplate))
+    existing_count = result.scalar() or 0
+    if existing_count > 0:
+        print(f"[OK] Report templates already exist: {existing_count}")
+        return
+
+    created_count = 0
+    for tmpl_data in SAMPLE_REPORT_TEMPLATES:
+        template = ReportTemplate(**tmpl_data)
+        db.add(template)
+        created_count += 1
+
+    await db.commit()
+    print(f"[OK] Sample report templates created: {created_count}")
+
+
+async def initialize_report_data_async(db: AsyncSession) -> None:
+    """
+    Initialize report system data (async variant).
+
+    Args:
+        db: Async database session
+    """
+    print("Initializing report data...")
+    await create_sample_report_templates_async(db)
     print("[OK] Report data initialization complete")

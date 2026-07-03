@@ -33,6 +33,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    labels:
+      # A-7 #5: autoheal 대상 표시 (AUTOHEAL_CONTAINER_LABEL을 'autoheal'로 좁힐 때 사용)
+      - "autoheal=true"
     ports:
       - "8000:8000"
     volumes:
@@ -105,6 +108,23 @@ services:
     networks:
       - default
       - nats_external
+    logging: *default-logging
+
+  autoheal:
+    # A-7 #5 Quick Win: healthcheck unhealthy 감지 시 컨테이너 자동 재기동
+    # AUTOHEAL_CONTAINER_LABEL=all → healthcheck 정의된 모든 컨테이너 감시
+    # (특정 라벨만 대상으로 좁히려면 값을 'autoheal'로 바꾸면 됨 — api-server에 label 부여 완료)
+    image: willfarrell/autoheal:latest
+    container_name: api-test-autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=all
+      - AUTOHEAL_INTERVAL=30
+      - AUTOHEAL_START_PERIOD=60
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=15
+      - TZ=Asia/Seoul
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     logging: *default-logging
 
   db-admin:

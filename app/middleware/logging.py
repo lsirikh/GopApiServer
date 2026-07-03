@@ -5,35 +5,65 @@ Logs all API requests to database with Client UUID and Request ID tracking
 v5.4 후속 — 문서 A-7 #1 대응:
 - 이전: async dispatch 안에서 동기 SessionLocal() + INSERT + commit → 이벤트루프 블로킹.
   풀 30 커넥션이 idle-in-transaction으로 굳으면 /health까지 정지 (문서 A-2 ②③).
-- 지금: 실 INSERT는 `asyncio.to_thread(...)`로 threadpool 이관 → 이벤트루프 자유.
+- v5.4: 실 INSERT는 `asyncio.to_thread(...)`로 threadpool 이관 → 이벤트루프 자유.
   fire-and-forget 태스크로 발행하여 응답 지연도 최소화.
 
 v6.0 P2 정합성 결정 (2026-07-03):
-- 위 to_thread + fire-and-forget 패턴을 v6.0에서도 **그대로 유지**한다.
-- 근거:
-  1) 이미 v5.4에서 실측 검증됨 (api_logs 정상 기록, 이벤트루프 자유).
-  2) AsyncSession + async batch INSERT queue 이관은 리스크 격리 목적으로 v6.1 로드맵.
-     본 미들웨어는 async 전환의 크리티컬 경로가 아님 (라우터 인증/RBAC와 무관).
-  3) sync SessionLocal 커넥션 풀은 async engine 풀과 분리(Dual-stack) → 상호 영향 없음.
-- 향후 v6.1 이관 훅: `_persist_api_log_sync` 를 `_persist_api_log_async` 로 대체하고
-  create_task 자리에 asyncio.Queue-backed consumer 를 두는 방식. 지금은 스텁 없이 유지.
+- 위 to_thread + fire-and-forget 패턴을 v6.0에서도 그대로 유지한다.
+
+v6.0 Phase 4 (2026-07-03) — 문서 A-7 #1 후속:
+- to_thread + 요청당 태스크 → **asyncio.Queue 단일 producer/consumer 배치** 로 전환.
+- 이유:
+  1) 요청당 threadpool worker + sync SessionLocal 획득은 QPS 폭주 시
+     스레드풀·커넥션 풀 동시 압박 (문서 A-2 ②③ 재발 위험).
+  2) 배치 INSERT (100건 or 500ms) → COMMIT 횟수·wal 부하 대폭 감소.
+  3) AsyncSession + `insert(ApiLog).values([...])` executemany → async 스택 일원화.
+- 계약 보존:
+  * 응답 지연 0 원칙 — enqueue 는 put_nowait, 큐 full 시 drop-and-log 로 요청 방해 금지.
+  * `_persist_api_log_sync` **완전 유지** (테스트/폴백 caller 존재).
+  * ApiLog 컬럼(resource/method/client_uuid/request_id/description/status_code/body/param/error_message/timestamp) 그대로.
+- 라이프사이클:
+  * `start_log_consumer()` — FastAPI startup 훅에서 호출 (main.py).
+  * `stop_log_consumer()` — shutdown 훅에서 호출, 큐 drain 후 종료.
 """
+from __future__ import annotations
+
 import asyncio
+import json
+from datetime import datetime
+from typing import Any, Optional
+
+from sqlalchemy import insert
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
-from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.database import AsyncSessionLocal, SessionLocal
 from app.models.log import ApiLog
-from app.database import SessionLocal
-import time
-import json
+
+
+# ─── 모듈 스코프 큐 / consumer 태스크 ────────────────────────────
+_LOG_QUEUE_MAXSIZE = 10000
+_BATCH_SIZE = 100
+_BATCH_TIMEOUT = 0.5  # seconds — 첫 아이템 수신 후 최대 대기 시간
+
+_log_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_LOG_QUEUE_MAXSIZE)
+_consumer_task: Optional[asyncio.Task[None]] = None
+
+# 큐 full 상황 관측용 카운터 (프로세스 재시작 시 리셋). 진단/모니터링 용도.
+_dropped_count: int = 0
 
 
 def _persist_api_log_sync(
     *, resource, method, client_uuid, request_id,
     description, status_code, body, param, error_message,
 ) -> None:
-    """threadpool에서 실행될 동기 INSERT — 이벤트루프 자유 유지."""
+    """threadpool 에서 실행될 동기 INSERT — 이벤트루프 자유 유지.
+
+    v6.0 Phase 4 이후에는 미들웨어 정상 경로에서 호출되지 않으나,
+    테스트/폴백/외부 caller 를 위해 완전 유지한다.
+    """
     db: Session = SessionLocal()
     try:
         log_entry = ApiLog(
@@ -57,6 +87,123 @@ def _persist_api_log_sync(
         print(f"Logging error: {e}")
     finally:
         db.close()
+
+
+async def _enqueue_log(payload: dict[str, Any]) -> None:
+    """
+    미들웨어 dispatch 에서 호출하는 enqueue 훅.
+    - 큐 full 시 drop-and-log 로 처리 → 요청 응답 방해 금지 (계약 유지).
+    - put_nowait 라 코루틴 실행 시간은 O(1).
+    """
+    global _dropped_count
+    try:
+        _log_queue.put_nowait(payload)
+    except asyncio.QueueFull:
+        _dropped_count += 1
+        # 과도한 로그 방지: 128건 단위로만 경고 출력
+        if _dropped_count % 128 == 1:
+            print(
+                f"[log_consumer] queue full — drop-and-log "
+                f"(total dropped={_dropped_count}, qsize={_log_queue.qsize()})"
+            )
+
+
+async def _flush_batch(batch: list[dict[str, Any]]) -> None:
+    """배치를 AsyncSession 기반 executemany INSERT 로 저장."""
+    if not batch:
+        return
+    async with AsyncSessionLocal() as db:
+        try:
+            await db.execute(insert(ApiLog), batch)
+            await db.commit()
+        except Exception as e:
+            print(f"[log_consumer] batch INSERT failed ({len(batch)} rows): {e}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+
+async def _log_consumer() -> None:
+    """
+    단일 consumer 코루틴 — 배치 flush.
+    - 첫 아이템은 blocking get (이벤트루프 슬립).
+    - 첫 아이템 수신 후 최대 _BATCH_TIMEOUT 동안 _BATCH_SIZE-1 개까지 추가 수집.
+    - 셧다운 시 CancelledError 를 잡아 남은 큐 drain 후 종료.
+    """
+    loop = asyncio.get_event_loop()
+
+    while True:
+        batch: list[dict[str, Any]] = []
+        try:
+            # 첫 아이템 대기 — 큐 비어있으면 코루틴 sleep, CPU/DB 부하 0.
+            first = await _log_queue.get()
+            batch.append(first)
+
+            # 배치 창(window): 첫 아이템 수신 시각 기준으로 _BATCH_TIMEOUT 안에
+            # _BATCH_SIZE-1 개까지 추가 수집. 이 창이 지나면 즉시 flush → 지연 상한 보장.
+            deadline = loop.time() + _BATCH_TIMEOUT
+            while len(batch) < _BATCH_SIZE:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                try:
+                    item = await asyncio.wait_for(_log_queue.get(), timeout=remaining)
+                    batch.append(item)
+                except asyncio.TimeoutError:
+                    break
+
+            await _flush_batch(batch)
+
+        except asyncio.CancelledError:
+            # graceful shutdown: 남은 큐 drain 후 재-raise.
+            drain_size = _log_queue.qsize()
+            print(f"[log_consumer] shutdown — draining {drain_size} queued items (batch={len(batch)})")
+            while not _log_queue.empty():
+                try:
+                    batch.append(_log_queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            try:
+                await _flush_batch(batch)
+            except Exception as e:
+                print(f"[log_consumer] shutdown drain flush failed: {e}")
+            raise
+
+        except Exception as e:
+            # 알 수 없는 예외 — 다음 루프에서 재시도. 1초 백오프.
+            print(f"[log_consumer] error: {e}")
+            await asyncio.sleep(1)
+
+
+async def start_log_consumer() -> None:
+    """
+    FastAPI startup 훅에서 호출.
+    - 이미 실행 중이면 무시(idempotent).
+    """
+    global _consumer_task
+    if _consumer_task is not None and not _consumer_task.done():
+        return
+    _consumer_task = asyncio.create_task(_log_consumer(), name="api_log_consumer")
+
+
+async def stop_log_consumer() -> None:
+    """
+    FastAPI shutdown 훅에서 호출.
+    - consumer 태스크 cancel → drain → 종료 대기.
+    """
+    global _consumer_task
+    if _consumer_task is None:
+        return
+    _consumer_task.cancel()
+    try:
+        await _consumer_task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[log_consumer] stop error: {e}")
+    finally:
+        _consumer_task = None
 
 
 class APILoggingMiddleware(BaseHTTPMiddleware):
@@ -170,24 +317,26 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
         if path in ("/docs", "/redoc", "/openapi.json", "/health", "/", "/favicon.ico"):
             return response
 
-        # v5.4 후속 (A-7 #1): 이벤트루프 블로킹 해소 — sync INSERT를 threadpool로 이관.
-        # fire-and-forget: 태스크 예약 후 즉시 return → 응답 지연 0, 실패해도 요청 흐름 무영향.
+        # v6.0 Phase 4 (A-7 #1): asyncio.Queue → 배치 consumer 로 이관.
+        # - 응답 지연 0 원칙 유지: put_nowait 만 수행, 큐 full 시 drop-and-log.
+        # - 타임스탬프는 요청 완료 시점에서 캡처 → 배치 flush 지연 무관하게 정확도 보존.
         try:
-            asyncio.create_task(
-                asyncio.to_thread(
-                    _persist_api_log_sync,
-                    resource=resource,
-                    method=request.method,
-                    client_uuid=client_uuid,
-                    request_id=request_id,
-                    description=description,
-                    status_code=response.status_code,
-                    body=body,
-                    param=query_params,
-                    error_message=error_message,
-                )
-            )
+            payload: dict[str, Any] = {
+                "resource": resource,
+                "method": request.method,
+                "client_uuid": client_uuid,
+                "request_id": request_id,
+                "description": description,
+                "status_code": response.status_code,
+                "body": body,
+                "param": query_params,
+                "error_message": error_message,
+                # v6.0 Phase 4 hotfix: api_logs.timestamp = TIMESTAMP WITHOUT TIME ZONE.
+                # asyncpg는 tz-aware/naive 혼용 거부 → naive KST로 정합 (기존 ORM 컨벤션 일치).
+                "timestamp": datetime.now(settings.tz).replace(tzinfo=None),
+            }
+            await _enqueue_log(payload)
         except Exception as e:
-            print(f"Log task schedule error: {e}")
+            print(f"Log enqueue error: {e}")
 
         return response

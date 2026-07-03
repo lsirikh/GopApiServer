@@ -1,7 +1,15 @@
 """
 API Logging Middleware
 Logs all API requests to database with Client UUID and Request ID tracking
+
+v5.4 후속 — 문서 A-7 #1 대응:
+- 이전: async dispatch 안에서 동기 SessionLocal() + INSERT + commit → 이벤트루프 블로킹.
+  풀 30 커넥션이 idle-in-transaction으로 굳으면 /health까지 정지 (문서 A-2 ②③).
+- 지금: 실 INSERT는 `asyncio.to_thread(...)`로 threadpool 이관 → 이벤트루프 자유.
+  fire-and-forget 태스크로 발행하여 응답 지연도 최소화.
+- 완전한 배치 큐+배치 INSERT는 v6.0 async 전환과 함께 도입 예정.
 """
+import asyncio
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -10,6 +18,36 @@ from app.models.log import ApiLog
 from app.database import SessionLocal
 import time
 import json
+
+
+def _persist_api_log_sync(
+    *, resource, method, client_uuid, request_id,
+    description, status_code, body, param, error_message,
+) -> None:
+    """threadpool에서 실행될 동기 INSERT — 이벤트루프 자유 유지."""
+    db: Session = SessionLocal()
+    try:
+        log_entry = ApiLog(
+            resource=resource,
+            method=method,
+            client_uuid=client_uuid,
+            request_id=request_id,
+            description=description,
+            status_code=status_code,
+            body=body,
+            param=param,
+            error_message=error_message,
+        )
+        db.add(log_entry)
+        db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"Logging error: {e}")
+    finally:
+        db.close()
 
 
 class APILoggingMiddleware(BaseHTTPMiddleware):
@@ -123,27 +161,24 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
         if path in ("/docs", "/redoc", "/openapi.json", "/health", "/", "/favicon.ico"):
             return response
 
-        # Log to database
-        db: Session = SessionLocal()
+        # v5.4 후속 (A-7 #1): 이벤트루프 블로킹 해소 — sync INSERT를 threadpool로 이관.
+        # fire-and-forget: 태스크 예약 후 즉시 return → 응답 지연 0, 실패해도 요청 흐름 무영향.
         try:
-            log_entry = ApiLog(
-                resource=resource,
-                method=request.method,
-                client_uuid=client_uuid,
-                request_id=request_id,
-                description=description,
-                status_code=response.status_code,
-                body=body,
-                param=query_params,
-                error_message=error_message
+            asyncio.create_task(
+                asyncio.to_thread(
+                    _persist_api_log_sync,
+                    resource=resource,
+                    method=request.method,
+                    client_uuid=client_uuid,
+                    request_id=request_id,
+                    description=description,
+                    status_code=response.status_code,
+                    body=body,
+                    param=query_params,
+                    error_message=error_message,
+                )
             )
-            db.add(log_entry)
-            db.commit()
         except Exception as e:
-            db.rollback()
-            # Don't let logging errors break the request
-            print(f"Logging error: {e}")
-        finally:
-            db.close()
+            print(f"Log task schedule error: {e}")
 
         return response

@@ -67,6 +67,35 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - audit append-only DB RULE/RLS
 - require_perm 세분화 (control 등)
 
+### v5.4 후속 — 클라 지적 계정 항목 4건 (같은 날, 하루 1버전 통합)
+
+**클라 지적**: v5.4 태그 직후 클라팀이 계정 항목 미완 4건 지적 → 즉시 후속 반영.
+
+- **P0-B** `PUT /api/users/{id}` group_id=null 해제 지원 — `is not None` 체크 제거, `model_fields_set` 기반 필드 판정.
+  요청 body에 `{"group_id": null}` 명시 시 group_id 실제로 null로 갱신됨(구성원 해제).
+- **P1-A** UserSession sweep 스케줄러 신설 — `app/services/session_sweep_service.py`. 5분 간격으로 `expires_at < now AND is_active=true` 세션에 `is_active=false + logout_reason=EXPIRED` 마킹. `app/main.py` startup에 `session_sweep` job 등록.
+- **P1-B** SUPERSEDED 핸들러 — `POST /api/auth/login`에서 동일 계정 활성 세션들 자동 evict:
+  1. `is_active=false + logout_reason=DUPLICATE + logged_out_at`
+  2. 각 세션 access token jti → `token_blacklist` 등재 (reason=DUPLICATE)
+  3. `publish_session_revoke()` NATS 발행 (best-effort, 게이트 off 시 무동작)
+  결과: 이전 로그인의 토큰 즉시 401 (블랙리스트 hit).
+- **P0-A** `GET /api/audit-logs?action_status=…` 500 재확인 — v5.4 AUTH_MODE=token 전환 후 200 정상 응답(실측 SUCCESS/FAILURE 필터 모두 통과). 클라 콘솔 500은 AUTH_MODE 이전 상태에서 발생한 것으로 판단.
+
+**실측 검증 (SUPERSEDED)**:
+```
+로그인1 → TOKEN_A → /api/users = 200
+로그인2 → TOKEN_B → /api/users = 200 (fresh)
+                → TOKEN_A → /api/users = 401 (blacklist hit)
+DB user_sessions: 이전 활성 세션 is_active=f logout_reason=DUPLICATE
+```
+
+**실측 검증 (group_id=null 해제)**:
+```
+BEFORE  probe user group_id=1
+PUT {"group_id": null} → 200
+AFTER   probe user group_id=NULL (해제 확인)
+```
+
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.

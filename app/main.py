@@ -233,18 +233,23 @@ async def lifespan(app: FastAPI):
 
     # 경량 sweep 스케줄러 (FR-04, PRD_Permission_Group_Scheduling) — 만료 grant is_active=false.
     # ★ 보안 비의존(요청시점 계산이 권위). APScheduler 미설치/시작실패가 앱 기동을 막지 않도록 방어적.
+    # v5.4 P1-A: session sweep 추가 (만료된 활성 user_sessions 정리).
     scheduler = None
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from app.services.grant_service import run_grant_sweep
+        from app.services.session_sweep_service import run_session_sweep
 
         scheduler = AsyncIOScheduler(timezone=settings.tz)
         scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
                           coalesce=True, max_instances=1)
+        scheduler.add_job(run_session_sweep, "interval", minutes=5, id="session_sweep",
+                          coalesce=True, max_instances=1)
         scheduler.start()
         print("Grant sweep scheduler started (interval 10m)")
+        print("Session sweep scheduler started (interval 5m)")
     except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
-        print(f"[WARN] grant sweep scheduler not started: {e}")
+        print(f"[WARN] sweep schedulers not started: {e}")
 
     yield
 

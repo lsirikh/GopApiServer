@@ -57,10 +57,83 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("PATCH", "/api/devices/sensors/{}"): ("devices", "edit"),
     ("PUT", "/api/devices/sensors/{}"): ("devices", "edit"),
     ("DELETE", "/api/devices/sensors/{}"): ("devices", "delete"),
+    # 이벤트 — connections (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/events/connections"): ("events", "edit"),
+    ("PATCH", "/api/events/connections/{}"): ("events", "edit"),
+    ("PUT", "/api/events/connections/{}"): ("events", "edit"),
+    ("DELETE", "/api/events/connections/{}"): ("events", "delete"),
+    # 장비 — speakers (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/devices/speakers"): ("devices", "edit"),
+    ("PATCH", "/api/devices/speakers/{}"): ("devices", "edit"),
+    ("PUT", "/api/devices/speakers/{}"): ("devices", "edit"),
+    ("DELETE", "/api/devices/speakers/{}"): ("devices", "delete"),
+    # 장비 — enclosures (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/devices/enclosures"): ("devices", "edit"),
+    ("PATCH", "/api/devices/enclosures/{}"): ("devices", "edit"),
+    ("PUT", "/api/devices/enclosures/{}"): ("devices", "edit"),
+    ("DELETE", "/api/devices/enclosures/{}"): ("devices", "delete"),
+    ("PATCH", "/api/devices/enclosures/{}/status"): ("devices", "edit"),
+    ("POST", "/api/devices/enclosures/{}/control"): ("devices", "edit"),
+    # 장비 — lamps (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/devices/lamps"): ("devices", "edit"),
+    ("PATCH", "/api/devices/lamps/{}"): ("devices", "edit"),
+    ("PUT", "/api/devices/lamps/{}"): ("devices", "edit"),
+    ("DELETE", "/api/devices/lamps/{}"): ("devices", "delete"),
+    # 장비 — device_groups (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/devices/groups"): ("devices", "edit"),
+    ("PATCH", "/api/devices/groups/{}"): ("devices", "edit"),
+    ("PUT", "/api/devices/groups/{}"): ("devices", "edit"),
+    ("DELETE", "/api/devices/groups/{}"): ("devices", "delete"),
+    # 함체 metrics (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/enclosure-metrics"): ("devices", "edit"),
+    ("DELETE", "/api/enclosure-metrics/{}"): ("devices", "delete"),
     # 서버
     ("POST", "/api/servers"): ("servers", "edit"),
+    ("PATCH", "/api/servers/{}"): ("servers", "edit"),  # v6.0 후속: PATCH 추가 (기존 PUT만)
     ("PUT", "/api/servers/{}"): ("servers", "edit"),
     ("DELETE", "/api/servers/{}"): ("servers", "delete"),
+    # 서버 카테고리 (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/servers/categories"): ("servers", "edit"),
+    ("PATCH", "/api/servers/categories/{}"): ("servers", "edit"),
+    ("PUT", "/api/servers/categories/{}"): ("servers", "edit"),
+    ("DELETE", "/api/servers/categories/{}"): ("servers", "delete"),
+    # 서버 metrics (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/servers/{}/metrics"): ("servers", "edit"),
+    # 서버 proxy_settings (v6.0 후속 Phase 5 확대)
+    ("PATCH", "/api/servers/{}/proxy-settings"): ("servers", "edit"),
+    ("PUT", "/api/servers/{}/proxy-settings"): ("servers", "edit"),
+    # 시스템 이벤트 (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/system-events"): ("events", "edit"),
+    ("PATCH", "/api/system-events/{}/acknowledge"): ("events", "edit"),
+    ("DELETE", "/api/system-events/{}"): ("events", "delete"),
+    # Integrations — event mappings (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/integrations/event-mappings"): ("integrations", "edit"),
+    ("PATCH", "/api/integrations/event-mappings/{}"): ("integrations", "edit"),
+    ("PUT", "/api/integrations/event-mappings/{}"): ("integrations", "edit"),
+    ("DELETE", "/api/integrations/event-mappings/{}"): ("integrations", "delete"),
+    # Integrations — bulk mapping cameras/lamps/speakers (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/integrations/event-mappings/{}/cameras"): ("integrations", "edit"),
+    ("DELETE", "/api/integrations/event-mappings/{}/cameras"): ("integrations", "delete"),
+    ("POST", "/api/integrations/event-mappings/{}/lamps"): ("integrations", "edit"),
+    ("DELETE", "/api/integrations/event-mappings/{}/lamps"): ("integrations", "delete"),
+    ("POST", "/api/integrations/event-mappings/{}/speakers"): ("integrations", "edit"),
+    ("DELETE", "/api/integrations/event-mappings/{}/speakers"): ("integrations", "delete"),
+    # File groups (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/file-groups"): ("files", "edit"),
+    ("PATCH", "/api/file-groups/{}"): ("files", "edit"),
+    ("PUT", "/api/file-groups/{}"): ("files", "edit"),
+    ("DELETE", "/api/file-groups/{}"): ("files", "delete"),
+    # Thumbnails (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/thumbnails"): ("files", "edit"),
+    ("DELETE", "/api/thumbnails/{}"): ("files", "delete"),
+    # Camera settings / presets / ROIs / xypoints (v6.0 후속 Phase 5 확대)
+    ("POST", "/api/devices/cameras/{}/settings"): ("cameras", "edit"),
+    ("PATCH", "/api/devices/cameras/{}/settings"): ("cameras", "edit"),
+    ("PUT", "/api/devices/cameras/{}/settings"): ("cameras", "edit"),
+    ("POST", "/api/devices/cameras/{}/presets"): ("cameras", "edit"),
+    ("PATCH", "/api/devices/cameras/{}/presets/{}"): ("cameras", "edit"),
+    ("PUT", "/api/devices/cameras/{}/presets/{}"): ("cameras", "edit"),
+    ("DELETE", "/api/devices/cameras/{}/presets/{}"): ("cameras", "delete"),
     # 보고서 — v5.4 P2-2 (클라 REQ #2 서버측 verb RBAC 집행)
     ("POST", "/api/reports/generate"): ("reports", "edit"),
     ("POST", "/api/reports/templates"): ("reports", "edit"),

@@ -213,18 +213,25 @@ tags_metadata = [
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan events
+    Application lifespan events.
+
+    v6.0 P9: sync `initialize_database()` + `apply_triggers()` 는 startup 1회 실행이라
+    이벤트루프 블로킹 무해하나, 대량 시드(28k+ 이벤트)가 옵션이 될 수 있어
+    `asyncio.to_thread` 로 감싸 uvicorn worker health check timeout 리스크 회피.
     """
+    import asyncio as _asyncio
+
     # Startup
     print("=" * 60)
     print("GOP API Server Starting...")
     print("=" * 60)
 
-    # Initialize database
-    initialize_database()
+    # Initialize database (sync 유지 — v6.1 batch queue와 함께 별도 리팩터)
+    # to_thread 로 감싸 이벤트루프 자유 (INIT_SAMPLE_DATA=true 시 벌크 삽입 안전)
+    await _asyncio.to_thread(initialize_database)
 
     # Apply PostgreSQL pg_notify triggers (skips if SQLite)
-    apply_triggers(engine)
+    await _asyncio.to_thread(apply_triggers, engine)
 
     print(f"Server running on http://{settings.HOST}:{settings.PORT}")
     print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")

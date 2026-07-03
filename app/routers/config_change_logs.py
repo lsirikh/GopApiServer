@@ -17,12 +17,13 @@ JSONB 정규화 규칙 (v1.1):
 Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.config_change_log import ConfigChangeLog
 from app.schemas.config_change_log import ConfigChangeLogResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -67,7 +68,7 @@ async def get_config_change_logs(
     actor_id: Optional[int] = Query(None, description="액터 ID 필터"),
     start_date: Optional[datetime] = Query(None, description="시작 일시"),
     end_date: Optional[datetime] = Query(None, description="종료 일시"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     설정 변경 로그 목록 조회
@@ -134,43 +135,50 @@ async def get_config_change_logs(
 
     PRD Reference: PRD_ConfigChangeLog.md v1.2
     """
-    query = db.query(ConfigChangeLog)
+    stmt = select(ConfigChangeLog)
+    count_stmt = select(func.count()).select_from(ConfigChangeLog)
 
     # 필터 적용
     if resource_type:
         try:
             type_enum = EnumConfigResourceType(resource_type)
-            query = query.filter(ConfigChangeLog.resource_type == type_enum)
+            stmt = stmt.where(ConfigChangeLog.resource_type == type_enum)
+            count_stmt = count_stmt.where(ConfigChangeLog.resource_type == type_enum)
         except ValueError:
             pass  # 유효하지 않은 값은 무시
 
     if resource_id is not None:
-        query = query.filter(ConfigChangeLog.resource_id == resource_id)
+        stmt = stmt.where(ConfigChangeLog.resource_id == resource_id)
+        count_stmt = count_stmt.where(ConfigChangeLog.resource_id == resource_id)
 
     if action:
         try:
             action_enum = EnumConfigActionType(action)
-            query = query.filter(ConfigChangeLog.action == action_enum)
+            stmt = stmt.where(ConfigChangeLog.action == action_enum)
+            count_stmt = count_stmt.where(ConfigChangeLog.action == action_enum)
         except ValueError:
             pass
 
     if actor_id is not None:
-        query = query.filter(ConfigChangeLog.actor_id == actor_id)
+        stmt = stmt.where(ConfigChangeLog.actor_id == actor_id)
+        count_stmt = count_stmt.where(ConfigChangeLog.actor_id == actor_id)
 
     if start_date:
-        query = query.filter(ConfigChangeLog.created_at >= start_date)
+        stmt = stmt.where(ConfigChangeLog.created_at >= start_date)
+        count_stmt = count_stmt.where(ConfigChangeLog.created_at >= start_date)
 
     if end_date:
-        query = query.filter(ConfigChangeLog.created_at <= end_date)
+        stmt = stmt.where(ConfigChangeLog.created_at <= end_date)
+        count_stmt = count_stmt.where(ConfigChangeLog.created_at <= end_date)
 
     # 전체 카운트
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # 정렬 및 페이지네이션
-    query = query.order_by(ConfigChangeLog.created_at.desc(), ConfigChangeLog.id.desc())
+    stmt = stmt.order_by(ConfigChangeLog.created_at.desc(), ConfigChangeLog.id.desc())
     skip = (page - 1) * limit
-    logs = query.offset(skip).limit(limit).all()
+    logs = (await db.execute(stmt.offset(skip).limit(limit))).scalars().all()
 
     pagination = PaginationMeta(
         page=page,
@@ -188,7 +196,7 @@ async def get_config_change_logs(
 
 
 @router.get("/{log_id}", response_model=ApiSingleResponse[ConfigChangeLogResponse])
-async def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
+async def get_config_change_log(log_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     설정 변경 로그 단건 조회
 
@@ -219,7 +227,7 @@ async def get_config_change_log(log_id: int, db: Session = Depends(get_db)):
 
     PRD Reference: PRD_ConfigChangeLog.md v1.2
     """
-    log = db.query(ConfigChangeLog).filter(ConfigChangeLog.id == log_id).first()
+    log = (await db.execute(select(ConfigChangeLog).where(ConfigChangeLog.id == log_id))).scalars().first()
     if not log:
         raise HTTPException(status_code=404, detail=f"ConfigChangeLog with id {log_id} not found")
 

@@ -264,6 +264,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
         print(f"[WARN] sweep schedulers not started: {e}")
 
+    # v6.0 Phase 4 (A-7 #1) — API log 배치 consumer 기동.
+    # 미들웨어(APILoggingMiddleware) 는 요청마다 asyncio.Queue 에 payload 를 enqueue 만 수행하고,
+    # 실제 INSERT 는 이 consumer 태스크가 배치(100건 or 500ms) 로 flush 한다.
+    # 실패해도 앱 기동은 계속 진행 (로그 손실은 있으나 서비스 자체는 유지).
+    try:
+        from app.middleware.logging import start_log_consumer
+        await start_log_consumer()
+        print("API log batch consumer started")
+    except Exception as e:
+        print(f"[WARN] log consumer not started: {e}")
+
     yield
 
     # Shutdown
@@ -272,6 +283,13 @@ async def lifespan(app: FastAPI):
             scheduler.shutdown(wait=False)
         except Exception:
             pass
+    # v6.0 Phase 4 — API log consumer graceful stop (큐 drain 후 종료).
+    try:
+        from app.middleware.logging import stop_log_consumer
+        await stop_log_consumer()
+        print("API log batch consumer stopped")
+    except Exception:
+        pass
     print("GOP API Server Shutting down...")
 
 

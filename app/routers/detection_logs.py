@@ -6,7 +6,7 @@ PRD: PRD_DetectionLog_API.md v1.0
 - 탐지 로그 화면 전용 (CRUD 미제공)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, joinedload
 from typing import Optional
 from datetime import datetime
 import math
@@ -15,6 +15,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_account_user_optional
 from app.models.event import DetectionEvent, ActionEvent
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
+from app.models.device_group import DeviceGroupMapping
 from app.schemas.event import DetectionLogResponse, ActionNested
 from app.schemas.device import (
     DeviceGroupNestedResponse,
@@ -31,20 +32,21 @@ from typing import Union
 router = APIRouter(tags=[])
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
+def _build_device_nested_response(device: Optional[Device], db: Session) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)"""
     if device is None:
         return None
 
     device_groups = []
-    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
-        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
-        for mapping in mappings:
-            if mapping.group:
-                device_groups.append(DeviceGroupNestedResponse(
-                    id=mapping.group.id,
-                    name=mapping.group.name
-                ))
+    mappings = db.query(DeviceGroupMapping).options(
+        joinedload(DeviceGroupMapping.group)
+    ).filter(DeviceGroupMapping.device_id == device.id).all()
+    for mapping in mappings:
+        if mapping.group:
+            device_groups.append(DeviceGroupNestedResponse(
+                id=mapping.group.id,
+                name=mapping.group.name
+            ))
 
     if isinstance(device, Sensor):
         return SensorNestedResponse(
@@ -235,7 +237,7 @@ async def get_detection_logs(
             type_event=e.type_event,
             action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
             result=e.result.value,
-            device=_build_device_nested_response(e.device),
+            device=_build_device_nested_response(e.device, db),
             device_description=e.device_description,
             detail=e.detail,
             actions=_build_actions_nested(e.actions),
@@ -293,7 +295,7 @@ async def get_detection_log(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        device=_build_device_nested_response(event.device),
+        device=_build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,
         actions=_build_actions_nested(event.actions),

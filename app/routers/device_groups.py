@@ -110,11 +110,14 @@ async def get_device_groups(
 
     group_responses = []
     for g in groups:
+        device_count = db.query(DeviceGroupMapping).filter(
+            DeviceGroupMapping.group_id == g.id
+        ).count()
         group_responses.append(DeviceGroupResponse(
             id=g.id,
             name=g.name,
             description=g.description,
-            device_count=g.device_mappings.count(),
+            device_count=device_count,
             created_at=g.created_at,
             updated_at=g.updated_at
         ))
@@ -297,7 +300,9 @@ async def get_device_group(
         )
 
     # Device count calculation (always needed)
-    device_count = group.device_mappings.count()
+    device_count = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.group_id == group.id
+    ).count()
 
     # include_devices=false: return basic response without devices
     if not include_devices:
@@ -317,7 +322,9 @@ async def get_device_group(
 
     # include_devices=true (default): return detail response with devices
     # 소속 디바이스 목록 조회 (Device Base 클래스로 polymorphic query)
-    mappings = group.device_mappings.all()
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.group_id == group.id
+    ).all()
     devices = []
     for mapping in mappings:
         # Device base class로 조회 - polymorphic inheritance로 모든 디바이스 타입 조회
@@ -531,11 +538,14 @@ async def patch_device_group(
             description="DeviceGroup 수정"
         )
 
+    device_count = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.group_id == group.id
+    ).count()
     response = DeviceGroupResponse(
         id=group.id,
         name=group.name,
         description=group.description,
-        device_count=group.device_mappings.count(),
+        device_count=device_count,
         created_at=group.created_at,
         updated_at=group.updated_at
     )
@@ -589,11 +599,14 @@ async def put_device_group(
     db.commit()
     db.refresh(group)
 
+    device_count = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.group_id == group.id
+    ).count()
     response = DeviceGroupResponse(
         id=group.id,
         name=group.name,
         description=group.description,
-        device_count=group.device_mappings.count(),
+        device_count=device_count,
         created_at=group.created_at,
         updated_at=group.updated_at
     )

@@ -17,6 +17,7 @@ from app.dependencies import get_db
 from app.routers.auth import get_current_account_user_optional, require_perm_optional
 from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
+from app.models.device_group import DeviceGroupMapping
 from app.schemas.event import DetectionEventCreate, DetectionEventReplace, DetectionEventResponse, DetectionEventUpdate, ActionEventResponse
 from app.schemas.device import (
     DeviceGroupNestedResponse,
@@ -45,7 +46,7 @@ def _generate_device_description(device: Device) -> str:
     return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
+def _build_device_nested_response(device: Optional[Device], db: Session) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """
     Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
 
@@ -62,16 +63,17 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
     if device is None:
         return None
 
-    # PRD v1.2: Build device_groups from group_mappings relationship
+    # PRD v1.2: Build device_groups from group_mappings (v6.0 P1: explicit query for async safety)
     device_groups = []
-    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
-        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
-        for mapping in mappings:
-            if mapping.group:
-                device_groups.append(DeviceGroupNestedResponse(
-                    id=mapping.group.id,
-                    name=mapping.group.name
-                ))
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device.id
+    ).all()
+    for mapping in mappings:
+        if mapping.group:
+            device_groups.append(DeviceGroupNestedResponse(
+                id=mapping.group.id,
+                name=mapping.group.name
+            ))
 
     # PRD v2.7: Polymorphic Response - Device 타입에 따라 적절한 스키마 반환
     if isinstance(device, Sensor):
@@ -251,7 +253,7 @@ async def get_detection_events(
             type_event=e.type_event,
             action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
             result=e.result.value,
-            device=_build_device_nested_response(e.device),
+            device=_build_device_nested_response(e.device, db),
             device_description=e.device_description,
             detail=e.detail,
             created_at=e.created_at,
@@ -314,7 +316,7 @@ async def get_detection_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        device=_build_device_nested_response(event.device),
+        device=_build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,  # PRD_Event_Detail_JsonB.md v1.0
         created_at=event.created_at,
@@ -414,7 +416,7 @@ async def create_detection_event(
         type_event=new_event.type_event,
         action_reported=new_event.action_reported.value if hasattr(new_event.action_reported, 'value') else new_event.action_reported,
         result=new_event.result.value,
-        device=_build_device_nested_response(device),
+        device=_build_device_nested_response(device, db),
         device_description=new_event.device_description,
         detail=new_event.detail,  # PRD_Event_Detail_JsonB.md v1.0
         created_at=new_event.created_at,
@@ -518,7 +520,7 @@ async def update_detection_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        device=_build_device_nested_response(event.device),
+        device=_build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,
         created_at=event.created_at,
@@ -601,7 +603,7 @@ async def replace_detection_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        device=_build_device_nested_response(event.device),
+        device=_build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,
         created_at=event.created_at,
@@ -715,7 +717,7 @@ async def get_action_events_for_detection(
         type_event=detection.type_event,
         action_reported=detection.action_reported.value if hasattr(detection.action_reported, 'value') else detection.action_reported,
         result=detection.result.value,
-        device=_build_device_nested_response(detection.device),
+        device=_build_device_nested_response(detection.device, db),
         device_description=detection.device_description,
         detail=detection.detail,
         created_at=detection.created_at,

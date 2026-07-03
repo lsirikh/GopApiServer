@@ -30,6 +30,7 @@ from app.routers.auth import get_current_account_user_optional, require_perm_opt
 from sqlalchemy.orm import selectin_polymorphic
 from app.models.event import ActionEvent, Event, DetectionEvent, MalfunctionEvent, ConnectionEvent
 from app.models.device import Device
+from app.models.device_group import DeviceGroupMapping
 from app.schemas.event import (
     ActionEventCreate, ActionEventReplace, ActionEventResponse, ActionEventUpdate,
     DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse
@@ -43,25 +44,29 @@ from typing import Union
 router = APIRouter(tags=[])
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[DeviceNestedResponse]:
+def _build_device_nested_response(device: Optional[Device], db: Session) -> Optional[DeviceNestedResponse]:
     """
     Device 객체를 DeviceNestedResponse로 변환
 
     PRD v1.3: from_event 내 device nested 포함
+
+    v6.0 P1 (Tidy First): lazy='dynamic' `device.group_mappings.all()` 제거 →
+    명시적 `db.query(DeviceGroupMapping)` 쿼리로 교체 (async 안전)
     """
     if device is None:
         return None
 
-    # Build device_groups from group_mappings relationship
+    # Build device_groups from group_mappings (explicit query — async safe)
     device_groups = []
-    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
-        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
-        for mapping in mappings:
-            if mapping.group:
-                device_groups.append(DeviceGroupNestedResponse(
-                    id=mapping.group.id,
-                    name=mapping.group.name
-                ))
+    mappings = db.query(DeviceGroupMapping).filter(
+        DeviceGroupMapping.device_id == device.id
+    ).all()
+    for mapping in mappings:
+        if mapping.group:
+            device_groups.append(DeviceGroupNestedResponse(
+                id=mapping.group.id,
+                name=mapping.group.name
+            ))
 
     # PRD_Camera_Urls_JsonB.md: urls JSONB 통합 (rtsp_uri/rtsp_port 제거)
     from app.schemas.device import CameraUrls
@@ -147,7 +152,7 @@ def reset_source_action_reported(db: Session, source_event: Event, excluding_act
 
 
 # Helper function to build source event response from polymorphic event
-def build_source_event_response(event: Event) -> Union[DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse]:
+def build_source_event_response(event: Event, db: Session) -> Union[DetectionEventResponse, MalfunctionEventResponse, ConnectionEventResponse]:
     """
     Polymorphic Event 객체를 적절한 응답 스키마로 변환
 
@@ -155,8 +160,12 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
     PRD v1.4: category_event 필드 제거
     PRD v1.5: polymorphic relationship을 통해 이벤트 타입 자동 확인
 
+    v6.0 P1 (Tidy First): `db` 인자 추가 — 하위 `_build_device_nested_response`
+    가 명시적 DeviceGroupMapping 쿼리를 수행하기 위함
+
     Args:
         event: 원본 이벤트 객체 (polymorphic - DetectionEvent, MalfunctionEvent, ConnectionEvent)
+        db: 데이터베이스 세션 (device_groups 조회용)
 
     Returns:
         DetectionEventResponse, MalfunctionEventResponse, 또는 ConnectionEventResponse
@@ -167,7 +176,7 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
             type_event=event.type_event,
             action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
             result=event.result.value,
-            device=_build_device_nested_response(event.device),
+            device=_build_device_nested_response(event.device, db),
             device_description=event.device_description,
             detail=event.detail,
             created_at=event.created_at,
@@ -179,7 +188,7 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
             type_event=event.type_event,
             action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
             reason=event.reason.value,
-            device=_build_device_nested_response(event.device),
+            device=_build_device_nested_response(event.device, db),
             device_description=event.device_description,
             detail=event.detail,
             created_at=event.created_at,
@@ -189,7 +198,7 @@ def build_source_event_response(event: Event) -> Union[DetectionEventResponse, M
         return ConnectionEventResponse(
             id=event.id,
             type_event=event.type_event,
-            device=_build_device_nested_response(event.device),
+            device=_build_device_nested_response(event.device, db),
             device_description=event.device_description,
             created_at=event.created_at,
             updated_at=event.updated_at
@@ -265,7 +274,7 @@ async def get_action_events(
             selectin_polymorphic(Event, [DetectionEvent, MalfunctionEvent, ConnectionEvent])
         ).filter(Event.id.in_(source_event_ids)).all()
         for source_event in source_events:
-            event_map[source_event.id] = build_source_event_response(source_event)
+            event_map[source_event.id] = build_source_event_response(source_event, db)
 
     # Convert to response format with nested source events
     event_responses = []
@@ -346,7 +355,7 @@ async def get_action_event(
             detail=f"Source event with id {event.from_event_id} not found"
         )
 
-    source_event_response = build_source_event_response(event.source_event)
+    source_event_response = build_source_event_response(event.source_event, db)
 
     event_response = ActionEventResponse(
         id=event.id,
@@ -433,7 +442,7 @@ async def create_action_event(
     update_source_action_reported(db, source_event)
 
     # Build response with nested source event
-    source_event_response = build_source_event_response(source_event)
+    source_event_response = build_source_event_response(source_event, db)
 
     event_response = ActionEventResponse(
         id=new_event.id,
@@ -526,7 +535,7 @@ async def update_action_event(
             detail=f"Source event with id {event.from_event_id} not found"
         )
 
-    source_event_response = build_source_event_response(event.source_event)
+    source_event_response = build_source_event_response(event.source_event, db)
 
     event_response = ActionEventResponse(
         id=event.id,
@@ -603,7 +612,7 @@ async def replace_action_event(
     db.refresh(event)
 
     # Build response with nested source event
-    source_event_response = build_source_event_response(source_event)
+    source_event_response = build_source_event_response(source_event, db)
 
     event_response = ActionEventResponse(
         id=event.id,

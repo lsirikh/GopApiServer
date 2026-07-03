@@ -3,12 +3,13 @@ Server Categories API endpoints
 Based on PRD_Server_Monitoring.md
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.server import ServerCategory, Server
 from app.utils.enums import EnumServerType, EnumServerStatus
 from app.schemas.server import (
@@ -28,8 +29,8 @@ async def get_server_categories(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     type_server: Optional[str] = Query(None, description="서버 타입으로 필터링 (EnumServerType)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 카테고리 목록 조회 (페이지네이션)
@@ -43,24 +44,27 @@ async def get_server_categories(
 
     **Response**: 서버 카테고리 목록 및 페이지네이션 정보
     """
-    query = db.query(ServerCategory)
-
-    # Apply filter
+    # Base filter conditions
+    filters = []
     if type_server is not None:
-        query = query.filter(ServerCategory.type_server == type_server)
-
-    # Order by sort_order
-    query = query.order_by(ServerCategory.sort_order)
+        filters.append(ServerCategory.type_server == type_server)
 
     # Get total count
-    total = query.count()
+    count_stmt = select(func.count()).select_from(ServerCategory)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by id for stable pagination)
-    categories = query.order_by(ServerCategory.id).offset(skip).limit(limit).all()
+    stmt = select(ServerCategory)
+    if filters:
+        stmt = stmt.where(*filters)
+    stmt = stmt.order_by(ServerCategory.id).offset(skip).limit(limit)
+    categories = (await db.execute(stmt)).scalars().all()
 
     # Convert to response format
     category_responses = [
@@ -94,8 +98,8 @@ async def get_server_categories(
 @router.get("/{category_id}", response_model=ApiSingleResponse[ServerCategoryWithServers])
 async def get_server_category(
     category_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 카테고리 단건 조회
@@ -110,7 +114,9 @@ async def get_server_category(
     **Error**:
     - 404: 카테고리를 찾을 수 없음
     """
-    category = db.query(ServerCategory).filter(ServerCategory.id == category_id).first()
+    category = (await db.execute(
+        select(ServerCategory).where(ServerCategory.id == category_id)
+    )).scalars().first()
 
     if not category:
         raise HTTPException(
@@ -119,7 +125,9 @@ async def get_server_category(
         )
 
     # Get servers for this category
-    servers = db.query(Server).filter(Server.category_id == category_id).all()
+    servers = (await db.execute(
+        select(Server).where(Server.category_id == category_id)
+    )).scalars().all()
     server_responses = [
         ServerResponse(
             id=s.id,
@@ -159,8 +167,8 @@ async def get_server_category(
 @router.post("", response_model=ApiSingleResponse[ServerCategoryResponse], status_code=status.HTTP_201_CREATED)
 async def create_server_category(
     category_data: ServerCategoryCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 카테고리 생성
@@ -180,9 +188,11 @@ async def create_server_category(
     - 409: 동일한 type_server가 이미 존재함
     """
     # Check for duplicate type_server (unique constraint)
-    existing = db.query(ServerCategory).filter(
-        ServerCategory.type_server == category_data.type_server
-    ).first()
+    existing = (await db.execute(
+        select(ServerCategory).where(
+            ServerCategory.type_server == category_data.type_server
+        )
+    )).scalars().first()
 
     if existing:
         raise HTTPException(
@@ -199,8 +209,8 @@ async def create_server_category(
     )
 
     db.add(new_category)
-    db.commit()
-    db.refresh(new_category)
+    await db.commit()
+    await db.refresh(new_category)
 
     category_response = ServerCategoryResponse(
         id=new_category.id,
@@ -223,8 +233,8 @@ async def create_server_category(
 async def update_server_category(
     category_id: int,
     category_data: ServerCategoryUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 카테고리 부분 수정 (PATCH)
@@ -246,7 +256,9 @@ async def update_server_category(
     - 404: 카테고리를 찾을 수 없음
     - 409: 변경하려는 type_server가 이미 존재함
     """
-    category = db.query(ServerCategory).filter(ServerCategory.id == category_id).first()
+    category = (await db.execute(
+        select(ServerCategory).where(ServerCategory.id == category_id)
+    )).scalars().first()
 
     if not category:
         raise HTTPException(
@@ -256,10 +268,12 @@ async def update_server_category(
 
     # Check for type_server conflict
     if category_data.type_server is not None:
-        existing = db.query(ServerCategory).filter(
-            ServerCategory.type_server == category_data.type_server,
-            ServerCategory.id != category_id
-        ).first()
+        existing = (await db.execute(
+            select(ServerCategory).where(
+                ServerCategory.type_server == category_data.type_server,
+                ServerCategory.id != category_id
+            )
+        )).scalars().first()
 
         if existing:
             raise HTTPException(
@@ -273,8 +287,8 @@ async def update_server_category(
     for field, value in update_data.items():
         setattr(category, field, value)
 
-    db.commit()
-    db.refresh(category)
+    await db.commit()
+    await db.refresh(category)
 
     category_response = ServerCategoryResponse(
         id=category.id,
@@ -297,8 +311,8 @@ async def update_server_category(
 async def replace_server_category(
     category_id: int,
     category_data: ServerCategoryCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 카테고리 전체 수정 (PUT)
@@ -320,7 +334,9 @@ async def replace_server_category(
     - 404: 카테고리를 찾을 수 없음
     - 409: 변경하려는 type_server가 이미 존재함
     """
-    category = db.query(ServerCategory).filter(ServerCategory.id == category_id).first()
+    category = (await db.execute(
+        select(ServerCategory).where(ServerCategory.id == category_id)
+    )).scalars().first()
 
     if not category:
         raise HTTPException(
@@ -330,10 +346,12 @@ async def replace_server_category(
 
     # Check for type_server conflict
     if category_data.type_server != category.type_server:
-        existing = db.query(ServerCategory).filter(
-            ServerCategory.type_server == category_data.type_server,
-            ServerCategory.id != category_id
-        ).first()
+        existing = (await db.execute(
+            select(ServerCategory).where(
+                ServerCategory.type_server == category_data.type_server,
+                ServerCategory.id != category_id
+            )
+        )).scalars().first()
 
         if existing:
             raise HTTPException(
@@ -347,8 +365,8 @@ async def replace_server_category(
     category.description = category_data.description
     category.sort_order = category_data.sort_order
 
-    db.commit()
-    db.refresh(category)
+    await db.commit()
+    await db.refresh(category)
 
     category_response = ServerCategoryResponse(
         id=category.id,
@@ -370,8 +388,8 @@ async def replace_server_category(
 @router.delete("/{category_id}", response_model=ApiSingleResponse[None])
 async def delete_server_category(
     category_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 카테고리 삭제
@@ -386,7 +404,9 @@ async def delete_server_category(
     **Error**:
     - 404: 카테고리를 찾을 수 없음
     """
-    category = db.query(ServerCategory).filter(ServerCategory.id == category_id).first()
+    category = (await db.execute(
+        select(ServerCategory).where(ServerCategory.id == category_id)
+    )).scalars().first()
 
     if not category:
         raise HTTPException(
@@ -394,8 +414,8 @@ async def delete_server_category(
             detail=f"Server category with id {category_id} not found"
         )
 
-    db.delete(category)
-    db.commit()
+    await db.delete(category)
+    await db.commit()
 
     return ApiSingleResponse(
         success=True,

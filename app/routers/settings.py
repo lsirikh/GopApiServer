@@ -7,14 +7,14 @@ GET/PUT /api/settings/session (require_admin):
 - PUT 은 편집 부분집합만 수용, 경계 위반 422, app_settings UPSERT + ConfigChangeLog 감사 + 캐시 무효화.
 """
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
-from app.routers.auth import require_admin, get_current_account_user
+from app.dependencies import get_async_db
+from app.routers.auth import require_admin_async, get_current_account_user_async
 from app.models.user import AccountUser
 from app.services import settings_service
 from app.services.settings_service import SettingKey
-from app.services.config_log_service import log_config_change
+from app.services.config_log_service import log_config_change_async
 from app.schemas.settings import SessionSettingsResponse, SessionSettingsUpdate
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.config import settings as app_config
@@ -22,38 +22,41 @@ from app.config import settings as app_config
 router = APIRouter(tags=["Settings"])
 
 
-def _current(db: Session) -> dict:
-    """현재 세션 설정 스냅샷(편집 가능 + 읽기전용). 시크릿 미포함."""
+async def _current(db: AsyncSession) -> dict:
+    """현재 세션 설정 스냅샷(편집 가능 + 읽기전용). 시크릿 미포함.
+
+    v6.0 P6 후속: settings_service.*_async 사용.
+    """
     return {
-        "session_timeout_hours": settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS),
-        "refresh_expiration_days": settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS),
-        "lockout_threshold": settings_service.get(db, SettingKey.LOCKOUT_THRESHOLD),
-        "session_enabled": settings_service.get(db, SettingKey.SESSION_ENABLED),
+        "session_timeout_hours": await settings_service.get_async(db, SettingKey.SESSION_TIMEOUT_HOURS),
+        "refresh_expiration_days": await settings_service.get_async(db, SettingKey.REFRESH_EXPIRATION_DAYS),
+        "lockout_threshold": await settings_service.get_async(db, SettingKey.LOCKOUT_THRESHOLD),
+        "session_enabled": await settings_service.get_async(db, SettingKey.SESSION_ENABLED),
         "auth_mode": app_config.AUTH_MODE,        # 읽기전용
         "jwt_algorithm": app_config.JWT_ALGORITHM,  # 읽기전용
     }
 
 
-@router.get("/session", response_model=None, dependencies=[Depends(require_admin)])
+@router.get("/session", response_model=None, dependencies=[Depends(require_admin_async)])
 async def get_session_settings(
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """현재 세션/인증 정책 조회 (ADMIN 전용)."""
-    settings_service.seed_if_empty(db)
-    return {"success": True, "data": SessionSettingsResponse(**_current(db)).model_dump()}
+    await settings_service.seed_if_empty_async(db)
+    return {"success": True, "data": SessionSettingsResponse(**(await _current(db))).model_dump()}
 
 
-@router.put("/session", response_model=None, dependencies=[Depends(require_admin)])
+@router.put("/session", response_model=None, dependencies=[Depends(require_admin_async)])
 async def update_session_settings(
     payload: SessionSettingsUpdate,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """세션/인증 정책 변경 (ADMIN 전용) — 편집 부분집합만, 변경분 ConfigChangeLog 감사."""
-    settings_service.seed_if_empty(db)
-    before = _current(db)
+    await settings_service.seed_if_empty_async(db)
+    before = await _current(db)
 
     editable = {
         SettingKey.SESSION_TIMEOUT_HOURS: payload.session_timeout_hours,
@@ -63,12 +66,12 @@ async def update_session_settings(
     }
     changed_keys = [k for k, v in editable.items() if v is not None]
     for key in changed_keys:
-        settings_service.put(db, key, editable[key], actor_id=current_user.id)
+        await settings_service.put_async(db, key, editable[key], actor_id=current_user.id)
 
-    after = _current(db)
+    after = await _current(db)
 
     if changed_keys:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.SETTINGS,
             resource_id=0,  # sentinel — 비-행 바운드 설정

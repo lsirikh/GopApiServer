@@ -11,17 +11,27 @@ Endpoints:
 - POST /api/reports/generate - 보고서 생성 요청
 - GET /api/reports/generations - 생성 이력 조회
 - GET /api/reports/generations/{id} - 생성 상세 조회
+
+v6.0 P8 VeryComplex — 라우터 async 전환:
+- 시그니처 async def 유지
+- 응답 스키마 완전 유지 (v5.4 P0-1/P0-5/P1-2/P1-3/P1-4 유지)
+- Dependency: get_async_db / get_current_account_user_async / require_perm_optional_async
+- Query: select() + await db.execute(...).scalars() 패턴
+- 서비스 계층(ReportService, report_master_builder, report_html_renderer)은 sync 유지 (v6.1 이월).
+  라우터에서 sync 서비스 호출 필요 시 별도 SessionLocal() 로컬 세션 개시.
+- background_tasks.add_task(_run_report_generation, gid) 는 sync 서비스 background 유지.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime, timedelta
 from urllib.parse import quote
 import os
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user, require_perm_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_async, require_perm_optional_async
 from app.models.user import AccountUser
 from app.services.report_service import ReportService
 from app.config import settings
@@ -39,9 +49,10 @@ from app.utils.enums import EnumReportComponent
 # v5.1 FR-SV-02 (PRD_GOP_Server_RBAC_Enforcement):
 # Router 레벨 의존성으로 모든 reports endpoint에 인증 강제 (이전 무인증 노출 LIVE 위험 차단).
 # - 12 endpoint(템플릿 CRUD/components/generate/generations/download/preview)이 토큰 없이도 PII 집계 노출 가능했음.
-# - get_current_account_user는 jti 블랙리스트도 검사 → 로그아웃/강등 즉시 차단.
-# - require_perm(reports, view/edit/delete) 도메인별 부착은 v5.2 권고 (FR-SV-04 비계정 라우터 적용 단계).
-router = APIRouter(dependencies=[Depends(get_current_account_user)])
+# - get_current_account_user_async 는 jti 블랙리스트도 검사 → 로그아웃/강등 즉시 차단.
+# - require_perm_optional_async(reports, view/edit/delete) 도메인별 부착은 v5.2 완료 (FR-SV-04).
+# v6.0 P8: get_current_account_user → get_current_account_user_async 로 교체 (라우터 async 전환).
+router = APIRouter(dependencies=[Depends(get_current_account_user_async)])
 
 
 # ==============================================================================
@@ -143,8 +154,8 @@ def _template_to_list_response(template: ReportTemplate) -> dict:
 # ==============================================================================
 
 @router.get("/components",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def get_components():
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def get_components():
     """
     보고서 컴포넌트 목록 조회
 
@@ -166,8 +177,8 @@ def get_components():
 # ==============================================================================
 
 @router.get("/status",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def get_report_engine_status(db: Session = Depends(get_db)):
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def get_report_engine_status(db: AsyncSession = Depends(get_async_db)):
     """
     보고서 엔진 Busy/Ready 상태 (read-only)
 
@@ -182,17 +193,19 @@ def get_report_engine_status(db: Session = Depends(get_db)):
     """
     busy_statuses = ("PENDING", "GENERATING")
     in_progress = (
-        db.query(ReportGeneration)
-        .filter(ReportGeneration.status.in_(busy_statuses))
-        .order_by(ReportGeneration.created_at.asc())
-        .all()
-    )
+        await db.execute(
+            select(ReportGeneration)
+            .where(ReportGeneration.status.in_(busy_statuses))
+            .order_by(ReportGeneration.created_at.asc())
+        )
+    ).scalars().all()
     last = (
-        db.query(ReportGeneration)
-        .filter(ReportGeneration.status == "COMPLETED")
-        .order_by(ReportGeneration.completed_at.desc())
-        .first()
-    )
+        await db.execute(
+            select(ReportGeneration)
+            .where(ReportGeneration.status == "COMPLETED")
+            .order_by(ReportGeneration.completed_at.desc())
+        )
+    ).scalars().first()
     busy = len(in_progress) > 0
 
     return ApiResponse(
@@ -230,11 +243,11 @@ def get_report_engine_status(db: Session = Depends(get_db)):
 # ==============================================================================
 
 @router.get("/templates",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def get_templates(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def get_templates(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 템플릿 목록 조회
@@ -245,12 +258,15 @@ def get_templates(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    query = db.query(ReportTemplate)
-
-    # 정렬 및 페이지네이션
-    query = query.order_by(ReportTemplate.created_at.desc())
     offset = (page - 1) * limit
-    templates = query.offset(offset).limit(limit).all()
+    templates = (
+        await db.execute(
+            select(ReportTemplate)
+            .order_by(ReportTemplate.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
 
     return ApiResponse(
         success=True,
@@ -260,10 +276,10 @@ def get_templates(
 
 
 @router.post("/templates", status_code=201,
-             dependencies=[Depends(require_perm_optional("reports", "edit"))])
-def create_template(
+             dependencies=[Depends(require_perm_optional_async("reports", "edit"))])
+async def create_template(
     template_data: ReportTemplateCreate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 템플릿 생성
@@ -287,8 +303,8 @@ def create_template(
     )
 
     db.add(template)
-    db.commit()
-    db.refresh(template)
+    await db.commit()
+    await db.refresh(template)
 
     return ApiResponse(
         success=True,
@@ -298,10 +314,10 @@ def create_template(
 
 
 @router.get("/templates/{template_id}",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def get_template(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def get_template(
     template_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 템플릿 상세 조회
@@ -311,7 +327,11 @@ def get_template(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    template = db.query(ReportTemplate).filter(ReportTemplate.id == template_id).first()
+    template = (
+        await db.execute(
+            select(ReportTemplate).where(ReportTemplate.id == template_id)
+        )
+    ).scalars().first()
 
     if not template:
         raise HTTPException(status_code=404, detail="Report template not found")
@@ -324,11 +344,11 @@ def get_template(
 
 
 @router.patch("/templates/{template_id}",
-              dependencies=[Depends(require_perm_optional("reports", "edit"))])
-def update_template(
+              dependencies=[Depends(require_perm_optional_async("reports", "edit"))])
+async def update_template(
     template_id: int,
     template_data: ReportTemplateUpdate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 템플릿 수정 (부분 업데이트)
@@ -339,7 +359,11 @@ def update_template(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    template = db.query(ReportTemplate).filter(ReportTemplate.id == template_id).first()
+    template = (
+        await db.execute(
+            select(ReportTemplate).where(ReportTemplate.id == template_id)
+        )
+    ).scalars().first()
 
     if not template:
         raise HTTPException(status_code=404, detail="Report template not found")
@@ -356,8 +380,8 @@ def update_template(
             value = value.value if hasattr(value, 'value') else value
         setattr(template, field, value)
 
-    db.commit()
-    db.refresh(template)
+    await db.commit()
+    await db.refresh(template)
 
     return ApiResponse(
         success=True,
@@ -367,10 +391,10 @@ def update_template(
 
 
 @router.delete("/templates/{template_id}",
-               dependencies=[Depends(require_perm_optional("reports", "delete"))])
-def delete_template(
+               dependencies=[Depends(require_perm_optional_async("reports", "delete"))])
+async def delete_template(
     template_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 템플릿 삭제
@@ -380,13 +404,17 @@ def delete_template(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    template = db.query(ReportTemplate).filter(ReportTemplate.id == template_id).first()
+    template = (
+        await db.execute(
+            select(ReportTemplate).where(ReportTemplate.id == template_id)
+        )
+    ).scalars().first()
 
     if not template:
         raise HTTPException(status_code=404, detail="Report template not found")
 
-    db.delete(template)
-    db.commit()
+    await db.delete(template)
+    await db.commit()
 
     return ApiResponse(
         success=True,
@@ -445,7 +473,12 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
 
 
 def _run_report_generation(generation_id: int):
-    """BackgroundTasks에서 실행되는 보고서 생성 함수"""
+    """BackgroundTasks에서 실행되는 보고서 생성 함수.
+
+    v6.0 P8: sync SessionLocal 유지 — ReportService 는 sync 서비스이며,
+    background_tasks 컨텍스트에서 이벤트루프 블로킹 걱정 없이 실행된다.
+    v6.1 batch queue 리팩터 시 async 전환 예정.
+    """
     from app.database import SessionLocal
 
     db = SessionLocal()
@@ -457,12 +490,12 @@ def _run_report_generation(generation_id: int):
 
 
 @router.post("/generate", status_code=202,
-             dependencies=[Depends(require_perm_optional("reports", "edit"))])
-def generate_report(
+             dependencies=[Depends(require_perm_optional_async("reports", "edit"))])
+async def generate_report(
     request_data: ReportGenerateRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """
     보고서 생성 요청
@@ -484,9 +517,11 @@ def generate_report(
     """
     # v5.4 P0-5: template_id 존재 검증 — psycopg2 FK violation raw 500 노출 차단.
     if request_data.template_id is not None:
-        template = db.query(ReportTemplate).filter(
-            ReportTemplate.id == request_data.template_id
-        ).first()
+        template = (
+            await db.execute(
+                select(ReportTemplate).where(ReportTemplate.id == request_data.template_id)
+            )
+        ).scalars().first()
         if template is None:
             raise HTTPException(
                 status_code=404,
@@ -512,10 +547,10 @@ def generate_report(
     )
 
     db.add(generation)
-    db.commit()
-    db.refresh(generation)
+    await db.commit()
+    await db.refresh(generation)
 
-    # Start background PDF generation
+    # Start background PDF generation (sync 서비스 — v6.1 이월)
     background_tasks.add_task(_run_report_generation, generation.id)
 
     return ApiResponse(
@@ -526,12 +561,12 @@ def generate_report(
 
 
 @router.get("/generations",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def get_generations(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def get_generations(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
     status: Optional[str] = Query(None, description="상태 필터 (PENDING, GENERATING, COMPLETED, FAILED)"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 생성 이력 목록 조회
@@ -543,16 +578,19 @@ def get_generations(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    query = db.query(ReportGeneration)
+    stmt = select(ReportGeneration)
 
     # Status filter
     if status:
-        query = query.filter(ReportGeneration.status == status)
+        stmt = stmt.where(ReportGeneration.status == status)
 
     # 정렬 및 페이지네이션
-    query = query.order_by(ReportGeneration.created_at.desc())
     offset = (page - 1) * limit
-    generations = query.offset(offset).limit(limit).all()
+    generations = (
+        await db.execute(
+            stmt.order_by(ReportGeneration.created_at.desc()).offset(offset).limit(limit)
+        )
+    ).scalars().all()
 
     return ApiResponse(
         success=True,
@@ -562,10 +600,10 @@ def get_generations(
 
 
 @router.get("/generations/{generation_id}",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def get_generation(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def get_generation(
     generation_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 생성 이력 상세 조회
@@ -575,7 +613,11 @@ def get_generation(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
@@ -588,11 +630,11 @@ def get_generation(
 
 
 @router.delete("/generations/{generation_id}",
-               dependencies=[Depends(require_perm_optional("reports", "delete"))])
-def delete_generation(
+               dependencies=[Depends(require_perm_optional_async("reports", "delete"))])
+async def delete_generation(
     generation_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """
     보고서 생성 이력 삭제 — v5.4 P1-4 (클라 REQ #3 해결).
@@ -603,7 +645,11 @@ def delete_generation(
 
     **응답**: 성공 시 { success: true, message } (204 대신 200 + 엔벨로프로 일관)
     """
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
@@ -615,8 +661,8 @@ def delete_generation(
         except OSError:
             pass  # 파일 삭제 실패는 무시 (row 삭제는 계속)
 
-    db.delete(generation)
-    db.commit()
+    await db.delete(generation)
+    await db.commit()
 
     return ApiResponse(
         success=True,
@@ -626,10 +672,10 @@ def delete_generation(
 
 
 @router.get("/generations/{generation_id}/download",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def download_report(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def download_report(
     generation_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 다운로드
@@ -643,7 +689,11 @@ def download_report(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
@@ -669,10 +719,10 @@ def download_report(
 
 
 @router.get("/generations/{generation_id}/preview",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def preview_report(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def preview_report(
     generation_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     보고서 미리보기
@@ -686,7 +736,11 @@ def preview_report(
 
     PRD Reference: PRD_Report_System.md Section 6
     """
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
@@ -697,21 +751,29 @@ def preview_report(
     # CUSTOM 타입이면 템플릿 컴포넌트 조회하여 필터링
     enabled_components = None
     if generation.report_type == "CUSTOM" and generation.template_id:
-        template = db.query(ReportTemplate).filter(
-            ReportTemplate.id == generation.template_id
-        ).first()
+        template = (
+            await db.execute(
+                select(ReportTemplate).where(ReportTemplate.id == generation.template_id)
+            )
+        ).scalars().first()
         if template and template.components:
             enabled_components = [
                 c["id"] for c in template.components
                 if c.get("enabled", True)
             ]
 
-    # Get structured preview data with charts and grids
-    service = ReportService(db)
-    # Calculate days from period_type
-    period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
-    days = period_days.get(generation.period_type, 7)
-    structured_data = service.get_structured_preview_data(days, enabled_components)
+    # v6.0 P8: ReportService 는 sync — 별도 SessionLocal() 로 호출.
+    # (v6.1 이월: 서비스 async 리팩터 시 제거 예정, 현재는 이벤트루프 블로킹 감수)
+    from app.database import SessionLocal
+    sync_db = SessionLocal()
+    try:
+        service = ReportService(sync_db)
+        # Calculate days from period_type
+        period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+        days = period_days.get(generation.period_type, 7)
+        structured_data = service.get_structured_preview_data(days, enabled_components)
+    finally:
+        sync_db.close()
 
     return ApiResponse(
         success=True,
@@ -729,8 +791,8 @@ def preview_report(
 
 
 @router.get("/generations/{generation_id}/preview-page",
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def preview_page_redirect(generation_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     보고서 미리보기 (HTML 페이지로 이동)
 
@@ -740,7 +802,11 @@ def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
     **파라미터**:
     - **generation_id**: 생성 이력 ID
     """
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
@@ -749,24 +815,28 @@ def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/preview/{generation_id}", response_class=HTMLResponse,
-            dependencies=[Depends(require_perm_optional("reports", "view"))])
-def report_preview_page(
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def report_preview_page(
     request: Request,
     generation_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """
     보고서 미리보기 페이지 (HTML)
 
     v5.4 P0-1: 이전 `/reports/preview/{id}` (main.py, 무인증) → 본 라우터 이관.
-    - 라우터 레벨 `get_current_account_user` 로 Bearer 필수 (401 차단).
+    - 라우터 레벨 `get_current_account_user_async` 로 Bearer 필수 (401 차단).
     - jti 블랙리스트 검사 자동 (로그아웃/강등 토큰 차단).
     - v5.5 인가 강화 시 `require_perm("reports.view")` 추가 예정.
 
     PRD Reference: PRD_Report_System.md Section 10
     """
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
 
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
@@ -776,14 +846,22 @@ def report_preview_page(
     from app.services.report_master_builder import build_master_data, build_report_meta
     from app.services.report_html_renderer import render_report_html
 
-    service = ReportService(db)
-    enabled = service.get_enabled_components(generation)
-    enabled_set = set(enabled) if enabled is not None else None
-    meta = build_report_meta(generation)
-    # v5.4 P1-3: 프리뷰도 severity_filter 반영 (PDF와 동일 HTML 유지)
-    data = build_master_data(
-        db, generation.start_date, generation.end_date, meta, enabled_set,
-        severity_filter=generation.severity_filter,
-    )
+    # v6.0 P8: ReportService / build_master_data 는 sync — 별도 SessionLocal() 로 호출.
+    # (v6.1 이월: 서비스 async 리팩터 시 제거 예정)
+    from app.database import SessionLocal
+    sync_db = SessionLocal()
+    try:
+        service = ReportService(sync_db)
+        enabled = service.get_enabled_components(generation)
+        enabled_set = set(enabled) if enabled is not None else None
+        meta = build_report_meta(generation)
+        # v5.4 P1-3: 프리뷰도 severity_filter 반영 (PDF와 동일 HTML 유지)
+        data = build_master_data(
+            sync_db, generation.start_date, generation.end_date, meta, enabled_set,
+            severity_filter=generation.severity_filter,
+        )
+    finally:
+        sync_db.close()
+
     mode = "full" if request.query_params.get("mode") == "full" else "compact"
     return HTMLResponse(render_report_html(data, mode=mode))

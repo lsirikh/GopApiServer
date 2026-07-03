@@ -8,16 +8,18 @@ PRD: PRD_Permission_Group_Scheduling.md FR-03
 - DELETE /api/grants/{grant_id}        회수(soft, revoked_at)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import Optional
 
 from app.config import settings
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.user import AccountUser, UserGroup, UserGroupGrant
 from app.schemas.grant import GrantCreate, GrantResponse
-from app.routers.auth import get_current_account_user, require_admin
-from app.services.audit_service import log_action
+from app.routers.auth import get_current_account_user_async, require_admin_async
+from app.services.audit_service import log_action_async
 from app.services.grant_service import grant_status
 from app.services.nats_revoke_publisher import publish_permissions_changed
 
@@ -59,23 +61,27 @@ def _serialize(grant: UserGroupGrant, now: Optional[datetime] = None) -> GrantRe
 
 
 @router.post("/users/{user_id}/grants", status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_admin)])
+             dependencies=[Depends(require_admin_async)])
 async def create_grant(
     user_id: int,
     payload: GrantCreate,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """사용자에게 권한그룹을 기간을 정해 부여한다 (ADMIN 전용).
 
     - **valid_until** 생략/NULL = 상시(무기한).
     - 검증: 사용자/그룹 존재, `valid_from < valid_until`, 과거 `valid_until` 거부.
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    group = db.query(UserGroup).filter(UserGroup.id == payload.group_id).first()
+    group = (await db.execute(
+        select(UserGroup).where(UserGroup.id == payload.group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User group not found")
 
@@ -104,10 +110,14 @@ async def create_grant(
         granted_by=current_user.id,
     )
     db.add(grant)
-    db.commit()
-    db.refresh(grant)
+    await db.commit()
+    await db.refresh(grant)
 
-    await log_action(
+    # relationship 접근을 위해 user/group 을 명시 첨부 (직전 조회 결과 재사용)
+    grant.user = user
+    grant.group = group
+
+    await log_action_async(
         db=db,
         action_type="GRANT_CREATED",
         resource_type="USER_GROUP",
@@ -126,23 +136,29 @@ async def create_grant(
     return {"success": True, "data": _serialize(grant, now)}
 
 
-@router.get("/users/{user_id}/grants", dependencies=[Depends(require_admin)])
+@router.get("/users/{user_id}/grants", dependencies=[Depends(require_admin_async)])
 async def list_grants(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """사용자의 부여 목록(+파생 status) 조회 (ADMIN 전용)."""
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     now = _now()
-    grants = db.query(UserGroupGrant).filter(UserGroupGrant.user_id == user_id).all()
+    grants = (await db.execute(
+        select(UserGroupGrant)
+        .options(selectinload(UserGroupGrant.user), selectinload(UserGroupGrant.group))
+        .where(UserGroupGrant.user_id == user_id)
+    )).scalars().all()
     return {"success": True, "data": [_serialize(g, now) for g in grants]}
 
 
-@router.get("/grants", dependencies=[Depends(require_admin)])
+@router.get("/grants", dependencies=[Depends(require_admin_async)])
 async def list_all_grants(
     page: int = 1,
     size: int = 20,
@@ -150,8 +166,8 @@ async def list_all_grants(
     group_id: Optional[int] = None,
     status: Optional[str] = None,
     active_only: bool = False,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """전체 grant 목록 조회 (ADMIN 전용) — v5.4 REQ_Server_Grants_ListAll.
 
@@ -174,13 +190,20 @@ async def list_all_grants(
     if size < 1 or size > 100:
         raise HTTPException(status_code=422, detail="size must be between 1 and 100")
 
-    query = db.query(UserGroupGrant)
+    stmt = (
+        select(UserGroupGrant)
+        .options(selectinload(UserGroupGrant.user), selectinload(UserGroupGrant.group))
+    )
+    count_stmt = select(func.count()).select_from(UserGroupGrant)
     if user_id is not None:
-        query = query.filter(UserGroupGrant.user_id == user_id)
+        stmt = stmt.where(UserGroupGrant.user_id == user_id)
+        count_stmt = count_stmt.where(UserGroupGrant.user_id == user_id)
     if group_id is not None:
-        query = query.filter(UserGroupGrant.group_id == group_id)
+        stmt = stmt.where(UserGroupGrant.group_id == group_id)
+        count_stmt = count_stmt.where(UserGroupGrant.group_id == group_id)
     if active_only:
-        query = query.filter(UserGroupGrant.is_active == True)
+        stmt = stmt.where(UserGroupGrant.is_active == True)  # noqa: E712
+        count_stmt = count_stmt.where(UserGroupGrant.is_active == True)  # noqa: E712
 
     now = _now()
 
@@ -189,7 +212,9 @@ async def list_all_grants(
         valid_statuses = {"ACTIVE", "PENDING", "EXPIRED", "REVOKED"}
         if status not in valid_statuses:
             raise HTTPException(status_code=422, detail=f"status must be one of {sorted(valid_statuses)}")
-        all_grants = query.order_by(UserGroupGrant.created_at.desc()).all()
+        all_grants = (await db.execute(
+            stmt.order_by(UserGroupGrant.created_at.desc())
+        )).scalars().all()
         filtered = [g for g in all_grants if grant_status(g, now) == status]
         total = len(filtered)
         offset = (page - 1) * size
@@ -201,9 +226,11 @@ async def list_all_grants(
         }
 
     # status 필터 없음 — DB 레벨 페이지네이션
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar()
     offset = (page - 1) * size
-    grants = query.order_by(UserGroupGrant.created_at.desc()).offset(offset).limit(size).all()
+    grants = (await db.execute(
+        stmt.order_by(UserGroupGrant.created_at.desc()).offset(offset).limit(size)
+    )).scalars().all()
     return {
         "success": True,
         "data": [_serialize(g, now) for g in grants],
@@ -211,23 +238,27 @@ async def list_all_grants(
     }
 
 
-@router.delete("/grants/{grant_id}", dependencies=[Depends(require_admin)])
+@router.delete("/grants/{grant_id}", dependencies=[Depends(require_admin_async)])
 async def revoke_grant(
     grant_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """부여 회수 — soft(revoked_at 기록, 물리삭제 아님). ADMIN 전용."""
-    grant = db.query(UserGroupGrant).filter(UserGroupGrant.id == grant_id).first()
+    grant = (await db.execute(
+        select(UserGroupGrant)
+        .options(selectinload(UserGroupGrant.group))
+        .where(UserGroupGrant.id == grant_id)
+    )).scalars().first()
     if not grant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grant not found")
 
     if grant.revoked_at is None:
         grant.revoked_at = _now()
         grant.is_active = False
-        db.commit()
+        await db.commit()
 
-        await log_action(
+        await log_action_async(
             db=db,
             action_type="GRANT_REVOKED",
             resource_type="USER_GROUP",

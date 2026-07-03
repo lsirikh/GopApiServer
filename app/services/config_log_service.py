@@ -1,11 +1,14 @@
 """
 Config Change Log Service for tracking configuration changes
 PRD: PRD_ConfigChangeLog.md v1.1
+
+v6.0 P6 후속: sync/async dual-stack (log_config_change_async 신설).
 """
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 from enum import Enum
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.config_change_log import ConfigChangeLog
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
@@ -162,5 +165,42 @@ def log_config_change(
     db.add(log)
     db.commit()
     db.refresh(log)
+
+    return log
+
+
+async def log_config_change_async(
+    db: AsyncSession,
+    resource_type: EnumConfigResourceType,
+    resource_id: int,
+    action: EnumConfigActionType,
+    resource_name: Optional[str] = None,
+    before_state: Optional[Dict[str, Any]] = None,
+    after_state: Optional[Dict[str, Any]] = None,
+    actor_id: Optional[int] = None,
+    actor_name: Optional[str] = None,
+    actor_ip: Optional[str] = None,
+    description: Optional[str] = None
+) -> ConfigChangeLog:
+    """log_config_change의 async 병존 버전 (v6.0 P6 후속).
+
+    라우터가 AsyncSession 사용 시 호출. 로직/필드는 sync와 100% 동일.
+    """
+    log = ConfigChangeLog(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_name=resource_name,
+        action=action,
+        before_state=before_state,
+        after_state=after_state,
+        actor_id=actor_id,
+        actor_name=actor_name,
+        actor_ip=actor_ip,
+        description=description
+    )
+
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
 
     return log

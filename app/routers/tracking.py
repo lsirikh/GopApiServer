@@ -10,14 +10,14 @@ GET /api/tracking/health    — 가용성 게이팅(무인증)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime
 import base64
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.tracking import TrackPoint
 from app.schemas.tracking import (
     TrackPointResponse, TrackPointListResponse, CursorMeta, TrackSessionResponse,
@@ -79,27 +79,27 @@ async def get_track_points(
     track_id: Optional[str] = Query(None, description="단일 트랙 필터"),
     cursor: Optional[str] = Query(None, description="직전 응답의 next_cursor"),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="페이지 크기(기본 1000, 최대 5000)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     Playback 구간 추적점 조회. 정렬 `observed_at ASC, id ASC`, keyset 커서 페이지네이션.
 
     클라는 `cursor`가 null이 될 때까지 반복 조회해 구간 전체를 청크로 적재한다.
     """
-    query = db.query(TrackPoint)
+    stmt = select(TrackPoint)
 
     if camera_id is not None:
-        query = query.filter(TrackPoint.camera_id == camera_id)
+        stmt = stmt.where(TrackPoint.camera_id == camera_id)
     if track_id:
-        query = query.filter(TrackPoint.track_id == track_id)
+        stmt = stmt.where(TrackPoint.track_id == track_id)
 
     f = _to_naive_kst(from_)
     t = _to_naive_kst(to)
     if f is not None:
-        query = query.filter(TrackPoint.observed_at >= f)
+        stmt = stmt.where(TrackPoint.observed_at >= f)
     if t is not None:
-        query = query.filter(TrackPoint.observed_at <= t)
+        stmt = stmt.where(TrackPoint.observed_at <= t)
 
     if cursor:
         try:
@@ -110,16 +110,16 @@ async def get_track_points(
                 detail="Invalid cursor",
             )
         # keyset: (observed_at, id) > (c_ts, c_id) — SQLite/PG 호환 전개형
-        query = query.filter(
+        stmt = stmt.where(
             or_(
                 TrackPoint.observed_at > c_ts,
                 and_(TrackPoint.observed_at == c_ts, TrackPoint.id > c_id),
             )
         )
 
-    query = query.order_by(TrackPoint.observed_at.asc(), TrackPoint.id.asc())
+    stmt = stmt.order_by(TrackPoint.observed_at.asc(), TrackPoint.id.asc()).limit(limit + 1)
 
-    rows = query.limit(limit + 1).all()
+    rows = (await db.execute(stmt)).scalars().all()
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_cursor = (
@@ -147,14 +147,14 @@ async def get_track_sessions(
     from_: Optional[datetime] = Query(None, alias="from", description="구간 시작(ISO8601)"),
     to: Optional[datetime] = Query(None, description="구간 종료(ISO8601)"),
     camera_id: Optional[int] = Query(None, description="카메라 필터"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     track_id(+camera_id) 단위로 `MIN/MAX(observed_at)`·`COUNT(*)`를 집계한 세션 목록.
     별도 세션 테이블 없이 추적점에서 파생한다. from/to는 구간 내 추적점만 집계한다.
     """
-    query = db.query(
+    stmt = select(
         TrackPoint.track_id.label("track_id"),
         TrackPoint.camera_id.label("camera_id"),
         func.max(TrackPoint.label).label("label"),
@@ -167,17 +167,17 @@ async def get_track_sessions(
     f = _to_naive_kst(from_)
     t = _to_naive_kst(to)
     if f is not None:
-        query = query.filter(TrackPoint.observed_at >= f)
+        stmt = stmt.where(TrackPoint.observed_at >= f)
     if t is not None:
-        query = query.filter(TrackPoint.observed_at <= t)
+        stmt = stmt.where(TrackPoint.observed_at <= t)
     if camera_id is not None:
-        query = query.filter(TrackPoint.camera_id == camera_id)
+        stmt = stmt.where(TrackPoint.camera_id == camera_id)
 
-    query = query.group_by(TrackPoint.track_id, TrackPoint.camera_id).order_by(
+    stmt = stmt.group_by(TrackPoint.track_id, TrackPoint.camera_id).order_by(
         func.min(TrackPoint.observed_at).asc()
     )
 
-    rows = query.all()
+    rows = (await db.execute(stmt)).all()
     data = [
         TrackSessionResponse(
             track_id=r.track_id,
@@ -206,10 +206,10 @@ async def get_track_sessions(
     "/health",
     summary="추적 이력 가용성 게이팅",
 )
-async def tracking_health(db: Session = Depends(get_db)):
+async def tracking_health(db: AsyncSession = Depends(get_async_db)):
     """Playback 진입 게이팅용. 테이블 접근 가능하면 200, 아니면 503. 무인증."""
     try:
-        count = db.query(func.count(TrackPoint.id)).scalar()
+        count = (await db.execute(select(func.count(TrackPoint.id)))).scalar()
         return {"status": "ok", "tracking_count": int(count or 0)}
     except Exception:
         return JSONResponse(

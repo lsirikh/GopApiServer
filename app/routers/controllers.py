@@ -2,95 +2,119 @@
 Controller API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional, require_perm_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async, require_perm_optional_async
 from app.models.device import Controller, Sensor, EnumDeviceType, EnumDeviceStatus
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceCategory
 from app.schemas.device import ControllerCreate, ControllerResponse, ControllerUpdate, SensorNestedResponse, DeviceGroupNestedResponse, Geolocation
 from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
-from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 
 router = APIRouter(tags=["Controllers"])
 
 
-def _get_device_groups(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER) -> List[DeviceGroupResponse]:
+async def _get_device_groups(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER) -> List[DeviceGroupResponse]:
     """Get device groups for a controller (주체용 - timestamp 포함)"""
-    mappings = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )).scalars().all()
 
     if not mappings:
         return []
 
     group_ids = [m.group_id for m in mappings]
-    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+    groups = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id.in_(group_ids))
+    )).scalars().all()
 
-    return [
-        DeviceGroupResponse(
-            id=g.id,
-            name=g.name,
-            description=g.description,
-            device_count=db.query(DeviceGroupMapping).filter(
+    result: List[DeviceGroupResponse] = []
+    for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
                 DeviceGroupMapping.group_id == g.id
-            ).count(),
-            created_at=g.created_at,
-            updated_at=g.updated_at
+            )
+        )).scalar()
+        result.append(
+            DeviceGroupResponse(
+                id=g.id,
+                name=g.name,
+                description=g.description,
+                device_count=device_count,
+                created_at=g.created_at,
+                updated_at=g.updated_at
+            )
         )
-        for g in groups
-    ]
+    return result
 
 
-def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory) -> List[DeviceGroupNestedResponse]:
+async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory) -> List[DeviceGroupNestedResponse]:
     """Get device groups for nested response (v2.4: timestamp 제외)"""
-    mappings = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )).scalars().all()
 
     if not mappings:
         return []
 
     group_ids = [m.group_id for m in mappings]
-    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+    groups = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id.in_(group_ids))
+    )).scalars().all()
 
-    return [
-        DeviceGroupNestedResponse(
-            id=g.id,
-            name=g.name,
-            description=g.description,
-            device_count=db.query(DeviceGroupMapping).filter(
+    result: List[DeviceGroupNestedResponse] = []
+    for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
                 DeviceGroupMapping.group_id == g.id
-            ).count()
+            )
+        )).scalar()
+        result.append(
+            DeviceGroupNestedResponse(
+                id=g.id,
+                name=g.name,
+                description=g.description,
+                device_count=device_count
+            )
         )
-        for g in groups
-    ]
+    return result
 
 
-def _update_device_group_mappings(
-    db: Session,
+async def _update_device_group_mappings(
+    db: AsyncSession,
     device_id: int,
     group_ids: List[int],
     category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER
 ):
     """Update device group mappings for a controller"""
     # Remove existing mappings
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )
 
     # Create new mappings
     for group_id in group_ids:
         # Verify group exists
-        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == group_id)
+        )).scalars().first()
         if group:
             mapping = DeviceGroupMapping(
                 device_id=device_id,
@@ -100,10 +124,10 @@ def _update_device_group_mappings(
             db.add(mapping)
 
 
-def _controller_to_response(controller: Controller, db: Session, include_sensors: bool = False) -> ControllerResponse:
+async def _controller_to_response(controller: Controller, db: AsyncSession, include_sensors: bool = False) -> ControllerResponse:
     """Convert Controller model to ControllerResponse schema with device_groups"""
     # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
-    device_groups = _get_device_groups_nested(db, controller.id, EnumDeviceCategory.CONTROLLER)
+    device_groups = await _get_device_groups_nested(db, controller.id, EnumDeviceCategory.CONTROLLER)
 
     # PRD_Controller_Sensor_Geolocation.md: Convert geolocation dict to Geolocation schema
     geolocation = None
@@ -128,24 +152,29 @@ def _controller_to_response(controller: Controller, db: Session, include_sensors
     )
 
     if include_sensors:
-        sensors = db.query(Sensor).filter(Sensor.controller_id == controller.id).all()
+        # 명시 두 번째 쿼리 — sensors relationship lazy load 함정 회피
+        sensors = (await db.execute(
+            select(Sensor).where(Sensor.controller_id == controller.id)
+        )).scalars().all()
         # v2.4: SensorNestedResponse 사용 (timestamp 제외, device_groups 포함)
-        sensor_responses = [
-            SensorNestedResponse(
-                id=s.id,
-                number_device=s.number_device,
-                group_device=s.group_device,
-                name_device=s.name_device,
-                type_device=s.type_device.value,
-                version=s.version,
-                status=s.status.value,
-                is_enable=s.is_enable,
-                controller_id=s.controller_id,
-                geolocation=Geolocation(**s.geolocation) if s.geolocation else None,
-                device_groups=_get_device_groups_nested(db, s.id, EnumDeviceCategory.SENSOR)
+        sensor_responses = []
+        for s in sensors:
+            sensor_device_groups = await _get_device_groups_nested(db, s.id, EnumDeviceCategory.SENSOR)
+            sensor_responses.append(
+                SensorNestedResponse(
+                    id=s.id,
+                    number_device=s.number_device,
+                    group_device=s.group_device,
+                    name_device=s.name_device,
+                    type_device=s.type_device.value,
+                    version=s.version,
+                    status=s.status.value,
+                    is_enable=s.is_enable,
+                    controller_id=s.controller_id,
+                    geolocation=Geolocation(**s.geolocation) if s.geolocation else None,
+                    device_groups=sensor_device_groups
+                )
             )
-            for s in sensors
-        ]
         response.sensors = sensor_responses
 
     return response
@@ -159,8 +188,8 @@ async def get_controllers(
     group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링 (N:N 관계)"),
     status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
     include_sensors: bool = Query(False, description="센서 정보 포함 여부 (기본값: false)"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     제어기 목록 조회 (페이지네이션)
@@ -178,34 +207,40 @@ async def get_controllers(
     **Response**: 제어기 목록 및 페이지네이션 정보
     """
     # Build query
-    query = db.query(Controller)
+    stmt = select(Controller)
+    count_stmt = select(func.count()).select_from(Controller)
 
     # Apply filters
     if group_device is not None:
-        query = query.filter(Controller.group_device == group_device)
+        stmt = stmt.where(Controller.group_device == group_device)
+        count_stmt = count_stmt.where(Controller.group_device == group_device)
     if group_id is not None:
         # N:N filtering via DeviceGroupMapping junction table
-        subquery = db.query(DeviceGroupMapping.device_id).filter(
+        subquery = select(DeviceGroupMapping.device_id).where(
             DeviceGroupMapping.group_id == group_id,
             DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER
         ).subquery()
-        query = query.filter(Controller.id.in_(subquery))
+        stmt = stmt.where(Controller.id.in_(select(subquery)))
+        count_stmt = count_stmt.where(Controller.id.in_(select(subquery)))
     if status is not None:
-        query = query.filter(Controller.status == status)
+        stmt = stmt.where(Controller.status == status)
+        count_stmt = count_stmt.where(Controller.status == status)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar()
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by id for stable pagination)
-    controllers = query.order_by(Controller.id).offset(skip).limit(limit).all()
+    controllers = (await db.execute(
+        stmt.order_by(Controller.id).offset(skip).limit(limit)
+    )).scalars().all()
 
     # Convert to response format using helper function
     controller_responses = [
-        _controller_to_response(c, db, include_sensors)
+        await _controller_to_response(c, db, include_sensors)
         for c in controllers
     ]
 
@@ -228,8 +263,8 @@ async def get_controllers(
 async def get_controller(
     controller_id: int,
     include_sensors: bool = Query(False, description="센서 정보 포함 여부 (기본값: false)"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     제어기 단건 조회
@@ -244,7 +279,9 @@ async def get_controller(
     **Error**:
     - 404: 제어기를 찾을 수 없음
     """
-    controller = db.query(Controller).filter(Controller.id == controller_id).first()
+    controller = (await db.execute(
+        select(Controller).where(Controller.id == controller_id)
+    )).scalars().first()
 
     if not controller:
         raise HTTPException(
@@ -252,7 +289,7 @@ async def get_controller(
             detail=f"Controller with id {controller_id} not found"
         )
 
-    controller_response = _controller_to_response(controller, db, include_sensors)
+    controller_response = await _controller_to_response(controller, db, include_sensors)
 
     return ApiSingleResponse(
         success=True,
@@ -261,11 +298,11 @@ async def get_controller(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[ControllerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("devices", "edit"))])
+@router.post("", response_model=ApiSingleResponse[ControllerResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional_async("devices", "edit"))])
 async def create_controller(
     controller_data: ControllerCreate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     제어기 생성
@@ -312,16 +349,16 @@ async def create_controller(
     )
 
     db.add(new_controller)
-    db.commit()
-    db.refresh(new_controller)
+    await db.commit()
+    await db.refresh(new_controller)
 
     # Handle group_ids if provided (N:N relationship)
     if controller_data.group_ids is not None:
-        _update_device_group_mappings(db, new_controller.id, controller_data.group_ids, EnumDeviceCategory.CONTROLLER)
-        db.commit()
+        await _update_device_group_mappings(db, new_controller.id, controller_data.group_ids, EnumDeviceCategory.CONTROLLER)
+        await db.commit()
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2 Section 7)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.CONTROLLER,
         resource_id=new_controller.id,
@@ -331,7 +368,7 @@ async def create_controller(
         description="Controller 생성"
     )
 
-    controller_response = _controller_to_response(new_controller, db)
+    controller_response = await _controller_to_response(new_controller, db)
 
     return ApiSingleResponse(
         success=True,
@@ -340,13 +377,13 @@ async def create_controller(
     )
 
 
-@router.patch("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse], dependencies=[Depends(require_perm_optional("devices", "edit"))])
+@router.patch("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse], dependencies=[Depends(require_perm_optional_async("devices", "edit"))])
 async def update_controller(
     controller_id: int,
     controller_data: ControllerUpdate,
     include_sensors: bool = Query(default=False, description="센서 목록 포함 여부"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     제어기 부분 수정 (PATCH)
@@ -373,7 +410,9 @@ async def update_controller(
     - 404: 제어기를 찾을 수 없음
     - 422: 잘못된 Enum 값
     """
-    controller = db.query(Controller).filter(Controller.id == controller_id).first()
+    controller = (await db.execute(
+        select(Controller).where(Controller.id == controller_id)
+    )).scalars().first()
 
     if not controller:
         raise HTTPException(
@@ -419,16 +458,16 @@ async def update_controller(
 
     # Update group mappings if group_ids was provided
     if group_ids is not None:
-        _update_device_group_mappings(db, controller.id, group_ids, EnumDeviceCategory.CONTROLLER)
+        await _update_device_group_mappings(db, controller.id, group_ids, EnumDeviceCategory.CONTROLLER)
 
-    db.commit()
-    db.refresh(controller)
+    await db.commit()
+    await db.refresh(controller)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2 Section 7)
     after_state = model_to_dict(controller)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:  # 변경된 필드가 있는 경우만 로그
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.CONTROLLER,
             resource_id=controller.id,
@@ -439,7 +478,7 @@ async def update_controller(
             description="Controller 수정"
         )
 
-    controller_response = _controller_to_response(controller, db, include_sensors)
+    controller_response = await _controller_to_response(controller, db, include_sensors)
 
     return ApiSingleResponse(
         success=True,
@@ -448,13 +487,13 @@ async def update_controller(
     )
 
 
-@router.put("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse], dependencies=[Depends(require_perm_optional("devices", "edit"))])
+@router.put("/{controller_id}", response_model=ApiSingleResponse[ControllerResponse], dependencies=[Depends(require_perm_optional_async("devices", "edit"))])
 async def replace_controller(
     controller_id: int,
     controller_data: ControllerCreate,
     include_sensors: bool = Query(default=False, description="센서 목록 포함 여부"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     제어기 전체 수정 (PUT)
@@ -481,7 +520,9 @@ async def replace_controller(
     - 404: 제어기를 찾을 수 없음
     - 422: 잘못된 Enum 값
     """
-    controller = db.query(Controller).filter(Controller.id == controller_id).first()
+    controller = (await db.execute(
+        select(Controller).where(Controller.id == controller_id)
+    )).scalars().first()
 
     if not controller:
         raise HTTPException(
@@ -513,12 +554,12 @@ async def replace_controller(
 
     # Handle group_ids if provided (N:N relationship)
     if controller_data.group_ids is not None:
-        _update_device_group_mappings(db, controller.id, controller_data.group_ids, EnumDeviceCategory.CONTROLLER)
+        await _update_device_group_mappings(db, controller.id, controller_data.group_ids, EnumDeviceCategory.CONTROLLER)
 
-    db.commit()
-    db.refresh(controller)
+    await db.commit()
+    await db.refresh(controller)
 
-    controller_response = _controller_to_response(controller, db, include_sensors)
+    controller_response = await _controller_to_response(controller, db, include_sensors)
 
     return ApiSingleResponse(
         success=True,
@@ -527,11 +568,11 @@ async def replace_controller(
     )
 
 
-@router.delete("/{controller_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("devices", "delete"))])
+@router.delete("/{controller_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional_async("devices", "delete"))])
 async def delete_controller(
     controller_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     제어기 삭제
@@ -545,7 +586,14 @@ async def delete_controller(
     **Error**:
     - 404: 제어기를 찾을 수 없음
     """
-    controller = db.query(Controller).filter(Controller.id == controller_id).first()
+    # Polymorphic ORM cascade(all, delete-orphan) 대응 —
+    # await db.delete(controller) 시 sensors 를 lazy-load 하면 async 에러이므로
+    # selectinload 로 사전 로딩하여 함정 회피.
+    controller = (await db.execute(
+        select(Controller)
+        .options(selectinload(Controller.sensors))
+        .where(Controller.id == controller_id)
+    )).scalars().first()
 
     if not controller:
         raise HTTPException(
@@ -558,26 +606,34 @@ async def delete_controller(
     resource_name = f"Controller-{controller.id} ({controller.name_device})"
 
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == controller_id,
-        DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == controller_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.CONTROLLER
+        )
+    )
 
     # ORM cascade(all, delete-orphan) removes child Sensor rows when controller is deleted,
     # but device_group_mappings.device_id is a polymorphic column (no FK) so SENSOR
     # mappings would orphan. Clean them up explicitly before the cascade fires.
-    child_sensor_ids = [sid for (sid,) in db.query(Sensor.id).filter(Sensor.controller_id == controller_id).all()]
+    child_sensor_ids = [
+        sid for (sid,) in (await db.execute(
+            select(Sensor.id).where(Sensor.controller_id == controller_id)
+        )).all()
+    ]
     if child_sensor_ids:
-        db.query(DeviceGroupMapping).filter(
-            DeviceGroupMapping.device_id.in_(child_sensor_ids),
-            DeviceGroupMapping.category_device == EnumDeviceCategory.SENSOR
-        ).delete(synchronize_session=False)
+        await db.execute(
+            delete(DeviceGroupMapping).where(
+                DeviceGroupMapping.device_id.in_(child_sensor_ids),
+                DeviceGroupMapping.category_device == EnumDeviceCategory.SENSOR
+            )
+        )
 
-    db.delete(controller)
-    db.commit()
+    await db.delete(controller)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2 Section 7)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.CONTROLLER,
         resource_id=controller_id,

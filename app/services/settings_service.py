@@ -6,8 +6,12 @@
 - put(key, value): app_settings UPSERT + 캐시 무효화.
 - 편집 가능한 키만 정의(AUTH_MODE/JWT_SECRET 등 배포전용은 제외).
 시드 후 DB(app_settings)가 권위, .env 는 최초 1회 기본값(FR-SVS-06).
+
+v6.0 P6 후속: sync/async dual-stack. 라우터가 async 세션 사용 시 *_async 호출.
 """
 from typing import Any, Optional
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import settings as app_config
@@ -95,5 +99,54 @@ def put(db: Session, key: str, value: Any, actor_id: Optional[int] = None) -> An
         row.value_type = vtype
         row.updated_by = actor_id
     db.commit()
+    _cache.pop(key, None)
+    return value
+
+
+# ─── async dual-stack (v6.0 P6 후속) ────────────────────────────
+async def seed_if_empty_async(db: AsyncSession) -> None:
+    """seed_if_empty의 async 병존 버전."""
+    inserted = False
+    for key, (default, vtype) in _defaults().items():
+        stmt = select(AppSettings.setting_key).where(AppSettings.setting_key == key)
+        exists = (await db.execute(stmt)).scalar_one_or_none()
+        if not exists:
+            db.add(AppSettings(setting_key=key, setting_value=_serialize(default), value_type=vtype))
+            inserted = True
+    if inserted:
+        await db.commit()
+        invalidate_cache()
+
+
+async def get_async(db: AsyncSession, key: str) -> Any:
+    """get()의 async 병존 버전. 캐시 우선, DB 폴백, 부재 시 기본값."""
+    if key in _cache:
+        return _cache[key]
+    stmt = select(AppSettings).where(AppSettings.setting_key == key)
+    row = (await db.execute(stmt)).scalars().first()
+    if row is None:
+        default, _ = _defaults().get(key, (None, "str"))
+        value = default
+    else:
+        value = _deserialize(row.setting_value, row.value_type)
+    _cache[key] = value
+    return value
+
+
+async def put_async(db: AsyncSession, key: str, value: Any, actor_id: Optional[int] = None) -> Any:
+    """put()의 async 병존 버전. UPSERT + 캐시 무효화."""
+    _, vtype = _defaults().get(key, (None, "str"))
+    if vtype is None:
+        raise ValueError(f"Unknown / non-editable setting key: {key}")
+    stmt = select(AppSettings).where(AppSettings.setting_key == key)
+    row = (await db.execute(stmt)).scalars().first()
+    if row is None:
+        row = AppSettings(setting_key=key, setting_value=_serialize(value), value_type=vtype, updated_by=actor_id)
+        db.add(row)
+    else:
+        row.setting_value = _serialize(value)
+        row.value_type = vtype
+        row.updated_by = actor_id
+    await db.commit()
     _cache.pop(key, None)
     return value

@@ -4,13 +4,14 @@ PRD: PRD_Speaker_Device.md - Section 6
 URL Pattern: /api/file-groups
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.file_group import FileGroup
 from app.models.server import Server
 from app.schemas.file_group import FileGroupCreate, FileGroupUpdate, FileGroupResponse
@@ -31,8 +32,8 @@ async def get_file_groups(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     skip: int = Query(0, ge=0, description="건너뛸 항목 수"),
     server_id: Optional[int] = Query(None, description="서버 ID로 필터링"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     파일 그룹 목록 조회 (페이지네이션)
@@ -46,15 +47,17 @@ async def get_file_groups(
 
     **Response**: 파일 그룹 목록 및 페이지네이션 정보
     """
-    # Build query
-    query = db.query(FileGroup)
+    # Build base select
+    stmt = select(FileGroup)
+    count_stmt = select(func.count()).select_from(FileGroup)
 
     # Apply filters
     if server_id is not None:
-        query = query.filter(FileGroup.server_id == server_id)
+        stmt = stmt.where(FileGroup.server_id == server_id)
+        count_stmt = count_stmt.where(FileGroup.server_id == server_id)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination - support both page and skip/limit style
     if skip > 0:
@@ -65,7 +68,7 @@ async def get_file_groups(
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Apply pagination
-    file_groups = query.offset(offset).limit(limit).all()
+    file_groups = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
 
     # Convert to response format
     response_data = [FileGroupResponse.model_validate(fg) for fg in file_groups]
@@ -89,8 +92,8 @@ async def get_file_groups(
 @router.get("/{file_group_id}", response_model=ApiSingleResponse[FileGroupResponse])
 async def get_file_group(
     file_group_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     파일 그룹 단일 조회
@@ -101,7 +104,7 @@ async def get_file_group(
 
     **Response**: 파일 그룹 정보
     """
-    file_group = db.query(FileGroup).filter(FileGroup.id == file_group_id).first()
+    file_group = (await db.execute(select(FileGroup).where(FileGroup.id == file_group_id))).scalars().first()
 
     if not file_group:
         raise HTTPException(
@@ -122,8 +125,8 @@ async def get_file_group(
 @router.post("", response_model=ApiSingleResponse[FileGroupResponse], status_code=status.HTTP_201_CREATED)
 async def create_file_group(
     file_group_data: FileGroupCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     파일 그룹 생성
@@ -138,7 +141,7 @@ async def create_file_group(
     **Response**: 생성된 파일 그룹 정보
     """
     # Validate server exists
-    server = db.query(Server).filter(Server.id == file_group_data.server_id).first()
+    server = (await db.execute(select(Server).where(Server.id == file_group_data.server_id))).scalars().first()
     if not server:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -155,10 +158,10 @@ async def create_file_group(
 
     try:
         db.add(file_group)
-        db.commit()
-        db.refresh(file_group)
+        await db.commit()
+        await db.refresh(file_group)
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"FileGroup with server_id={file_group_data.server_id} and group_id={file_group_data.group_id} already exists"
@@ -189,8 +192,8 @@ async def create_file_group(
 async def patch_file_group(
     file_group_id: int,
     file_group_data: FileGroupUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     파일 그룹 부분 수정 (PATCH)
@@ -203,7 +206,7 @@ async def patch_file_group(
 
     **Response**: 수정된 파일 그룹 정보
     """
-    file_group = db.query(FileGroup).filter(FileGroup.id == file_group_id).first()
+    file_group = (await db.execute(select(FileGroup).where(FileGroup.id == file_group_id))).scalars().first()
 
     if not file_group:
         raise HTTPException(
@@ -219,8 +222,8 @@ async def patch_file_group(
     for field, value in update_data.items():
         setattr(file_group, field, value)
 
-    db.commit()
-    db.refresh(file_group)
+    await db.commit()
+    await db.refresh(file_group)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(file_group)
@@ -251,8 +254,8 @@ async def patch_file_group(
 async def put_file_group(
     file_group_id: int,
     file_group_data: FileGroupCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     파일 그룹 전체 수정 (PUT)
@@ -267,7 +270,7 @@ async def put_file_group(
 
     **Response**: 수정된 파일 그룹 정보
     """
-    file_group = db.query(FileGroup).filter(FileGroup.id == file_group_id).first()
+    file_group = (await db.execute(select(FileGroup).where(FileGroup.id == file_group_id))).scalars().first()
 
     if not file_group:
         raise HTTPException(
@@ -277,7 +280,7 @@ async def put_file_group(
 
     # Validate server exists if changing
     if file_group_data.server_id != file_group.server_id:
-        server = db.query(Server).filter(Server.id == file_group_data.server_id).first()
+        server = (await db.execute(select(Server).where(Server.id == file_group_data.server_id))).scalars().first()
         if not server:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -290,8 +293,8 @@ async def put_file_group(
     file_group.group_name = file_group_data.group_name
     file_group.files = file_group_data.files
 
-    db.commit()
-    db.refresh(file_group)
+    await db.commit()
+    await db.refresh(file_group)
 
     return ApiSingleResponse(
         success=True,
@@ -306,8 +309,8 @@ async def put_file_group(
 @router.delete("/{file_group_id}", response_model=ApiSingleResponse)
 async def delete_file_group(
     file_group_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     파일 그룹 삭제
@@ -318,7 +321,7 @@ async def delete_file_group(
 
     **Response**: 삭제 성공 메시지
     """
-    file_group = db.query(FileGroup).filter(FileGroup.id == file_group_id).first()
+    file_group = (await db.execute(select(FileGroup).where(FileGroup.id == file_group_id))).scalars().first()
 
     if not file_group:
         raise HTTPException(
@@ -331,8 +334,8 @@ async def delete_file_group(
     deleted_identifier = {"id": file_group.id, "name": file_group.group_name}
     deleted_name = f"FileGroup-{file_group.id} ({file_group.group_name})"
 
-    db.delete(file_group)
-    db.commit()
+    await db.delete(file_group)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
     log_config_change(

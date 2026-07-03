@@ -9,9 +9,12 @@ PRD: PRD_Thumbnail_Image.md v1.1
 - GET /api/thumbnails/images/{file_name}: 이미지 바이너리 반환 (파일명 기반)
 - DELETE /api/thumbnails/{id}: 파일 + DB 삭제
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
 from datetime import datetime
@@ -20,8 +23,8 @@ from PIL import Image
 import os
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.thumbnail import Thumbnail
 from app.schemas.thumbnail import ThumbnailResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -30,6 +33,18 @@ from app.config import settings
 router = APIRouter(tags=["Thumbnails"])
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+def _write_file_sync(path: str, content: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(content)
+
+
+def _remove_file_sync(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 # ===== POST /api/thumbnails =====
@@ -48,8 +63,8 @@ ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 async def upload_thumbnail(
     file: UploadFile = File(..., description="이미지 파일 (image/jpeg, image/png, image/gif, image/webp)"),
     file_name: str = Form(..., description="저장할 파일명 (클라이언트 지정, 예: CAM-001_2026-02-19_14-30-25-123.jpg)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     썸네일 이미지 업로드
@@ -83,13 +98,12 @@ async def upload_thumbnail(
     dir_path = os.path.join(settings.THUMBNAIL_STORAGE_PATH, date_dir)
     file_path = os.path.join(dir_path, file_name)
 
-    # Create directory if not exists
-    os.makedirs(dir_path, exist_ok=True)
+    # Create directory if not exists (offload blocking filesystem call)
+    await asyncio.to_thread(os.makedirs, dir_path, exist_ok=True)
 
-    # Save file to disk
+    # Save file to disk (blocking I/O -> to_thread)
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    await asyncio.to_thread(_write_file_sync, file_path, content)
 
     # Extract width/height from image
     width, height = None, None
@@ -110,19 +124,16 @@ async def upload_thumbnail(
     )
     db.add(thumbnail)
     try:
-        db.commit()
+        await db.commit()
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         # Clean up the saved file
-        try:
-            os.remove(file_path)
-        except FileNotFoundError:
-            pass
+        await asyncio.to_thread(_remove_file_sync, file_path)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Thumbnail with file_name '{file_name}' already exists",
         )
-    db.refresh(thumbnail)
+    await db.refresh(thumbnail)
 
     return ApiSingleResponse(
         success=True,
@@ -143,8 +154,8 @@ async def list_thumbnails(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜 필터 (ISO 8601)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜 필터 (ISO 8601)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     썸네일 목록 조회 (페이지네이션)
@@ -159,22 +170,28 @@ async def list_thumbnails(
 
     **Response**: 썸네일 목록 및 페이지네이션 정보
     """
-    query = db.query(Thumbnail)
-
+    # Compose filter clauses once so count + select share the same predicates
+    filters = []
     if start_date:
-        query = query.filter(Thumbnail.created_at >= start_date)
+        filters.append(Thumbnail.created_at >= start_date)
     if end_date:
-        query = query.filter(Thumbnail.created_at <= end_date)
+        filters.append(Thumbnail.created_at <= end_date)
 
-    total = query.count()
+    count_stmt = select(func.count()).select_from(Thumbnail)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+    total = (await db.execute(count_stmt)).scalar() or 0
     total_pages = math.ceil(total / limit) if total > 0 else 0
 
-    thumbnails = (
-        query.order_by(Thumbnail.created_at.desc())
+    list_stmt = select(Thumbnail)
+    if filters:
+        list_stmt = list_stmt.where(*filters)
+    list_stmt = (
+        list_stmt.order_by(Thumbnail.created_at.desc())
         .offset((page - 1) * limit)
         .limit(limit)
-        .all()
     )
+    thumbnails = (await db.execute(list_stmt)).scalars().all()
 
     return ApiResponse(
         success=True,
@@ -201,7 +218,7 @@ async def list_thumbnails(
 )
 async def get_thumbnail_image_by_file_name(
     file_name: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     썸네일 이미지 바이너리 반환 (파일명 기반)
@@ -217,14 +234,17 @@ async def get_thumbnail_image_by_file_name(
     **Error**:
     - 404: 해당 file_name의 DB 레코드 없음 또는 파일이 디스크에 존재하지 않음
     """
-    thumbnail = db.query(Thumbnail).filter(Thumbnail.file_name == file_name).first()
+    thumbnail = (
+        await db.execute(select(Thumbnail).where(Thumbnail.file_name == file_name))
+    ).scalars().first()
     if not thumbnail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Thumbnail with file_name '{file_name}' not found",
         )
 
-    if not os.path.exists(thumbnail.file_path):
+    exists = await asyncio.to_thread(os.path.exists, thumbnail.file_path)
+    if not exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Thumbnail file not found on disk",
@@ -248,8 +268,8 @@ async def get_thumbnail_image_by_file_name(
 )
 async def get_thumbnail(
     thumbnail_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     썸네일 메타데이터 단건 조회
@@ -264,7 +284,9 @@ async def get_thumbnail(
     **Error**:
     - 404: 썸네일을 찾을 수 없음
     """
-    thumbnail = db.query(Thumbnail).filter(Thumbnail.id == thumbnail_id).first()
+    thumbnail = (
+        await db.execute(select(Thumbnail).where(Thumbnail.id == thumbnail_id))
+    ).scalars().first()
     if not thumbnail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -290,7 +312,7 @@ async def get_thumbnail(
 )
 async def get_thumbnail_image(
     thumbnail_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     썸네일 이미지 바이너리 반환 (ID 기반)
@@ -305,14 +327,17 @@ async def get_thumbnail_image(
     **Error**:
     - 404: 썸네일 DB 레코드 없음 또는 파일이 디스크에 존재하지 않음
     """
-    thumbnail = db.query(Thumbnail).filter(Thumbnail.id == thumbnail_id).first()
+    thumbnail = (
+        await db.execute(select(Thumbnail).where(Thumbnail.id == thumbnail_id))
+    ).scalars().first()
     if not thumbnail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Thumbnail with id {thumbnail_id} not found",
         )
 
-    if not os.path.exists(thumbnail.file_path):
+    exists = await asyncio.to_thread(os.path.exists, thumbnail.file_path)
+    if not exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Thumbnail file not found on disk",
@@ -336,8 +361,8 @@ async def get_thumbnail_image(
 )
 async def delete_thumbnail(
     thumbnail_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     썸네일 삭제
@@ -352,21 +377,20 @@ async def delete_thumbnail(
     **Error**:
     - 404: 썸네일을 찾을 수 없음
     """
-    thumbnail = db.query(Thumbnail).filter(Thumbnail.id == thumbnail_id).first()
+    thumbnail = (
+        await db.execute(select(Thumbnail).where(Thumbnail.id == thumbnail_id))
+    ).scalars().first()
     if not thumbnail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Thumbnail with id {thumbnail_id} not found",
         )
 
-    # Delete file from disk (ignore if already missing)
-    try:
-        os.remove(thumbnail.file_path)
-    except FileNotFoundError:
-        pass
+    # Delete file from disk (ignore if already missing) — offload blocking I/O
+    await asyncio.to_thread(_remove_file_sync, thumbnail.file_path)
 
-    db.delete(thumbnail)
-    db.commit()
+    await db.delete(thumbnail)
+    await db.commit()
 
     return ApiSingleResponse(
         success=True,

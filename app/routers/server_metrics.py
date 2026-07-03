@@ -3,12 +3,13 @@ Server Metrics API endpoints
 Based on PRD_System_Event.md Section 2.4
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.server import Server, ServerMetrics
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
@@ -100,7 +101,7 @@ def _check_thresholds(metrics: ServerMetrics, threshold_config: dict) -> dict:
 
 
 def _create_threshold_event(
-    db: Session,
+    db: AsyncSession,
     server: Server,
     resource_type: str,
     threshold_info: dict
@@ -134,8 +135,8 @@ def _create_threshold_event(
     return event
 
 
-def _create_threshold_events(
-    db: Session,
+async def _create_threshold_events(
+    db: AsyncSession,
     server: Server,
     threshold_exceeded: dict
 ) -> None:
@@ -146,7 +147,7 @@ def _create_threshold_events(
     for resource_type, threshold_info in threshold_exceeded.items():
         _create_threshold_event(db, server, resource_type, threshold_info)
 
-    db.commit()
+    await db.commit()
 
 
 @router.post(
@@ -157,8 +158,8 @@ def _create_threshold_events(
 async def create_server_metrics(
     server_id: int,
     metrics_data: ServerMetricsCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 메트릭 저장
@@ -189,7 +190,7 @@ async def create_server_metrics(
     - 404: 서버를 찾을 수 없음
     """
     # 서버 존재 확인
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (await db.execute(select(Server).where(Server.id == server_id))).scalars().first()
     if not server:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -214,15 +215,15 @@ async def create_server_metrics(
     )
 
     db.add(new_metrics)
-    db.commit()
-    db.refresh(new_metrics)
+    await db.commit()
+    await db.refresh(new_metrics)
 
     # 임계치 체크
     threshold_exceeded = _check_thresholds(new_metrics, server.threshold_config)
 
     # 임계치 초과 시 시스템 이벤트 생성
     if threshold_exceeded:
-        _create_threshold_events(db, server, threshold_exceeded)
+        await _create_threshold_events(db, server, threshold_exceeded)
 
     return ApiSingleResponse(
         success=True,
@@ -240,8 +241,8 @@ async def get_server_metrics(
     limit: int = Query(100, ge=1, le=1000, description="조회할 메트릭 수 (기본값: 100, 최대: 1000)"),
     start_time: Optional[datetime] = Query(None, description="시작 시간 (ISO 8601)"),
     end_time: Optional[datetime] = Query(None, description="종료 시간 (ISO 8601)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 메트릭 목록 조회
@@ -260,7 +261,7 @@ async def get_server_metrics(
     - 404: 서버를 찾을 수 없음
     """
     # 서버 존재 확인
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (await db.execute(select(Server).where(Server.id == server_id))).scalars().first()
     if not server:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -268,15 +269,16 @@ async def get_server_metrics(
         )
 
     # 쿼리 빌드
-    query = db.query(ServerMetrics).filter(ServerMetrics.server_id == server_id)
+    stmt = select(ServerMetrics).where(ServerMetrics.server_id == server_id)
 
     if start_time:
-        query = query.filter(ServerMetrics.created_at >= start_time)
+        stmt = stmt.where(ServerMetrics.created_at >= start_time)
     if end_time:
-        query = query.filter(ServerMetrics.created_at <= end_time)
+        stmt = stmt.where(ServerMetrics.created_at <= end_time)
 
     # 최신순 정렬 및 제한
-    metrics_list = query.order_by(ServerMetrics.created_at.desc()).limit(limit).all()
+    stmt = stmt.order_by(ServerMetrics.created_at.desc()).limit(limit)
+    metrics_list = (await db.execute(stmt)).scalars().all()
 
     return ApiResponse(
         success=True,
@@ -291,8 +293,8 @@ async def get_server_metrics(
 )
 async def get_server_metrics_latest(
     server_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     서버 최신 메트릭 조회
@@ -308,7 +310,7 @@ async def get_server_metrics_latest(
     - 404: 서버를 찾을 수 없음
     """
     # 서버 존재 확인
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (await db.execute(select(Server).where(Server.id == server_id))).scalars().first()
     if not server:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -316,9 +318,13 @@ async def get_server_metrics_latest(
         )
 
     # 최신 메트릭 조회
-    latest_metrics = db.query(ServerMetrics).filter(
-        ServerMetrics.server_id == server_id
-    ).order_by(ServerMetrics.created_at.desc()).first()
+    latest_metrics = (
+        await db.execute(
+            select(ServerMetrics)
+            .where(ServerMetrics.server_id == server_id)
+            .order_by(ServerMetrics.created_at.desc())
+        )
+    ).scalars().first()
 
     latest_response = None
     if latest_metrics:
@@ -343,8 +349,8 @@ async def get_server_metrics_latest(
 async def delete_old_server_metrics(
     server_id: int,
     older_than_days: int = Query(30, ge=1, description="삭제할 메트릭의 기준 일수 (기본값: 30일 이전)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     오래된 서버 메트릭 삭제
@@ -363,7 +369,7 @@ async def delete_old_server_metrics(
     from datetime import timedelta
 
     # 서버 존재 확인
-    server = db.query(Server).filter(Server.id == server_id).first()
+    server = (await db.execute(select(Server).where(Server.id == server_id))).scalars().first()
     if not server:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -375,12 +381,15 @@ async def delete_old_server_metrics(
     cutoff_time = datetime.now(settings.tz) - timedelta(days=older_than_days)
 
     # 오래된 메트릭 삭제
-    deleted_count = db.query(ServerMetrics).filter(
-        ServerMetrics.server_id == server_id,
-        ServerMetrics.created_at < cutoff_time
-    ).delete()
+    result = await db.execute(
+        delete(ServerMetrics).where(
+            ServerMetrics.server_id == server_id,
+            ServerMetrics.created_at < cutoff_time
+        )
+    )
+    deleted_count = result.rowcount
 
-    db.commit()
+    await db.commit()
 
     return ApiSingleResponse(
         success=True,

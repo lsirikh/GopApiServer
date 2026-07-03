@@ -3,12 +3,13 @@ Log viewing API endpoints
 """
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.log import ApiLog
 from app.schemas.log import ApiLogResponse
 from app.schemas.common import ApiResponse, PaginationMeta
@@ -25,7 +26,7 @@ async def get_logs(
     method: Optional[str] = Query(None, description="HTTP 메소드로 필터링 (GET, POST 등)"),
     resource: Optional[str] = Query(None, description="리소스로 필터링 (예: devices/controllers)"),
     client_uuid: Optional[str] = Query(None, description="클라이언트 UUID로 필터링"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     API 로그 목록 조회 (페이지네이션)
@@ -43,38 +44,46 @@ async def get_logs(
 
     **Response**: API 로그 목록 및 페이지네이션 정보
     """
-    query = db.query(ApiLog)
+    stmt = select(ApiLog)
+    count_stmt = select(func.count()).select_from(ApiLog)
 
     # Apply date range filtering
     if start_date:
         start_dt = datetime.fromisoformat(start_date)
-        query = query.filter(ApiLog.timestamp >= start_dt)
+        stmt = stmt.where(ApiLog.timestamp >= start_dt)
+        count_stmt = count_stmt.where(ApiLog.timestamp >= start_dt)
 
     if end_date:
         end_dt = datetime.fromisoformat(end_date)
-        query = query.filter(ApiLog.timestamp <= end_dt)
+        stmt = stmt.where(ApiLog.timestamp <= end_dt)
+        count_stmt = count_stmt.where(ApiLog.timestamp <= end_dt)
 
     # Apply method filtering
     if method:
-        query = query.filter(ApiLog.method == method)
+        stmt = stmt.where(ApiLog.method == method)
+        count_stmt = count_stmt.where(ApiLog.method == method)
 
     # Apply resource filtering
     if resource:
-        query = query.filter(ApiLog.resource == resource)
+        stmt = stmt.where(ApiLog.resource == resource)
+        count_stmt = count_stmt.where(ApiLog.resource == resource)
 
     # Apply client_uuid filtering
     if client_uuid:
-        query = query.filter(ApiLog.client_uuid == client_uuid)
+        stmt = stmt.where(ApiLog.client_uuid == client_uuid)
+        count_stmt = count_stmt.where(ApiLog.client_uuid == client_uuid)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Apply pagination and ordering (most recent first)
-    logs = query.order_by(ApiLog.timestamp.desc(), ApiLog.id.desc()).offset(skip).limit(limit).all()
+    logs = (await db.execute(
+        stmt.order_by(ApiLog.timestamp.desc(), ApiLog.id.desc()).offset(skip).limit(limit)
+    )).scalars().all()
 
     pagination = PaginationMeta(
         page=page,

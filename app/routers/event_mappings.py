@@ -5,12 +5,13 @@ PRD: PRD_CategoryEvent_Refactoring.md v1.1
 - category_event → category_event_mapping 필드명 변경
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.integration import EventMapping
 from app.schemas.integration import EventMappingCreate, EventMappingResponse, EventMappingUpdate
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
@@ -28,8 +29,8 @@ async def get_event_mappings(
     device_group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링"),
     category_event_mapping: Optional[EnumMappingEventCategory] = Query(None, description="이벤트 매핑 카테고리로 필터링"),
     status_filter: Optional[bool] = Query(None, alias="status", description="상태로 필터링"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     이벤트 매핑 목록 조회 (페이지네이션)
@@ -49,28 +50,35 @@ async def get_event_mappings(
 
     **Response**: 이벤트 매핑 목록 및 페이지네이션 정보
     """
-    # Build query
-    query = db.query(EventMapping)
+    # Build base statements
+    stmt = select(EventMapping)
+    count_stmt = select(func.count()).select_from(EventMapping)
 
     # Apply filters
     if name_event is not None:
-        query = query.filter(EventMapping.name_event == name_event)
+        stmt = stmt.where(EventMapping.name_event == name_event)
+        count_stmt = count_stmt.where(EventMapping.name_event == name_event)
     if device_group_id is not None:
-        query = query.filter(EventMapping.device_group_id == device_group_id)
+        stmt = stmt.where(EventMapping.device_group_id == device_group_id)
+        count_stmt = count_stmt.where(EventMapping.device_group_id == device_group_id)
     if category_event_mapping is not None:
-        query = query.filter(EventMapping.category_event_mapping == category_event_mapping)
+        stmt = stmt.where(EventMapping.category_event_mapping == category_event_mapping)
+        count_stmt = count_stmt.where(EventMapping.category_event_mapping == category_event_mapping)
     if status_filter is not None:
-        query = query.filter(EventMapping.status == status_filter)
+        stmt = stmt.where(EventMapping.status == status_filter)
+        count_stmt = count_stmt.where(EventMapping.status == status_filter)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by id for stable pagination)
-    mappings = query.order_by(EventMapping.id).offset(skip).limit(limit).all()
+    mappings = (await db.execute(
+        stmt.order_by(EventMapping.id).offset(skip).limit(limit)
+    )).scalars().all()
 
     # Convert to response format (PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping)
     mapping_responses = [
@@ -105,8 +113,8 @@ async def get_event_mappings(
 @router.get("/{mapping_id}", response_model=ApiSingleResponse[EventMappingResponse])
 async def get_event_mapping(
     mapping_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     이벤트 매핑 단건 조회
@@ -121,7 +129,9 @@ async def get_event_mapping(
     **Error**:
     - 404: 이벤트 매핑을 찾을 수 없음
     """
-    mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
 
     if not mapping:
         raise HTTPException(
@@ -151,8 +161,8 @@ async def get_event_mapping(
 @router.post("", response_model=ApiSingleResponse[EventMappingResponse], status_code=status.HTTP_201_CREATED)
 async def create_event_mapping(
     mapping: EventMappingCreate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     이벤트 매핑 생성
@@ -180,8 +190,8 @@ async def create_event_mapping(
     )
 
     db.add(new_mapping)
-    db.commit()
-    db.refresh(new_mapping)
+    await db.commit()
+    await db.refresh(new_mapping)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
     log_config_change(
@@ -217,8 +227,8 @@ async def create_event_mapping(
 async def update_event_mapping_partial(
     mapping_id: int,
     mapping: EventMappingUpdate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     이벤트 매핑 부분 수정 (PATCH)
@@ -243,7 +253,9 @@ async def update_event_mapping_partial(
     **Error**:
     - 404: 이벤트 매핑을 찾을 수 없음
     """
-    existing_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    existing_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
 
     if not existing_mapping:
         raise HTTPException(
@@ -259,8 +271,8 @@ async def update_event_mapping_partial(
     for field, value in update_data.items():
         setattr(existing_mapping, field, value)
 
-    db.commit()
-    db.refresh(existing_mapping)
+    await db.commit()
+    await db.refresh(existing_mapping)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(existing_mapping)
@@ -300,8 +312,8 @@ async def update_event_mapping_partial(
 async def update_event_mapping_full(
     mapping_id: int,
     mapping: EventMappingCreate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     이벤트 매핑 전체 수정 (PUT)
@@ -326,7 +338,9 @@ async def update_event_mapping_full(
     **Error**:
     - 404: 이벤트 매핑을 찾을 수 없음
     """
-    existing_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    existing_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
 
     if not existing_mapping:
         raise HTTPException(
@@ -341,8 +355,8 @@ async def update_event_mapping_full(
     existing_mapping.description = mapping.description
     existing_mapping.status = mapping.status
 
-    db.commit()
-    db.refresh(existing_mapping)
+    await db.commit()
+    await db.refresh(existing_mapping)
 
     # PRD v2.1: device_group_id 사용, PRD CategoryEvent: category_event_mapping
     mapping_response = EventMappingResponse(
@@ -366,8 +380,8 @@ async def update_event_mapping_full(
 @router.delete("/{mapping_id}", response_model=ApiSingleResponse[None])
 async def delete_event_mapping(
     mapping_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     이벤트 매핑 삭제
@@ -382,7 +396,9 @@ async def delete_event_mapping(
     **Error**:
     - 404: 이벤트 매핑을 찾을 수 없음
     """
-    mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
 
     if not mapping:
         raise HTTPException(
@@ -395,8 +411,8 @@ async def delete_event_mapping(
     deleted_identifier = {"id": mapping.id, "name_event": mapping.name_event}
     deleted_name = f"EventMapping-{mapping.id} ({mapping.name_event})"
 
-    db.delete(mapping)
-    db.commit()
+    await db.delete(mapping)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
     log_config_change(

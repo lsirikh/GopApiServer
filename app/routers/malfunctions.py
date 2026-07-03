@@ -6,17 +6,29 @@ PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - device_description: Device 정보 스냅샷 (자동 생성)
 - Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
 - group_event 필드 제거됨
+
+v6.0 P8 VeryComplex: 라우터 async 전환 (Dual-stack)
+- get_db → get_async_db
+- Session → AsyncSession
+- get_current_account_user_optional → _async
+- require_perm_optional → _async
+- log_config_change → log_config_change_async
+- db.query(...) → await db.execute(select(...))
+- 서비스 레이어(get_changed_fields/model_to_dict/_generate_device_description)는 순수 sync 유지
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, selectin_polymorphic
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional, require_perm_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async, require_perm_optional_async
 from app.models.event import MalfunctionEvent, ActionEvent, EnumTrueFalse, EnumFaultType
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
+from app.models.device_group import DeviceGroupMapping
 from app.schemas.event import MalfunctionEventCreate, MalfunctionEventReplace, MalfunctionEventResponse, MalfunctionEventUpdate, ActionEventResponse
 from app.schemas.device import (
     DeviceGroupNestedResponse,
@@ -29,7 +41,7 @@ from app.schemas.device import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_changed_fields, model_to_dict
 from typing import Union
 
 router = APIRouter(tags=[])
@@ -45,7 +57,7 @@ def _generate_device_description(device: Device) -> str:
     return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
+async def _build_device_nested_response(device: Optional[Device], db: AsyncSession) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """
     Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
 
@@ -58,20 +70,29 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
     - Speaker → SpeakerNestedResponse
     - Enclosure → DeviceNestedResponse (전용 NestedResponse 없음)
     - Lamp → LampNestedResponse
+
+    v6.0 P8 async 전환: db.query → await db.execute(select(...))
+    mapping.group 은 selectinload 로 eager load (async lazy 금지)
     """
     if device is None:
         return None
 
     # PRD v1.2: Build device_groups from group_mappings relationship
+    # v6.0 P1 Tidy First: lazy='dynamic' relationship → 명시적 쿼리 로 교체
+    # v6.0 P8: async — selectinload(group) 로 관계 eager load (lazy 접근 금지)
     device_groups = []
-    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
-        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
-        for mapping in mappings:
-            if mapping.group:
-                device_groups.append(DeviceGroupNestedResponse(
-                    id=mapping.group.id,
-                    name=mapping.group.name
-                ))
+    result = await db.execute(
+        select(DeviceGroupMapping)
+        .options(selectinload(DeviceGroupMapping.group))
+        .where(DeviceGroupMapping.device_id == device.id)
+    )
+    mappings = result.scalars().all()
+    for mapping in mappings:
+        if mapping.group:
+            device_groups.append(DeviceGroupNestedResponse(
+                id=mapping.group.id,
+                name=mapping.group.name
+            ))
 
     # PRD v2.7: Polymorphic Response - Device 타입에 따라 적절한 스키마 반환
     if isinstance(device, Sensor):
@@ -188,8 +209,8 @@ async def get_malfunction_events(
     reason: Optional[str] = Query(None, description="장애 원인으로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트 목록 조회 (페이지네이션)
@@ -210,29 +231,41 @@ async def get_malfunction_events(
     **Response**: 장애 이벤트 목록 및 페이지네이션 정보
     """
     # Build query with device eager loading (PRD v2.1)
-    query = db.query(MalfunctionEvent).options(selectinload(MalfunctionEvent.device))
+    # v6.0 P8: async — select(...) + selectinload
+    stmt = select(MalfunctionEvent).options(selectinload(MalfunctionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+    count_stmt = select(func.count()).select_from(MalfunctionEvent)
 
-    # Apply filters (PRD v2.1: device_id 기반 필터링)
+    # Apply filters (PRD v2.1: device_id 기반 필터링) — stmt/count_stmt 양쪽에 동일 적용
     if device_id is not None:
-        query = query.filter(MalfunctionEvent.device_id == device_id)
+        stmt = stmt.where(MalfunctionEvent.device_id == device_id)
+        count_stmt = count_stmt.where(MalfunctionEvent.device_id == device_id)
     if action_reported is not None:
-        query = query.filter(MalfunctionEvent.action_reported == action_reported)
+        stmt = stmt.where(MalfunctionEvent.action_reported == action_reported)
+        count_stmt = count_stmt.where(MalfunctionEvent.action_reported == action_reported)
     if reason is not None:
-        query = query.filter(MalfunctionEvent.reason == reason)
+        stmt = stmt.where(MalfunctionEvent.reason == reason)
+        count_stmt = count_stmt.where(MalfunctionEvent.reason == reason)
     if start_date is not None:
-        query = query.filter(MalfunctionEvent.created_at >= start_date)
+        stmt = stmt.where(MalfunctionEvent.created_at >= start_date)
+        count_stmt = count_stmt.where(MalfunctionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(MalfunctionEvent.created_at <= end_date)
+        stmt = stmt.where(MalfunctionEvent.created_at <= end_date)
+        count_stmt = count_stmt.where(MalfunctionEvent.created_at <= end_date)
 
     # Get total count (필터 적용된 쿼리 기준)
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by created_at desc)
-    events = query.order_by(MalfunctionEvent.created_at.desc(), MalfunctionEvent.id.desc()).offset(skip).limit(limit).all()
+    result = await db.execute(
+        stmt.order_by(MalfunctionEvent.created_at.desc(), MalfunctionEvent.id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    events = result.scalars().all()
 
     # Convert to response format (PRD v2.1: group_event 제거됨, device nested and device_description 포함)
     # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)
@@ -244,7 +277,7 @@ async def get_malfunction_events(
             type_event=e.type_event,
             action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
             reason=e.reason.value,
-            device=_build_device_nested_response(e.device),
+            device=await _build_device_nested_response(e.device, db),
             device_description=e.device_description,
             detail=e.detail,
             created_at=e.created_at,
@@ -271,8 +304,8 @@ async def get_malfunction_events(
 @router.get("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse])
 async def get_malfunction_event(
     event_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트 단건 조회
@@ -288,9 +321,12 @@ async def get_malfunction_event(
     - 404: 장애 이벤트를 찾을 수 없음
     """
     # PRD v1.1: Eager load device relationship
-    event = db.query(MalfunctionEvent).options(
-        selectinload(MalfunctionEvent.device)
-    ).filter(MalfunctionEvent.id == event_id).first()
+    result = await db.execute(
+        select(MalfunctionEvent)
+        .options(selectinload(MalfunctionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(MalfunctionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -307,7 +343,7 @@ async def get_malfunction_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        device=_build_device_nested_response(event.device),
+        device=await _build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,
         created_at=event.created_at,
@@ -321,11 +357,11 @@ async def get_malfunction_event(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[MalfunctionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional("events", "edit"))])
+@router.post("", response_model=ApiSingleResponse[MalfunctionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def create_malfunction_event(
     event_data: MalfunctionEventCreate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트 생성
@@ -350,7 +386,14 @@ async def create_malfunction_event(
     - 422: 유효하지 않은 enum 값
     """
     # PRD v1.1: Validate device_id exists
-    device = db.query(Device).filter(Device.id == event_data.device_id).first()
+    # v6.0 P8 hotfix: selectin_polymorphic 로 서브타입 필드 미리 로드 (create 응답 조립 시 lazy load 회피)
+    from app.models.device import Sensor, Camera, Controller, Speaker, Enclosure, Lamp
+    device_result = await db.execute(
+        select(Device)
+        .options(selectin_polymorphic(Device, [Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(Device.id == event_data.device_id)
+    )
+    device = device_result.scalars().first()
     if not device:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -387,11 +430,11 @@ async def create_malfunction_event(
     )
 
     db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
+    await db.commit()
+    await db.refresh(new_event)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.MALFUNCTION_EVENT,
         resource_id=new_event.id,
@@ -410,7 +453,7 @@ async def create_malfunction_event(
         type_event=new_event.type_event,
         action_reported=new_event.action_reported.value if hasattr(new_event.action_reported, 'value') else new_event.action_reported,
         reason=new_event.reason.value,
-        device=_build_device_nested_response(device),
+        device=await _build_device_nested_response(device, db),
         device_description=new_event.device_description,
         detail=new_event.detail,
         created_at=new_event.created_at,
@@ -424,12 +467,12 @@ async def create_malfunction_event(
     )
 
 
-@router.patch("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse], dependencies=[Depends(require_perm_optional("events", "edit"))])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse], dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def update_malfunction_event(
     event_id: int,
     event_data: MalfunctionEventUpdate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트 부분 수정 (PATCH)
@@ -455,9 +498,12 @@ async def update_malfunction_event(
     - 422: 유효하지 않은 enum 값
     """
     # PRD v1.1: Eager load device relationship
-    event = db.query(MalfunctionEvent).options(
-        selectinload(MalfunctionEvent.device)
-    ).filter(MalfunctionEvent.id == event_id).first()
+    result = await db.execute(
+        select(MalfunctionEvent)
+        .options(selectinload(MalfunctionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(MalfunctionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -492,14 +538,14 @@ async def update_malfunction_event(
 
         setattr(event, field, value)
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(event)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.MALFUNCTION_EVENT,
             resource_id=event.id,
@@ -517,7 +563,7 @@ async def update_malfunction_event(
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        device=_build_device_nested_response(event.device),
+        device=await _build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,
         created_at=event.created_at,
@@ -531,12 +577,12 @@ async def update_malfunction_event(
     )
 
 
-@router.put("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse], dependencies=[Depends(require_perm_optional("events", "edit"))])
+@router.put("/{event_id}", response_model=ApiSingleResponse[MalfunctionEventResponse], dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def replace_malfunction_event(
     event_id: int,
     event_data: MalfunctionEventReplace,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트 전체 수정 (PUT)
@@ -567,7 +613,13 @@ async def replace_malfunction_event(
     - 404: 장애 이벤트를 찾을 수 없음
     - 422: 유효하지 않은 enum 값 / device_id/device_description 등 금지 필드 전송
     """
-    event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
+    # v6.0 P8: async — response에서 event.device 접근 → selectinload 로 eager load
+    result = await db.execute(
+        select(MalfunctionEvent)
+        .options(selectinload(MalfunctionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(MalfunctionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -594,15 +646,15 @@ async def replace_malfunction_event(
     event.reason = fault_reason
     event.detail = event_data.detail  # 케이블 위치 정보 포함
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     event_response = MalfunctionEventResponse(
         id=event.id,
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         reason=event.reason.value,
-        device=_build_device_nested_response(event.device),
+        device=await _build_device_nested_response(event.device, db),
         device_description=event.device_description,
         detail=event.detail,
         created_at=event.created_at,
@@ -616,11 +668,11 @@ async def replace_malfunction_event(
     )
 
 
-@router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional("events", "delete"))])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional_async("events", "delete"))])
 async def delete_malfunction_event(
     event_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트 삭제
@@ -636,7 +688,8 @@ async def delete_malfunction_event(
     - 404: 장애 이벤트를 찾을 수 없음
     - 409: 조치보고가 등록된 장애 이벤트는 삭제 불가
     """
-    event = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
+    result = await db.execute(select(MalfunctionEvent).where(MalfunctionEvent.id == event_id))
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -656,11 +709,11 @@ async def delete_malfunction_event(
     deleted_identifier = {"id": event.id, "type_event": event.type_event}
     deleted_name = f"MalfunctionEvent-{event.id} ({event.type_event})"
 
-    db.delete(event)
-    db.commit()
+    await db.delete(event)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.MALFUNCTION_EVENT,
         resource_id=deleted_id,
@@ -680,8 +733,8 @@ async def delete_malfunction_event(
 @router.get("/{event_id}/actions", response_model=ApiResponse[list[ActionEventResponse]])
 async def get_action_events_for_malfunction(
     event_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     장애 이벤트의 조치 이벤트 목록 조회
@@ -697,8 +750,13 @@ async def get_action_events_for_malfunction(
     **Error**:
     - 404: 장애 이벤트를 찾을 수 없음
     """
-    # 1. MalfunctionEvent 존재 확인
-    malfunction = db.query(MalfunctionEvent).filter(MalfunctionEvent.id == event_id).first()
+    # 1. MalfunctionEvent 존재 확인 — source event response 에서 malfunction.device 접근하므로 selectinload
+    mal_result = await db.execute(
+        select(MalfunctionEvent)
+        .options(selectinload(MalfunctionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(MalfunctionEvent.id == event_id)
+    )
+    malfunction = mal_result.scalars().first()
     if not malfunction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -706,9 +764,12 @@ async def get_action_events_for_malfunction(
         )
 
     # 2. ActionEvent 목록 조회 (1:N 관계)
-    actions = db.query(ActionEvent).filter(
-        ActionEvent.from_event_id == event_id
-    ).order_by(ActionEvent.created_at.desc()).all()
+    action_result = await db.execute(
+        select(ActionEvent)
+        .where(ActionEvent.from_event_id == event_id)
+        .order_by(ActionEvent.created_at.desc())
+    )
+    actions = action_result.scalars().all()
 
     # 3. source event response 구성
     source_event_response = MalfunctionEventResponse(
@@ -716,7 +777,7 @@ async def get_action_events_for_malfunction(
         type_event=malfunction.type_event,
         action_reported=malfunction.action_reported.value if hasattr(malfunction.action_reported, 'value') else malfunction.action_reported,
         reason=malfunction.reason.value,
-        device=_build_device_nested_response(malfunction.device),
+        device=await _build_device_nested_response(malfunction.device, db),
         device_description=malfunction.device_description,
         detail=malfunction.detail,
         created_at=malfunction.created_at,

@@ -15,6 +15,8 @@ except ImportError:
     _cache = {}  # fallback: 캐시 없음 (DB만)
 
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
 from app.models.token_blacklist import TokenBlacklist
 
 
@@ -91,3 +93,86 @@ def cleanup_expired(db: Session) -> int:
     count = db.query(TokenBlacklist).filter(TokenBlacklist.expires_at < now).delete()
     db.commit()
     return count
+
+
+# ---------------------------------------------------------------------------
+# Async 버전 (v6.0 P3) — dual-stack: 기존 sync 함수는 그대로 유지
+# ---------------------------------------------------------------------------
+
+async def is_blacklisted_async(db: AsyncSession, jti: str) -> bool:
+    """jti가 블랙리스트에 있는지 확인 (캐시 우선) — async 버전"""
+    if jti is None:
+        return False
+
+    cached = _cache.get(jti) if isinstance(_cache, dict) else _cache.get(jti, None)
+    if cached is True:
+        return True
+
+    stmt = select(TokenBlacklist.id).where(TokenBlacklist.jti == jti)
+    result = await db.execute(stmt)
+    row = result.first()
+    is_listed = row is not None
+
+    try:
+        _cache[jti] = is_listed
+    except Exception:
+        pass
+
+    return is_listed
+
+
+async def get_blacklist_reason_async(db: AsyncSession, jti: str) -> Optional[str]:
+    """jti의 블랙리스트 사유 조회 — FR-SVF-10 details.reason 용 (async 버전)."""
+    if jti is None:
+        return None
+    stmt = select(TokenBlacklist.reason).where(TokenBlacklist.jti == jti)
+    result = await db.execute(stmt)
+    row = result.first()
+    return row[0] if row else None
+
+
+async def add_to_blacklist_async(
+    db: AsyncSession,
+    jti: str,
+    expires_at: datetime,
+    reason: str,
+    user_id: Optional[int] = None,
+    token_type: str = "access",
+) -> Optional[TokenBlacklist]:
+    """블랙리스트 등록 + 캐시 즉시 갱신 (async 버전)"""
+    if jti is None:
+        return None
+
+    stmt = select(TokenBlacklist).where(TokenBlacklist.jti == jti)
+    result = await db.execute(stmt)
+    existing = result.scalars().first()
+    if existing:
+        return existing
+
+    entry = TokenBlacklist(
+        jti=jti,
+        user_id=user_id,
+        token_type=token_type,
+        reason=reason,
+        expires_at=expires_at,
+        revoked_at=datetime.utcnow(),
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+
+    try:
+        _cache[jti] = True
+    except Exception:
+        pass
+
+    return entry
+
+
+async def cleanup_expired_async(db: AsyncSession) -> int:
+    """APScheduler가 1시간마다 호출 — exp 경과 row 정리 (async 버전)"""
+    now = datetime.utcnow()
+    stmt = delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
+    result = await db.execute(stmt)
+    await db.commit()
+    return result.rowcount or 0

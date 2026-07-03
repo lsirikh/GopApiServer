@@ -89,10 +89,12 @@ class Server(Base):
     category = relationship("ServerCategory", back_populates="servers")
 
     # Relationship to metrics (1:N)
-    metrics = relationship("ServerMetrics", back_populates="server", cascade="all, delete-orphan")
+    # v6.0 hotfix: passive_deletes=True → DB CASCADE 위임 (ORM이 UPDATE server_id=NULL 시도 방지)
+    metrics = relationship("ServerMetrics", back_populates="server", cascade="all, delete-orphan", passive_deletes=True)
 
     # Relationship to system_events (1:N, SET NULL on delete)
-    system_events = relationship("SystemEvent", back_populates="server")
+    # v6.0 hotfix: passive_deletes=True → DB ondelete=SET NULL 위임
+    system_events = relationship("SystemEvent", back_populates="server", passive_deletes=True)
 
     def __repr__(self):
         return (

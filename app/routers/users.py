@@ -1,23 +1,30 @@
 """
 User API endpoints
+
+v6.0 P8 VeryComplex: 라우터 async 전환 완료.
+- 시그니처 async def 유지 / 응답 스키마 완전 유지
+- Dependency: get_async_db + *_async 인가 / hash_password_async / verify_password_async / log_action_async / add_to_blacklist_async
+- Query: select() + await db.execute(...) / with_for_update() 는 select 문 위에 체이닝
+- Bulk update: sqlalchemy.update() construct 사용
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Request
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import os
 import uuid
 
 from app.config import settings
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
-from app.routers.auth import get_current_account_user, require_admin, bearer_scheme
-from app.utils.auth import hash_password, verify_password, decode_token
-from app.services.audit_service import log_action, get_changes
-from app.services.token_blacklist_service import add_to_blacklist
+from app.routers.auth import get_current_account_user_async, require_admin_async, bearer_scheme
+from app.utils.auth import hash_password_async, verify_password_async, decode_token
+from app.services.audit_service import log_action_async, get_changes
+from app.services.token_blacklist_service import add_to_blacklist_async
 from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError
 from datetime import datetime, timedelta
@@ -25,15 +32,15 @@ from datetime import datetime, timedelta
 router = APIRouter(tags=["Users"])
 
 
-@router.get("", dependencies=[Depends(require_admin)])
+@router.get("", dependencies=[Depends(require_admin_async)])
 async def get_users(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
     role: Optional[str] = Query(None, description="역할 필터"),
     group_id: Optional[int] = Query(None, description="그룹 ID 필터"),
     department: Optional[str] = Query(None, description="부서 필터"),
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 목록 조회
@@ -49,18 +56,19 @@ async def get_users(
 
     **Response**: success, data (사용자 목록)
     """
-    query = db.query(AccountUser)
+    stmt = select(AccountUser)
 
     # Apply filters
     if role:
-        query = query.filter(AccountUser.role == role)
+        stmt = stmt.where(AccountUser.role == role)
     if group_id:
-        query = query.filter(AccountUser.group_id == group_id)
+        stmt = stmt.where(AccountUser.group_id == group_id)
     if department:
-        query = query.filter(AccountUser.department == department)
+        stmt = stmt.where(AccountUser.department == department)
 
     offset = (page - 1) * limit
-    users = query.offset(offset).limit(limit).all()
+    result = await db.execute(stmt.offset(offset).limit(limit))
+    users = result.scalars().all()
 
     return {
         "success": True,
@@ -70,7 +78,7 @@ async def get_users(
 
 @router.get("/me")
 async def get_my_info(
-    current_user: AccountUser = Depends(get_current_account_user)
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     내 정보 조회
@@ -88,8 +96,8 @@ async def get_my_info(
 @router.put("/me")
 async def update_my_info(
     user_data: AccountUserSelfUpdate,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     내 정보 수정 (PRD v4.8 Phase 12-7c)
@@ -129,8 +137,8 @@ async def update_my_info(
     if user_data.phone is not None:
         current_user.phone = user_data.phone
 
-    db.commit()
-    db.refresh(current_user)
+    await db.commit()
+    await db.refresh(current_user)
 
     # Capture after state for audit log
     after_state = {
@@ -144,7 +152,7 @@ async def update_my_info(
     # Audit log: USER_UPDATED (self)
     changes = get_changes(before_state, after_state)
     if changes["before"] or changes["after"]:
-        await log_action(
+        await log_action_async(
             db=db,
             action_type="USER_UPDATED",
             resource_type="USER",
@@ -174,19 +182,23 @@ def _current_session_id(credentials: HTTPAuthorizationCredentials | None) -> str
         return None
 
 
-def _invalidate_other_sessions_on_password_change(
-    db: Session, user: AccountUser, current_sid: str | None
+async def _invalidate_other_sessions_on_password_change(
+    db: AsyncSession, user: AccountUser, current_sid: str | None
 ) -> int:
     """FR-SV-10: 비밀번호 변경 시 본인의 다른 활성 세션을 전부 무효화.
 
     각 세션의 access+refresh jti 를 블랙리스트 등록(발급된 JWT 가 exp 까지 통과하는 구멍 차단)하고
     is_active=False + logout_reason=PASSWORD_CHANGED 로 마킹한다. 현재 요청 세션(current_sid)은 보존.
     벌크 force_logout 핸들러(user_sessions.py)와 동일 패턴.
+
+    v6.0 P8: AsyncSession 전환 — add_to_blacklist_async 사용.
     """
-    active_sessions = db.query(UserSession).filter(
+    stmt = select(UserSession).where(
         UserSession.user_id == user.id,
         UserSession.is_active == True,
-    ).all()
+    )
+    result = await db.execute(stmt)
+    active_sessions = result.scalars().all()
 
     count = 0
     for session in active_sessions:
@@ -196,7 +208,7 @@ def _invalidate_other_sessions_on_password_change(
             try:
                 td = decode_token(session.token)
                 if td.jti:
-                    add_to_blacklist(
+                    await add_to_blacklist_async(
                         db=db, jti=td.jti,
                         expires_at=datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
                         reason="PASSWORD_CHANGED", user_id=user.id, token_type="access",
@@ -207,7 +219,7 @@ def _invalidate_other_sessions_on_password_change(
             try:
                 td = decode_token(session.refresh_token, expected_type="refresh")
                 if td.jti:
-                    add_to_blacklist(
+                    await add_to_blacklist_async(
                         db=db, jti=td.jti,
                         expires_at=datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
                         reason="PASSWORD_CHANGED", user_id=user.id, token_type="refresh",
@@ -224,8 +236,8 @@ def _invalidate_other_sessions_on_password_change(
 @router.put("/me/password")
 async def change_my_password(
     password_data: PasswordChangeRequest,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     """
@@ -245,23 +257,23 @@ async def change_my_password(
     **보안(FR-SV-10)**: 변경 성공 시 본인의 다른 활성 세션을 전부 무효화한다
     (access+refresh jti 블랙리스트 + 세션 비활성화). 현재 요청 세션만 유지.
     """
-    # Verify current password
-    if not verify_password(password_data.current_password, current_user.password_hash):
+    # Verify current password (P4: bcrypt threadpool async)
+    if not await verify_password_async(password_data.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect"
         )
 
-    current_user.password_hash = hash_password(password_data.new_password)
+    current_user.password_hash = await hash_password_async(password_data.new_password)
 
     # FR-SV-10: 비번 변경 후 본인 다른 활성 세션 무효화(타 기기 강제 재로그인). 현재 세션은 보존.
-    _invalidate_other_sessions_on_password_change(
+    await _invalidate_other_sessions_on_password_change(
         db, current_user, _current_session_id(credentials)
     )
-    db.commit()
+    await db.commit()
 
     # Audit log: PASSWORD_CHANGED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="PASSWORD_CHANGED",
         resource_type="PASSWORD",
@@ -284,7 +296,7 @@ ALLOWED_PHOTO_MIME = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "we
 MAX_PHOTO_BYTES = 5 * 1024 * 1024  # 5MB
 
 
-async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Request, db: Session):
+async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Request, db: AsyncSession):
     """업로드 파일 검증 → data/profiles 저장 → user.photo_url(절대 URL) 갱신. (본인/admin 공통)"""
     ext = ALLOWED_PHOTO_MIME.get(file.content_type or "")
     if ext is None:
@@ -305,8 +317,8 @@ async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Requ
         f.write(content)
     # 절대 URL — photo_url 검증기(http(s) 허용) 통과 + 클라 ImageConverter(C1) 직접 렌더
     user.photo_url = f"{str(request.base_url).rstrip('/')}/api/users/photo/{file_name}"
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
     return {"success": True, "message": "Profile photo uploaded", "data": AccountUserResponse.model_validate(user)}
 
 
@@ -314,8 +326,8 @@ async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Requ
 async def upload_my_photo(
     request: Request,
     file: UploadFile = File(..., description="이미지 파일 (jpeg/png/webp/gif, ≤5MB)"),
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
 ):
     """본인 프로필 사진 업로드 → data/profiles/ 저장 + photo_url(DB) 갱신."""
     return await _save_profile_photo(current_user, file, request, db)
@@ -332,11 +344,11 @@ async def get_profile_photo(file_name: str):
     return FileResponse(path=file_path)
 
 
-@router.get("/{user_id}", dependencies=[Depends(require_admin)])
+@router.get("/{user_id}", dependencies=[Depends(require_admin_async)])
 async def get_user_by_id(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 상세 조회
@@ -351,7 +363,8 @@ async def get_user_by_id(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    result = await db.execute(select(AccountUser).where(AccountUser.id == user_id))
+    user = result.scalars().first()
 
     if not user:
         raise HTTPException(
@@ -365,11 +378,11 @@ async def get_user_by_id(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin_async)])
 async def create_user(
     user_data: AccountUserCreate,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 생성
@@ -391,7 +404,9 @@ async def create_user(
     - 400: 중복된 login_id
     """
     # Check for duplicate login_id
-    existing = db.query(AccountUser).filter(AccountUser.login_id == user_data.login_id).first()
+    existing = (await db.execute(
+        select(AccountUser).where(AccountUser.login_id == user_data.login_id)
+    )).scalars().first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -400,17 +415,19 @@ async def create_user(
 
     # Validate group_id if provided
     if user_data.group_id:
-        group = db.query(UserGroup).filter(UserGroup.id == user_data.group_id).first()
+        group = (await db.execute(
+            select(UserGroup).where(UserGroup.id == user_data.group_id)
+        )).scalars().first()
         if not group:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="group_id does not exist"
             )
 
-    # Create new user
+    # Create new user (P4: bcrypt threadpool async)
     new_user = AccountUser(
         login_id=user_data.login_id,
-        password_hash=hash_password(user_data.password),
+        password_hash=await hash_password_async(user_data.password),
         name=user_data.name,
         email=user_data.email,
         department=user_data.department,
@@ -424,11 +441,11 @@ async def create_user(
         is_locked=False
     )
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    await db.commit()
+    await db.refresh(new_user)
 
     # Audit log: USER_CREATED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="USER_CREATED",
         resource_type="USER",
@@ -447,12 +464,12 @@ async def create_user(
     }
 
 
-@router.put("/{user_id}", dependencies=[Depends(require_admin)])
+@router.put("/{user_id}", dependencies=[Depends(require_admin_async)])
 async def update_user(
     user_id: int,
     user_data: AccountUserUpdate,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 수정
@@ -476,7 +493,9 @@ async def update_user(
     - 404: 사용자를 찾을 수 없음
     """
     # v5.1 FR-SV-06: 마지막 ADMIN 원자 가드 — ADMIN 강등 또는 비활성화 시 잔여 ADMIN >=1 보장.
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).with_for_update().first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id).with_for_update()
+    )).scalars().first()
 
     if not user:
         raise HTTPException(
@@ -491,10 +510,12 @@ async def update_user(
          (user_data.is_active is not None and user_data.is_active == False))
     )
     if is_admin_demotion:
-        active_admins = db.query(AccountUser).filter(
-            AccountUser.role == "ADMIN",
-            AccountUser.is_active == True
-        ).with_for_update().all()
+        active_admins = (await db.execute(
+            select(AccountUser).where(
+                AccountUser.role == "ADMIN",
+                AccountUser.is_active == True
+            ).with_for_update()
+        )).scalars().all()
         if len(active_admins) <= 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -543,8 +564,8 @@ async def update_user(
         # is_active는 null 허용 안 함 (Boolean 강제)
         user.is_active = user_data.is_active
 
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
 
     # Capture after state for audit log
     after_state = {
@@ -562,7 +583,7 @@ async def update_user(
 
     # Audit log: USER_UPDATED
     changes = get_changes(before_state, after_state)
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="USER_UPDATED",
         resource_type="USER",
@@ -582,11 +603,11 @@ async def update_user(
     }
 
 
-@router.delete("/{user_id}", dependencies=[Depends(require_admin)])
+@router.delete("/{user_id}", dependencies=[Depends(require_admin_async)])
 async def delete_user(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 삭제
@@ -604,7 +625,9 @@ async def delete_user(
     # v5.1 FR-SV-06 (PRD_GOP_Server_RBAC_Enforcement): 마지막 ADMIN 원자 가드.
     # FOR UPDATE 행 잠금으로 TOCTOU 차단 — 동시에 두 ADMIN을 삭제해도 마지막 1명은 보존.
     # PostgreSQL: FOR UPDATE + count()는 비호환 → .all() + len() 패턴 사용.
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).with_for_update().first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id).with_for_update()
+    )).scalars().first()
 
     if not user:
         raise HTTPException(
@@ -614,10 +637,12 @@ async def delete_user(
 
     # 삭제 대상이 ADMIN이면 잔여 ADMIN 수 확인 (자기 자신 포함된 잠금 상태에서 fetch)
     if user.role == "ADMIN":
-        active_admins = db.query(AccountUser).filter(
-            AccountUser.role == "ADMIN",
-            AccountUser.is_active == True
-        ).with_for_update().all()
+        active_admins = (await db.execute(
+            select(AccountUser).where(
+                AccountUser.role == "ADMIN",
+                AccountUser.is_active == True
+            ).with_for_update()
+        )).scalars().all()
         if len(active_admins) <= 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -629,11 +654,11 @@ async def delete_user(
     deleted_user_name = f"{user.name} ({user.login_id})"
     deleted_login_id = user.login_id
 
-    db.delete(user)
-    db.commit()
+    await db.delete(user)
+    await db.commit()
 
     # Audit log: USER_DELETED (after delete, preserve snapshot)
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="USER_DELETED",
         resource_type="USER",
@@ -653,11 +678,11 @@ async def delete_user(
     }
 
 
-@router.post("/{user_id}/lock", dependencies=[Depends(require_admin)])
+@router.post("/{user_id}/lock", dependencies=[Depends(require_admin_async)])
 async def lock_user(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 잠금
@@ -672,7 +697,9 @@ async def lock_user(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
 
     if not user:
         raise HTTPException(
@@ -682,11 +709,13 @@ async def lock_user(
 
     user.is_locked = True
 
-    # Terminate all active sessions for the user
-    db.query(UserSession).filter(
-        UserSession.user_id == user_id,
-        UserSession.is_active == True
-    ).update({"is_active": False})
+    # Terminate all active sessions for the user (bulk update — async construct)
+    await db.execute(
+        update(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.is_active == True
+        ).values(is_active=False)
+    )
 
     # Create system event for user lock (SECURITY_ALERT: USER_* moved to UserLoginLog per PRD_SystemEvent_Sync.md)
     system_event = SystemEvent(
@@ -698,10 +727,10 @@ async def lock_user(
     )
     db.add(system_event)
 
-    db.commit()
+    await db.commit()
 
     # Audit log: USER_LOCKED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="USER_LOCKED",
         resource_type="USER",
@@ -717,11 +746,11 @@ async def lock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/unlock", dependencies=[Depends(require_admin)])
+@router.post("/{user_id}/unlock", dependencies=[Depends(require_admin_async)])
 async def unlock_user(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 잠금 해제
@@ -736,7 +765,9 @@ async def unlock_user(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
 
     if not user:
         raise HTTPException(
@@ -756,10 +787,10 @@ async def unlock_user(
     )
     db.add(system_event)
 
-    db.commit()
+    await db.commit()
 
     # Audit log: USER_UNLOCKED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="USER_UNLOCKED",
         resource_type="USER",
@@ -775,12 +806,12 @@ async def unlock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/reset-password", dependencies=[Depends(require_admin)])
+@router.post("/{user_id}/reset-password", dependencies=[Depends(require_admin_async)])
 async def reset_user_password(
     user_id: int,
     password_data: PasswordResetRequest,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 비밀번호 초기화 (관리자용)
@@ -798,7 +829,9 @@ async def reset_user_password(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
-    user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
 
     if not user:
         raise HTTPException(
@@ -806,11 +839,12 @@ async def reset_user_password(
             detail="User not found"
         )
 
-    user.password_hash = hash_password(password_data.new_password)
-    db.commit()
+    # P4: bcrypt threadpool async
+    user.password_hash = await hash_password_async(password_data.new_password)
+    await db.commit()
 
     # Audit log: PASSWORD_RESET
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="PASSWORD_RESET",
         resource_type="USER",

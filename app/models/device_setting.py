@@ -8,7 +8,7 @@ CameraSetting: Camera 1:1 기능 설정
 from datetime import datetime
 
 from sqlalchemy import Column, Integer, ForeignKey, DateTime, Enum as SAEnum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.database import Base
 from app.config import settings
@@ -30,7 +30,12 @@ class ProxySetting(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
 
-    server = relationship("Server", backref="proxy_setting", uselist=False)
+    # v6.0 hotfix: Server DELETE 시 ORM이 서버_id → NULL UPDATE 시도 → NotNullViolation.
+    # backref에 cascade="all, delete-orphan" + passive_deletes=True 로 DB CASCADE 위임.
+    server = relationship(
+        "Server",
+        backref=backref("proxy_setting", uselist=False, cascade="all, delete-orphan", passive_deletes=True),
+    )
 
 
 class CameraSetting(Base):

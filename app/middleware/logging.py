@@ -7,7 +7,16 @@ v5.4 후속 — 문서 A-7 #1 대응:
   풀 30 커넥션이 idle-in-transaction으로 굳으면 /health까지 정지 (문서 A-2 ②③).
 - 지금: 실 INSERT는 `asyncio.to_thread(...)`로 threadpool 이관 → 이벤트루프 자유.
   fire-and-forget 태스크로 발행하여 응답 지연도 최소화.
-- 완전한 배치 큐+배치 INSERT는 v6.0 async 전환과 함께 도입 예정.
+
+v6.0 P2 정합성 결정 (2026-07-03):
+- 위 to_thread + fire-and-forget 패턴을 v6.0에서도 **그대로 유지**한다.
+- 근거:
+  1) 이미 v5.4에서 실측 검증됨 (api_logs 정상 기록, 이벤트루프 자유).
+  2) AsyncSession + async batch INSERT queue 이관은 리스크 격리 목적으로 v6.1 로드맵.
+     본 미들웨어는 async 전환의 크리티컬 경로가 아님 (라우터 인증/RBAC와 무관).
+  3) sync SessionLocal 커넥션 풀은 async engine 풀과 분리(Dual-stack) → 상호 영향 없음.
+- 향후 v6.1 이관 훅: `_persist_api_log_sync` 를 `_persist_api_log_async` 로 대체하고
+  create_task 자리에 asyncio.Queue-backed consumer 를 두는 방식. 지금은 스텁 없이 유지.
 """
 import asyncio
 from starlette.middleware.base import BaseHTTPMiddleware

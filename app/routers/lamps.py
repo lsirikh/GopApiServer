@@ -4,12 +4,13 @@ PRD: PRD_Lamp_Device.md v1.1 - Section 5.1
 URL Pattern: /api/devices/lamps (Device 하위 리소스)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Lamp
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
@@ -20,46 +21,59 @@ from app.services.config_log_service import log_config_change, get_identifier, g
 router = APIRouter(tags=["Lamps"])
 
 
-def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.LAMP) -> List[DeviceGroupNestedResponse]:
+async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.LAMP) -> List[DeviceGroupNestedResponse]:
     """Get device groups for a lamp (PRD_DeviceGroup_Support_Completion.md)"""
-    mappings = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )).scalars().all()
 
     if not mappings:
         return []
 
     group_ids = [m.group_id for m in mappings]
-    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+    groups = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id.in_(group_ids))
+    )).scalars().all()
 
-    return [
-        DeviceGroupNestedResponse(
-            id=g.id,
-            name=g.name,
-            description=g.description,
-            device_count=db.query(DeviceGroupMapping).filter(
+    result: List[DeviceGroupNestedResponse] = []
+    for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
                 DeviceGroupMapping.group_id == g.id
-            ).count()
+            )
+        )).scalar()
+        result.append(
+            DeviceGroupNestedResponse(
+                id=g.id,
+                name=g.name,
+                description=g.description,
+                device_count=device_count
+            )
         )
-        for g in groups
-    ]
+    return result
 
 
-def _update_device_group_mappings(
-    db: Session,
+async def _update_device_group_mappings(
+    db: AsyncSession,
     device_id: int,
     group_ids: List[int],
     category_device: EnumDeviceCategory = EnumDeviceCategory.LAMP
 ):
     """Update device group mappings for a lamp (PRD_DeviceGroup_Support_Completion.md)"""
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )
 
     for group_id in group_ids:
-        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == group_id)
+        )).scalars().first()
         if group:
             mapping = DeviceGroupMapping(
                 device_id=device_id,
@@ -69,10 +83,10 @@ def _update_device_group_mappings(
             db.add(mapping)
 
 
-def _lamp_to_response(lamp: Lamp, db: Session) -> LampResponse:
+async def _lamp_to_response(lamp: Lamp, db: AsyncSession) -> LampResponse:
     """Convert Lamp model to LampResponse schema"""
     # PRD_DeviceGroup_Support_Completion.md: 깨진 코드 수정 → DeviceGroupMapping 직접 쿼리
-    device_groups = _get_device_groups_nested(db, lamp.id, EnumDeviceCategory.LAMP)
+    device_groups = await _get_device_groups_nested(db, lamp.id, EnumDeviceCategory.LAMP)
 
     return LampResponse(
         id=lamp.id,
@@ -101,8 +115,8 @@ async def get_lamps(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
     is_enable: Optional[bool] = Query(None, description="활성화 여부 필터링"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     경광등 목록 조회 (페이지네이션)
@@ -117,26 +131,31 @@ async def get_lamps(
     **Response**: 경광등 목록 및 페이지네이션 정보
     """
     # Build query
-    query = db.query(Lamp)
+    stmt = select(Lamp)
+    count_stmt = select(func.count()).select_from(Lamp)
 
     # Apply filters
     if status is not None:
-        query = query.filter(Lamp.status == status)
+        stmt = stmt.where(Lamp.status == status)
+        count_stmt = count_stmt.where(Lamp.status == status)
     if is_enable is not None:
-        query = query.filter(Lamp.is_enable == is_enable)
+        stmt = stmt.where(Lamp.is_enable == is_enable)
+        count_stmt = count_stmt.where(Lamp.is_enable == is_enable)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar()
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get items with pagination (order by id for stable pagination)
-    lamps = query.order_by(Lamp.id).offset(skip).limit(limit).all()
+    lamps = (await db.execute(
+        stmt.order_by(Lamp.id).offset(skip).limit(limit)
+    )).scalars().all()
 
     # Convert to response schema
-    items = [_lamp_to_response(lamp, db) for lamp in lamps]
+    items = [await _lamp_to_response(lamp, db) for lamp in lamps]
 
     return ApiResponse(
         success=True,
@@ -154,8 +173,8 @@ async def get_lamps(
 @router.get("/{lamp_id}", response_model=ApiSingleResponse[LampResponse])
 async def get_lamp(
     lamp_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     경광등 상세 조회
@@ -164,7 +183,9 @@ async def get_lamp(
 
     **Response**: 경광등 상세 정보
     """
-    lamp = db.query(Lamp).filter(Lamp.id == lamp_id).first()
+    lamp = (await db.execute(
+        select(Lamp).where(Lamp.id == lamp_id)
+    )).scalars().first()
     if not lamp:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -174,15 +195,15 @@ async def get_lamp(
     return ApiSingleResponse(
         success=True,
         message="Lamp 조회 성공",
-        data=_lamp_to_response(lamp, db)
+        data=await _lamp_to_response(lamp, db)
     )
 
 
 @router.post("", response_model=ApiSingleResponse[LampResponse], status_code=status.HTTP_201_CREATED)
 async def create_lamp(
     lamp_data: LampCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     경광등 생성
@@ -222,13 +243,13 @@ async def create_lamp(
     )
 
     db.add(lamp)
-    db.commit()
-    db.refresh(lamp)
+    await db.commit()
+    await db.refresh(lamp)
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if lamp_data.group_ids is not None:
-        _update_device_group_mappings(db, lamp.id, lamp_data.group_ids, EnumDeviceCategory.LAMP)
-        db.commit()
+        await _update_device_group_mappings(db, lamp.id, lamp_data.group_ids, EnumDeviceCategory.LAMP)
+        await db.commit()
 
     # Log config change (PRD v1.2)
     log_config_change(
@@ -244,7 +265,7 @@ async def create_lamp(
     return ApiSingleResponse(
         success=True,
         message="Lamp 생성 성공",
-        data=_lamp_to_response(lamp, db)
+        data=await _lamp_to_response(lamp, db)
     )
 
 
@@ -252,8 +273,8 @@ async def create_lamp(
 async def patch_lamp(
     lamp_id: int,
     lamp_data: LampUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     경광등 부분 수정 (PATCH)
@@ -264,7 +285,9 @@ async def patch_lamp(
 
     **Response**: 수정된 경광등 정보
     """
-    lamp = db.query(Lamp).filter(Lamp.id == lamp_id).first()
+    lamp = (await db.execute(
+        select(Lamp).where(Lamp.id == lamp_id)
+    )).scalars().first()
     if not lamp:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -297,10 +320,10 @@ async def patch_lamp(
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if group_ids is not None:
-        _update_device_group_mappings(db, lamp.id, group_ids, EnumDeviceCategory.LAMP)
+        await _update_device_group_mappings(db, lamp.id, group_ids, EnumDeviceCategory.LAMP)
 
-    db.commit()
-    db.refresh(lamp)
+    await db.commit()
+    await db.refresh(lamp)
 
     # Log config change (PRD v1.2)
     after_state = model_to_dict(lamp)
@@ -320,7 +343,7 @@ async def patch_lamp(
     return ApiSingleResponse(
         success=True,
         message="Lamp 수정 성공",
-        data=_lamp_to_response(lamp, db)
+        data=await _lamp_to_response(lamp, db)
     )
 
 
@@ -328,8 +351,8 @@ async def patch_lamp(
 async def put_lamp(
     lamp_id: int,
     lamp_data: LampCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     경광등 전체 수정 (PUT)
@@ -340,7 +363,9 @@ async def put_lamp(
 
     **Response**: 수정된 경광등 정보
     """
-    lamp = db.query(Lamp).filter(Lamp.id == lamp_id).first()
+    lamp = (await db.execute(
+        select(Lamp).where(Lamp.id == lamp_id)
+    )).scalars().first()
     if not lamp:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -379,10 +404,10 @@ async def put_lamp(
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if lamp_data.group_ids is not None:
-        _update_device_group_mappings(db, lamp.id, lamp_data.group_ids, EnumDeviceCategory.LAMP)
+        await _update_device_group_mappings(db, lamp.id, lamp_data.group_ids, EnumDeviceCategory.LAMP)
 
-    db.commit()
-    db.refresh(lamp)
+    await db.commit()
+    await db.refresh(lamp)
 
     # Log config change (PRD v1.2)
     new_data = model_to_dict(lamp)
@@ -402,15 +427,15 @@ async def put_lamp(
     return ApiSingleResponse(
         success=True,
         message="Lamp 전체 수정 성공",
-        data=_lamp_to_response(lamp, db)
+        data=await _lamp_to_response(lamp, db)
     )
 
 
 @router.delete("/{lamp_id}", response_model=ApiSingleResponse[None])
 async def delete_lamp(
     lamp_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     경광등 삭제
@@ -421,7 +446,9 @@ async def delete_lamp(
 
     **Note**: EventMappingLamp의 lamp_id는 SET NULL로 처리됨
     """
-    lamp = db.query(Lamp).filter(Lamp.id == lamp_id).first()
+    lamp = (await db.execute(
+        select(Lamp).where(Lamp.id == lamp_id)
+    )).scalars().first()
     if not lamp:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -434,14 +461,16 @@ async def delete_lamp(
     deleted_name = f"Lamp-{lamp.id} ({lamp.name_device})"
 
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == lamp_id,
-        DeviceGroupMapping.category_device == EnumDeviceCategory.LAMP
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == lamp_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.LAMP
+        )
+    )
 
     # Delete lamp (CASCADE will delete from devices table, SET NULL for event_mapping_lamps)
-    db.delete(lamp)
-    db.commit()
+    await db.delete(lamp)
+    await db.commit()
 
     # Log config change (PRD v1.2)
     log_config_change(

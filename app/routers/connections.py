@@ -6,17 +6,28 @@ PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
 - device_description: Device 정보 스냅샷 (자동 생성)
 - Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
 - group_event 필드 제거됨
+
+v6.0 P8 (VeryComplex 라우터 async 전환):
+- get_db → get_async_db (Session → AsyncSession)
+- get_current_account_user_optional → _async
+- log_config_change → log_config_change_async
+- db.query(...).filter/all/first → select().where() + await db.execute()
+- db.commit/refresh/delete → await
+- 응답 스키마 완전 유지 (Polymorphic device nested 포함).
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, selectin_polymorphic
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.event import ConnectionEvent
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
+from app.models.device_group import DeviceGroupMapping
 from app.schemas.event import ConnectionEventCreate, ConnectionEventReplace, ConnectionEventResponse, ConnectionEventUpdate
 from app.schemas.device import (
     DeviceGroupNestedResponse,
@@ -29,7 +40,7 @@ from app.schemas.device import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumDeviceType, EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_changed_fields, model_to_dict
 from typing import Union
 
 router = APIRouter(tags=[])
@@ -43,7 +54,7 @@ def _generate_device_description(device: Device) -> str:
     return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
 
 
-def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
+async def _build_device_nested_response(device: Optional[Device], db: AsyncSession) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
     """
     Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
 
@@ -56,20 +67,27 @@ def _build_device_nested_response(device: Optional[Device]) -> Optional[Union[Se
     - Speaker → SpeakerNestedResponse
     - Enclosure → DeviceNestedResponse (전용 NestedResponse 없음)
     - Lamp → LampNestedResponse
+
+    v6.0 P1 (Tidy First): lazy='dynamic' 접근을 명시적 db.query()로 교체
+    (동작 불변, sync/async 양쪽 안전).
+    v6.0 P8: AsyncSession 기반 select() + await 로 전환.
     """
     if device is None:
         return None
 
     # PRD v1.2: Build device_groups from group_mappings relationship
+    # v6.0 P8: 명시적 select 쿼리 (AsyncSession)
     device_groups = []
-    if hasattr(device, 'group_mappings') and device.group_mappings is not None:
-        mappings = device.group_mappings.all() if hasattr(device.group_mappings, 'all') else device.group_mappings
-        for mapping in mappings:
-            if mapping.group:
-                device_groups.append(DeviceGroupNestedResponse(
-                    id=mapping.group.id,
-                    name=mapping.group.name
-                ))
+    mappings_result = await db.execute(
+        select(DeviceGroupMapping).where(DeviceGroupMapping.device_id == device.id)
+    )
+    mappings = mappings_result.scalars().all()
+    for mapping in mappings:
+        if mapping.group:
+            device_groups.append(DeviceGroupNestedResponse(
+                id=mapping.group.id,
+                name=mapping.group.name
+            ))
 
     # PRD v2.7: Polymorphic Response - Device 타입에 따라 적절한 스키마 반환
     if isinstance(device, Sensor):
@@ -184,8 +202,8 @@ async def get_connection_events(
     device_id: Optional[int] = Query(None, description="장치 ID로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     연결 이벤트 목록 조회 (페이지네이션)
@@ -203,33 +221,33 @@ async def get_connection_events(
 
     **Response**: 연결 이벤트 목록 및 페이지네이션 정보
     """
-    # Build query with joinedload for device
-    query = db.query(ConnectionEvent).options(selectinload(ConnectionEvent.device))
+    # Build base statements
+    stmt = select(ConnectionEvent).options(selectinload(ConnectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+    count_stmt = select(func.count()).select_from(ConnectionEvent)
 
     # Apply filters (PRD v2.1: device_id 기반 필터링)
     if device_id is not None:
-        query = query.filter(ConnectionEvent.device_id == device_id)
+        stmt = stmt.where(ConnectionEvent.device_id == device_id)
+        count_stmt = count_stmt.where(ConnectionEvent.device_id == device_id)
     if start_date is not None:
-        query = query.filter(ConnectionEvent.created_at >= start_date)
+        stmt = stmt.where(ConnectionEvent.created_at >= start_date)
+        count_stmt = count_stmt.where(ConnectionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(ConnectionEvent.created_at <= end_date)
+        stmt = stmt.where(ConnectionEvent.created_at <= end_date)
+        count_stmt = count_stmt.where(ConnectionEvent.created_at <= end_date)
 
     # Get total count
-    count_query = db.query(ConnectionEvent)
-    if device_id is not None:
-        count_query = count_query.filter(ConnectionEvent.device_id == device_id)
-    if start_date is not None:
-        count_query = count_query.filter(ConnectionEvent.created_at >= start_date)
-    if end_date is not None:
-        count_query = count_query.filter(ConnectionEvent.created_at <= end_date)
-    total = count_query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by created_at desc)
-    events = query.order_by(ConnectionEvent.created_at.desc(), ConnectionEvent.id.desc()).offset(skip).limit(limit).all()
+    events_result = await db.execute(
+        stmt.order_by(ConnectionEvent.created_at.desc(), ConnectionEvent.id.desc()).offset(skip).limit(limit)
+    )
+    events = events_result.scalars().all()
 
     # PRD v2.1: Response uses device_id (no group_event, controller, sensor, type_device)
     # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)
@@ -238,7 +256,7 @@ async def get_connection_events(
         ConnectionEventResponse(
             id=e.id,
             type_event=e.type_event,
-            device=_build_device_nested_response(e.device),
+            device=await _build_device_nested_response(e.device, db),
             device_description=e.device_description,
             created_at=e.created_at,
             updated_at=e.updated_at
@@ -264,8 +282,8 @@ async def get_connection_events(
 @router.get("/{event_id}", response_model=ApiSingleResponse[ConnectionEventResponse])
 async def get_connection_event(
     event_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     연결 이벤트 단건 조회
@@ -280,9 +298,12 @@ async def get_connection_event(
     **Error**:
     - 404: 연결 이벤트를 찾을 수 없음
     """
-    event = db.query(ConnectionEvent).options(
-        selectinload(ConnectionEvent.device)
-    ).filter(ConnectionEvent.id == event_id).first()
+    result = await db.execute(
+        select(ConnectionEvent)
+        .options(selectinload(ConnectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(ConnectionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -296,7 +317,7 @@ async def get_connection_event(
     event_response = ConnectionEventResponse(
         id=event.id,
         type_event=event.type_event,
-        device=_build_device_nested_response(event.device),
+        device=await _build_device_nested_response(event.device, db),
         device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
@@ -312,8 +333,8 @@ async def get_connection_event(
 @router.post("", response_model=ApiSingleResponse[ConnectionEventResponse], status_code=status.HTTP_201_CREATED)
 async def create_connection_event(
     event_data: ConnectionEventCreate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     연결 이벤트 생성
@@ -332,7 +353,10 @@ async def create_connection_event(
     - 400: Device를 찾을 수 없음
     """
     # PRD v1.1: Validate device_id exists
-    device = db.query(Device).filter(Device.id == event_data.device_id).first()
+    device_result = await db.execute(
+        select(Device).where(Device.id == event_data.device_id)
+    )
+    device = device_result.scalars().first()
     if not device:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -352,11 +376,11 @@ async def create_connection_event(
     )
 
     db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
+    await db.commit()
+    await db.refresh(new_event)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.CONNECTION_EVENT,
         resource_id=new_event.id,
@@ -367,7 +391,7 @@ async def create_connection_event(
     )
 
     # Build device nested response
-    device_nested = _build_device_nested_response(device)
+    device_nested = await _build_device_nested_response(device, db)
 
     # PRD v2.1: Response uses device_id (no group_event, controller, sensor, type_device)
     # PRD v1.3: device_id, sequence 필드 제거
@@ -392,8 +416,8 @@ async def create_connection_event(
 async def update_connection_event(
     event_id: int,
     event_data: ConnectionEventUpdate,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     연결 이벤트 부분 수정 (PATCH)
@@ -413,9 +437,12 @@ async def update_connection_event(
     **Error**:
     - 404: 연결 이벤트를 찾을 수 없음
     """
-    event = db.query(ConnectionEvent).options(
-        selectinload(ConnectionEvent.device)
-    ).filter(ConnectionEvent.id == event_id).first()
+    result = await db.execute(
+        select(ConnectionEvent)
+        .options(selectinload(ConnectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(ConnectionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -434,14 +461,14 @@ async def update_connection_event(
         if field in ['type_event']:
             setattr(event, field, value)
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(event)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.CONNECTION_EVENT,
             resource_id=event.id,
@@ -458,7 +485,7 @@ async def update_connection_event(
     event_response = ConnectionEventResponse(
         id=event.id,
         type_event=event.type_event,
-        device=_build_device_nested_response(event.device),
+        device=await _build_device_nested_response(event.device, db),
         device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
@@ -475,8 +502,8 @@ async def update_connection_event(
 async def replace_connection_event(
     event_id: int,
     event_data: ConnectionEventReplace,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     연결 이벤트 전체 수정 (PUT)
@@ -503,7 +530,10 @@ async def replace_connection_event(
     - 404: 연결 이벤트를 찾을 수 없음
     - 422: device_id/device_description 등 금지 필드 전송
     """
-    event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
+    result = await db.execute(
+        select(ConnectionEvent).where(ConnectionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -516,15 +546,15 @@ async def replace_connection_event(
     event.type_event = event_data.type_event
     # event.device_id / event.device_description는 변경하지 않음 (Phase 12-7b)
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     # PRD v1.3: device_id, sequence 필드 제거
     # PRD v1.4: category_event 필드 제거
     event_response = ConnectionEventResponse(
         id=event.id,
         type_event=event.type_event,
-        device=_build_device_nested_response(event.device),
+        device=await _build_device_nested_response(event.device, db),
         device_description=event.device_description,
         created_at=event.created_at,
         updated_at=event.updated_at
@@ -540,8 +570,8 @@ async def replace_connection_event(
 @router.delete("/{event_id}", response_model=ApiSingleResponse[None])
 async def delete_connection_event(
     event_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     연결 이벤트 삭제
@@ -556,7 +586,10 @@ async def delete_connection_event(
     **Error**:
     - 404: 연결 이벤트를 찾을 수 없음
     """
-    event = db.query(ConnectionEvent).filter(ConnectionEvent.id == event_id).first()
+    result = await db.execute(
+        select(ConnectionEvent).where(ConnectionEvent.id == event_id)
+    )
+    event = result.scalars().first()
 
     if not event:
         raise HTTPException(
@@ -569,11 +602,11 @@ async def delete_connection_event(
     deleted_identifier = {"id": event.id, "type_event": event.type_event}
     deleted_name = f"ConnectionEvent-{event.id} ({event.type_event})"
 
-    db.delete(event)
-    db.commit()
+    await db.delete(event)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.CONNECTION_EVENT,
         resource_id=deleted_id,

@@ -3,12 +3,13 @@ Camera Preset API endpoints
 PRD: docs/PRD_Camera_Preset_ROI.md
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Camera
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.schemas.camera_preset import (
@@ -32,14 +33,14 @@ async def get_camera_presets(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Max items per page"),
     include_rois: bool = Query(False, description="Include ROIs in response"),
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Get list of camera presets for a specific camera
     """
     # Check if camera exists
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -47,18 +48,27 @@ async def get_camera_presets(
         )
 
     # Query presets
-    query = db.query(CameraPreset).filter(CameraPreset.camera_id == camera_id)
-    total = query.count()
+    total = (await db.execute(
+        select(func.count()).select_from(CameraPreset).where(CameraPreset.camera_id == camera_id)
+    )).scalar() or 0
 
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
-    presets = query.order_by(CameraPreset.id).offset(skip).limit(limit).all()
+    presets = (await db.execute(
+        select(CameraPreset)
+        .where(CameraPreset.camera_id == camera_id)
+        .order_by(CameraPreset.id)
+        .offset(skip)
+        .limit(limit)
+    )).scalars().all()
 
     # Build response items
     items = []
     for preset in presets:
-        roi_count = preset.rois.count()
+        roi_count = (await db.execute(
+            select(func.count()).select_from(ROI).where(ROI.preset_id == preset.id)
+        )).scalar() or 0
         item = {
             "id": preset.id,
             "camera_id": preset.camera_id,
@@ -71,17 +81,23 @@ async def get_camera_presets(
             "updated_at": preset.updated_at.isoformat()
         }
         if include_rois:
-            item["rois"] = [
-                {
+            rois_list = (await db.execute(
+                select(ROI).where(ROI.preset_id == preset.id)
+            )).scalars().all()
+            rois_data = []
+            for roi in rois_list:
+                point_count = (await db.execute(
+                    select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+                )).scalar() or 0
+                rois_data.append({
                     "id": roi.id,
                     "name": roi.name,
                     "resolution_width": roi.resolution_width,
                     "resolution_height": roi.resolution_height,
                     "is_enable": roi.is_enable,
-                    "point_count": roi.points.count()
-                }
-                for roi in preset.rois.all()
-            ]
+                    "point_count": point_count
+                })
+            item["rois"] = rois_data
         items.append(item)
 
     pagination = PaginationMeta(
@@ -106,14 +122,14 @@ async def get_camera_presets(
 async def get_camera_preset(
     camera_id: int,
     preset_id: int,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Get a specific camera preset with ROIs and points
     """
     # Check if camera exists
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -121,10 +137,12 @@ async def get_camera_preset(
         )
 
     # Get preset
-    preset = db.query(CameraPreset).filter(
-        CameraPreset.id == preset_id,
-        CameraPreset.camera_id == camera_id
-    ).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(
+            CameraPreset.id == preset_id,
+            CameraPreset.camera_id == camera_id
+        )
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -132,8 +150,14 @@ async def get_camera_preset(
         )
 
     # Build ROIs with points (v2.10: Nested Response - timestamp 제외)
+    rois_list = (await db.execute(
+        select(ROI).where(ROI.preset_id == preset.id)
+    )).scalars().all()
     rois_data = []
-    for roi in preset.rois.all():
+    for roi in rois_list:
+        points_list = (await db.execute(
+            select(XyPoint).where(XyPoint.roi_id == roi.id).order_by(XyPoint.order)
+        )).scalars().all()
         points_data = [
             {
                 "id": point.id,
@@ -141,7 +165,7 @@ async def get_camera_preset(
                 "y": point.y,
                 "order": point.order
             }
-            for point in roi.points.all()
+            for point in points_list
         ]
         rois_data.append({
             "id": roi.id,
@@ -174,14 +198,14 @@ async def get_camera_preset(
 async def create_camera_preset(
     camera_id: int,
     preset_data: CameraPresetCreate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Create a new camera preset
     """
     # Check if camera exists
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -189,10 +213,12 @@ async def create_camera_preset(
         )
 
     # Check for duplicate preset_index
-    existing = db.query(CameraPreset).filter(
-        CameraPreset.camera_id == camera_id,
-        CameraPreset.preset_index == preset_data.preset_index
-    ).first()
+    existing = (await db.execute(
+        select(CameraPreset).where(
+            CameraPreset.camera_id == camera_id,
+            CameraPreset.preset_index == preset_data.preset_index
+        )
+    )).scalars().first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -208,8 +234,8 @@ async def create_camera_preset(
         touring_time=preset_data.touring_time
     )
     db.add(preset)
-    db.commit()
-    db.refresh(preset)
+    await db.commit()
+    await db.refresh(preset)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
     log_config_change(
@@ -244,14 +270,14 @@ async def update_camera_preset(
     camera_id: int,
     preset_id: int,
     preset_data: CameraPresetUpdate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Partially update a camera preset
     """
     # Check if camera exists
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -259,10 +285,12 @@ async def update_camera_preset(
         )
 
     # Get preset
-    preset = db.query(CameraPreset).filter(
-        CameraPreset.id == preset_id,
-        CameraPreset.camera_id == camera_id
-    ).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(
+            CameraPreset.id == preset_id,
+            CameraPreset.camera_id == camera_id
+        )
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -271,11 +299,13 @@ async def update_camera_preset(
 
     # Check for duplicate preset_index if changing
     if preset_data.preset_index is not None and preset_data.preset_index != preset.preset_index:
-        existing = db.query(CameraPreset).filter(
-            CameraPreset.camera_id == camera_id,
-            CameraPreset.preset_index == preset_data.preset_index,
-            CameraPreset.id != preset_id
-        ).first()
+        existing = (await db.execute(
+            select(CameraPreset).where(
+                CameraPreset.camera_id == camera_id,
+                CameraPreset.preset_index == preset_data.preset_index,
+                CameraPreset.id != preset_id
+            )
+        )).scalars().first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -290,8 +320,8 @@ async def update_camera_preset(
     for field, value in update_data.items():
         setattr(preset, field, value)
 
-    db.commit()
-    db.refresh(preset)
+    await db.commit()
+    await db.refresh(preset)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(preset)
@@ -308,6 +338,10 @@ async def update_camera_preset(
             description="CameraPreset 수정"
         )
 
+    roi_count = (await db.execute(
+        select(func.count()).select_from(ROI).where(ROI.preset_id == preset.id)
+    )).scalar() or 0
+
     return ApiSingleResponse(
         success=True,
         message="Camera preset updated successfully",
@@ -318,7 +352,7 @@ async def update_camera_preset(
             "preset_index": preset.preset_index,
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
-            "roi_count": preset.rois.count(),
+            "roi_count": roi_count,
             "created_at": preset.created_at.isoformat(),
             "updated_at": preset.updated_at.isoformat()
         }
@@ -330,14 +364,14 @@ async def replace_camera_preset(
     camera_id: int,
     preset_id: int,
     preset_data: CameraPresetCreate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Replace a camera preset completely
     """
     # Check if camera exists
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -345,10 +379,12 @@ async def replace_camera_preset(
         )
 
     # Get preset
-    preset = db.query(CameraPreset).filter(
-        CameraPreset.id == preset_id,
-        CameraPreset.camera_id == camera_id
-    ).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(
+            CameraPreset.id == preset_id,
+            CameraPreset.camera_id == camera_id
+        )
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -357,11 +393,13 @@ async def replace_camera_preset(
 
     # Check for duplicate preset_index if changing
     if preset_data.preset_index != preset.preset_index:
-        existing = db.query(CameraPreset).filter(
-            CameraPreset.camera_id == camera_id,
-            CameraPreset.preset_index == preset_data.preset_index,
-            CameraPreset.id != preset_id
-        ).first()
+        existing = (await db.execute(
+            select(CameraPreset).where(
+                CameraPreset.camera_id == camera_id,
+                CameraPreset.preset_index == preset_data.preset_index,
+                CameraPreset.id != preset_id
+            )
+        )).scalars().first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -373,8 +411,12 @@ async def replace_camera_preset(
     preset.preset_name = preset_data.preset_name
     preset.touring_time = preset_data.touring_time
 
-    db.commit()
-    db.refresh(preset)
+    await db.commit()
+    await db.refresh(preset)
+
+    roi_count = (await db.execute(
+        select(func.count()).select_from(ROI).where(ROI.preset_id == preset.id)
+    )).scalar() or 0
 
     return ApiSingleResponse(
         success=True,
@@ -386,7 +428,7 @@ async def replace_camera_preset(
             "preset_index": preset.preset_index,
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
-            "roi_count": preset.rois.count(),
+            "roi_count": roi_count,
             "created_at": preset.created_at.isoformat(),
             "updated_at": preset.updated_at.isoformat()
         }
@@ -397,14 +439,14 @@ async def replace_camera_preset(
 async def delete_camera_preset(
     camera_id: int,
     preset_id: int,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Delete a camera preset and its ROIs/points (cascade)
     """
     # Check if camera exists
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(select(Camera).where(Camera.id == camera_id))).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -412,10 +454,12 @@ async def delete_camera_preset(
         )
 
     # Get preset
-    preset = db.query(CameraPreset).filter(
-        CameraPreset.id == preset_id,
-        CameraPreset.camera_id == camera_id
-    ).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(
+            CameraPreset.id == preset_id,
+            CameraPreset.camera_id == camera_id
+        )
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -428,8 +472,8 @@ async def delete_camera_preset(
     deleted_name = f"CameraPreset-{preset.id} ({preset.preset_name})"
 
     # Delete preset (cascade will delete ROIs and XyPoints)
-    db.delete(preset)
-    db.commit()
+    await db.delete(preset)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
     log_config_change(

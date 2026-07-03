@@ -6,12 +6,13 @@ PRD: PRD_Enclosure_Metrics_Separation.md v1.0
 Endpoints: /api/devices/enclosures/{enclosure_id}/metrics
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Enclosure, EnclosureMetric
 from app.schemas.device import EnclosureMetricCreate, EnclosureMetricResponse, EnclosureMetricLatestResponse
 
@@ -44,11 +45,11 @@ def _metric_to_response(metric: EnclosureMetric) -> dict:
     summary="Enclosure 메트릭 저장",
     description="함체의 환경 모니터링 메트릭 데이터를 저장합니다."
 )
-def create_enclosure_metric(
+async def create_enclosure_metric(
     enclosure_id: int,
     metric_data: EnclosureMetricCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """
     POST /api/devices/enclosures/{enclosure_id}/metrics
@@ -63,7 +64,7 @@ def create_enclosure_metric(
     - 저장된 메트릭 데이터 및 임계치 초과 정보
     """
     # Enclosure 존재 확인
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(select(Enclosure).where(Enclosure.id == enclosure_id))).scalars().first()
     if not enclosure:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -84,8 +85,8 @@ def create_enclosure_metric(
     )
 
     db.add(metric)
-    db.commit()
-    db.refresh(metric)
+    await db.commit()
+    await db.refresh(metric)
 
     # Check thresholds
     threshold_exceeded = _check_thresholds(enclosure, metric_data)
@@ -177,13 +178,13 @@ def _check_thresholds(enclosure: Enclosure, metric_data: EnclosureMetricCreate) 
     summary="Enclosure 메트릭 목록 조회",
     description="함체의 환경 모니터링 메트릭 이력을 조회합니다."
 )
-def get_enclosure_metrics(
+async def get_enclosure_metrics(
     enclosure_id: int,
     limit: int = Query(100, ge=1, le=1000, description="조회할 최대 개수"),
     start_time: Optional[datetime] = Query(None, description="시작 시간 필터"),
     end_time: Optional[datetime] = Query(None, description="종료 시간 필터"),
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """
     GET /api/devices/enclosures/{enclosure_id}/metrics
@@ -200,7 +201,7 @@ def get_enclosure_metrics(
     - 메트릭 목록
     """
     # Enclosure 존재 확인
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(select(Enclosure).where(Enclosure.id == enclosure_id))).scalars().first()
     if not enclosure:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -208,15 +209,15 @@ def get_enclosure_metrics(
         )
 
     # Query metrics
-    query = db.query(EnclosureMetric).filter(EnclosureMetric.enclosure_id == enclosure_id)
+    stmt = select(EnclosureMetric).where(EnclosureMetric.enclosure_id == enclosure_id)
 
     if start_time:
-        query = query.filter(EnclosureMetric.created_at >= start_time)
+        stmt = stmt.where(EnclosureMetric.created_at >= start_time)
     if end_time:
-        query = query.filter(EnclosureMetric.created_at <= end_time)
+        stmt = stmt.where(EnclosureMetric.created_at <= end_time)
 
-    query = query.order_by(EnclosureMetric.created_at.desc())
-    metrics = query.limit(limit).all()
+    stmt = stmt.order_by(EnclosureMetric.created_at.desc()).limit(limit)
+    metrics = (await db.execute(stmt)).scalars().all()
 
     return {
         "success": True,
@@ -230,10 +231,10 @@ def get_enclosure_metrics(
     summary="Enclosure 최신 메트릭 조회",
     description="함체의 가장 최근 환경 모니터링 메트릭을 조회합니다."
 )
-def get_enclosure_metrics_latest(
+async def get_enclosure_metrics_latest(
     enclosure_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """
     GET /api/devices/enclosures/{enclosure_id}/metrics/latest
@@ -247,7 +248,7 @@ def get_enclosure_metrics_latest(
     - 가장 최근 메트릭 데이터
     """
     # Enclosure 존재 확인
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(select(Enclosure).where(Enclosure.id == enclosure_id))).scalars().first()
     if not enclosure:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -255,9 +256,11 @@ def get_enclosure_metrics_latest(
         )
 
     # Get latest metric
-    metric = db.query(EnclosureMetric).filter(
-        EnclosureMetric.enclosure_id == enclosure_id
-    ).order_by(EnclosureMetric.created_at.desc()).first()
+    metric = (await db.execute(
+        select(EnclosureMetric)
+        .where(EnclosureMetric.enclosure_id == enclosure_id)
+        .order_by(EnclosureMetric.created_at.desc())
+    )).scalars().first()
 
     if not metric:
         raise HTTPException(
@@ -277,11 +280,11 @@ def get_enclosure_metrics_latest(
     summary="Enclosure 메트릭 삭제",
     description="함체의 환경 모니터링 메트릭을 삭제합니다."
 )
-def delete_enclosure_metrics(
+async def delete_enclosure_metrics(
     enclosure_id: int,
     before_date: Optional[datetime] = Query(None, description="이 날짜 이전 메트릭만 삭제"),
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """
     DELETE /api/devices/enclosures/{enclosure_id}/metrics
@@ -296,7 +299,7 @@ def delete_enclosure_metrics(
     - 삭제된 메트릭 수
     """
     # Enclosure 존재 확인
-    enclosure = db.query(Enclosure).filter(Enclosure.id == enclosure_id).first()
+    enclosure = (await db.execute(select(Enclosure).where(Enclosure.id == enclosure_id))).scalars().first()
     if not enclosure:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -304,14 +307,15 @@ def delete_enclosure_metrics(
         )
 
     # Build delete query
-    query = db.query(EnclosureMetric).filter(EnclosureMetric.enclosure_id == enclosure_id)
+    delete_stmt = delete(EnclosureMetric).where(EnclosureMetric.enclosure_id == enclosure_id)
 
     if before_date:
-        query = query.filter(EnclosureMetric.created_at < before_date)
+        delete_stmt = delete_stmt.where(EnclosureMetric.created_at < before_date)
 
     # Count and delete
-    deleted_count = query.delete(synchronize_session=False)
-    db.commit()
+    result = await db.execute(delete_stmt)
+    deleted_count = result.rowcount
+    await db.commit()
 
     return {
         "success": True,
@@ -330,9 +334,9 @@ def delete_enclosure_metrics(
     summary="전체 함체 최신 메트릭 조회",
     description="모든 함체의 최신 환경 모니터링 메트릭을 조회합니다."
 )
-def get_all_enclosure_metrics(
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+async def get_all_enclosure_metrics(
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """
     GET /api/enclosure-metrics
@@ -344,14 +348,16 @@ def get_all_enclosure_metrics(
     - 메트릭이 없는 함체는 latest_metrics가 null
     """
     # Get all enclosures
-    enclosures = db.query(Enclosure).order_by(Enclosure.id).all()
+    enclosures = (await db.execute(select(Enclosure).order_by(Enclosure.id))).scalars().all()
 
     result = []
     for enclosure in enclosures:
         # Get latest metric for this enclosure
-        latest_metric = db.query(EnclosureMetric).filter(
-            EnclosureMetric.enclosure_id == enclosure.id
-        ).order_by(EnclosureMetric.created_at.desc()).first()
+        latest_metric = (await db.execute(
+            select(EnclosureMetric)
+            .where(EnclosureMetric.enclosure_id == enclosure.id)
+            .order_by(EnclosureMetric.created_at.desc())
+        )).scalars().first()
 
         item = {
             "enclosure_id": enclosure.id,

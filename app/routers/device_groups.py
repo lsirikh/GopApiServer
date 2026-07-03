@@ -3,13 +3,15 @@ DeviceGroup API endpoints
 PRD: PRD_Device_Structure_Refactoring.md - Phase 6
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, selectin_polymorphic, with_polymorphic
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp
@@ -31,7 +33,7 @@ from app.schemas.device_group import (
     LampSummary,
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
-from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(prefix="/devices/groups", tags=["DeviceGroups"])
 
@@ -82,8 +84,8 @@ async def get_device_groups(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
     name: Optional[str] = Query(None, description="이름으로 필터링 (부분 검색)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹 목록 조회 (페이지네이션)
@@ -97,24 +99,33 @@ async def get_device_groups(
 
     **Response**: 디바이스 그룹 목록 및 페이지네이션 정보
     """
-    query = db.query(DeviceGroup)
+    stmt = select(DeviceGroup)
+    count_stmt = select(func.count()).select_from(DeviceGroup)
 
     if name:
-        query = query.filter(DeviceGroup.name.contains(name))
+        stmt = stmt.where(DeviceGroup.name.contains(name))
+        count_stmt = count_stmt.where(DeviceGroup.name.contains(name))
 
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    groups = query.order_by(DeviceGroup.id).offset(skip).limit(limit).all()
+    groups = (
+        await db.execute(stmt.order_by(DeviceGroup.id).offset(skip).limit(limit))
+    ).scalars().all()
 
     group_responses = []
     for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
+                DeviceGroupMapping.group_id == g.id
+            )
+        )).scalar() or 0
         group_responses.append(DeviceGroupResponse(
             id=g.id,
             name=g.name,
             description=g.description,
-            device_count=g.device_mappings.count(),
+            device_count=device_count,
             created_at=g.created_at,
             updated_at=g.updated_at
         ))
@@ -271,8 +282,8 @@ async def get_device_groups(
 async def get_device_group(
     group_id: int,
     include_devices: bool = Query(True, description="디바이스 목록 포함 여부 (기본값: true)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹 상세 조회
@@ -289,7 +300,9 @@ async def get_device_group(
 
     PRD: PRD_API_Gap_Analysis.md (IMP-003)
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -297,7 +310,11 @@ async def get_device_group(
         )
 
     # Device count calculation (always needed)
-    device_count = group.device_mappings.count()
+    device_count = (await db.execute(
+        select(func.count()).select_from(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalar() or 0
 
     # include_devices=false: return basic response without devices
     if not include_devices:
@@ -317,11 +334,20 @@ async def get_device_group(
 
     # include_devices=true (default): return detail response with devices
     # 소속 디바이스 목록 조회 (Device Base 클래스로 polymorphic query)
-    mappings = group.device_mappings.all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalars().all()
     devices = []
     for mapping in mappings:
         # Device base class로 조회 - polymorphic inheritance로 모든 디바이스 타입 조회
-        device = db.query(Device).filter(Device.id == mapping.device_id).first()
+        # v6.0 P8 후속: selectin_polymorphic 로 서브타입 필드까지 미리 로드 (async lazy 회피)
+        device = (await db.execute(
+            select(Device)
+            .options(selectin_polymorphic(Device, [Controller, Sensor, Camera, Speaker, Enclosure, Lamp]))
+            .where(Device.id == mapping.device_id)
+        )).scalars().first()
         if device:
             # 공통 필드 준비
             base_data = {
@@ -412,8 +438,8 @@ async def get_device_group(
 @router.post("", response_model=ApiSingleResponse[DeviceGroupResponse], status_code=status.HTTP_201_CREATED)
 async def create_device_group(
     group_data: DeviceGroupCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹 생성
@@ -426,7 +452,9 @@ async def create_device_group(
     **Response**: 생성된 디바이스 그룹 정보
     """
     # 이름 중복 검사
-    existing = db.query(DeviceGroup).filter(DeviceGroup.name == group_data.name).first()
+    existing = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.name == group_data.name)
+    )).scalars().first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -438,11 +466,11 @@ async def create_device_group(
         description=group_data.description
     )
     db.add(group)
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.DEVICE_GROUP,
         resource_id=group.id,
@@ -472,8 +500,8 @@ async def create_device_group(
 async def patch_device_group(
     group_id: int,
     group_data: DeviceGroupUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹 부분 수정 (PATCH)
@@ -486,7 +514,9 @@ async def patch_device_group(
 
     **Response**: 수정된 디바이스 그룹 정보
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -499,10 +529,12 @@ async def patch_device_group(
     # 부분 업데이트
     if group_data.name is not None:
         # 이름 중복 검사 (자기 자신 제외)
-        existing = db.query(DeviceGroup).filter(
-            DeviceGroup.name == group_data.name,
-            DeviceGroup.id != group_id
-        ).first()
+        existing = (await db.execute(
+            select(DeviceGroup).where(
+                DeviceGroup.name == group_data.name,
+                DeviceGroup.id != group_id
+            )
+        )).scalars().first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -513,14 +545,14 @@ async def patch_device_group(
     if group_data.description is not None:
         group.description = group_data.description
 
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(group)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.DEVICE_GROUP,
             resource_id=group.id,
@@ -531,11 +563,16 @@ async def patch_device_group(
             description="DeviceGroup 수정"
         )
 
+    device_count = (await db.execute(
+        select(func.count()).select_from(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalar() or 0
     response = DeviceGroupResponse(
         id=group.id,
         name=group.name,
         description=group.description,
-        device_count=group.device_mappings.count(),
+        device_count=device_count,
         created_at=group.created_at,
         updated_at=group.updated_at
     )
@@ -551,8 +588,8 @@ async def patch_device_group(
 async def put_device_group(
     group_id: int,
     group_data: DeviceGroupCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹 전체 수정 (PUT)
@@ -565,7 +602,9 @@ async def put_device_group(
 
     **Response**: 수정된 디바이스 그룹 정보
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -573,10 +612,12 @@ async def put_device_group(
         )
 
     # 이름 중복 검사 (자기 자신 제외)
-    existing = db.query(DeviceGroup).filter(
-        DeviceGroup.name == group_data.name,
-        DeviceGroup.id != group_id
-    ).first()
+    existing = (await db.execute(
+        select(DeviceGroup).where(
+            DeviceGroup.name == group_data.name,
+            DeviceGroup.id != group_id
+        )
+    )).scalars().first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -586,14 +627,19 @@ async def put_device_group(
     group.name = group_data.name
     group.description = group_data.description
 
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
 
+    device_count = (await db.execute(
+        select(func.count()).select_from(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalar() or 0
     response = DeviceGroupResponse(
         id=group.id,
         name=group.name,
         description=group.description,
-        device_count=group.device_mappings.count(),
+        device_count=device_count,
         created_at=group.created_at,
         updated_at=group.updated_at
     )
@@ -608,8 +654,8 @@ async def put_device_group(
 @router.delete("/{group_id}", response_model=ApiSingleResponse[None])
 async def delete_device_group(
     group_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹 삭제
@@ -621,7 +667,9 @@ async def delete_device_group(
 
     **Response**: 삭제 결과
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -633,11 +681,11 @@ async def delete_device_group(
     deleted_identifier = get_identifier(group)
     deleted_name = f"DeviceGroup-{group.id} ({group.name})"
 
-    db.delete(group)
-    db.commit()
+    await db.delete(group)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.DEVICE_GROUP,
         resource_id=deleted_id,
@@ -658,8 +706,8 @@ async def delete_device_group(
 async def assign_devices_to_group(
     group_id: int,
     request: DeviceAssignRequest,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹에 디바이스 할당
@@ -671,7 +719,9 @@ async def assign_devices_to_group(
 
     **Response**: 할당 결과 (성공/건너뜀 목록)
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -684,17 +734,21 @@ async def assign_devices_to_group(
 
     for device_id in request.device_ids:
         # 디바이스 존재 확인 (Device base class로 polymorphic query)
-        device = db.query(Device).filter(Device.id == device_id).first()
+        device = (await db.execute(
+            select(Device).where(Device.id == device_id)
+        )).scalars().first()
         if not device:
             skipped.append(device_id)
             continue
 
         # 이미 할당된 경우 건너뜀
-        existing_mapping = db.query(DeviceGroupMapping).filter(
-            DeviceGroupMapping.device_id == device_id,
-            DeviceGroupMapping.category_device == device.category_device,
-            DeviceGroupMapping.group_id == group_id
-        ).first()
+        existing_mapping = (await db.execute(
+            select(DeviceGroupMapping).where(
+                DeviceGroupMapping.device_id == device_id,
+                DeviceGroupMapping.category_device == device.category_device,
+                DeviceGroupMapping.group_id == group_id
+            )
+        )).scalars().first()
 
         if existing_mapping:
             skipped.append(device_id)
@@ -704,11 +758,11 @@ async def assign_devices_to_group(
             assigned.append(device_id)
             assigned_categories[device_id] = device.category_device.value
 
-    db.commit()
+    await db.commit()
 
     # ConfigChangeLog: ASSIGNED 로그 기록 (PRD v1.2)
     if assigned:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.DEVICE_GROUP,
             resource_id=group_id,
@@ -748,8 +802,8 @@ async def assign_devices_to_group(
 async def bulk_unassign_devices_from_group(
     group_id: int,
     request: DeviceUnassignRequest,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     디바이스 그룹에서 디바이스 일괄 해제 (벌크)
@@ -764,7 +818,9 @@ async def bulk_unassign_devices_from_group(
     - skipped_device_ids: device는 존재하나 그룹 멤버가 아님 (멱등)
     - not_found_device_ids: device 자체가 DB에 없음
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -780,30 +836,34 @@ async def bulk_unassign_devices_from_group(
     removed_categories: dict[int, str] = {}
 
     for device_id in unique_ids:
-        device = db.query(Device).filter(Device.id == device_id).first()
+        device = (await db.execute(
+            select(Device).where(Device.id == device_id)
+        )).scalars().first()
         if not device:
             not_found.append(device_id)
             continue
 
-        mapping = db.query(DeviceGroupMapping).filter(
-            DeviceGroupMapping.device_id == device_id,
-            DeviceGroupMapping.category_device == device.category_device,
-            DeviceGroupMapping.group_id == group_id,
-        ).first()
+        mapping = (await db.execute(
+            select(DeviceGroupMapping).where(
+                DeviceGroupMapping.device_id == device_id,
+                DeviceGroupMapping.category_device == device.category_device,
+                DeviceGroupMapping.group_id == group_id,
+            )
+        )).scalars().first()
 
         if not mapping:
             skipped.append(device_id)
             continue
 
-        db.delete(mapping)
+        await db.delete(mapping)
         removed.append(device_id)
         removed_categories[device_id] = device.category_device.value
 
-    db.commit()  # 단일 commit (원자성)
+    await db.commit()  # 단일 commit (원자성)
 
     # ConfigChangeLog: removed가 있을 때만 1건 발행
     if removed:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.DEVICE_GROUP,
             resource_id=group_id,
@@ -840,8 +900,8 @@ async def bulk_unassign_devices_from_group(
 async def remove_device_from_group(
     group_id: int,
     device_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     디바이스 그룹에서 디바이스 제거
@@ -853,7 +913,9 @@ async def remove_device_from_group(
 
     **Response**: 제거 결과
     """
-    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
     if not group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -861,18 +923,22 @@ async def remove_device_from_group(
         )
 
     # Device 조회로 올바른 category_device 확인 (polymorphic query)
-    device = db.query(Device).filter(Device.id == device_id).first()
+    device = (await db.execute(
+        select(Device).where(Device.id == device_id)
+    )).scalars().first()
     if not device:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"success": False, "message": f"Device ID {device_id} not found"}
         )
 
-    mapping = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == device.category_device,
-        DeviceGroupMapping.group_id == group_id
-    ).first()
+    mapping = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == device.category_device,
+            DeviceGroupMapping.group_id == group_id
+        )
+    )).scalars().first()
 
     if not mapping:
         raise HTTPException(
@@ -880,11 +946,11 @@ async def remove_device_from_group(
             detail={"success": False, "message": f"Device ID {device_id} is not assigned to group {group_id}"}
         )
 
-    db.delete(mapping)
-    db.commit()
+    await db.delete(mapping)
+    await db.commit()
 
     # ConfigChangeLog: UNASSIGNED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.DEVICE_GROUP,
         resource_id=group_id,

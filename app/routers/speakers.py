@@ -3,14 +3,18 @@ Speaker API endpoints
 PRD: PRD_Speaker_Device.md - Section 6.1
 PRD: PRD_Speaker_Geolocation.md v1.0 - geolocation JSONB 추가
 URL Pattern: /api/devices/speakers (Device 하위 리소스)
+
+v6.0 P7: async 전환 (Polymorphic Device)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Speaker
 from app.models.device_group import DeviceGroup, DeviceGroupMapping
 from app.models.server import Server
@@ -18,63 +22,80 @@ from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumSpeakerType, E
 from app.schemas.device import SpeakerCreate, SpeakerUpdate, SpeakerResponse, DeviceGroupNestedResponse
 from app.schemas.server import ServerNestedResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
-from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Speakers"])
 
 
-def _get_device_groups_nested(db: Session, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.SPEAKER) -> List[DeviceGroupNestedResponse]:
+async def _get_device_groups_nested(
+    db: AsyncSession,
+    device_id: int,
+    category_device: EnumDeviceCategory = EnumDeviceCategory.SPEAKER,
+) -> List[DeviceGroupNestedResponse]:
     """Get device groups for a speaker (PRD_DeviceGroup_Support_Completion.md)"""
-    mappings = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device,
+        )
+    )).scalars().all()
 
     if not mappings:
         return []
 
     group_ids = [m.group_id for m in mappings]
-    groups = db.query(DeviceGroup).filter(DeviceGroup.id.in_(group_ids)).all()
+    groups = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id.in_(group_ids))
+    )).scalars().all()
 
-    return [
-        DeviceGroupNestedResponse(
-            id=g.id,
-            name=g.name,
-            description=g.description,
-            device_count=db.query(DeviceGroupMapping).filter(
+    result: List[DeviceGroupNestedResponse] = []
+    for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
                 DeviceGroupMapping.group_id == g.id
-            ).count()
+            )
+        )).scalar()
+        result.append(
+            DeviceGroupNestedResponse(
+                id=g.id,
+                name=g.name,
+                description=g.description,
+                device_count=device_count,
+            )
         )
-        for g in groups
-    ]
+    return result
 
 
-def _update_device_group_mappings(
-    db: Session,
+async def _update_device_group_mappings(
+    db: AsyncSession,
     device_id: int,
     group_ids: List[int],
-    category_device: EnumDeviceCategory = EnumDeviceCategory.SPEAKER
+    category_device: EnumDeviceCategory = EnumDeviceCategory.SPEAKER,
 ):
     """Update device group mappings for a speaker (PRD_DeviceGroup_Support_Completion.md)"""
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == device_id,
-        DeviceGroupMapping.category_device == category_device
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device,
+        )
+    )
 
     for group_id in group_ids:
-        group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+        group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == group_id)
+        )).scalars().first()
         if group:
             mapping = DeviceGroupMapping(
                 device_id=device_id,
                 category_device=category_device,
-                group_id=group_id
+                group_id=group_id,
             )
             db.add(mapping)
 
 
-def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
+async def _speaker_to_response(speaker: Speaker, db: AsyncSession) -> SpeakerResponse:
     """Convert Speaker model to SpeakerResponse schema"""
-    # Build ServerNestedResponse if server exists
+    # Build ServerNestedResponse if server exists (server is preloaded via selectinload)
     server_nested = None
     if speaker.server:
         server_nested = ServerNestedResponse(
@@ -87,11 +108,11 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
             hostname=speaker.server.hostname,
             user_name=speaker.server.user_name,
             user_password=speaker.server.user_password,
-            threshold_config=speaker.server.threshold_config
+            threshold_config=speaker.server.threshold_config,
         )
 
     # PRD_DeviceGroup_Support_Completion.md: device_groups 조회
-    device_groups = _get_device_groups_nested(db, speaker.id, EnumDeviceCategory.SPEAKER)
+    device_groups = await _get_device_groups_nested(db, speaker.id, EnumDeviceCategory.SPEAKER)
 
     return SpeakerResponse(
         id=speaker.id,
@@ -109,7 +130,7 @@ def _speaker_to_response(speaker: Speaker, db: Session) -> SpeakerResponse:
         description=speaker.description,
         geolocation=speaker.geolocation,  # PRD_Speaker_Geolocation.md v1.0
         server=server_nested,
-        device_groups=device_groups
+        device_groups=device_groups,
     )
 
 
@@ -120,8 +141,8 @@ async def get_speakers(
     server_id: Optional[int] = Query(None, description="서버 ID로 필터링"),
     status: Optional[str] = Query(None, description="상태로 필터링 (EnumDeviceStatus)"),
     speaker_type: Optional[str] = Query(None, description="스피커 타입으로 필터링 (EnumSpeakerType)"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     스피커 목록 조회 (페이지네이션)
@@ -136,50 +157,56 @@ async def get_speakers(
 
     **Response**: 스피커 목록 및 페이지네이션 정보
     """
-    # Build query
-    query = db.query(Speaker)
+    # Build query — selectinload(Speaker.server) 로 async lazy load 함정 회피
+    stmt = select(Speaker).options(selectinload(Speaker.server))
+    count_stmt = select(func.count()).select_from(Speaker)
 
-    # Apply filters
+    # Apply filters (mirror on both)
     if server_id is not None:
-        query = query.filter(Speaker.server_id == server_id)
+        stmt = stmt.where(Speaker.server_id == server_id)
+        count_stmt = count_stmt.where(Speaker.server_id == server_id)
     if status is not None:
-        query = query.filter(Speaker.status == status)
+        stmt = stmt.where(Speaker.status == status)
+        count_stmt = count_stmt.where(Speaker.status == status)
     if speaker_type is not None:
-        query = query.filter(Speaker.speaker_type == speaker_type)
+        stmt = stmt.where(Speaker.speaker_type == speaker_type)
+        count_stmt = count_stmt.where(Speaker.speaker_type == speaker_type)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar()
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Get paginated results (order by id for stable pagination)
-    speakers = query.order_by(Speaker.id).offset(skip).limit(limit).all()
+    speakers = (await db.execute(
+        stmt.order_by(Speaker.id).offset(skip).limit(limit)
+    )).scalars().all()
 
     # Convert to response format
-    speaker_responses = [_speaker_to_response(s, db) for s in speakers]
+    speaker_responses = [await _speaker_to_response(s, db) for s in speakers]
 
     pagination = PaginationMeta(
         page=page,
         limit=limit,
         total=total,
-        total_pages=total_pages
+        total_pages=total_pages,
     )
 
     return ApiResponse(
         success=True,
         message="Speakers retrieved successfully",
         data=speaker_responses,
-        pagination=pagination
+        pagination=pagination,
     )
 
 
 @router.get("/{speaker_id}", response_model=ApiSingleResponse[SpeakerResponse])
 async def get_speaker(
     speaker_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     스피커 단건 조회
@@ -193,28 +220,32 @@ async def get_speaker(
     **Error**:
     - 404: 스피커를 찾을 수 없음
     """
-    speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
+    speaker = (await db.execute(
+        select(Speaker)
+        .options(selectinload(Speaker.server))
+        .where(Speaker.id == speaker_id)
+    )).scalars().first()
 
     if not speaker:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Speaker with id {speaker_id} not found"
+            detail=f"Speaker with id {speaker_id} not found",
         )
 
-    speaker_response = _speaker_to_response(speaker, db)
+    speaker_response = await _speaker_to_response(speaker, db)
 
     return ApiSingleResponse(
         success=True,
         message="Speaker retrieved successfully",
-        data=speaker_response
+        data=speaker_response,
     )
 
 
 @router.post("", response_model=ApiSingleResponse[SpeakerResponse], status_code=status.HTTP_201_CREATED)
 async def create_speaker(
     speaker_data: SpeakerCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     스피커 생성
@@ -236,11 +267,13 @@ async def create_speaker(
     """
     # Validate server_id if provided
     if speaker_data.server_id is not None:
-        server = db.query(Server).filter(Server.id == speaker_data.server_id).first()
+        server = (await db.execute(
+            select(Server).where(Server.id == speaker_data.server_id)
+        )).scalars().first()
         if not server:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Server with id {speaker_data.server_id} not found"
+                detail=f"Server with id {speaker_data.server_id} not found",
             )
 
     # PRD_Speaker_Geolocation.md v1.0: geolocation 처리
@@ -260,35 +293,42 @@ async def create_speaker(
         speaker_type=speaker_data.speaker_type,
         server_id=speaker_data.server_id,
         description=speaker_data.description,
-        geolocation=geolocation_dict  # PRD_Speaker_Geolocation.md v1.0
+        geolocation=geolocation_dict,  # PRD_Speaker_Geolocation.md v1.0
     )
 
     db.add(new_speaker)
-    db.commit()
-    db.refresh(new_speaker)
+    await db.commit()
+    await db.refresh(new_speaker)
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if speaker_data.group_ids is not None:
-        _update_device_group_mappings(db, new_speaker.id, speaker_data.group_ids, EnumDeviceCategory.SPEAKER)
-        db.commit()
+        await _update_device_group_mappings(db, new_speaker.id, speaker_data.group_ids, EnumDeviceCategory.SPEAKER)
+        await db.commit()
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.SPEAKER,
         resource_id=new_speaker.id,
         resource_name=f"Speaker-{new_speaker.id} ({new_speaker.name_device})",
         action=EnumConfigActionType.CREATED,
         after_state=get_identifier(new_speaker),
-        description="Speaker 생성"
+        description="Speaker 생성",
     )
 
-    speaker_response = _speaker_to_response(new_speaker, db)
+    # Reload speaker with server relationship preloaded for response
+    new_speaker = (await db.execute(
+        select(Speaker)
+        .options(selectinload(Speaker.server))
+        .where(Speaker.id == new_speaker.id)
+    )).scalars().first()
+
+    speaker_response = await _speaker_to_response(new_speaker, db)
 
     return ApiSingleResponse(
         success=True,
         message="Speaker created successfully",
-        data=speaker_response
+        data=speaker_response,
     )
 
 
@@ -296,8 +336,8 @@ async def create_speaker(
 async def update_speaker(
     speaker_id: int,
     speaker_data: SpeakerUpdate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     스피커 부분 수정 (PATCH)
@@ -318,12 +358,16 @@ async def update_speaker(
     **Error**:
     - 404: 스피커를 찾을 수 없음
     """
-    speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
+    speaker = (await db.execute(
+        select(Speaker)
+        .options(selectinload(Speaker.server))
+        .where(Speaker.id == speaker_id)
+    )).scalars().first()
 
     if not speaker:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Speaker with id {speaker_id} not found"
+            detail=f"Speaker with id {speaker_id} not found",
         )
 
     # ConfigChangeLog: before_state 캡처 (PRD v1.2)
@@ -337,11 +381,13 @@ async def update_speaker(
 
     # Validate server_id if provided and not null
     if "server_id" in update_data and update_data["server_id"] is not None:
-        server = db.query(Server).filter(Server.id == update_data["server_id"]).first()
+        server = (await db.execute(
+            select(Server).where(Server.id == update_data["server_id"])
+        )).scalars().first()
         if not server:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Server with id {update_data['server_id']} not found"
+                detail=f"Server with id {update_data['server_id']} not found",
             )
 
     # PRD_Speaker_Geolocation.md v1.0: geolocation 처리
@@ -354,16 +400,16 @@ async def update_speaker(
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if group_ids is not None:
-        _update_device_group_mappings(db, speaker.id, group_ids, EnumDeviceCategory.SPEAKER)
+        await _update_device_group_mappings(db, speaker.id, group_ids, EnumDeviceCategory.SPEAKER)
 
-    db.commit()
-    db.refresh(speaker)
+    await db.commit()
+    await db.refresh(speaker)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(speaker)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.SPEAKER,
             resource_id=speaker.id,
@@ -371,15 +417,22 @@ async def update_speaker(
             action=EnumConfigActionType.UPDATED,
             before_state=before_changes,
             after_state=after_changes,
-            description="Speaker 수정"
+            description="Speaker 수정",
         )
 
-    speaker_response = _speaker_to_response(speaker, db)
+    # Reload speaker with server relationship preloaded for response
+    speaker = (await db.execute(
+        select(Speaker)
+        .options(selectinload(Speaker.server))
+        .where(Speaker.id == speaker.id)
+    )).scalars().first()
+
+    speaker_response = await _speaker_to_response(speaker, db)
 
     return ApiSingleResponse(
         success=True,
         message="Speaker updated successfully",
-        data=speaker_response
+        data=speaker_response,
     )
 
 
@@ -387,8 +440,8 @@ async def update_speaker(
 async def replace_speaker(
     speaker_id: int,
     speaker_data: SpeakerCreate,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     스피커 전체 수정 (PUT)
@@ -406,21 +459,27 @@ async def replace_speaker(
     **Error**:
     - 404: 스피커를 찾을 수 없음
     """
-    speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
+    speaker = (await db.execute(
+        select(Speaker)
+        .options(selectinload(Speaker.server))
+        .where(Speaker.id == speaker_id)
+    )).scalars().first()
 
     if not speaker:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Speaker with id {speaker_id} not found"
+            detail=f"Speaker with id {speaker_id} not found",
         )
 
     # Validate server_id if provided
     if speaker_data.server_id is not None:
-        server = db.query(Server).filter(Server.id == speaker_data.server_id).first()
+        server = (await db.execute(
+            select(Server).where(Server.id == speaker_data.server_id)
+        )).scalars().first()
         if not server:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Server with id {speaker_data.server_id} not found"
+                detail=f"Server with id {speaker_data.server_id} not found",
             )
 
     # PRD_Speaker_Geolocation.md v1.0: geolocation 처리
@@ -443,25 +502,32 @@ async def replace_speaker(
 
     # PRD_DeviceGroup_Support_Completion.md: group_ids 처리
     if speaker_data.group_ids is not None:
-        _update_device_group_mappings(db, speaker.id, speaker_data.group_ids, EnumDeviceCategory.SPEAKER)
+        await _update_device_group_mappings(db, speaker.id, speaker_data.group_ids, EnumDeviceCategory.SPEAKER)
 
-    db.commit()
-    db.refresh(speaker)
+    await db.commit()
+    await db.refresh(speaker)
 
-    speaker_response = _speaker_to_response(speaker, db)
+    # Reload speaker with server relationship preloaded for response
+    speaker = (await db.execute(
+        select(Speaker)
+        .options(selectinload(Speaker.server))
+        .where(Speaker.id == speaker.id)
+    )).scalars().first()
+
+    speaker_response = await _speaker_to_response(speaker, db)
 
     return ApiSingleResponse(
         success=True,
         message="Speaker replaced successfully",
-        data=speaker_response
+        data=speaker_response,
     )
 
 
 @router.delete("/{speaker_id}", response_model=ApiSingleResponse[None])
 async def delete_speaker(
     speaker_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     스피커 삭제
@@ -475,12 +541,14 @@ async def delete_speaker(
     **Error**:
     - 404: 스피커를 찾을 수 없음
     """
-    speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
+    speaker = (await db.execute(
+        select(Speaker).where(Speaker.id == speaker_id)
+    )).scalars().first()
 
     if not speaker:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Speaker with id {speaker_id} not found"
+            detail=f"Speaker with id {speaker_id} not found",
         )
 
     # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
@@ -489,27 +557,29 @@ async def delete_speaker(
     deleted_name = f"Speaker-{speaker.id} ({speaker.name_device})"
 
     # Delete associated device group mappings first (no FK cascade for polymorphic relation)
-    db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == speaker_id,
-        DeviceGroupMapping.category_device == EnumDeviceCategory.SPEAKER
-    ).delete()
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == speaker_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.SPEAKER,
+        )
+    )
 
-    db.delete(speaker)
-    db.commit()
+    await db.delete(speaker)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.SPEAKER,
         resource_id=deleted_id,
         resource_name=deleted_name,
         action=EnumConfigActionType.DELETED,
         before_state=deleted_identifier,
-        description="Speaker 삭제"
+        description="Speaker 삭제",
     )
 
     return ApiSingleResponse(
         success=True,
         message="Speaker deleted successfully",
-        data=None
+        data=None,
     )

@@ -213,18 +213,25 @@ tags_metadata = [
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan events
+    Application lifespan events.
+
+    v6.0 P9: sync `initialize_database()` + `apply_triggers()` 는 startup 1회 실행이라
+    이벤트루프 블로킹 무해하나, 대량 시드(28k+ 이벤트)가 옵션이 될 수 있어
+    `asyncio.to_thread` 로 감싸 uvicorn worker health check timeout 리스크 회피.
     """
+    import asyncio as _asyncio
+
     # Startup
     print("=" * 60)
     print("GOP API Server Starting...")
     print("=" * 60)
 
-    # Initialize database
-    initialize_database()
+    # Initialize database (sync 유지 — v6.1 batch queue와 함께 별도 리팩터)
+    # to_thread 로 감싸 이벤트루프 자유 (INIT_SAMPLE_DATA=true 시 벌크 삽입 안전)
+    await _asyncio.to_thread(initialize_database)
 
     # Apply PostgreSQL pg_notify triggers (skips if SQLite)
-    apply_triggers(engine)
+    await _asyncio.to_thread(apply_triggers, engine)
 
     print(f"Server running on http://{settings.HOST}:{settings.PORT}")
     print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
@@ -319,7 +326,7 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 - 명세: GOP_Restful_Api_연동설계.md v5.0
 - 주요 PRD: PRD_v5.0_Permission_Management.md (v5.0 그룹 권한 관리), PRD_Tracking_History_API.md (v4.11), PRD_v4.9_Followup_AccountIntegration.md (v4.12 RBAC), PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="5.4.0",
+    version="6.0.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",

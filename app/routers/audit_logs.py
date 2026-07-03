@@ -3,13 +3,14 @@ Audit Log API endpoints
 PRD: PRD_Audit_Log.md v1.0
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.audit_log import AuditLog
 from app.schemas.audit_log import (
     AuditLogResponse,
@@ -81,8 +82,8 @@ async def get_audit_logs(
     action_status: Optional[str] = Query(None, description="행위 결과 필터 (SUCCESS, FAILURE)"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜 필터"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜 필터"),
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     감사 로그 목록 조회 (페이지네이션)
@@ -103,27 +104,39 @@ async def get_audit_logs(
 
     **Response**: 감사 로그 목록 및 페이지네이션 정보
     """
-    query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+    stmt = select(AuditLog)
+    count_stmt = select(func.count()).select_from(AuditLog)
 
     # 필터 적용
     if action_type:
-        query = query.filter(AuditLog.action_type == action_type)
+        stmt = stmt.where(AuditLog.action_type == action_type)
+        count_stmt = count_stmt.where(AuditLog.action_type == action_type)
     if resource_type:
-        query = query.filter(AuditLog.resource_type == resource_type)
+        stmt = stmt.where(AuditLog.resource_type == resource_type)
+        count_stmt = count_stmt.where(AuditLog.resource_type == resource_type)
     if resource_id:
-        query = query.filter(AuditLog.resource_id == resource_id)
+        stmt = stmt.where(AuditLog.resource_id == resource_id)
+        count_stmt = count_stmt.where(AuditLog.resource_id == resource_id)
     if actor_login_id:
-        query = query.filter(AuditLog.actor_login_id == actor_login_id)
+        stmt = stmt.where(AuditLog.actor_login_id == actor_login_id)
+        count_stmt = count_stmt.where(AuditLog.actor_login_id == actor_login_id)
     if action_status:
-        query = query.filter(AuditLog.action_status == action_status)
+        stmt = stmt.where(AuditLog.action_status == action_status)
+        count_stmt = count_stmt.where(AuditLog.action_status == action_status)
     if start_date:
-        query = query.filter(AuditLog.created_at >= start_date)
+        stmt = stmt.where(AuditLog.created_at >= start_date)
+        count_stmt = count_stmt.where(AuditLog.created_at >= start_date)
     if end_date:
-        query = query.filter(AuditLog.created_at <= end_date)
+        stmt = stmt.where(AuditLog.created_at <= end_date)
+        count_stmt = count_stmt.where(AuditLog.created_at <= end_date)
 
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
     skip = (page - 1) * limit
-    audit_logs = query.order_by(AuditLog.id.desc()).offset(skip).limit(limit).all()
+    audit_logs = (
+        await db.execute(
+            stmt.order_by(AuditLog.id.desc()).offset(skip).limit(limit)
+        )
+    ).scalars().all()
 
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
@@ -193,8 +206,8 @@ async def get_audit_logs(
 )
 async def get_audit_log_detail(
     audit_log_id: int,
-    current_user=Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     감사 로그 상세 조회
@@ -206,7 +219,9 @@ async def get_audit_log_detail(
 
     **Response**: 감사 로그 상세 정보
     """
-    audit_log = db.query(AuditLog).filter(AuditLog.id == audit_log_id).first()
+    audit_log = (
+        await db.execute(select(AuditLog).where(AuditLog.id == audit_log_id))
+    ).scalars().first()
 
     if not audit_log:
         raise HTTPException(

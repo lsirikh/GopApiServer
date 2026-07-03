@@ -4,6 +4,68 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v6.0] — 2026-07-03
+
+> **Async 대전환** (문서 A-7 근본 해결책 2). SQLAlchemy 2.x + asyncpg + AsyncSession 도입.
+> 41 라우터 × 397 db.query → `await db.execute(select())` 전환. Dual-stack 원칙(sync 병존)으로 안전 롤아웃.
+
+### Phase 별 완료 (P0~P11)
+
+| Phase | 목표 | 결과 |
+|:-:|---|:-:|
+| **P0** | Foundation | asyncpg + async_engine + AsyncSessionLocal + get_async_db 병존 |
+| **P1** | Relationship Hazards | 6개 라우터 × 22 hazards 명시 쿼리 교체 (Tidy First) |
+| **P2** | Middleware | v5.4 to_thread 유지 결정 (v6.1 batch queue) |
+| **P3** | Services 5종 | audit/grant/session_sweep/api_logs_sweep/token_blacklist dual-stack |
+| **P4** | Auth/Security | get_current_account_user_async, matrix_enforcer async, bcrypt to_thread |
+| **P5** | Simple 5 라우터 | audit_logs, config_change_logs, event_mappings, tracking, logs |
+| **P6** | Medium 15 라우터 | camera_presets/settings, enclosures, file_groups, grants, lamps, proxy_settings, server_categories, server_metrics, settings, user_groups + enclosure_metrics, servers, system_events, thumbnails + settings_service/config_log_service dual-stack |
+| **P7** | Device Polymorphic 4 | controllers, sensors, speakers, cameras (selectinload) |
+| **P8** | VeryComplex 15 | detections, detection_logs, malfunctions, connections, actions (selectin_polymorphic), event_mapping_cameras/lamps/speakers (bulk flush), device_groups (selectin_polymorphic Device), rois, xypoints, users (bcrypt async), user_sessions, reports (service sync 유지), event_statistics |
+| **P9** | init/main/Scheduler | asyncio.to_thread(initialize_database, apply_triggers) 래핑. 스케줄러 3종 P3 완료 |
+| **P10** | 통합 검증 | 50 GET endpoint 전건 스캔 — 500-FAIL 0, 회귀 없음 |
+| **P11** | 5중 싱크 마감 | 본 커밋 (Swagger/명세서/CHANGELOG/Image/Container/태그 v6.0) |
+
+### Added
+- **asyncpg** (requirements.txt 기존 — 신규 설치 무필요)
+- `app/database.py`: async_engine + AsyncSessionLocal (Dual-stack)
+- `app/dependencies.py`: get_async_db
+- Services async 병존: log_action_async, is_blacklisted_async, add_to_blacklist_async, run_grant_sweep(async), run_session_sweep(async), run_api_logs_sweep(async), settings_service.*_async, log_config_change_async
+- Auth async 병존: get_current_account_user_async, get_current_account_user_optional_async, require_admin_async, require_role_async, require_perm_async, require_perm_optional_async, _effective_allows_async, effective_permissions_payload_async
+- utils/auth: hash_password_async, verify_password_async (to_thread bcrypt)
+- Polymorphic eager load: selectin_polymorphic(Device, [...]) + selectinload(Event.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp])
+
+### Changed
+- **41 라우터 async 전환**: db.query() → await db.execute(select())
+- **매 요청 이벤트루프 자유**: sync 커넥션 획득 절감, MissingGreenlet 회피
+- **Swagger `info.version` 5.4.0 → 6.0.0**
+
+### 실측 검증
+
+- 스타트업: container Up (healthy), 스케줄러 3종 정상, traceback 0건
+- 50 GET no-param endpoint 스캔: **500-FAIL 0**, 46 success, 4 422(필수 param), 0 timeout
+- 폴리모픽 Device/Event 계층: detections/malfunctions/connections/detection_logs/actions 전건 200
+- device_groups/{id} → 200 (selectin_polymorphic 적용)
+- bcrypt async: 60자 hash + verify match/mismatch 정상
+- postgres 커넥션: active=1, idle=4 (안정)
+
+### Deferred → v6.1
+
+- report_service.py + report_master_builder.py + report_html_renderer.py 완전 async
+- init_*.py 5개 내부 완전 async (to_thread 래퍼 대신)
+- APILoggingMiddleware batch INSERT queue
+- pytest 스위트 async fixture 복구
+- token_blacklist TTL 캐시 → Redis 분산 캐시
+
+### Migration Guide
+
+- 신규 라우터 작성 시 `Depends(get_async_db)` + `AsyncSession`
+- Auth: `require_perm_optional_async("module", "verb")` 사용
+- Bcrypt: `await hash_password_async(...)` / `await verify_password_async(...)`
+- Audit: `await log_action_async(db, ...)` (async 라우터에서만)
+- Polymorphic 관계 응답: `selectin_polymorphic` 필수
+- DeviceGroupMapping.group 접근: `selectinload(DeviceGroupMapping.group)` 필수
+
 ## [v5.4] — 2026-07-03
 
 > **하루 1버전 원칙**에 따라 오늘(2026-07-03) 진행된 모든 작업 통합:
@@ -120,6 +182,17 @@ GET    /reports/generations/{id}/download → 403 ✅
 [대조] ADMIN 토큰 POST /generate     → 202 (bypass 확인)
 [대조] ADMIN 토큰 GET /preview/9999 → 404 (핸들러 도달)
 ```
+
+**§4.3 선택·권장 추가 반영 (6개 view)** — 클라 UI 게이팅과 일관성 완결:
+- `GET /components`, `GET /status`, `GET /templates`, `GET /templates/{id}`, `GET /generations`, `GET /generations/{id}` → `reports:view`
+
+실측:
+```
+무권한 USER → GET /components/status/templates/generations 6개 전건 → 403 ✅
+ADMIN       → GET /components → 200 (bypass)
+```
+
+**reports 라우터 총 15개 endpoint 최종 매트릭스**: edit 3 + delete 2 + view 10.
 
 ## [v5.3] — 2026-07-02
 

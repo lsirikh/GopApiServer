@@ -4,12 +4,16 @@ EventMappingCamera Router
 PRD: PRD_CameraEventMapping_Refactoring.md v2.1 - Section 5
 
 Endpoints: /api/event-mappings/{mapping_id}/cameras
+
+v6.0 P8: async 전환 (AsyncSession, get_async_db, log_config_change_async, selectinload).
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.integration import EventMapping, EventMappingCamera
 from app.models.device import Camera
 from app.models.camera_preset import CameraPreset
@@ -29,23 +33,27 @@ from app.schemas.integration import (
 )
 from app.schemas.device import DeviceGroupNestedResponse
 from app.schemas.common import ApiSingleResponse
-from app.routers.auth import get_current_account_user_optional
+from app.routers.auth import get_current_account_user_optional_async
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Event Mapping Cameras"])
 
 
-def _build_camera_nested(camera: Camera, db: Session) -> Optional[CameraNestedResponse]:
+async def _build_camera_nested(camera: Camera, db: AsyncSession) -> Optional[CameraNestedResponse]:
     """Build CameraNestedResponse from Camera model"""
     if not camera:
         return None
 
     # Get device groups
-    mappings = db.query(DeviceGroupMapping).filter(
-        DeviceGroupMapping.device_id == camera.id,
-        DeviceGroupMapping.category_device == "camera"
-    ).all()
+    mappings = (await db.execute(
+        select(DeviceGroupMapping)
+        .options(selectinload(DeviceGroupMapping.group))
+        .where(
+            DeviceGroupMapping.device_id == camera.id,
+            DeviceGroupMapping.category_device == "camera"
+        )
+    )).scalars().all()
 
     device_groups = []
     for mapping in mappings:
@@ -93,12 +101,12 @@ def _build_preset_nested(preset: CameraPreset) -> Optional[PresetNestedResponse]
     )
 
 
-def _build_response(emc: EventMappingCamera, db: Session) -> EventMappingCameraResponse:
+async def _build_response(emc: EventMappingCamera, db: AsyncSession) -> EventMappingCameraResponse:
     """Build EventMappingCameraResponse from model"""
     return EventMappingCameraResponse(
         id=emc.id,
         event_mapping_id=emc.event_mapping_id,
-        camera=_build_camera_nested(emc.camera, db) if emc.camera else None,
+        camera=await _build_camera_nested(emc.camera, db) if emc.camera else None,
         target_preset=_build_preset_nested(emc.target_preset) if emc.target_preset else None,
         home_preset=_build_preset_nested(emc.home_preset) if emc.home_preset else None,
         delay_time=emc.delay_time,
@@ -109,20 +117,31 @@ def _build_response(emc: EventMappingCamera, db: Session) -> EventMappingCameraR
     )
 
 
+def _emc_with_relations():
+    """selectinload options for EventMappingCamera relationships used in responses."""
+    return (
+        selectinload(EventMappingCamera.camera),
+        selectinload(EventMappingCamera.target_preset),
+        selectinload(EventMappingCamera.home_preset),
+    )
+
+
 @router.get(
     "/{mapping_id}/cameras",
     response_model=ApiSingleResponse[dict],
     summary="List camera configs for event mapping",
     description="Get all camera configurations for a specific event mapping"
 )
-def list_event_mapping_cameras(
+async def list_event_mapping_cameras(
     mapping_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/event-mappings/{mapping_id}/cameras"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -130,11 +149,13 @@ def list_event_mapping_cameras(
         )
 
     # Get all cameras for this mapping
-    cameras = db.query(EventMappingCamera).filter(
-        EventMappingCamera.event_mapping_id == mapping_id
-    ).all()
+    cameras = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(EventMappingCamera.event_mapping_id == mapping_id)
+    )).scalars().all()
 
-    items = [_build_response(emc, db) for emc in cameras]
+    items = [await _build_response(emc, db) for emc in cameras]
 
     return {
         "success": True,
@@ -152,15 +173,17 @@ def list_event_mapping_cameras(
     summary="Get camera config by ID",
     description="Get a specific camera configuration"
 )
-def get_event_mapping_camera(
+async def get_event_mapping_camera(
     mapping_id: int,
     config_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/event-mappings/{mapping_id}/cameras/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -168,10 +191,14 @@ def get_event_mapping_camera(
         )
 
     # Get camera config
-    emc = db.query(EventMappingCamera).filter(
-        EventMappingCamera.id == config_id,
-        EventMappingCamera.event_mapping_id == mapping_id
-    ).first()
+    emc = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(
+            EventMappingCamera.id == config_id,
+            EventMappingCamera.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not emc:
         raise HTTPException(
@@ -182,7 +209,7 @@ def get_event_mapping_camera(
     return {
         "success": True,
         "message": "Event mapping camera retrieved successfully",
-        "data": _build_response(emc, db).model_dump()
+        "data": (await _build_response(emc, db)).model_dump()
     }
 
 
@@ -193,15 +220,17 @@ def get_event_mapping_camera(
     summary="Create camera config",
     description="Create a new camera configuration for an event mapping"
 )
-def create_event_mapping_camera(
+async def create_event_mapping_camera(
     mapping_id: int,
     data: EventMappingCameraCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """POST /api/event-mappings/{mapping_id}/cameras"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -209,7 +238,9 @@ def create_event_mapping_camera(
         )
 
     # Check Camera exists
-    camera = db.query(Camera).filter(Camera.id == data.camera_id).first()
+    camera = (await db.execute(
+        select(Camera).where(Camera.id == data.camera_id)
+    )).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -218,7 +249,9 @@ def create_event_mapping_camera(
 
     # Check target_preset exists (if provided)
     if data.target_preset_id:
-        target_preset = db.query(CameraPreset).filter(CameraPreset.id == data.target_preset_id).first()
+        target_preset = (await db.execute(
+            select(CameraPreset).where(CameraPreset.id == data.target_preset_id)
+        )).scalars().first()
         if not target_preset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -227,7 +260,9 @@ def create_event_mapping_camera(
 
     # Check home_preset exists (if provided)
     if data.home_preset_id:
-        home_preset = db.query(CameraPreset).filter(CameraPreset.id == data.home_preset_id).first()
+        home_preset = (await db.execute(
+            select(CameraPreset).where(CameraPreset.id == data.home_preset_id)
+        )).scalars().first()
         if not home_preset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -245,11 +280,11 @@ def create_event_mapping_camera(
         priority=data.priority
     )
     db.add(emc)
-    db.commit()
-    db.refresh(emc)
+    await db.commit()
+    await db.refresh(emc)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
         resource_id=emc.id,
@@ -259,10 +294,17 @@ def create_event_mapping_camera(
         description="EventMappingCamera 생성"
     )
 
+    # Re-fetch with eager-loaded relationships for response
+    emc = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(EventMappingCamera.id == emc.id)
+    )).scalars().first()
+
     return {
         "success": True,
         "message": "Event mapping camera created successfully",
-        "data": _build_response(emc, db).model_dump()
+        "data": (await _build_response(emc, db)).model_dump()
     }
 
 
@@ -272,16 +314,18 @@ def create_event_mapping_camera(
     summary="Update camera config (partial)",
     description="Partially update a camera configuration"
 )
-def patch_event_mapping_camera(
+async def patch_event_mapping_camera(
     mapping_id: int,
     config_id: int,
     data: EventMappingCameraUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """PATCH /api/event-mappings/{mapping_id}/cameras/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -289,10 +333,14 @@ def patch_event_mapping_camera(
         )
 
     # Get camera config
-    emc = db.query(EventMappingCamera).filter(
-        EventMappingCamera.id == config_id,
-        EventMappingCamera.event_mapping_id == mapping_id
-    ).first()
+    emc = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(
+            EventMappingCamera.id == config_id,
+            EventMappingCamera.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not emc:
         raise HTTPException(
@@ -308,7 +356,9 @@ def patch_event_mapping_camera(
 
     # Validate camera_id if provided
     if "camera_id" in update_data and update_data["camera_id"] is not None:
-        camera = db.query(Camera).filter(Camera.id == update_data["camera_id"]).first()
+        camera = (await db.execute(
+            select(Camera).where(Camera.id == update_data["camera_id"])
+        )).scalars().first()
         if not camera:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -317,7 +367,9 @@ def patch_event_mapping_camera(
 
     # Validate target_preset_id if provided
     if "target_preset_id" in update_data and update_data["target_preset_id"] is not None:
-        preset = db.query(CameraPreset).filter(CameraPreset.id == update_data["target_preset_id"]).first()
+        preset = (await db.execute(
+            select(CameraPreset).where(CameraPreset.id == update_data["target_preset_id"])
+        )).scalars().first()
         if not preset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -326,7 +378,9 @@ def patch_event_mapping_camera(
 
     # Validate home_preset_id if provided
     if "home_preset_id" in update_data and update_data["home_preset_id"] is not None:
-        preset = db.query(CameraPreset).filter(CameraPreset.id == update_data["home_preset_id"]).first()
+        preset = (await db.execute(
+            select(CameraPreset).where(CameraPreset.id == update_data["home_preset_id"])
+        )).scalars().first()
         if not preset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -336,14 +390,14 @@ def patch_event_mapping_camera(
     for key, value in update_data.items():
         setattr(emc, key, value)
 
-    db.commit()
-    db.refresh(emc)
+    await db.commit()
+    await db.refresh(emc)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(emc)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
             resource_id=emc.id,
@@ -354,10 +408,17 @@ def patch_event_mapping_camera(
             description="EventMappingCamera 수정"
         )
 
+    # Re-fetch with eager-loaded relationships for response (camera_id may have changed)
+    emc = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(EventMappingCamera.id == emc.id)
+    )).scalars().first()
+
     return {
         "success": True,
         "message": "Event mapping camera updated successfully",
-        "data": _build_response(emc, db).model_dump()
+        "data": (await _build_response(emc, db)).model_dump()
     }
 
 
@@ -367,16 +428,18 @@ def patch_event_mapping_camera(
     summary="Replace camera config",
     description="Fully replace a camera configuration"
 )
-def put_event_mapping_camera(
+async def put_event_mapping_camera(
     mapping_id: int,
     config_id: int,
     data: EventMappingCameraCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """PUT /api/event-mappings/{mapping_id}/cameras/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -384,10 +447,14 @@ def put_event_mapping_camera(
         )
 
     # Get camera config
-    emc = db.query(EventMappingCamera).filter(
-        EventMappingCamera.id == config_id,
-        EventMappingCamera.event_mapping_id == mapping_id
-    ).first()
+    emc = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(
+            EventMappingCamera.id == config_id,
+            EventMappingCamera.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not emc:
         raise HTTPException(
@@ -396,7 +463,9 @@ def put_event_mapping_camera(
         )
 
     # Validate camera_id
-    camera = db.query(Camera).filter(Camera.id == data.camera_id).first()
+    camera = (await db.execute(
+        select(Camera).where(Camera.id == data.camera_id)
+    )).scalars().first()
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -405,7 +474,9 @@ def put_event_mapping_camera(
 
     # Validate target_preset_id if provided
     if data.target_preset_id:
-        preset = db.query(CameraPreset).filter(CameraPreset.id == data.target_preset_id).first()
+        preset = (await db.execute(
+            select(CameraPreset).where(CameraPreset.id == data.target_preset_id)
+        )).scalars().first()
         if not preset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -414,7 +485,9 @@ def put_event_mapping_camera(
 
     # Validate home_preset_id if provided
     if data.home_preset_id:
-        preset = db.query(CameraPreset).filter(CameraPreset.id == data.home_preset_id).first()
+        preset = (await db.execute(
+            select(CameraPreset).where(CameraPreset.id == data.home_preset_id)
+        )).scalars().first()
         if not preset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -429,13 +502,20 @@ def put_event_mapping_camera(
     emc.is_enable = data.is_enable
     emc.priority = data.priority
 
-    db.commit()
-    db.refresh(emc)
+    await db.commit()
+    await db.refresh(emc)
+
+    # Re-fetch with eager-loaded relationships for response
+    emc = (await db.execute(
+        select(EventMappingCamera)
+        .options(*_emc_with_relations())
+        .where(EventMappingCamera.id == emc.id)
+    )).scalars().first()
 
     return {
         "success": True,
         "message": "Event mapping camera replaced successfully",
-        "data": _build_response(emc, db).model_dump()
+        "data": (await _build_response(emc, db)).model_dump()
     }
 
 
@@ -445,15 +525,17 @@ def put_event_mapping_camera(
     summary="Delete camera config",
     description="Delete a camera configuration"
 )
-def delete_event_mapping_camera(
+async def delete_event_mapping_camera(
     mapping_id: int,
     config_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """DELETE /api/event-mappings/{mapping_id}/cameras/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -461,10 +543,12 @@ def delete_event_mapping_camera(
         )
 
     # Get camera config
-    emc = db.query(EventMappingCamera).filter(
-        EventMappingCamera.id == config_id,
-        EventMappingCamera.event_mapping_id == mapping_id
-    ).first()
+    emc = (await db.execute(
+        select(EventMappingCamera).where(
+            EventMappingCamera.id == config_id,
+            EventMappingCamera.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not emc:
         raise HTTPException(
@@ -477,11 +561,11 @@ def delete_event_mapping_camera(
     deleted_identifier = {"id": emc.id, "camera_id": emc.camera_id}
     deleted_name = f"EventMappingCamera-{emc.id} (camera_id: {emc.camera_id})"
 
-    db.delete(emc)
-    db.commit()
+    await db.delete(emc)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
         resource_id=deleted_id,
@@ -511,26 +595,26 @@ flat_router = APIRouter(tags=["Mapping Cameras"])
     summary="List all mapping cameras",
     description="Get all EventMappingCamera records across all event mappings"
 )
-def list_all_mapping_cameras(
+async def list_all_mapping_cameras(
     event_mapping_id: Optional[int] = None,
     camera_id: Optional[int] = None,
     is_enable: Optional[bool] = None,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/integrations/mapping-cameras"""
-    query = db.query(EventMappingCamera)
+    stmt = select(EventMappingCamera).options(*_emc_with_relations())
 
     if event_mapping_id is not None:
-        query = query.filter(EventMappingCamera.event_mapping_id == event_mapping_id)
+        stmt = stmt.where(EventMappingCamera.event_mapping_id == event_mapping_id)
     if camera_id is not None:
-        query = query.filter(EventMappingCamera.camera_id == camera_id)
+        stmt = stmt.where(EventMappingCamera.camera_id == camera_id)
     if is_enable is not None:
-        query = query.filter(EventMappingCamera.is_enable == is_enable)
+        stmt = stmt.where(EventMappingCamera.is_enable == is_enable)
 
-    cameras = query.all()
+    cameras = (await db.execute(stmt)).scalars().all()
 
-    items = [_build_response(emc, db) for emc in cameras]
+    items = [await _build_response(emc, db) for emc in cameras]
 
     return {
         "success": True,
@@ -554,15 +638,17 @@ def list_all_mapping_cameras(
         status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
     },
 )
-def bulk_create_event_mapping_cameras(
+async def bulk_create_event_mapping_cameras(
     mapping_id: int,
     request: EventMappingCameraBulkCreateRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional),
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async),
 ):
     """POST /api/event-mappings/{mapping_id}/cameras/bulk"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -590,25 +676,29 @@ def bulk_create_event_mapping_cameras(
         seen_in_request.add(item.camera_id)
 
         # PR-B: Camera FK 미존재 → not_found_config_ids (예전엔 failed_items로 흘림)
-        camera = db.query(Camera).filter(Camera.id == item.camera_id).first()
+        camera = (await db.execute(
+            select(Camera).where(Camera.id == item.camera_id)
+        )).scalars().first()
         if not camera:
             not_found_config_ids.append(item.camera_id)
             continue
 
         # PR-B: (mapping_id, camera_id) 중복 매핑 → skipped_config_ids (멱등성)
-        existing = db.query(EventMappingCamera).filter(
-            EventMappingCamera.event_mapping_id == mapping_id,
-            EventMappingCamera.camera_id == item.camera_id,
-        ).first()
+        existing = (await db.execute(
+            select(EventMappingCamera).where(
+                EventMappingCamera.event_mapping_id == mapping_id,
+                EventMappingCamera.camera_id == item.camera_id,
+            )
+        )).scalars().first()
         if existing:
             skipped_config_ids.append(existing.id)
             continue
 
         # target_preset_id 검증 (Optional) — 기타 검증 실패는 failed_items 유지
         if item.target_preset_id:
-            target_preset = db.query(CameraPreset).filter(
-                CameraPreset.id == item.target_preset_id
-            ).first()
+            target_preset = (await db.execute(
+                select(CameraPreset).where(CameraPreset.id == item.target_preset_id)
+            )).scalars().first()
             if not target_preset:
                 failed_items.append(EventMappingCameraBulkCreateFailure(
                     index=idx, item=item,
@@ -618,9 +708,9 @@ def bulk_create_event_mapping_cameras(
 
         # home_preset_id 검증 (Optional)
         if item.home_preset_id:
-            home_preset = db.query(CameraPreset).filter(
-                CameraPreset.id == item.home_preset_id
-            ).first()
+            home_preset = (await db.execute(
+                select(CameraPreset).where(CameraPreset.id == item.home_preset_id)
+            )).scalars().first()
             if not home_preset:
                 failed_items.append(EventMappingCameraBulkCreateFailure(
                     index=idx, item=item,
@@ -641,14 +731,14 @@ def bulk_create_event_mapping_cameras(
         created_rows.append(emc)
 
     # PK 채번 후 단일 commit (원자성)
-    db.flush()
+    await db.flush()
     for row in created_rows:
         created_ids.append(row.id)
-    db.commit()
+    await db.commit()
 
     # ConfigChangeLog: PR-A (v4.5) — 무조건 1건/요청 (CREATED)
     # 0건 케이스도 발행: after_state.config_ids=[], count=0
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
         resource_id=mapping_id,
@@ -690,15 +780,17 @@ def bulk_create_event_mapping_cameras(
         status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
     },
 )
-def bulk_delete_event_mapping_cameras(
+async def bulk_delete_event_mapping_cameras(
     mapping_id: int,
     request: EventMappingCameraBulkUnassignRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional),
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async),
 ):
     """DELETE /api/event-mappings/{mapping_id}/cameras"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -713,23 +805,23 @@ def bulk_delete_event_mapping_cameras(
     not_found: list[int] = []
 
     for config_id in unique_ids:
-        row = db.query(EventMappingCamera).filter(
-            EventMappingCamera.id == config_id
-        ).first()
+        row = (await db.execute(
+            select(EventMappingCamera).where(EventMappingCamera.id == config_id)
+        )).scalars().first()
         if not row:
             not_found.append(config_id)
             continue
         if row.event_mapping_id != mapping_id:
             skipped.append(config_id)
             continue
-        db.delete(row)
+        await db.delete(row)
         removed.append(config_id)
 
-    db.commit()  # 단일 commit (원자성)
+    await db.commit()  # 단일 commit (원자성)
 
     # ConfigChangeLog: PR-A (v4.5) — 무조건 1건/요청 (DELETED)
     # 0건 케이스도 발행: before_state.config_ids=[], count=0
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_CAMERA,
         resource_id=mapping_id,

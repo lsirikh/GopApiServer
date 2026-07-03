@@ -4,15 +4,23 @@ Detection Log API endpoints (Read-Only)
 PRD: PRD_DetectionLog_API.md v1.0
 - DetectionEvent + ActionEvent LEFT JOIN
 - 탐지 로그 화면 전용 (CRUD 미제공)
+
+v6.0 P8: Async router conversion
+- AsyncSession + get_async_db
+- get_current_account_user_optional_async
+- select() + await db.execute() 패턴
+- Helper _build_device_nested_response_async: AsyncSession 기반 group_mappings 조회
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, selectinload, joinedload
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, joinedload, selectin_polymorphic
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.event import DetectionEvent, ActionEvent
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.models.device_group import DeviceGroupMapping
@@ -32,15 +40,18 @@ from typing import Union
 router = APIRouter(tags=[])
 
 
-def _build_device_nested_response(device: Optional[Device], db: Session) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
-    """Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)"""
+async def _build_device_nested_response_async(device: Optional[Device], db: AsyncSession) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
+    """Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic) — Async 버전"""
     if device is None:
         return None
 
     device_groups = []
-    mappings = db.query(DeviceGroupMapping).options(
-        joinedload(DeviceGroupMapping.group)
-    ).filter(DeviceGroupMapping.device_id == device.id).all()
+    mapping_stmt = (
+        select(DeviceGroupMapping)
+        .options(joinedload(DeviceGroupMapping.group))
+        .where(DeviceGroupMapping.device_id == device.id)
+    )
+    mappings = (await db.execute(mapping_stmt)).scalars().all()
     for mapping in mappings:
         if mapping.group:
             device_groups.append(DeviceGroupNestedResponse(
@@ -176,8 +187,8 @@ async def get_detection_logs(
     result: Optional[str] = Query(None, description="결과 유형으로 필터링"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     탐지 로그 목록 조회 (DetectionEvent + ActionEvent LEFT JOIN)
@@ -194,58 +205,65 @@ async def get_detection_logs(
     - **start_date**: 시작 날짜로 필터링
     - **end_date**: 종료 날짜로 필터링
     """
-    # LEFT JOIN: Device + ActionEvent eager loading
-    query = db.query(DetectionEvent).options(
-        selectinload(DetectionEvent.device),
-        selectinload(DetectionEvent.actions)
-    )
-
-    # Apply filters
+    # Build filter list (shared between data query and count query)
+    filters = []
     if device_id is not None:
-        query = query.filter(DetectionEvent.device_id == device_id)
+        filters.append(DetectionEvent.device_id == device_id)
     if action_reported is not None:
-        query = query.filter(DetectionEvent.action_reported == action_reported)
+        filters.append(DetectionEvent.action_reported == action_reported)
     if result is not None:
-        query = query.filter(DetectionEvent.result == result)
+        filters.append(DetectionEvent.result == result)
     if start_date is not None:
-        query = query.filter(DetectionEvent.created_at >= start_date)
+        filters.append(DetectionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(DetectionEvent.created_at <= end_date)
+        filters.append(DetectionEvent.created_at <= end_date)
 
-    # Count (without eager loading)
-    count_filters = [
-        f for f in [
-            DetectionEvent.device_id == device_id if device_id is not None else None,
-            DetectionEvent.action_reported == action_reported if action_reported is not None else None,
-            DetectionEvent.result == result if result is not None else None,
-            DetectionEvent.created_at >= start_date if start_date is not None else None,
-            DetectionEvent.created_at <= end_date if end_date is not None else None,
-        ] if f is not None
-    ]
-    total = db.query(DetectionEvent).filter(*count_filters).count() if count_filters else db.query(DetectionEvent).count()
+    # Count query (no eager loading)
+    count_stmt = select(func.count(DetectionEvent.id))
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    events = query.order_by(DetectionEvent.created_at.desc(), DetectionEvent.id.desc()).offset(skip).limit(limit).all()
+    # Data query: Device + ActionEvent eager loading
+    data_stmt = (
+        select(DetectionEvent)
+        .options(
+            selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]),
+            selectinload(DetectionEvent.actions)
+        )
+    )
+    if filters:
+        data_stmt = data_stmt.where(*filters)
+    data_stmt = (
+        data_stmt
+        .order_by(DetectionEvent.created_at.desc(), DetectionEvent.id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    events = (await db.execute(data_stmt)).scalars().all()
 
     # Convert to response
-    log_responses = [
-        DetectionLogResponse(
-            id=e.id,
-            type_event=e.type_event,
-            action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
-            result=e.result.value,
-            device=_build_device_nested_response(e.device, db),
-            device_description=e.device_description,
-            detail=e.detail,
-            actions=_build_actions_nested(e.actions),
-            created_at=e.created_at,
-            updated_at=e.updated_at
+    log_responses = []
+    for e in events:
+        device_nested = await _build_device_nested_response_async(e.device, db)
+        log_responses.append(
+            DetectionLogResponse(
+                id=e.id,
+                type_event=e.type_event,
+                action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
+                result=e.result.value,
+                device=device_nested,
+                device_description=e.device_description,
+                detail=e.detail,
+                actions=_build_actions_nested(e.actions),
+                created_at=e.created_at,
+                updated_at=e.updated_at
+            )
         )
-        for e in events
-    ]
 
     pagination = PaginationMeta(
         page=page,
@@ -265,8 +283,8 @@ async def get_detection_logs(
 @router.get("/{event_id}", response_model=ApiSingleResponse[DetectionLogResponse])
 async def get_detection_log(
     event_id: int,
-    current_user = Depends(get_current_account_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     탐지 로그 단건 조회
@@ -279,10 +297,15 @@ async def get_detection_log(
     **Error**:
     - 404: 탐지 로그를 찾을 수 없음
     """
-    event = db.query(DetectionEvent).options(
-        selectinload(DetectionEvent.device),
-        selectinload(DetectionEvent.actions)
-    ).filter(DetectionEvent.id == event_id).first()
+    stmt = (
+        select(DetectionEvent)
+        .options(
+            selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]),
+            selectinload(DetectionEvent.actions)
+        )
+        .where(DetectionEvent.id == event_id)
+    )
+    event = (await db.execute(stmt)).scalars().first()
 
     if not event:
         raise HTTPException(
@@ -290,12 +313,14 @@ async def get_detection_log(
             detail=f"Detection log with id {event_id} not found"
         )
 
+    device_nested = await _build_device_nested_response_async(event.device, db)
+
     log_response = DetectionLogResponse(
         id=event.id,
         type_event=event.type_event,
         action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        device=_build_device_nested_response(event.device, db),
+        device=device_nested,
         device_description=event.device_description,
         detail=event.detail,
         actions=_build_actions_nested(event.actions),

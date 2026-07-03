@@ -6,10 +6,12 @@ PRD: PRD_Lamp_Device.md v1.1
 Endpoints: /api/event-mappings/{mapping_id}/lamps
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.integration import EventMapping, EventMappingLamp
 from app.models.device import Lamp
 from app.schemas.integration import (
@@ -26,9 +28,9 @@ from app.schemas.integration import (
     EventMappingLampBulkUnassignResponse,
 )
 from app.schemas.common import ApiSingleResponse
-from app.routers.auth import get_current_account_user_optional
+from app.routers.auth import get_current_account_user_optional_async
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
+from app.services.config_log_service import log_config_change_async, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=["Event Mapping Lamps"])
 
@@ -90,14 +92,16 @@ def _build_response(eml: EventMappingLamp) -> EventMappingLampResponse:
     summary="List lamp configs for event mapping",
     description="Get all lamp configurations for a specific event mapping"
 )
-def list_event_mapping_lamps(
+async def list_event_mapping_lamps(
     mapping_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/event-mappings/{mapping_id}/lamps"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -105,9 +109,14 @@ def list_event_mapping_lamps(
         )
 
     # Get all lamps for this mapping
-    lamps = db.query(EventMappingLamp).filter(
-        EventMappingLamp.event_mapping_id == mapping_id
-    ).all()
+    lamps = (await db.execute(
+        select(EventMappingLamp)
+        .options(
+            selectinload(EventMappingLamp.event_mapping),
+            selectinload(EventMappingLamp.lamp),
+        )
+        .where(EventMappingLamp.event_mapping_id == mapping_id)
+    )).scalars().all()
 
     items = [_build_response(eml) for eml in lamps]
 
@@ -127,15 +136,17 @@ def list_event_mapping_lamps(
     summary="Get single lamp config for event mapping",
     description="Get a specific lamp configuration for an event mapping"
 )
-def get_event_mapping_lamp(
+async def get_event_mapping_lamp(
     mapping_id: int,
     config_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -143,10 +154,17 @@ def get_event_mapping_lamp(
         )
 
     # Get the specific lamp config
-    eml = db.query(EventMappingLamp).filter(
-        EventMappingLamp.id == config_id,
-        EventMappingLamp.event_mapping_id == mapping_id
-    ).first()
+    eml = (await db.execute(
+        select(EventMappingLamp)
+        .options(
+            selectinload(EventMappingLamp.event_mapping),
+            selectinload(EventMappingLamp.lamp),
+        )
+        .where(
+            EventMappingLamp.id == config_id,
+            EventMappingLamp.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not eml:
         raise HTTPException(
@@ -168,15 +186,17 @@ def get_event_mapping_lamp(
     summary="Create lamp config for event mapping",
     description="Create a new lamp configuration for an event mapping"
 )
-def create_event_mapping_lamp(
+async def create_event_mapping_lamp(
     mapping_id: int,
     lamp_data: EventMappingLampCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """POST /api/event-mappings/{mapping_id}/lamps"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -184,7 +204,9 @@ def create_event_mapping_lamp(
         )
 
     # Check Lamp exists
-    lamp = db.query(Lamp).filter(Lamp.id == lamp_data.lamp_id).first()
+    lamp = (await db.execute(
+        select(Lamp).where(Lamp.id == lamp_data.lamp_id)
+    )).scalars().first()
     if not lamp:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -203,11 +225,11 @@ def create_event_mapping_lamp(
         priority=lamp_data.priority
     )
     db.add(eml)
-    db.commit()
-    db.refresh(eml)
+    await db.commit()
+    await db.refresh(eml, attribute_names=["event_mapping", "lamp"])
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
         resource_id=eml.id,
@@ -230,16 +252,18 @@ def create_event_mapping_lamp(
     summary="Update lamp config for event mapping",
     description="Partially update a lamp configuration for an event mapping"
 )
-def update_event_mapping_lamp(
+async def update_event_mapping_lamp(
     mapping_id: int,
     config_id: int,
     lamp_data: EventMappingLampUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """PATCH /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -247,10 +271,17 @@ def update_event_mapping_lamp(
         )
 
     # Get the specific lamp config
-    eml = db.query(EventMappingLamp).filter(
-        EventMappingLamp.id == config_id,
-        EventMappingLamp.event_mapping_id == mapping_id
-    ).first()
+    eml = (await db.execute(
+        select(EventMappingLamp)
+        .options(
+            selectinload(EventMappingLamp.event_mapping),
+            selectinload(EventMappingLamp.lamp),
+        )
+        .where(
+            EventMappingLamp.id == config_id,
+            EventMappingLamp.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not eml:
         raise HTTPException(
@@ -266,14 +297,14 @@ def update_event_mapping_lamp(
     for field, value in update_data.items():
         setattr(eml, field, value)
 
-    db.commit()
-    db.refresh(eml)
+    await db.commit()
+    await db.refresh(eml, attribute_names=["event_mapping", "lamp"])
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(eml)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
             resource_id=eml.id,
@@ -297,16 +328,18 @@ def update_event_mapping_lamp(
     summary="Replace lamp config for event mapping",
     description="Completely replace a lamp configuration for an event mapping"
 )
-def replace_event_mapping_lamp(
+async def replace_event_mapping_lamp(
     mapping_id: int,
     config_id: int,
     lamp_data: EventMappingLampReplace,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """PUT /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -314,10 +347,17 @@ def replace_event_mapping_lamp(
         )
 
     # Get the specific lamp config
-    eml = db.query(EventMappingLamp).filter(
-        EventMappingLamp.id == config_id,
-        EventMappingLamp.event_mapping_id == mapping_id
-    ).first()
+    eml = (await db.execute(
+        select(EventMappingLamp)
+        .options(
+            selectinload(EventMappingLamp.event_mapping),
+            selectinload(EventMappingLamp.lamp),
+        )
+        .where(
+            EventMappingLamp.id == config_id,
+            EventMappingLamp.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not eml:
         raise HTTPException(
@@ -334,8 +374,8 @@ def replace_event_mapping_lamp(
     eml.is_enable = lamp_data.is_enable
     eml.priority = lamp_data.priority
 
-    db.commit()
-    db.refresh(eml)
+    await db.commit()
+    await db.refresh(eml, attribute_names=["event_mapping", "lamp"])
 
     return {
         "success": True,
@@ -350,15 +390,17 @@ def replace_event_mapping_lamp(
     summary="Delete lamp config for event mapping",
     description="Delete a lamp configuration for an event mapping"
 )
-def delete_event_mapping_lamp(
+async def delete_event_mapping_lamp(
     mapping_id: int,
     config_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """DELETE /api/event-mappings/{mapping_id}/lamps/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -366,10 +408,12 @@ def delete_event_mapping_lamp(
         )
 
     # Get the specific lamp config
-    eml = db.query(EventMappingLamp).filter(
-        EventMappingLamp.id == config_id,
-        EventMappingLamp.event_mapping_id == mapping_id
-    ).first()
+    eml = (await db.execute(
+        select(EventMappingLamp).where(
+            EventMappingLamp.id == config_id,
+            EventMappingLamp.event_mapping_id == mapping_id
+        )
+    )).scalars().first()
 
     if not eml:
         raise HTTPException(
@@ -382,11 +426,11 @@ def delete_event_mapping_lamp(
     deleted_identifier = {"id": eml.id, "lamp_id": eml.lamp_id}
     deleted_name = f"EventMappingLamp-{eml.id} (lamp_id: {eml.lamp_id})"
 
-    db.delete(eml)
-    db.commit()
+    await db.delete(eml)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
         resource_id=deleted_id,
@@ -416,24 +460,27 @@ flat_router = APIRouter(tags=["Mapping Lamps"])
     summary="List all mapping lamps",
     description="Get all EventMappingLamp records across all event mappings"
 )
-def list_all_mapping_lamps(
+async def list_all_mapping_lamps(
     event_mapping_id: Optional[int] = None,
     lamp_id: Optional[int] = None,
     is_enable: Optional[bool] = None,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/integrations/mapping-lamps"""
-    query = db.query(EventMappingLamp)
+    stmt = select(EventMappingLamp).options(
+        selectinload(EventMappingLamp.event_mapping),
+        selectinload(EventMappingLamp.lamp),
+    )
 
     if event_mapping_id is not None:
-        query = query.filter(EventMappingLamp.event_mapping_id == event_mapping_id)
+        stmt = stmt.where(EventMappingLamp.event_mapping_id == event_mapping_id)
     if lamp_id is not None:
-        query = query.filter(EventMappingLamp.lamp_id == lamp_id)
+        stmt = stmt.where(EventMappingLamp.lamp_id == lamp_id)
     if is_enable is not None:
-        query = query.filter(EventMappingLamp.is_enable == is_enable)
+        stmt = stmt.where(EventMappingLamp.is_enable == is_enable)
 
-    lamps = query.all()
+    lamps = (await db.execute(stmt)).scalars().all()
 
     items = [_build_response(eml) for eml in lamps]
 
@@ -459,15 +506,17 @@ def list_all_mapping_lamps(
         status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
     },
 )
-def bulk_create_event_mapping_lamps(
+async def bulk_create_event_mapping_lamps(
     mapping_id: int,
     request: EventMappingLampBulkCreateRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional),
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async),
 ):
     """POST /api/event-mappings/{mapping_id}/lamps/bulk"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -490,16 +539,20 @@ def bulk_create_event_mapping_lamps(
         seen_in_request.add(item.lamp_id)
 
         # PR-B: Lamp FK 미존재 → not_found_config_ids
-        lamp = db.query(Lamp).filter(Lamp.id == item.lamp_id).first()
+        lamp = (await db.execute(
+            select(Lamp).where(Lamp.id == item.lamp_id)
+        )).scalars().first()
         if not lamp:
             not_found_config_ids.append(item.lamp_id)
             continue
 
         # PR-B: (mapping_id, lamp_id) 중복 매핑 → skipped_config_ids
-        existing = db.query(EventMappingLamp).filter(
-            EventMappingLamp.event_mapping_id == mapping_id,
-            EventMappingLamp.lamp_id == item.lamp_id,
-        ).first()
+        existing = (await db.execute(
+            select(EventMappingLamp).where(
+                EventMappingLamp.event_mapping_id == mapping_id,
+                EventMappingLamp.lamp_id == item.lamp_id,
+            )
+        )).scalars().first()
         if existing:
             skipped_config_ids.append(existing.id)
             continue
@@ -518,13 +571,13 @@ def bulk_create_event_mapping_lamps(
         created_rows.append(eml)
 
     # PK 채번 후 단일 commit (원자성)
-    db.flush()
+    await db.flush()
     for row in created_rows:
         created_ids.append(row.id)
-    db.commit()
+    await db.commit()
 
     # PR-A (v4.5): 무조건 1건/요청 (CREATED) — 0건 케이스도 발행
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
         resource_id=mapping_id,
@@ -566,15 +619,17 @@ def bulk_create_event_mapping_lamps(
         status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
     },
 )
-def bulk_delete_event_mapping_lamps(
+async def bulk_delete_event_mapping_lamps(
     mapping_id: int,
     request: EventMappingLampBulkUnassignRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional),
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async),
 ):
     """DELETE /api/event-mappings/{mapping_id}/lamps"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -589,23 +644,25 @@ def bulk_delete_event_mapping_lamps(
     not_found: list[int] = []
 
     for config_id in unique_ids:
-        row = db.query(EventMappingLamp).filter(
-            EventMappingLamp.id == config_id
-        ).first()
+        row = (await db.execute(
+            select(EventMappingLamp).where(
+                EventMappingLamp.id == config_id
+            )
+        )).scalars().first()
         if not row:
             not_found.append(config_id)
             continue
         if row.event_mapping_id != mapping_id:
             skipped.append(config_id)
             continue
-        db.delete(row)
+        await db.delete(row)
         removed.append(config_id)
 
-    db.commit()  # 단일 commit (원자성)
+    await db.commit()  # 단일 commit (원자성)
 
     # ConfigChangeLog: 1건/요청 (DELETED) — removed가 있을 때만
     if removed:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.EVENT_MAPPING_LAMP,
             resource_id=mapping_id,

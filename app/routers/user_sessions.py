@@ -2,14 +2,16 @@
 UserSession API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import select, func, delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.user import UserSession, AccountUser, UserLoginLog
 from app.schemas.user import UserSessionResponse
-from app.routers.auth import get_current_account_user, require_admin
-from app.services.audit_service import log_action
+from app.routers.auth import get_current_account_user_async, require_admin_async
+from app.services.audit_service import log_action_async
 from app.services import nats_revoke_publisher
 from app.utils.enums import EnumLogoutReason
 
@@ -38,8 +40,8 @@ def _session_to_response(session: UserSession) -> dict:
     return response
 
 
-def _remaining_active_admin_sessions(
-    db: Session,
+async def _remaining_active_admin_sessions(
+    db: AsyncSession,
     exclude_session_id: Optional[int] = None,
     exclude_user_id: Optional[int] = None,
 ) -> int:
@@ -49,32 +51,40 @@ def _remaining_active_admin_sessions(
     강제 로그아웃하면 운영자가 전원 잠금되므로 호출부에서 409로 거부한다.
     users.py 마지막 ADMIN 가드와 동일하게 ADMIN 계정 행을 FOR UPDATE 로 잠가 TOCTOU 방지.
     """
-    admin_ids = [
-        u.id for u in db.query(AccountUser).filter(
+    admin_stmt = (
+        select(AccountUser)
+        .where(
             AccountUser.role == "ADMIN",
             AccountUser.is_active == True,
-        ).with_for_update().all()
-    ]
+        )
+        .with_for_update()
+    )
+    admin_result = await db.execute(admin_stmt)
+    admin_ids = [u.id for u in admin_result.scalars().all()]
     if not admin_ids:
         return 0
-    query = db.query(UserSession).filter(
-        UserSession.user_id.in_(admin_ids),
-        UserSession.is_active == True,
+    count_stmt = (
+        select(func.count())
+        .select_from(UserSession)
+        .where(
+            UserSession.user_id.in_(admin_ids),
+            UserSession.is_active == True,
+        )
     )
     if exclude_session_id is not None:
-        query = query.filter(UserSession.id != exclude_session_id)
+        count_stmt = count_stmt.where(UserSession.id != exclude_session_id)
     if exclude_user_id is not None:
-        query = query.filter(UserSession.user_id != exclude_user_id)
-    return query.count()
+        count_stmt = count_stmt.where(UserSession.user_id != exclude_user_id)
+    return (await db.execute(count_stmt)).scalar() or 0
 
 
-@router.get("", dependencies=[Depends(require_admin)])
+@router.get("", dependencies=[Depends(require_admin_async)])
 async def get_user_sessions(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
     is_active: Optional[bool] = Query(None, description="활성화 상태 필터"),
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 세션 목록 조회
@@ -88,15 +98,17 @@ async def get_user_sessions(
 
     **Response**: success, data (세션 목록)
     """
-    # Use joinedload for eager loading of user relationship (US-3: JOIN)
-    query = db.query(UserSession).options(joinedload(UserSession.user))
+    # Use selectinload for eager loading of user relationship (US-3: JOIN)
+    stmt = select(UserSession).options(selectinload(UserSession.user))
 
     # Apply filters
     if is_active is not None:
-        query = query.filter(UserSession.is_active == is_active)
+        stmt = stmt.where(UserSession.is_active == is_active)
 
     offset = (page - 1) * limit
-    sessions = query.order_by(UserSession.created_at.desc()).offset(offset).limit(limit).all()
+    stmt = stmt.order_by(UserSession.created_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    sessions = result.scalars().all()
 
     return {
         "success": True,
@@ -104,11 +116,11 @@ async def get_user_sessions(
     }
 
 
-@router.delete("/user/{user_id}", dependencies=[Depends(require_admin)])
+@router.delete("/user/{user_id}", dependencies=[Depends(require_admin_async)])
 async def force_logout_all_user_sessions(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     특정 사용자의 모든 세션 강제 로그아웃
@@ -127,7 +139,9 @@ async def force_logout_all_user_sessions(
     from app.config import settings
 
     # Verify user exists
-    target_user = db.query(AccountUser).filter(AccountUser.id == user_id).first()
+    target_user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
     if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -135,15 +149,17 @@ async def force_logout_all_user_sessions(
         )
 
     # Get all active sessions for the user
-    active_sessions = db.query(UserSession).filter(
-        UserSession.user_id == user_id,
-        UserSession.is_active == True
-    ).all()
+    active_sessions = (await db.execute(
+        select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.is_active == True,
+        )
+    )).scalars().all()
 
     # FR-SVF-09: 마지막 활성 ADMIN 보호 — 대상이 활성 ADMIN이고 종료할 활성 세션이 있는데
     # 다른 ADMIN의 활성 세션이 하나도 없으면 거부(전원 잠금 방지).
     if target_user.role == "ADMIN" and target_user.is_active and active_sessions:
-        if _remaining_active_admin_sessions(db, exclude_user_id=user_id) == 0:
+        if await _remaining_active_admin_sessions(db, exclude_user_id=user_id) == 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot force-logout the last active ADMIN's sessions (at least one active ADMIN session must remain)",
@@ -154,7 +170,7 @@ async def force_logout_all_user_sessions(
     # 단건(/{session_id}) 핸들러와 동일 패턴(commit 980abbc).
     from jose import JWTError
     from app.utils.auth import decode_token as _decode
-    from app.services.token_blacklist_service import add_to_blacklist
+    from app.services.token_blacklist_service import add_to_blacklist_async
     from datetime import timedelta as _td
 
     count = 0
@@ -174,7 +190,7 @@ async def force_logout_all_user_sessions(
                 td = _decode(session.token)
                 if td.jti:
                     _sess_access_jti = td.jti
-                    add_to_blacklist(
+                    await add_to_blacklist_async(
                         db=db,
                         jti=td.jti,
                         expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
@@ -189,7 +205,7 @@ async def force_logout_all_user_sessions(
             try:
                 td = _decode(session.refresh_token, expected_type="refresh")
                 if td.jti:
-                    add_to_blacklist(
+                    await add_to_blacklist_async(
                         db=db,
                         jti=td.jti,
                         expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
@@ -212,11 +228,11 @@ async def force_logout_all_user_sessions(
         _revoke_targets.append((_sess_id, _sess_access_jti))
         count += 1
 
-    db.commit()
+    await db.commit()
 
     # 감사 로그 기록: SESSION_FORCED_LOGOUT (전체 세션)
     if count > 0:
-        await log_action(
+        await log_action_async(
             db=db,
             action_type="SESSION_FORCED_LOGOUT",
             resource_type="USER_SESSION",
@@ -245,8 +261,8 @@ async def force_logout_all_user_sessions(
 
 @router.get("/me")
 async def get_my_sessions(
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     내 세션 목록 조회
@@ -255,10 +271,14 @@ async def get_my_sessions(
 
     **Response**: success, data (세션 목록)
     """
-    # Use joinedload for eager loading of user relationship (US-3: JOIN)
-    sessions = db.query(UserSession).options(joinedload(UserSession.user)).filter(
-        UserSession.user_id == current_user.id
-    ).order_by(UserSession.created_at.desc()).all()
+    # Use selectinload for eager loading of user relationship (US-3: JOIN)
+    stmt = (
+        select(UserSession)
+        .options(selectinload(UserSession.user))
+        .where(UserSession.user_id == current_user.id)
+        .order_by(UserSession.created_at.desc())
+    )
+    sessions = (await db.execute(stmt)).scalars().all()
 
     return {
         "success": True,
@@ -269,8 +289,8 @@ async def get_my_sessions(
 @router.delete("/me/{session_id}")
 async def delete_my_session(
     session_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     내 다른 세션 종료
@@ -288,10 +308,12 @@ async def delete_my_session(
     from datetime import datetime
     from app.config import settings
 
-    session = db.query(UserSession).filter(
-        UserSession.id == session_id,
-        UserSession.user_id == current_user.id
-    ).first()
+    session = (await db.execute(
+        select(UserSession).where(
+            UserSession.id == session_id,
+            UserSession.user_id == current_user.id,
+        )
+    )).scalars().first()
 
     if not session:
         raise HTTPException(
@@ -303,10 +325,10 @@ async def delete_my_session(
     session.logout_reason = "SELF_LOGOUT"
     session.logged_out_at = datetime.now(settings.tz)
 
-    db.commit()
+    await db.commit()
 
     # 감사 로그 기록: SESSION_TERMINATED (자기 세션 종료)
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="SESSION_TERMINATED",
         resource_type="USER_SESSION",
@@ -326,11 +348,11 @@ async def delete_my_session(
     }
 
 
-@router.get("/{session_id}", dependencies=[Depends(require_admin)])
+@router.get("/{session_id}", dependencies=[Depends(require_admin_async)])
 async def get_user_session_by_id(
     session_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 세션 상세 조회
@@ -345,10 +367,12 @@ async def get_user_session_by_id(
     **Error**:
     - 404: 세션을 찾을 수 없음
     """
-    # Use joinedload for eager loading of user relationship (US-3: JOIN)
-    session = db.query(UserSession).options(joinedload(UserSession.user)).filter(
-        UserSession.id == session_id
-    ).first()
+    # Use selectinload for eager loading of user relationship (US-3: JOIN)
+    session = (await db.execute(
+        select(UserSession)
+        .options(selectinload(UserSession.user))
+        .where(UserSession.id == session_id)
+    )).scalars().first()
 
     if not session:
         raise HTTPException(
@@ -362,11 +386,11 @@ async def get_user_session_by_id(
     }
 
 
-@router.delete("/{session_id}", dependencies=[Depends(require_admin)])
+@router.delete("/{session_id}", dependencies=[Depends(require_admin_async)])
 async def force_logout_session(
     session_id: int,
-    db: Session = Depends(get_db),
-    current_user: AccountUser = Depends(get_current_account_user)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async)
 ):
     """
     사용자 세션 강제 로그아웃
@@ -384,7 +408,9 @@ async def force_logout_session(
     from datetime import datetime
     from app.config import settings
 
-    session = db.query(UserSession).filter(UserSession.id == session_id).first()
+    session = (await db.execute(
+        select(UserSession).where(UserSession.id == session_id)
+    )).scalars().first()
 
     if not session:
         raise HTTPException(
@@ -393,12 +419,14 @@ async def force_logout_session(
         )
 
     # Get the user who owns this session (for logging)
-    session_user = db.query(AccountUser).filter(AccountUser.id == session.user_id).first()
+    session_user = (await db.execute(
+        select(AccountUser).where(AccountUser.id == session.user_id)
+    )).scalars().first()
 
     # FR-SVF-09: 마지막 활성 ADMIN 세션 보호 — 이 세션을 종료하면 활성 ADMIN 세션이
     # 0이 되는 경우 거부(전원 잠금 방지). 비ADMIN/이미 비활성 세션은 가드 미적용.
     if session.is_active and session_user and session_user.role == "ADMIN" and session_user.is_active:
-        if _remaining_active_admin_sessions(db, exclude_session_id=session_id) == 0:
+        if await _remaining_active_admin_sessions(db, exclude_session_id=session_id) == 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot force-logout the last active ADMIN session (at least one active ADMIN session must remain)",
@@ -416,7 +444,7 @@ async def force_logout_session(
     #    (2) refresh 도 거부(refresh 가 is_blacklisted 검사) → 클라가 재발급 못 받고 SessionExpired → 로그아웃.
     from jose import JWTError
     from app.utils.auth import decode_token as _decode
-    from app.services.token_blacklist_service import add_to_blacklist
+    from app.services.token_blacklist_service import add_to_blacklist_async
     from datetime import timedelta as _td
     _target_user_id = session.user_id  # commit 후 expiry 대비 캡처 (NATS 발행에 사용)
     _access_jti = None
@@ -425,18 +453,20 @@ async def force_logout_session(
             _at = _decode(session.token)
             if _at.jti:
                 _access_jti = _at.jti
-                add_to_blacklist(db=db, jti=_at.jti,
-                                 expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
-                                 reason="FORCED", user_id=session.user_id, token_type="access")
+                await add_to_blacklist_async(
+                    db=db, jti=_at.jti,
+                    expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
+                    reason="FORCED", user_id=session.user_id, token_type="access")
         except JWTError:
             pass
     if session.refresh_token:
         try:
             _rt = _decode(session.refresh_token, expected_type="refresh")
             if _rt.jti:
-                add_to_blacklist(db=db, jti=_rt.jti,
-                                 expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
-                                 reason="FORCED", user_id=session.user_id, token_type="refresh")
+                await add_to_blacklist_async(
+                    db=db, jti=_rt.jti,
+                    expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                    reason="FORCED", user_id=session.user_id, token_type="refresh")
         except JWTError:
             pass
 
@@ -471,10 +501,10 @@ async def force_logout_session(
     )
     db.add(system_event)
 
-    db.commit()
+    await db.commit()
 
     # 감사 로그 기록: SESSION_FORCED_LOGOUT
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="SESSION_FORCED_LOGOUT",
         resource_type="USER_SESSION",

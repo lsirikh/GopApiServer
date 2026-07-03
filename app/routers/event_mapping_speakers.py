@@ -4,12 +4,17 @@ EventMappingSpeaker Router
 PRD: PRD_EventMappingSpeaker.md v1.0
 
 Endpoints: /api/event-mappings/{mapping_id}/speakers
+
+v6.0 P8: async 전환 (AsyncSession + get_async_db + *_async deps).
+        Response schema/message는 sync 버전과 100% 동일.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.integration import EventMapping, EventMappingSpeaker
 from app.models.device import Speaker
 from app.models.file_group import FileGroup
@@ -27,9 +32,13 @@ from app.schemas.integration import (
     EventMappingSpeakerBulkUnassignResponse,
 )
 from app.schemas.common import ApiSingleResponse
-from app.routers.auth import get_current_account_user_optional
+from app.routers.auth import get_current_account_user_optional_async
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
+from app.services.config_log_service import (
+    log_config_change_async,
+    get_changed_fields,
+    model_to_dict,
+)
 
 router = APIRouter(tags=["Event Mapping Speakers"])
 
@@ -92,24 +101,31 @@ def _build_response(ems: EventMappingSpeaker) -> EventMappingSpeakerResponse:
     summary="List speaker configs for event mapping",
     description="Get all speaker configurations for a specific event mapping"
 )
-def list_event_mapping_speakers(
+async def list_event_mapping_speakers(
     mapping_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/event-mappings/{mapping_id}/speakers"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
-    # Get all speakers for this mapping
-    speakers = db.query(EventMappingSpeaker).filter(
-        EventMappingSpeaker.event_mapping_id == mapping_id
-    ).all()
+    # Get all speakers for this mapping (relationships eager loaded)
+    speakers = (await db.execute(
+        select(EventMappingSpeaker)
+        .options(
+            selectinload(EventMappingSpeaker.speaker),
+            selectinload(EventMappingSpeaker.file_group),
+        )
+        .where(EventMappingSpeaker.event_mapping_id == mapping_id)
+    )).scalars().all()
 
     items = [_build_response(ems) for ems in speakers]
 
@@ -129,26 +145,35 @@ def list_event_mapping_speakers(
     summary="Get single speaker config for event mapping",
     description="Get a specific speaker configuration for an event mapping"
 )
-def get_event_mapping_speaker(
+async def get_event_mapping_speaker(
     mapping_id: int,
     config_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
-    # Get the specific speaker config
-    ems = db.query(EventMappingSpeaker).filter(
-        EventMappingSpeaker.id == config_id,
-        EventMappingSpeaker.event_mapping_id == mapping_id
-    ).first()
+    # Get the specific speaker config (relationships eager loaded)
+    ems = (await db.execute(
+        select(EventMappingSpeaker)
+        .options(
+            selectinload(EventMappingSpeaker.speaker),
+            selectinload(EventMappingSpeaker.file_group),
+        )
+        .where(
+            EventMappingSpeaker.id == config_id,
+            EventMappingSpeaker.event_mapping_id == mapping_id,
+        )
+    )).scalars().first()
 
     if not ems:
         raise HTTPException(
@@ -170,15 +195,17 @@ def get_event_mapping_speaker(
     summary="Create speaker config for event mapping",
     description="Create a new speaker configuration for an event mapping"
 )
-def create_event_mapping_speaker(
+async def create_event_mapping_speaker(
     mapping_id: int,
     speaker_data: EventMappingSpeakerCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """POST /api/event-mappings/{mapping_id}/speakers"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -186,7 +213,9 @@ def create_event_mapping_speaker(
         )
 
     # Check Speaker exists
-    speaker = db.query(Speaker).filter(Speaker.id == speaker_data.speaker_id).first()
+    speaker = (await db.execute(
+        select(Speaker).where(Speaker.id == speaker_data.speaker_id)
+    )).scalars().first()
     if not speaker:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -195,7 +224,9 @@ def create_event_mapping_speaker(
 
     # Check FileGroup exists (if provided)
     if speaker_data.file_group_id:
-        file_group = db.query(FileGroup).filter(FileGroup.id == speaker_data.file_group_id).first()
+        file_group = (await db.execute(
+            select(FileGroup).where(FileGroup.id == speaker_data.file_group_id)
+        )).scalars().first()
         if not file_group:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -212,11 +243,21 @@ def create_event_mapping_speaker(
         priority=speaker_data.priority
     )
     db.add(ems)
-    db.commit()
-    db.refresh(ems)
+    await db.commit()
+    await db.refresh(ems)
+
+    # Reload with relationships for response
+    ems = (await db.execute(
+        select(EventMappingSpeaker)
+        .options(
+            selectinload(EventMappingSpeaker.speaker),
+            selectinload(EventMappingSpeaker.file_group),
+        )
+        .where(EventMappingSpeaker.id == ems.id)
+    )).scalars().first()
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
         resource_id=ems.id,
@@ -239,27 +280,36 @@ def create_event_mapping_speaker(
     summary="Update speaker config for event mapping",
     description="Partially update a speaker configuration for an event mapping"
 )
-def update_event_mapping_speaker(
+async def update_event_mapping_speaker(
     mapping_id: int,
     config_id: int,
     speaker_data: EventMappingSpeakerUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """PATCH /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
-    # Get the specific speaker config
-    ems = db.query(EventMappingSpeaker).filter(
-        EventMappingSpeaker.id == config_id,
-        EventMappingSpeaker.event_mapping_id == mapping_id
-    ).first()
+    # Get the specific speaker config (relationships eager loaded)
+    ems = (await db.execute(
+        select(EventMappingSpeaker)
+        .options(
+            selectinload(EventMappingSpeaker.speaker),
+            selectinload(EventMappingSpeaker.file_group),
+        )
+        .where(
+            EventMappingSpeaker.id == config_id,
+            EventMappingSpeaker.event_mapping_id == mapping_id,
+        )
+    )).scalars().first()
 
     if not ems:
         raise HTTPException(
@@ -275,14 +325,14 @@ def update_event_mapping_speaker(
     for field, value in update_data.items():
         setattr(ems, field, value)
 
-    db.commit()
-    db.refresh(ems)
+    await db.commit()
+    await db.refresh(ems)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(ems)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
             resource_id=ems.id,
@@ -306,27 +356,36 @@ def update_event_mapping_speaker(
     summary="Replace speaker config for event mapping",
     description="Completely replace a speaker configuration for an event mapping"
 )
-def replace_event_mapping_speaker(
+async def replace_event_mapping_speaker(
     mapping_id: int,
     config_id: int,
     speaker_data: EventMappingSpeakerReplace,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """PUT /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event mapping with id {mapping_id} not found"
         )
 
-    # Get the specific speaker config
-    ems = db.query(EventMappingSpeaker).filter(
-        EventMappingSpeaker.id == config_id,
-        EventMappingSpeaker.event_mapping_id == mapping_id
-    ).first()
+    # Get the specific speaker config (relationships eager loaded)
+    ems = (await db.execute(
+        select(EventMappingSpeaker)
+        .options(
+            selectinload(EventMappingSpeaker.speaker),
+            selectinload(EventMappingSpeaker.file_group),
+        )
+        .where(
+            EventMappingSpeaker.id == config_id,
+            EventMappingSpeaker.event_mapping_id == mapping_id,
+        )
+    )).scalars().first()
 
     if not ems:
         raise HTTPException(
@@ -341,8 +400,8 @@ def replace_event_mapping_speaker(
     ems.is_enable = speaker_data.is_enable
     ems.priority = speaker_data.priority
 
-    db.commit()
-    db.refresh(ems)
+    await db.commit()
+    await db.refresh(ems)
 
     return {
         "success": True,
@@ -357,15 +416,17 @@ def replace_event_mapping_speaker(
     summary="Delete speaker config for event mapping",
     description="Delete a speaker configuration for an event mapping"
 )
-def delete_event_mapping_speaker(
+async def delete_event_mapping_speaker(
     mapping_id: int,
     config_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """DELETE /api/event-mappings/{mapping_id}/speakers/{config_id}"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -373,10 +434,12 @@ def delete_event_mapping_speaker(
         )
 
     # Get the specific speaker config
-    ems = db.query(EventMappingSpeaker).filter(
-        EventMappingSpeaker.id == config_id,
-        EventMappingSpeaker.event_mapping_id == mapping_id
-    ).first()
+    ems = (await db.execute(
+        select(EventMappingSpeaker).where(
+            EventMappingSpeaker.id == config_id,
+            EventMappingSpeaker.event_mapping_id == mapping_id,
+        )
+    )).scalars().first()
 
     if not ems:
         raise HTTPException(
@@ -389,11 +452,11 @@ def delete_event_mapping_speaker(
     deleted_identifier = {"id": ems.id, "speaker_id": ems.speaker_id}
     deleted_name = f"EventMappingSpeaker-{ems.id} (speaker_id: {ems.speaker_id})"
 
-    db.delete(ems)
-    db.commit()
+    await db.delete(ems)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
         resource_id=deleted_id,
@@ -423,24 +486,27 @@ flat_router = APIRouter(tags=["Mapping Speakers"])
     summary="List all mapping speakers",
     description="Get all EventMappingSpeaker records across all event mappings"
 )
-def list_all_mapping_speakers(
+async def list_all_mapping_speakers(
     event_mapping_id: Optional[int] = None,
     speaker_id: Optional[int] = None,
     is_enable: Optional[bool] = None,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async)
 ):
     """GET /api/integrations/mapping-speakers"""
-    query = db.query(EventMappingSpeaker)
+    stmt = select(EventMappingSpeaker).options(
+        selectinload(EventMappingSpeaker.speaker),
+        selectinload(EventMappingSpeaker.file_group),
+    )
 
     if event_mapping_id is not None:
-        query = query.filter(EventMappingSpeaker.event_mapping_id == event_mapping_id)
+        stmt = stmt.where(EventMappingSpeaker.event_mapping_id == event_mapping_id)
     if speaker_id is not None:
-        query = query.filter(EventMappingSpeaker.speaker_id == speaker_id)
+        stmt = stmt.where(EventMappingSpeaker.speaker_id == speaker_id)
     if is_enable is not None:
-        query = query.filter(EventMappingSpeaker.is_enable == is_enable)
+        stmt = stmt.where(EventMappingSpeaker.is_enable == is_enable)
 
-    speakers = query.all()
+    speakers = (await db.execute(stmt)).scalars().all()
 
     items = [_build_response(ems) for ems in speakers]
 
@@ -466,15 +532,17 @@ def list_all_mapping_speakers(
         status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
     },
 )
-def bulk_create_event_mapping_speakers(
+async def bulk_create_event_mapping_speakers(
     mapping_id: int,
     request: EventMappingSpeakerBulkCreateRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional),
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async),
 ):
     """POST /api/event-mappings/{mapping_id}/speakers/bulk"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -497,25 +565,29 @@ def bulk_create_event_mapping_speakers(
         seen_in_request.add(item.speaker_id)
 
         # PR-B: Speaker FK 미존재 → not_found_config_ids
-        speaker = db.query(Speaker).filter(Speaker.id == item.speaker_id).first()
+        speaker = (await db.execute(
+            select(Speaker).where(Speaker.id == item.speaker_id)
+        )).scalars().first()
         if not speaker:
             not_found_config_ids.append(item.speaker_id)
             continue
 
         # PR-B: (mapping_id, speaker_id) 중복 매핑 → skipped_config_ids
-        existing = db.query(EventMappingSpeaker).filter(
-            EventMappingSpeaker.event_mapping_id == mapping_id,
-            EventMappingSpeaker.speaker_id == item.speaker_id,
-        ).first()
+        existing = (await db.execute(
+            select(EventMappingSpeaker).where(
+                EventMappingSpeaker.event_mapping_id == mapping_id,
+                EventMappingSpeaker.speaker_id == item.speaker_id,
+            )
+        )).scalars().first()
         if existing:
             skipped_config_ids.append(existing.id)
             continue
 
         # file_group_id 검증 (Optional) — 기타 검증 실패는 failed_items 유지
         if item.file_group_id:
-            file_group = db.query(FileGroup).filter(
-                FileGroup.id == item.file_group_id
-            ).first()
+            file_group = (await db.execute(
+                select(FileGroup).where(FileGroup.id == item.file_group_id)
+            )).scalars().first()
             if not file_group:
                 failed_items.append(EventMappingSpeakerBulkCreateFailure(
                     index=idx, item=item,
@@ -535,13 +607,13 @@ def bulk_create_event_mapping_speakers(
         created_rows.append(ems)
 
     # PK 채번 후 단일 commit (원자성)
-    db.flush()
+    await db.flush()
     for row in created_rows:
         created_ids.append(row.id)
-    db.commit()
+    await db.commit()
 
     # PR-A (v4.5): 무조건 1건/요청 (CREATED) — 0건 케이스도 발행
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
         resource_id=mapping_id,
@@ -583,15 +655,17 @@ def bulk_create_event_mapping_speakers(
         status.HTTP_404_NOT_FOUND: {"description": "Event mapping not found"},
     },
 )
-def bulk_delete_event_mapping_speakers(
+async def bulk_delete_event_mapping_speakers(
     mapping_id: int,
     request: EventMappingSpeakerBulkUnassignRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_account_user_optional),
+    db: AsyncSession = Depends(get_async_db),
+    current_user=Depends(get_current_account_user_optional_async),
 ):
     """DELETE /api/event-mappings/{mapping_id}/speakers"""
     # Check EventMapping exists
-    event_mapping = db.query(EventMapping).filter(EventMapping.id == mapping_id).first()
+    event_mapping = (await db.execute(
+        select(EventMapping).where(EventMapping.id == mapping_id)
+    )).scalars().first()
     if not event_mapping:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -606,23 +680,23 @@ def bulk_delete_event_mapping_speakers(
     not_found: list[int] = []
 
     for config_id in unique_ids:
-        row = db.query(EventMappingSpeaker).filter(
-            EventMappingSpeaker.id == config_id
-        ).first()
+        row = (await db.execute(
+            select(EventMappingSpeaker).where(EventMappingSpeaker.id == config_id)
+        )).scalars().first()
         if not row:
             not_found.append(config_id)
             continue
         if row.event_mapping_id != mapping_id:
             skipped.append(config_id)
             continue
-        db.delete(row)
+        await db.delete(row)
         removed.append(config_id)
 
-    db.commit()  # 단일 commit (원자성)
+    await db.commit()  # 단일 commit (원자성)
 
     # ConfigChangeLog: 1건/요청 (DELETED) — removed가 있을 때만
     if removed:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.EVENT_MAPPING_SPEAKER,
             resource_id=mapping_id,

@@ -3,12 +3,13 @@ ROI API endpoints
 PRD: docs/PRD_Camera_Preset_ROI.md
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.schemas.camera_preset import (
     ROICreate,
@@ -19,7 +20,12 @@ from app.schemas.camera_preset import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
+from app.services.config_log_service import (
+    log_config_change_async,
+    get_identifier,
+    get_changed_fields,
+    model_to_dict,
+)
 
 router = APIRouter(tags=["ROIs"])
 
@@ -30,33 +36,44 @@ async def get_rois(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Max items per page"),
     include_points: bool = Query(False, description="Include points in response"),
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Get list of ROIs for a specific preset
     """
     # Check if preset exists
-    preset = db.query(CameraPreset).filter(CameraPreset.id == preset_id).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(CameraPreset.id == preset_id)
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Preset with id {preset_id} not found"
         )
 
-    # Query ROIs
-    query = db.query(ROI).filter(ROI.preset_id == preset_id)
-    total = query.count()
+    # Query ROIs — total count
+    total = (await db.execute(
+        select(func.count()).select_from(ROI).where(ROI.preset_id == preset_id)
+    )).scalar() or 0
 
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
-    rois = query.order_by(ROI.id).offset(skip).limit(limit).all()
+    rois = (await db.execute(
+        select(ROI)
+        .where(ROI.preset_id == preset_id)
+        .order_by(ROI.id)
+        .offset(skip)
+        .limit(limit)
+    )).scalars().all()
 
     # Build response items
     items = []
     for roi in rois:
-        point_count = roi.points.count()
+        point_count = (await db.execute(
+            select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+        )).scalar() or 0
         item = {
             "id": roi.id,
             "preset_id": roi.preset_id,
@@ -71,6 +88,11 @@ async def get_rois(
 
         # Include points if requested
         if include_points:
+            points_list = (await db.execute(
+                select(XyPoint)
+                .where(XyPoint.roi_id == roi.id)
+                .order_by(XyPoint.order)
+            )).scalars().all()
             item["points"] = [
                 {
                     "id": point.id,
@@ -78,7 +100,7 @@ async def get_rois(
                     "y": point.y,
                     "order": point.order
                 }
-                for point in roi.points.order_by(XyPoint.order).all()
+                for point in points_list
             ]
 
         items.append(item)
@@ -105,14 +127,16 @@ async def get_rois(
 async def get_roi(
     preset_id: int,
     roi_id: int,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Get a specific ROI with points
     """
     # Check if preset exists
-    preset = db.query(CameraPreset).filter(CameraPreset.id == preset_id).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(CameraPreset.id == preset_id)
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -120,10 +144,12 @@ async def get_roi(
         )
 
     # Get ROI
-    roi = db.query(ROI).filter(
-        ROI.id == roi_id,
-        ROI.preset_id == preset_id
-    ).first()
+    roi = (await db.execute(
+        select(ROI).where(
+            ROI.id == roi_id,
+            ROI.preset_id == preset_id
+        )
+    )).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -131,6 +157,9 @@ async def get_roi(
         )
 
     # Build points data
+    points_list = (await db.execute(
+        select(XyPoint).where(XyPoint.roi_id == roi.id).order_by(XyPoint.order)
+    )).scalars().all()
     points_data = [
         {
             "id": point.id,
@@ -138,7 +167,7 @@ async def get_roi(
             "y": point.y,
             "order": point.order
         }
-        for point in roi.points.all()
+        for point in points_list
     ]
 
     return ApiSingleResponse(
@@ -162,14 +191,16 @@ async def get_roi(
 async def create_roi(
     preset_id: int,
     roi_data: ROICreate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Create a new ROI
     """
     # Check if preset exists
-    preset = db.query(CameraPreset).filter(CameraPreset.id == preset_id).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(CameraPreset.id == preset_id)
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -185,8 +216,8 @@ async def create_roi(
         is_enable=roi_data.is_enable if roi_data.is_enable is not None else True
     )
     db.add(roi)
-    db.commit()
-    db.refresh(roi)
+    await db.commit()
+    await db.refresh(roi)
 
     # Create points (always present, min 3 points guaranteed by schema)
     for point_data in roi_data.points:
@@ -197,11 +228,11 @@ async def create_roi(
             order=point_data.order
         )
         db.add(point)
-    db.commit()
-    db.refresh(roi)
+    await db.commit()
+    await db.refresh(roi)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.ROI,
         resource_id=roi.id,
@@ -211,7 +242,9 @@ async def create_roi(
         description="ROI 생성"
     )
 
-    point_count = roi.points.count()
+    point_count = (await db.execute(
+        select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+    )).scalar() or 0
 
     return ApiSingleResponse(
         success=True,
@@ -235,14 +268,16 @@ async def update_roi(
     preset_id: int,
     roi_id: int,
     roi_data: ROIUpdate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Partially update an ROI
     """
     # Check if preset exists
-    preset = db.query(CameraPreset).filter(CameraPreset.id == preset_id).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(CameraPreset.id == preset_id)
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -250,10 +285,12 @@ async def update_roi(
         )
 
     # Get ROI
-    roi = db.query(ROI).filter(
-        ROI.id == roi_id,
-        ROI.preset_id == preset_id
-    ).first()
+    roi = (await db.execute(
+        select(ROI).where(
+            ROI.id == roi_id,
+            ROI.preset_id == preset_id
+        )
+    )).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -268,14 +305,14 @@ async def update_roi(
     for field, value in update_data.items():
         setattr(roi, field, value)
 
-    db.commit()
-    db.refresh(roi)
+    await db.commit()
+    await db.refresh(roi)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(roi)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
     if before_changes or after_changes:
-        log_config_change(
+        await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.ROI,
             resource_id=roi.id,
@@ -285,6 +322,10 @@ async def update_roi(
             after_state=after_changes,
             description="ROI 수정"
         )
+
+    point_count = (await db.execute(
+        select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+    )).scalar() or 0
 
     return ApiSingleResponse(
         success=True,
@@ -296,7 +337,7 @@ async def update_roi(
             "resolution_width": roi.resolution_width,
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
-            "point_count": roi.points.count(),
+            "point_count": point_count,
             "created_at": roi.created_at.isoformat(),
             "updated_at": roi.updated_at.isoformat()
         }
@@ -308,14 +349,16 @@ async def replace_roi(
     preset_id: int,
     roi_id: int,
     roi_data: ROICreate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Replace an ROI completely
     """
     # Check if preset exists
-    preset = db.query(CameraPreset).filter(CameraPreset.id == preset_id).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(CameraPreset.id == preset_id)
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -323,10 +366,12 @@ async def replace_roi(
         )
 
     # Get ROI
-    roi = db.query(ROI).filter(
-        ROI.id == roi_id,
-        ROI.preset_id == preset_id
-    ).first()
+    roi = (await db.execute(
+        select(ROI).where(
+            ROI.id == roi_id,
+            ROI.preset_id == preset_id
+        )
+    )).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -335,7 +380,10 @@ async def replace_roi(
 
     # ConfigChangeLog: before_state 캡처 (PRD v1.2)
     before_state = model_to_dict(roi)
-    before_state["point_count"] = roi.points.count()
+    before_point_count = (await db.execute(
+        select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+    )).scalar() or 0
+    before_state["point_count"] = before_point_count
 
     # Replace all scalar fields
     roi.name = roi_data.name
@@ -344,7 +392,7 @@ async def replace_roi(
     roi.is_enable = roi_data.is_enable if roi_data.is_enable is not None else True
 
     # Replace all points (delete existing → create new)
-    db.query(XyPoint).filter(XyPoint.roi_id == roi_id).delete()
+    await db.execute(delete(XyPoint).where(XyPoint.roi_id == roi_id))
     for point_data in roi_data.points:
         point = XyPoint(
             roi_id=roi_id,
@@ -354,14 +402,17 @@ async def replace_roi(
         )
         db.add(point)
 
-    db.commit()
-    db.refresh(roi)
+    await db.commit()
+    await db.refresh(roi)
 
     # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
     after_state = model_to_dict(roi)
-    after_state["point_count"] = roi.points.count()
+    after_point_count = (await db.execute(
+        select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+    )).scalar() or 0
+    after_state["point_count"] = after_point_count
     before_changes, after_changes = get_changed_fields(before_state, after_state)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.ROI,
         resource_id=roi.id,
@@ -382,7 +433,7 @@ async def replace_roi(
             "resolution_width": roi.resolution_width,
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
-            "point_count": roi.points.count(),
+            "point_count": after_point_count,
             "created_at": roi.created_at.isoformat(),
             "updated_at": roi.updated_at.isoformat()
         }
@@ -393,14 +444,16 @@ async def replace_roi(
 async def delete_roi(
     preset_id: int,
     roi_id: int,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Delete an ROI and its points (cascade)
     """
     # Check if preset exists
-    preset = db.query(CameraPreset).filter(CameraPreset.id == preset_id).first()
+    preset = (await db.execute(
+        select(CameraPreset).where(CameraPreset.id == preset_id)
+    )).scalars().first()
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -408,10 +461,12 @@ async def delete_roi(
         )
 
     # Get ROI
-    roi = db.query(ROI).filter(
-        ROI.id == roi_id,
-        ROI.preset_id == preset_id
-    ).first()
+    roi = (await db.execute(
+        select(ROI).where(
+            ROI.id == roi_id,
+            ROI.preset_id == preset_id
+        )
+    )).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -424,11 +479,11 @@ async def delete_roi(
     deleted_name = f"ROI-{roi.id} ({roi.name})"
 
     # Delete ROI (cascade will delete XyPoints)
-    db.delete(roi)
-    db.commit()
+    await db.delete(roi)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.ROI,
         resource_id=deleted_id,

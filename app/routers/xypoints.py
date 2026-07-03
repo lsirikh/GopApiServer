@@ -3,19 +3,21 @@ XyPoint API endpoints
 PRD: docs/PRD_Camera_Preset_ROI.md
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_account_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
 from app.models.camera_preset import ROI, XyPoint
 from app.schemas.camera_preset import XyPointCreate, XyPointResponse, XyPointListData, XyPointListItem, XyPointBulkReplaceData
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from pydantic import BaseModel, Field
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
-from app.services.config_log_service import log_config_change
+from app.services.config_log_service import log_config_change_async
 
 
 class XyPointBulkUpdate(BaseModel):
@@ -31,28 +33,36 @@ async def get_points(
     roi_id: int,
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(100, ge=1, le=100, description="Max items per page"),
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Get list of XyPoints for a specific ROI, ordered by order field
     """
     # Check if ROI exists
-    roi = db.query(ROI).filter(ROI.id == roi_id).first()
+    roi = (await db.execute(select(ROI).where(ROI.id == roi_id))).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"ROI with id {roi_id} not found"
         )
 
-    # Query points ordered by order field
-    query = db.query(XyPoint).filter(XyPoint.roi_id == roi_id).order_by(XyPoint.order)
-    total = query.count()
+    # Count total
+    count_stmt = select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi_id)
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
-    points = query.order_by(XyPoint.id).offset(skip).limit(limit).all()
+
+    points_stmt = (
+        select(XyPoint)
+        .where(XyPoint.roi_id == roi_id)
+        .order_by(XyPoint.id)
+        .offset(skip)
+        .limit(limit)
+    )
+    points = (await db.execute(points_stmt)).scalars().all()
 
     # Build response items
     items = [
@@ -90,14 +100,14 @@ async def get_points(
 async def create_point(
     roi_id: int,
     point_data: XyPointCreate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Create a new XyPoint
     """
     # Check if ROI exists
-    roi = db.query(ROI).filter(ROI.id == roi_id).first()
+    roi = (await db.execute(select(ROI).where(ROI.id == roi_id))).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -105,10 +115,11 @@ async def create_point(
         )
 
     # Check for duplicate order
-    existing = db.query(XyPoint).filter(
+    existing_stmt = select(XyPoint).where(
         XyPoint.roi_id == roi_id,
         XyPoint.order == point_data.order
-    ).first()
+    )
+    existing = (await db.execute(existing_stmt)).scalars().first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -123,11 +134,11 @@ async def create_point(
         order=point_data.order
     )
     db.add(point)
-    db.commit()
-    db.refresh(point)
+    await db.commit()
+    await db.refresh(point)
 
     # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.XY_POINT,
         resource_id=point.id,
@@ -156,14 +167,14 @@ async def create_point(
 async def replace_points(
     roi_id: int,
     bulk_data: XyPointBulkUpdate,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Replace all points for an ROI (bulk update)
     """
     # Check if ROI exists
-    roi = db.query(ROI).filter(ROI.id == roi_id).first()
+    roi = (await db.execute(select(ROI).where(ROI.id == roi_id))).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -171,7 +182,7 @@ async def replace_points(
         )
 
     # Delete existing points
-    db.query(XyPoint).filter(XyPoint.roi_id == roi_id).delete()
+    await db.execute(delete(XyPoint).where(XyPoint.roi_id == roi_id))
 
     # Create new points
     new_points = []
@@ -185,11 +196,11 @@ async def replace_points(
         db.add(point)
         new_points.append(point)
 
-    db.commit()
+    await db.commit()
 
     # Refresh all points
     for point in new_points:
-        db.refresh(point)
+        await db.refresh(point)
 
     # Build response
     points_data = [
@@ -220,14 +231,14 @@ async def replace_points(
 async def delete_point(
     roi_id: int,
     point_id: int,
-    db: Session = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_account_user_optional)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Optional[dict] = Depends(get_current_account_user_optional_async)
 ):
     """
     Delete a specific XyPoint
     """
     # Check if ROI exists
-    roi = db.query(ROI).filter(ROI.id == roi_id).first()
+    roi = (await db.execute(select(ROI).where(ROI.id == roi_id))).scalars().first()
     if not roi:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -235,10 +246,11 @@ async def delete_point(
         )
 
     # Get point
-    point = db.query(XyPoint).filter(
+    point_stmt = select(XyPoint).where(
         XyPoint.id == point_id,
         XyPoint.roi_id == roi_id
-    ).first()
+    )
+    point = (await db.execute(point_stmt)).scalars().first()
     if not point:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -251,11 +263,11 @@ async def delete_point(
     deleted_name = f"XyPoint-{point.id} (order: {point.order})"
 
     # Delete point
-    db.delete(point)
-    db.commit()
+    await db.delete(point)
+    await db.commit()
 
     # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
-    log_config_change(
+    await log_config_change_async(
         db=db,
         resource_type=EnumConfigResourceType.XY_POINT,
         resource_id=deleted_id,

@@ -121,6 +121,17 @@ GET    /reports/generations/{id}/download → 403 ✅
 [대조] ADMIN 토큰 GET /preview/9999 → 404 (핸들러 도달)
 ```
 
+**§4.3 선택·권장 추가 반영 (6개 view)** — 클라 UI 게이팅과 일관성 완결:
+- `GET /components`, `GET /status`, `GET /templates`, `GET /templates/{id}`, `GET /generations`, `GET /generations/{id}` → `reports:view`
+
+실측:
+```
+무권한 USER → GET /components/status/templates/generations 6개 전건 → 403 ✅
+ADMIN       → GET /components → 200 (bypass)
+```
+
+**reports 라우터 총 15개 endpoint 최종 매트릭스**: edit 3 + delete 2 + view 10.
+
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.

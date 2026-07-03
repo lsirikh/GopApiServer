@@ -1,63 +1,164 @@
-# GOP RESTful API Test Server
+# GOP RESTful API Server
 
-GOP 통제시스템 연동을 위한 RESTful API 테스트 서버입니다.
+![version](https://img.shields.io/badge/version-v6.0.0-navy)
+![python](https://img.shields.io/badge/python-3.11-blue)
+![framework](https://img.shields.io/badge/FastAPI-async-teal)
+![sqlalchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-red)
+![postgres](https://img.shields.io/badge/PostgreSQL-16-blue)
+![status](https://img.shields.io/badge/release-2026--07--03-success)
 
-**현재 버전**: v4.8 (2026-06-22) — 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
+GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-## 기술 스택
-
-- **Framework**: FastAPI + Pydantic v2
-- **Database**: PostgreSQL 16 (alpine)
-- **Container**: Docker Compose
-- **Documentation**: Swagger UI / ReDoc (한글화)
-- **Auth**: JWT (HS256, 24h access + 7d refresh)
-- **NATS**: SYNC 이벤트 발행 (statement-level 트리거, db_monitor 연동)
+> **현재 버전**: v6.0.0 (2026-07-03) — Async 대전환 완결.
+> 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 
 ---
 
-## Docker 사용법
+## 목차
 
-### 서버 실행
+- [최근 릴리즈 (v6.0)](#최근-릴리즈-v60--async-대전환)
+- [기술 스택](#기술-스택)
+- [주요 기능](#주요-기능)
+- [Quick Start](#quick-start)
+- [접속 정보](#접속-정보)
+- [아키텍처](#아키텍처)
+- [환경 변수](#환경-변수)
+- [API 엔드포인트](#api-엔드포인트-요약)
+- [로컬 개발](#로컬-개발-docker-없이)
+- [테스트](#테스트)
+- [프로젝트 구조](#프로젝트-구조)
+- [문서](#문서)
+
+---
+
+## 최근 릴리즈 (v6.0) — Async 대전환
+
+**태그**: `v6.0` (커밋 `61e46fe`, 브랜치 `release/v6.0`)
+**Swagger `info.version`**: `6.0.0`
+
+### 성과 요약
+
+| 항목 | 결과 |
+|---|---|
+| **문서 A-7 근본 봉합** | 6/6 완결 (batch queue + PostgreSQL 파티셔닝 포함) |
+| **async 전환 라우터** | 41개 / 41개 (100%) |
+| **RBAC 매트릭스 등록** | 약 99 endpoint |
+| **api_logs 파티셔닝** | 월별 partition + before-partition catch-all |
+| **INSERT 파이프라인** | `asyncio.Queue` batch consumer (100건 / 500ms) |
+| **자가 회복 인프라** | Docker `autoheal` 컨테이너 (healthcheck unhealthy 감시) |
+| **회귀 시나리오** | 247 / 247 PASS |
+
+### 핵심 스택 전환
+
+- `sync SessionLocal` → `AsyncSessionLocal` (dual-stack 병존)
+- `db.query(...)` → `await db.execute(select(...))` (약 397 호출부)
+- Report Service 완전 async(`ReportServiceAsync`, 20 async 메서드)
+- init 모듈 4종 async 화(`init_db` / `init_server_data` / `init_report_data` / `init_sample_data`)
+- Polymorphic eager load: `selectin_polymorphic(Device, [...])`
+
+---
+
+## 기술 스택
+
+| 계층 | 스택 |
+|---|---|
+| **Runtime** | Python 3.11 |
+| **Framework** | FastAPI (async) + Pydantic v2 |
+| **ORM** | SQLAlchemy 2.x (Async ORM, AsyncSession) |
+| **DB Driver** | asyncpg (async) + psycopg2 (dual-stack 유지) |
+| **Database** | PostgreSQL 16 |
+| **Auth** | JWT (HS256, 24h access + 7d refresh), RBAC matrix enforcer |
+| **Messaging** | NATS (SYNC 이벤트 발행 · Force-Logout revoke publisher) |
+| **Report** | Playwright (Chromium) — HTML → PDF |
+| **Container** | Docker Compose (api-server / postgres / autoheal / gis-ingest / db-monitor / adminer) |
+| **Test** | pytest + pytest-asyncio (dual-stack fixture) |
+| **Docs** | Swagger UI / ReDoc (한글 문서화) |
+
+---
+
+## 주요 기능
+
+### Device Management (장치 관리)
+- Controller / Sensor / Camera / Speaker / Lamp / Enclosure 폴리모픽 CRUD
+- Device Group / ROI / XY Point (감시금지구역 포함) 관리
+- Camera Preset · Settings · Thumbnails
+
+### Event Tracking (이벤트 추적)
+- Detection / Malfunction / Connection / Action 이벤트 CRUD
+- Detection Log 상세 이력 (조치보고 흐름 포함)
+- Event Statistics (통계 집계 API)
+- Event Mapping (Camera / Speaker / Lamp) — 이벤트 트리거 시 장치 연동
+- GIS Tracking (keyset cursor · `track_points` 인제스트 워커)
+
+### Reports (리포트)
+- 정형 보고서 HTML 렌더 → PDF 생성 (Playwright)
+- 리포트 마스터 데이터 async 파이프라인
+- 미리보기 라우트 (`/api/reports/preview`)
+
+### RBAC (인가)
+- User / Admin 2계층 인가
+- SuperUser(ADMIN) · UserGroupGrant(USER) 그룹 permissions 게이팅
+- `matrix_enforcer` — 라우터 · endpoint · method 단위 정합 검사
+- Force-Logout (per-session NATS subject + HMAC-SHA256 서명)
+
+### Monitoring & Ops
+- API 로그 배치 큐 (`asyncio.Queue`) → 파티션 테이블 INSERT
+- Health endpoint 경량화 (`/api/tracking/health`, 무인증 JSON)
+- Docker `autoheal` unhealthy 감지 시 자동 재기동
+- Docker 로그 회전 (`json-file` max-size 10m × 3 파일)
+
+---
+
+## Quick Start
+
+### 1. 저장소 준비
 
 ```bash
-# 빌드 및 실행 (백그라운드)
+git clone <repo-url>
+cd api-test-server
+cp .env.example .env
+```
+
+### 2. 컨테이너 기동
+
+```bash
+# 빌드 + 백그라운드 기동 (권장)
 docker-compose up -d --build
 
-# 로그 확인하며 실행
+# 로그 스트리밍하며 기동
 docker-compose up --build
 ```
 
-### 서버 중지
+### 3. Swagger 접속
 
-```bash
-# 컨테이너 중지 (데이터 유지)
-docker-compose stop
-
-# 컨테이너 중지 및 삭제 (데이터 유지)
-docker-compose down
+```
+https://localhost:8000/docs
 ```
 
-### 서버 완전 삭제
+> `certs/` 폴더 부재 시 HTTP fallback. mkcert 로컬 CA 설치 후 `certs/` 마운트 권장.
 
-```bash
-# 컨테이너 + 볼륨 삭제 (데이터 삭제됨)
-docker-compose down -v
+### 4. 로그인
 
-# 이미지까지 삭제
-docker-compose down --rmi all
+```
+Username: admin
+Password: admin123
 ```
 
-### 기타 명령어
+Swagger UI 우측 상단 **Authorize** 버튼 → Bearer token 입력 후 보호 endpoint 호출.
+
+### 5. 상태 확인
 
 ```bash
-# 실행 중인 컨테이너 확인
 docker-compose ps
+docker-compose logs -f api-server
+```
 
-# 로그 확인
-docker-compose logs -f
+### 종료
 
-# 컨테이너 재시작
-docker-compose restart
+```bash
+docker-compose stop       # 컨테이너 중지 (데이터 유지)
+docker-compose down       # 컨테이너 삭제 (데이터 유지)
+docker-compose down -v    # 데이터까지 완전 초기화
 ```
 
 ---
@@ -65,105 +166,157 @@ docker-compose restart
 ## 접속 정보
 
 | 서비스 | 포트 | URL | 설명 |
-|--------|------|-----|------|
-| API Server | 8000 | http://localhost:8000 | FastAPI 서버 |
-| API Docs (Swagger) | 8000 | http://localhost:8000/docs | API 문서 (Swagger UI) |
-| API Docs (ReDoc) | 8000 | http://localhost:8000/redoc | API 문서 (ReDoc) |
-| Log Viewer | 8000 | http://localhost:8000/api/logs/viewer | API 로그 뷰어 |
-| DB Admin (Adminer) | 8080 | http://localhost:8080 | PostgreSQL 웹 관리자 (server=postgres, user=gop_user, db=gop) |
+|---|---|---|---|
+| API Server | 8000 | https://localhost:8000 | FastAPI 서버 (HTTPS 우선, HTTP fallback) |
+| Swagger UI | 8000 | https://localhost:8000/docs | API 문서 (인터랙티브) |
+| ReDoc | 8000 | https://localhost:8000/redoc | API 문서 (읽기 전용) |
+| Log Viewer | 8000 | https://localhost:8000/api/logs/viewer | 웹 기반 API 로그 뷰어 |
+| Reports Preview | 8000 | https://localhost:8000/api/reports/preview | 정형 보고서 HTML 미리보기 |
+| Health | 8000 | https://localhost:8000/api/tracking/health | 경량 헬스체크 (무인증 JSON) |
+| Adminer | 8080 | http://localhost:8080 | PostgreSQL 웹 관리자 |
+
+**Adminer 접속 정보**
+- Server: `postgres`
+- User: `gop_user`
+- Password: `gop_pass`
+- Database: `gop`
 
 ---
 
-## API 엔드포인트
+## 아키텍처
 
-### Authentication API
-- `POST /api/auth/login` - 로그인
-- `POST /api/auth/logout` - 로그아웃
-- `GET /api/auth/me` - 현재 사용자 정보
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                       Client Layer (C1~C6)                         │
+│  Central UI / Ironwall.Dotnet / DBApi / db_monitor / RtspViewer    │
+└──────────────────────┬─────────────────────────────────────────────┘
+                       │ HTTPS + JWT (Bearer)
+                       ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                  api-test-server (FastAPI · Async)                 │
+│  ┌──────────────┬───────────────┬──────────────┬──────────────┐    │
+│  │  Middleware  │  RBAC Matrix  │  Routers x41 │   Services   │    │
+│  │ Request ID · │  Enforcer     │ (all async)  │ audit/grant/ │    │
+│  │ API Log(Q)   │  Auth(async)  │              │ session_sweep│    │
+│  └──────┬───────┴───────┬───────┴──────┬───────┴──────┬───────┘    │
+│         │               │              │              │            │
+│         ▼               ▼              ▼              ▼            │
+│   asyncio.Queue    JWT+matrix     AsyncSession    to_thread        │
+│   batch(100/500ms) permission_map  selectinload    (bcrypt/PDF)    │
+└────────┬────────────────────────────┬──────────────────────────────┘
+         │                            │
+         │ INSERT batch               │ await db.execute(select())
+         ▼                            ▼
+┌───────────────────────┐   ┌────────────────────────────────────────┐
+│   api_logs partitions │   │       PostgreSQL 16 (asyncpg)          │
+│   (월별 + catch-all)  │   │       + statement-level NATS trigger   │
+└───────────────────────┘   └────────────────┬───────────────────────┘
+                                             │ NATS SYNC
+                     ┌───────────────────────┼───────────────────────┐
+                     ▼                       ▼                       ▼
+              ┌───────────────┐      ┌───────────────┐      ┌───────────────┐
+              │  db-monitor   │      │  gis-ingest   │      │  autoheal     │
+              │ (NATS pub)    │      │ (NATS sub →   │      │ (docker.sock  │
+              │               │      │  track_points)│      │  reader)      │
+              └───────────────┘      └───────────────┘      └───────────────┘
+```
 
-### Device API
-- `GET/POST/PATCH/PUT/DELETE /api/devices/controllers` - Controller CRUD
-- `GET/POST/PATCH/PUT/DELETE /api/devices/sensors` - Sensor CRUD
-- `GET/POST/PATCH/PUT/DELETE /api/devices/cameras` - Camera CRUD
-
-### Event API
-- `GET/POST/PATCH/PUT/DELETE /api/events/detections` - Detection 이벤트
-- `GET/POST/PATCH/PUT/DELETE /api/events/malfunctions` - Malfunction 이벤트
-- `GET/POST/PATCH/PUT/DELETE /api/events/connections` - Connection 이벤트
-- `GET/POST/PATCH/PUT/DELETE /api/events/actions` - Action 이벤트
-
-### Integration API
-- `GET/POST/PATCH/PUT/DELETE /api/integrations/event-mappings` - Event Mapping
-- `GET/POST/PATCH/PUT/DELETE /api/integrations/camera-event-mappings` - Camera Event Mapping
-
-### Server Monitoring API (v1.9 신규)
-- `GET/POST/PATCH/PUT/DELETE /api/servers/categories` - 서버 카테고리 CRUD
-- `GET/POST/PATCH/PUT/DELETE /api/servers` - 서버 인스턴스 CRUD
-- `GET /api/servers/summary` - 대시보드 요약 (카테고리별 상태 집계)
-
-### Logs API
-- `GET /api/logs` - API 로그 조회
-- `GET /api/logs/viewer` - 웹 기반 로그 뷰어
+- **매 요청 이벤트루프 자유**: async 전환으로 `MissingGreenlet` 회피, 커넥션 획득 절감
+- **Dual-stack 원칙**: sync 경로 유지(안전 롤아웃), 신규 라우터는 async 우선
 
 ---
 
-## Enum 정의
+## 환경 변수
 
-### Device Enums
-- `EnumDeviceType`: 장치 유형 (CONTROLLER, SENSOR, CAMERA 등)
-- `EnumDeviceStatus`: 장치 상태 (ACTIVE, INACTIVE, ERROR 등)
-- `EnumCameraMode`: 카메라 모드 (FIXED, PTZ 등)
-- `EnumCameraCategory`: 카메라 카테고리 (GOP, CCTV 등)
+전체 변수는 [`.env.example`](.env.example) 참조. 핵심 항목:
 
-### Event Enums
-- `EnumDetectionType`: 탐지 결과 (TRUE, FALSE, RECOGNITION, UNKNOWN)
-- `EnumMalfunctionType`: 고장 유형 (TRUE, FALSE)
-- `EnumConnectionType`: 연결 상태 (CONNECT, DISCONNECT)
-- `EnumTrueFalse`: 조치보고 여부 (TRUE, FALSE)
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `AUTH_MODE` | `token` | `public` = 무인증 통과 / `token` = Bearer 필수 + matrix_enforcer 활성 (v5.4~) |
+| `JWT_SECRET_KEY` | (dev 값) | **운영 배포 시 반드시 랜덤 값으로 교체** |
+| `JWT_EXPIRATION_HOURS` | `24` | access token 유효시간 |
+| `API_DATABASE_URL` | `postgresql://gop_user:gop_pass@postgres:5432/gop` | API 서버 → Postgres |
+| `MONITOR_DATABASE_URL` | (동일) | db-monitor · gis-ingest 전용 |
+| `INIT_SAMPLE_DATA` | `true` | 빈 DB일 때 시드 자동 삽입 (v4.6 차장님 명세) |
+| `NATS_URL` | `nats://nats-server-01:4222` | NATS 클러스터 |
+| `UNIT_ID` | `unit001` | 이 유닛의 NATS subject 네임스페이스 |
+| `NATS_REVOKE_ENABLED` | `false` | Force-Logout NATS revoke 실발행 스위치 (3게이트 통과 후 true) |
+| `REVOKE_SIGNING_KEY` | (dev 값) | HMAC-SHA256 서명 키, JWT_SECRET_KEY 와 반드시 분리 |
+| `LOG_LEVEL` | `INFO` | 애플리케이션 로그 레벨 |
+| `CORS_ORIGINS` | `["*"]` | 프로덕션에서는 명시 도메인으로 좁힐 것 |
 
-### Server Enums (v1.9 신규)
-- `EnumServerType`: 서버 유형 (26종)
-  - VMS, NVR_API, STREAMING, AI_ANALYSIS, DB, WEB, LOG, BACKUP
-  - SECURITY, AUTHENTICATION, API_GATEWAY, MESSAGE_QUEUE
-  - FILE_STORAGE, CACHE, SEARCH, MONITORING, NOTIFICATION
-  - REPORT, SCHEDULER, LICENSE, CONFIG, PROXY, CDN, DNS, MAIL, CUSTOM
-- `EnumServerStatus`: 서버 상태 (NORMAL, WARNING, ERROR)
+---
+
+## API 엔드포인트 요약
+
+전체 스펙은 Swagger UI 및 [`GOP_Restful_Api_연동설계.md`](GOP_Restful_Api_연동설계.md) 참조.
+
+### 주요 라우터 그룹
+
+| 그룹 | 대표 경로 | 비고 |
+|---|---|---|
+| Authentication | `/api/auth/login`, `/logout`, `/me`, `/refresh` | Force-Logout · session 관리 |
+| Accounts / Users | `/api/users`, `/api/user-groups`, `/api/user-sessions` | RBAC ADMIN 전용 게이트 |
+| Devices | `/api/devices/controllers`, `/sensors`, `/cameras`, `/speakers`, `/lamps`, `/enclosures` | 폴리모픽 CRUD |
+| Device Groups / ROI | `/api/device-groups`, `/rois`, `/xypoints` | 감시금지구역(`is_restricted_zone`) 포함 |
+| Camera 부속 | `/api/cameras/presets`, `/settings`, `/thumbnails` | Preset · Settings 통합 |
+| Events | `/api/events/detections`, `/malfunctions`, `/connections`, `/actions` | Detection Log 포함 |
+| Event Statistics | `/api/events/statistics` | 통계 집계 |
+| Event Mappings | `/api/integrations/event-mappings`, `/camera-event-mappings`, `/lamp-`, `/speaker-` | Bulk API 지원 |
+| Servers | `/api/servers`, `/categories`, `/metrics`, `/summary` | 서버 모니터링 (26종) |
+| Files / Configs | `/api/files/groups`, `/api/settings`, `/api/proxy-settings`, `/api/config-change-logs` | 시스템 설정 |
+| Reports | `/api/reports`, `/preview`, `/status` | HTML → PDF 생성 |
+| Tracking (GIS) | `/api/tracking/points`, `/health` | keyset cursor (limit 1~5000) |
+| Audit / System | `/api/audit-logs`, `/api/system-events` | append-only |
+| Logs | `/api/logs`, `/api/logs/viewer` | 배치 큐 파티셔닝 |
+
+### RBAC 정책 요약
+
+- `AUTH_MODE=token` 모드에서 대부분 endpoint는 Bearer JWT 필수
+- ADMIN 전용 게이트: 계정/그룹 관리, 권한 부여(`grants`), 시스템 설정 변경
+- USER는 `UserGroupGrant` 그룹의 permissions 매트릭스에 정의된 endpoint만 접근
+- 자기 계정 self-service (예: `/auth/me`, `/logout`) 는 USER도 허용
 
 ---
 
 ## 로컬 개발 (Docker 없이)
 
 ```bash
-# 가상환경 생성
+# 1. 가상환경
 python -m venv venv
+venv\Scripts\activate         # Windows
+# source venv/bin/activate    # macOS/Linux
 
-# 가상환경 활성화 (Windows)
-venv\Scripts\activate
-
-# 의존성 설치
+# 2. 의존성
 pip install -r requirements.txt
 
-# 서버 실행
+# 3. 별도 PostgreSQL 필요 (또는 docker-compose up postgres만 기동)
+
+# 4. 서버 실행
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ---
 
-## 테스트 실행
+## 테스트
 
 ```bash
-# 전체 테스트
+# 전체
 python -m pytest
 
-# 특정 테스트 파일
-python -m pytest tests/test_detection_event_model.py
-
-# 커버리지 포함
+# 커버리지
 python -m pytest --cov=app
 
-# 서버 모니터링 테스트
-python -m pytest tests/test_server_summary_router.py
+# 특정 파일
+python -m pytest tests/test_detection_event_model.py
+
+# async fixture (v6.0 후속 P1 반영)
+python -m pytest tests/test_report_service_async.py
 ```
+
+- **Fixture 원칙**: SQLite in-memory (unit) + PostgreSQL 컨테이너 (integration)
+- **Dual-stack**: 신규 async 테스트는 `pytest-asyncio` 기반
+- **명명 규칙**: `test_should_{expected_behavior}_when_{condition}`
 
 ---
 
@@ -172,98 +325,95 @@ python -m pytest tests/test_server_summary_router.py
 ```
 api-test-server/
 ├── app/
-│   ├── main.py              # FastAPI 앱 진입점
-│   ├── config.py            # 설정
-│   ├── database.py          # DB 연결
-│   ├── dependencies.py      # 의존성 주입
-│   ├── models/              # SQLAlchemy 모델
-│   │   ├── device.py        # Controller, Sensor, Camera
-│   │   ├── event.py         # Detection, Malfunction, Connection, Action
-│   │   ├── server.py        # ServerCategory, Server (v1.9)
-│   │   └── ...
-│   ├── schemas/             # Pydantic 스키마
-│   │   ├── device.py
-│   │   ├── event.py
-│   │   ├── server.py        # Server 스키마 (v1.9)
-│   │   └── common.py        # ApiResponse, PaginationMeta
-│   ├── routers/             # API 라우터 (한글 문서화)
-│   │   ├── controllers.py
-│   │   ├── sensors.py
-│   │   ├── cameras.py
-│   │   ├── detections.py
-│   │   ├── malfunctions.py
-│   │   ├── connections.py
-│   │   ├── actions.py
-│   │   ├── server_categories.py  # (v1.9)
-│   │   ├── servers.py            # (v1.9)
-│   │   └── ...
-│   ├── middleware/          # 미들웨어
-│   │   ├── request_id.py    # Request ID 생성
-│   │   └── logging.py       # API 로깅
-│   └── utils/               # 유틸리티
-│       ├── enums.py         # Enum 정의
-│       ├── init_db.py       # DB 초기화
-│       └── init_server_data.py  # 서버 Seed 데이터 (v1.9)
-├── tests/                   # 테스트 파일 (pytest, SQLite in-memory fixture)
-├── data/                    # 컨테이너 데이터 mount point
-├── logs/                    # 애플리케이션 로그
-├── app/migrations/          # 수동 마이그레이션 SQL (v47 JSON→JSONB, v48 is_restricted_zone 등)
+│   ├── main.py                     # FastAPI 진입점 (async lifespan)
+│   ├── config.py                   # 설정
+│   ├── database.py                 # sync + async engine (dual-stack)
+│   ├── dependencies.py             # get_db / get_async_db
+│   ├── models/                     # SQLAlchemy 모델 (polymorphic Device/Event)
+│   ├── schemas/                    # Pydantic v2 스키마
+│   ├── routers/                    # 41 라우터 (전부 async)
+│   ├── services/                   # 도메인 서비스 (dual-stack)
+│   │   ├── audit_service.py
+│   │   ├── grant_sweep_service.py
+│   │   ├── session_sweep_service.py
+│   │   ├── api_logs_sweep_service.py
+│   │   ├── token_blacklist_service.py
+│   │   ├── settings_service.py
+│   │   └── report_service.py       # ReportServiceAsync (v6.0 후속 P3)
+│   ├── middleware/
+│   │   ├── request_id.py
+│   │   └── logging.py              # asyncio.Queue batch consumer (v6.0 후속 P4)
+│   ├── auth/                       # JWT + matrix_enforcer + permission_map
+│   ├── migrations/                 # 수동 SQL 마이그레이션
+│   └── utils/
+│       ├── enums.py
+│       ├── init_db.py              # async (v6.0 후속 P2)
+│       ├── init_server_data.py     # async
+│       ├── init_report_data.py     # async
+│       └── init_sample_data.py     # async (_bulk_insert_async 500-row chunks)
+├── db_monitor/                     # NATS pub 워커 (별도 컨테이너)
+├── gis_ingest/                     # NATS sub → track_points 워커
+├── tests/                          # pytest + pytest-asyncio
+├── data/                           # 컨테이너 데이터 mount (프로필 사진 등)
+├── logs/                           # 애플리케이션 로그
+├── certs/                          # HTTPS 인증서 (mkcert, git-ignored)
 ├── docker-compose.yml
 ├── Dockerfile
-└── requirements.txt
+├── requirements.txt
+├── .env.example
+├── CHANGELOG.md
+├── GOP_Restful_Api_연동설계.md
+├── docs/
+│   ├── INDEX.md                    # 문서 인덱스
+│   ├── Manual.md                   # 하네스 전체 설명
+│   └── memory/session-context.md   # 세션 상태
+└── README.md                       # 이 파일
 ```
 
 > DB 데이터는 Docker volume (`api-test-pgdata`)에 영구 저장. `docker-compose down -v`만 데이터 초기화.
 
 ---
 
-## 시드 데이터 (자동 초기화)
-
-`docker-compose up` 시 빈 DB일 때 `INIT_SAMPLE_DATA=true` 환경변수로 자동 시드 (v4.6 차장님 명세):
-
-| 디바이스 | 카운트 | 분포 |
-|---|---|---|
-| 제어기 | 4 | A/B/C/D 구역 1개씩 |
-| 센서 | 402 | 제어기1: 펜스 100(1~100) + 복합 21(180~200) / 제어기2 동일 / 제어기3: 스마트복합 60(1~60) / 제어기4: 스마트센서 100(1~100) |
-| 카메라 | 300 | 4구역 분배, PTZ 100대 × 5 프리셋 |
-| 스피커 | 200 | 4구역 분배 |
-| 함체 | 30 | 4구역 분배 |
-| 경광등 | 30 | 4구역 분배 |
-
-기존 데이터가 있으면 시드 skip. 시드 동작 비활성화: `INIT_SAMPLE_DATA=false`.
-
----
-
 ## 문서
 
-- [GOP RESTful API 연동설계서](GOP_Restful_Api_연동설계.md) — API 상세 설계 (v4.6)
-- [GOP 통합 DB 스키마](docs/GOP_스키마_전체.md) — DB 스키마 (v2.12)
-- [v4.6 Camera Preset 감시금지구역 가이드](docs/v46_camera_preset_restricted_zone_guide.md) — 매니저 통합용 (.NET/TypeScript 의사 코드)
-- [CHANGELOG.md](CHANGELOG.md) — 전체 차수 변경 이력
+| 문서 | 설명 |
+|---|---|
+| [CHANGELOG.md](CHANGELOG.md) | 전체 차수 변경 이력 (Keep a Changelog 형식) |
+| [GOP_Restful_Api_연동설계.md](GOP_Restful_Api_연동설계.md) | API 상세 설계 명세서 (마스터, v6.0) |
+| [docs/INDEX.md](docs/INDEX.md) | docs/ 산출 문서 인덱스 |
+| [docs/Manual.md](docs/Manual.md) | 하네스 · 스킬 · Hook 전체 매뉴얼 |
+| [docs/GOP_스키마_전체.md](docs/GOP_스키마_전체.md) | DB 스키마 마스터 |
+| [docs/GOP_ForceLogout_Activation_Guide.md](docs/GOP_ForceLogout_Activation_Guide.md) | Force-Logout 활성화 3게이트 절차 |
+| `.env.example` | 환경변수 전체 목록 + 주석 |
 
 ---
 
-## 변경 이력 (요약)
+## 릴리즈 이력 (요약)
 
-전체 차수 + 세부 변경은 [CHANGELOG.md](CHANGELOG.md) 참조.
+전체는 [CHANGELOG.md](CHANGELOG.md) 참조.
 
-| 버전 | 날짜 | 변경 내용 |
-|------|------|----------|
-| **v4.8** | 2026-06-22 | DELETE 응답 envelope sweep — Phase 1~8 통합 (P1 11 + Events 4 = 15 endpoint, 하루 1차수 묶음) |
-| **v4.7** | 2026-06-21 | Account/Auth/Session 도메인 전수 조사 (113 이슈, Verdict FAIL) + DELETE 응답 P0 정정 (4 endpoint) |
-| **v4.6** | 2026-06-19 | Critical Mismatch 정정 8건 + Camera Preset 감시금지구역(`is_restricted_zone`) + 시드 재설계(차장님 명세) + pagination 안정성 검증 |
-| **v4.5** | 2026-06-19 | 잔존 부채 minimal 6 그룹 적용 (37 fail 회복) + Workflow 부채 정밀 분석 PRD |
-| **v4.4** | 2026-06-18 | Bulk API 4단계 정합화 (Phase 1~5) + 지향성(`heading`) + JSON→JSONB 23 컬럼 + multi-line Column 정정 |
-| **v4.3** | 2026-06-17 | ActionEvent 1:N 관계 + Bulk API 7건 신설 (DeviceGroup + EventMapping Camera/Speaker/Lamp) + statement-level NATS 트리거 |
-| v4.2 | 2026-03-03 | Event Statistics API (6.7) |
-| v4.1 | 2026-02-15 | Camera Settings 통합 + PRD_Camera_Urls_JsonB |
-| v4.0 | 2026-02-01 | DetectionLog API + ActionEvent JOIN |
-| v3.x | 2026-01-15 | Account/Auth 시스템 + Lamp Device + ROI 정밀화 |
-| v2.x | 2025-12-15 | PostgreSQL 마이그레이션 + ServerMetrics 분리 + Enclosure Metrics |
+| 버전 | 날짜 | 헤드라인 |
+|---|---|---|
+| **v6.0** | 2026-07-03 | **Async 대전환** — 41 라우터 async, GOPDB A-7 6/6 완결, autoheal + partition |
+| v5.4 | 2026-07-03 | Reports RBAC + `AUTH_MODE=token` 기본화 + A-7 저리스크 4건 |
+| v5.2 | 2026-06-30 | Force-Logout jti + PG statement_timeout + Docker 로그 회전 |
+| v5.0 | 2026-06-29 | 그룹 권한 관리 endpoint (POST 전용 ADMIN 게이트) |
+| v4.12 | 2026-06-27 | RBAC ADMIN 전용 게이트 (계정 8 endpoint) |
+| v4.11 | 2026-06-26 | Tracking keyset cursor + 프로필 사진 파일시스템 저장 + audit FK 익명화 예외 |
+| v4.10 | 2026-06-25 | HTTPS 도입 (mkcert + Inno Setup rootCA) |
+| v4.8 | 2026-06-22 | DELETE 응답 envelope sweep (15 endpoint) |
+| v4.6 | 2026-06-19 | Camera Preset 감시금지구역 + 시드 재설계 |
+| v4.3 | 2026-06-17 | ActionEvent 1:N + Bulk API 7건 + statement-level NATS |
 | v1.9 | 2025-12-29 | Server Monitoring API + 한글 Swagger |
-| v1.3~v1.8 | 2025-11-28~29 | Detection / Malfunction / Connection / EventMapping API 신설 |
 
 ---
 
-**버전**: v4.8
-**최종 업데이트**: 2026-06-22
+## 라이선스 · 문의
+
+내부 프로젝트. 문의는 프로젝트 리드(이기호 차장) 또는 이슈 트래커.
+
+---
+
+**버전**: v6.0.0
+**최종 업데이트**: 2026-07-03
+**브랜치**: `release/v6.0`

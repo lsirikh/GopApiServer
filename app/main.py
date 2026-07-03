@@ -679,37 +679,6 @@ async def health_check():
 
 
 # ==============================================================================
-# Report Preview Page (HTML)
+# Report Preview Page → v5.4 P0-1: /api/reports/preview/{id} 로 이관 (인증 강제)
+# 이전 무인증 @app.get 엔드포인트는 삭제됨. routers/reports.py::report_preview_page 참조.
 # ==============================================================================
-
-@app.get("/reports/preview/{generation_id}", include_in_schema=False)
-def report_preview_page(
-    request: Request,
-    generation_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Report Preview Page (HTML)
-
-    개발용 보고서 미리보기 페이지
-    PRD Reference: PRD_Report_System.md Section 10
-    """
-    from fastapi.responses import HTMLResponse
-    from app.services.report_service import ReportService
-    from app.services.report_master_builder import build_master_data, build_report_meta
-    from app.services.report_html_renderer import render_report_html
-
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
-
-    if not generation:
-        raise HTTPException(status_code=404, detail="Report generation not found")
-
-    # PRD_Report_Master_Redesign: 프리뷰 == PDF 동일 HTML (정형=전체, 비정형=template 컴포넌트 필터)
-    # 브라우저 기본은 compact(검토용), ?mode=full 로 전체 페이지네이션 확인 가능.
-    service = ReportService(db)
-    enabled = service.get_enabled_components(generation)
-    enabled_set = set(enabled) if enabled is not None else None
-    meta = build_report_meta(generation)
-    data = build_master_data(db, generation.start_date, generation.end_date, meta, enabled_set)
-    mode = "full" if request.query_params.get("mode") == "full" else "compact"
-    return HTMLResponse(render_report_html(data, mode=mode))

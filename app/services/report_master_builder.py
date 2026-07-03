@@ -73,8 +73,13 @@ def build_master_data(
     end: datetime,
     meta: dict,
     enabled_components: Optional[set[str]] = None,
+    severity_filter: Optional[list[str]] = None,
 ) -> dict:
-    """전 도메인 데이터를 수집해 {meta, sections} 구조로 반환."""
+    """전 도메인 데이터를 수집해 {meta, sections} 구조로 반환.
+
+    v5.4 P1-3: severity_filter 실적용 — system_events 4개 쿼리에 severity IN (…) 조건 부착.
+    - 화이트리스트 검증 (CRITICAL/ERROR/WARNING/INFO/DEBUG) → SQL injection 차단.
+    """
     p = {"start": start, "end": end}
 
     def q(sql: str, params: dict | None = None) -> list:
@@ -87,11 +92,16 @@ def build_master_data(
     EV = "e.created_at >= :start AND e.created_at < :end"
     CC = "created_at >= :start AND created_at < :end"
 
+    # v5.4 P1-3: severity_filter 화이트리스트 검증 + system_events 쿼리 조건 조립
+    _valid_sev = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
+    _safe_sev = [s.upper() for s in (severity_filter or []) if isinstance(s, str) and s.upper() in _valid_sev]
+    SEV_FILTER = f" AND severity::text IN ({', '.join(repr(s) for s in _safe_sev)})" if _safe_sev else ""
+
     det_total = scalar(f"select count(*) from detection_events d join events e on e.id=d.id where {EV}")
     mal_total = scalar(f"select count(*) from malfunction_events m join events e on e.id=m.id where {EV}")
     act_total = scalar(f"select count(*) from action_events where {CC}")
     dev_total = scalar("select count(*) from devices")
-    sys_total = scalar(f"select count(*) from system_events where {CC}")
+    sys_total = scalar(f"select count(*) from system_events where {CC}{SEV_FILTER}")
     cfg_total = scalar(f"select count(*) from config_change_logs where {CC}")
     aud_total = scalar(f"select count(*) from audit_logs where {CC}")
     usr_total = scalar("select count(*) from account_users")
@@ -199,10 +209,10 @@ def build_master_data(
     ]})
 
     # ── 6. 시스템 / 운영 로그 ──
-    sys_sev = [(L.label(L.SEVERITY, r[0]), int(r[1])) for r in q(f"select severity, count(*) from system_events where {CC} group by severity order by 2 desc")]
-    sys_daily = q(f"select to_char(date_trunc('day',created_at),'MM-DD'), count(*) from system_events where {CC} group by 1 order by 1")
+    sys_sev = [(L.label(L.SEVERITY, r[0]), int(r[1])) for r in q(f"select severity, count(*) from system_events where {CC}{SEV_FILTER} group by severity order by 2 desc")]
+    sys_daily = q(f"select to_char(date_trunc('day',created_at),'MM-DD'), count(*) from system_events where {CC}{SEV_FILTER} group by 1 order by 1")
     sys_rows = [[r[0], r[1], L.label(L.SYSTEM_EVENT, r[2]), L.label(L.SEVERITY, r[3]), r[4] or ""]
-                for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, message from system_events where {CC} order by created_at desc")]
+                for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, message from system_events where {CC}{SEV_FILTER} order by created_at desc")]
     sections.append({"no": 6, "name": "시스템 / 운영 로그", "sub": "현황 분석", "blocks": [
         {"type": "charts", "charts": [
             _chart("SYSTEM_SEVERITY_BAR", "sys_sev", "심각도별 분포", "vbar", [x[0] for x in sys_sev], [x[1] for x in sys_sev]),

@@ -119,7 +119,8 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
         description = self.get_description(request.method, path, response.status_code)
 
         # Skip logging for non-API routes (docs, openapi, static, health)
-        if path in ("/docs", "/redoc", "/openapi.json", "/health", "/", "/favicon.ico") or path.startswith("/reports/preview"):
+        # v5.4 P0-1: /reports/preview 제외 제거 — 인증 필요 엔드포인트는 감사 로그에 남긴다.
+        if path in ("/docs", "/redoc", "/openapi.json", "/health", "/", "/favicon.ico"):
             return response
 
         # Log to database

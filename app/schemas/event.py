@@ -73,7 +73,7 @@ class DetectionEventCreate(BaseModel):
     - 이벤트 생성 시 action_reported는 항상 "False"로 시작
     - ActionEvent 생성/삭제 시 시스템이 자동으로 관리
     """
-    type_event: str = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     device_id: int = Field(..., example=1, description="장치 ID (Device FK)")
     result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
@@ -158,7 +158,7 @@ class DetectionEventReplace(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    type_event: str = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     detail: Optional[Dict[str, Any]] = Field(
         None,
@@ -188,8 +188,12 @@ class DetectionEventUpdate(BaseModel):
     - action_reported 필드 제거. ActionEvent count helper(update_source/reset_source)가
       단독 관리하는 종속 필드이며, PATCH로 강제 시 DELETE 409 가드를 우회해
       action_events.from_event_id NULL 고아를 만들 수 있어 입력 표면에서 차단.
+
+    v5.4 P0-4: extra="forbid" 실제 코드 반영 (docstring 의도 → model_config 코드화).
     """
-    type_event: Optional[str] = Field(None, example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: Optional[EnumEventType] = Field(None, example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     result: Optional[str] = Field(None, example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
     detail: Optional[Dict[str, Any]] = Field(
@@ -225,7 +229,7 @@ class MalfunctionEventCreate(BaseModel):
     - reason: 별도 필드 유지
     - first_start/end, second_start/end: detail JSONB로 이동
     """
-    type_event: str = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     device_id: int = Field(..., example=1, description="장치 ID (Device FK)")
     reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
@@ -311,7 +315,7 @@ class MalfunctionEventReplace(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    type_event: str = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
     detail: Optional[Dict[str, Any]] = Field(
         None,
@@ -341,8 +345,12 @@ class MalfunctionEventUpdate(BaseModel):
     PRD_Event_Field_Normalization.md v1.0:
     - reason: 별도 필드 유지
     - first_start/end, second_start/end: detail JSONB로 이동
+
+    v5.4 P0-4: extra="forbid" 실제 코드 반영.
     """
-    type_event: Optional[str] = Field(None, example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: Optional[EnumEventType] = Field(None, example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     reason: Optional[str] = Field(None, example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
@@ -367,7 +375,7 @@ class ConnectionEventCreate(BaseModel):
     - device_id: Device FK (기존 controller, sensor, type_device 대체)
     - group_event, sequence 필드 제거됨
     """
-    type_event: str = Field(..., example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     device_id: int = Field(..., example=1, description="장치 ID (Device FK)")
 
 
@@ -416,7 +424,7 @@ class ConnectionEventReplace(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    type_event: str = Field(..., example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
 
 
 class ConnectionEventUpdate(BaseModel):
@@ -426,8 +434,12 @@ class ConnectionEventUpdate(BaseModel):
     PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
     - group_event, controller, sensor, type_device, sequence 필드 제거됨
     - device_id는 수정 불가 (이벤트 생성 시에만 설정)
+
+    v5.4 P0-4: extra="forbid" 실제 코드 반영.
     """
-    type_event: Optional[str] = Field(None, example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    model_config = ConfigDict(extra="forbid")
+
+    type_event: Optional[EnumEventType] = Field(None, example="Connection", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
 
 
 class ActionEventCreate(BaseModel):
@@ -437,7 +449,7 @@ class ActionEventCreate(BaseModel):
     PRD v1.5: from_type_event 필드 제거
     - from_event_id만으로 원본 이벤트 참조 (polymorphic relationship으로 타입 자동 확인)
     """
-    type_event: str = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
     user: str = Field(..., example="operator1", description="조치자")
     from_event_id: int = Field(..., example=1, description="원본 이벤트 ID (events.id FK)")
@@ -456,7 +468,7 @@ class ActionEventReplace(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    type_event: str = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: EnumEventType = Field(..., example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
     user: str = Field(..., example="operator1", description="조치자")
 
@@ -485,7 +497,7 @@ class ActionEventUpdate(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    type_event: Optional[str] = Field(None, example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
+    type_event: Optional[EnumEventType] = Field(None, example="Action", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     content: Optional[str] = Field(None, example="침입 확인 및 경비 출동", description="조치 내용")
     user: Optional[str] = Field(None, example="operator1", description="조치자")
 

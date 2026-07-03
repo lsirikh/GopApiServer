@@ -8,8 +8,10 @@ from jose import JWTError
 from typing import Optional
 from datetime import datetime, timedelta
 
-from sqlalchemy import or_
-from app.dependencies import get_db
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from app.dependencies import get_db, get_async_db
 # NOTE: User는 레거시 모델 (users 테이블). 신규 코드는 AccountUser (account_users 테이블) 사용할 것.
 from app.models.user import AccountUser, UserSession, UserLoginLog, UserGroup, UserGroupGrant
 from app.schemas.user import Token, AccountLoginRequest, RefreshTokenRequest, AccountUserResponse
@@ -750,6 +752,278 @@ async def get_me(current_user: AccountUser = Depends(get_current_account_user)):
     - 401: 유효하지 않은 토큰
     """
     return current_user
+
+
+# ---------------------------------------------------------------------------
+# v6.0 P4 — Dual-stack async 버전
+# ---------------------------------------------------------------------------
+# 기존 sync 시그니처는 완전히 유지된다. 아래는 AsyncSession 기반 병행 구현으로
+# async 라우터(신규 마이그레이션 대상)에서 동일 로직을 사용하기 위한 신설 함수군이다.
+# 규칙:
+#   - 로직은 sync 버전과 100% 동치 (permissions merge, grant 유효성, ADMIN bypass 등).
+#   - relationship (UserGroupGrant.group) 은 selectinload 로 미리 로드 → async lazy-load 회피.
+#   - AUTH_MODE / 블랙리스트 / 예외 처리 정책은 모두 sync 경로와 동일.
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_role_group_async(db: AsyncSession, user: AccountUser) -> UserGroup | None:
+    """_resolve_role_group 의 async 버전 — group_id 기반 조회 (R10①).
+
+    ADR_Permission_Model_v5.2: 배정 그룹만 권한 원천, name==role 자동해석 폐기.
+    """
+    if user.group_id:
+        stmt = select(UserGroup).where(UserGroup.id == user.group_id)
+        result = await db.execute(stmt)
+        return result.scalars().first()
+    return None
+
+
+async def _active_grants_async(db: AsyncSession, user: AccountUser, now=None) -> list:
+    """_active_grants 의 async 버전 — 요청시점 유효 grant 조회 (FR-02).
+
+    is_active(sweep 비정규화)는 보지 않음(NFR-01). relationship 을 selectinload 로 로드.
+    """
+    if now is None:
+        now = _kst_now()
+    stmt = (
+        select(UserGroupGrant)
+        .where(
+            UserGroupGrant.user_id == user.id,
+            UserGroupGrant.revoked_at.is_(None),
+            UserGroupGrant.valid_from <= now,
+            or_(UserGroupGrant.valid_until.is_(None), UserGroupGrant.valid_until > now),
+        )
+        .options(selectinload(UserGroupGrant.group))
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def _active_grant_groups_async(db: AsyncSession, user: AccountUser, now=None) -> list:
+    """_active_grant_groups 의 async 버전 — 유효 grant 파생 그룹 목록."""
+    grants = await _active_grants_async(db, user, now)
+    return [g.group for g in grants if g.group is not None]
+
+
+async def effective_permissions_payload_async(db: AsyncSession, user: AccountUser, now=None) -> dict:
+    """effective_permissions_payload 의 async 버전 — 클라 노출용 유효권한 페이로드 (FR-06/FR-07).
+
+    등급 매트릭스 ∪ 현재 유효 grant 그룹 매트릭스 (modules OR, device_groups 합집합).
+    valid_until = 활성 grant 중 가장 임박한 만료(없으면 None=상시).
+    """
+    if now is None:
+        now = _kst_now()
+    merged: dict = {"modules": {}, "device_groups": []}
+
+    def _add_device_groups(perms):
+        if isinstance(perms, dict):
+            for dg in (perms.get("device_groups") or []):
+                if dg not in merged["device_groups"]:
+                    merged["device_groups"].append(dg)
+
+    role_group = await _resolve_role_group_async(db, user)
+    if role_group and isinstance(role_group.permissions, dict):
+        _merge_modules(merged, role_group.permissions)
+        _add_device_groups(role_group.permissions)
+
+    earliest_until = None
+    grants = await _active_grants_async(db, user, now)
+    for grant in grants:
+        grp = grant.group
+        if grp and isinstance(grp.permissions, dict):
+            _merge_modules(merged, grp.permissions)
+            _add_device_groups(grp.permissions)
+        if grant.valid_until is not None and (earliest_until is None or grant.valid_until < earliest_until):
+            earliest_until = grant.valid_until
+
+    merged["valid_until"] = earliest_until
+    return merged
+
+
+async def _effective_allows_async(db: AsyncSession, user: AccountUser, module: str, verb: str, now=None) -> bool:
+    """_effective_allows 의 async 버전 — 등급 매트릭스 ∪ 현재 유효 grant 그룹 매트릭스 (FR-02).
+
+    ADMIN bypass 는 호출 측(require_perm_async 등)에서 처리. 비-ADMIN 합집합 판정만 담당.
+    """
+    role_group = await _resolve_role_group_async(db, user)
+    if _role_group_allows(role_group, module, verb):
+        return True
+    grant_groups = await _active_grant_groups_async(db, user, now)
+    for grant_group in grant_groups:
+        if _role_group_allows(grant_group, module, verb):
+            return True
+    return False
+
+
+async def get_current_account_user_async(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
+) -> AccountUser:
+    """get_current_account_user 의 async 버전 — JWT 검증 + jti 블랙리스트 검사.
+
+    PRD v4.9 Phase 2-A4 동일: logout/lock/password-change 토큰 즉시 무효화.
+
+    Raises:
+        HTTPException 401: 토큰 무효 / 사용자 부재 / jti 블랙리스트 등재
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if not credentials:
+        raise credentials_exception
+
+    token = credentials.credentials
+
+    try:
+        token_data = decode_token(token)
+        login_id = token_data.username
+
+        if login_id is None:
+            raise credentials_exception
+
+        # PRD v4.9 Phase 2-A4: jti 블랙리스트 검증 / FR-SVF-10: 안정 코드 SESSION_REVOKED 노출
+        from app.services.token_blacklist_service import is_blacklisted_async, get_blacklist_reason_async
+        if await is_blacklisted_async(db, token_data.jti):
+            from app.exceptions import RevokedTokenError
+            raise RevokedTokenError(reason=await get_blacklist_reason_async(db, token_data.jti))
+
+    except JWTError:
+        raise credentials_exception
+
+    stmt = select(AccountUser).where(AccountUser.login_id == login_id)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
+    if user is None:
+        raise credentials_exception
+
+    return user
+
+
+async def get_current_account_user_optional_async(
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> AccountUser | None:
+    """get_current_account_user_optional 의 async 버전 — AUTH_MODE 의존 선택적 인증.
+
+    - AUTH_MODE=public + 토큰 없음 → None
+    - AUTH_MODE=token + 토큰 없음 → 401
+    - 토큰 있음 → AccountUser + jti 블랙리스트 검사
+    """
+    from app.config import settings
+    from app.services.token_blacklist_service import is_blacklisted_async
+
+    token = credentials.credentials if credentials else None
+
+    # token 모드: 토큰 필수
+    if settings.AUTH_MODE == "token":
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await get_current_account_user_async(credentials=credentials, db=db)
+
+    # public 모드: 토큰 선택
+    if not token:
+        return None
+    try:
+        token_data = decode_token(token)
+        # jti 블랙리스트 검사 (logout/강등 즉시 무효화)
+        if token_data.jti and await is_blacklisted_async(db, token_data.jti):
+            return None
+        login_id = token_data.username
+        if not login_id:
+            return None
+        stmt = select(AccountUser).where(AccountUser.login_id == login_id)
+        result = await db.execute(stmt)
+        user = result.scalars().first()
+        if not user or not user.is_active or user.is_locked:
+            return None
+        return user
+    except JWTError:
+        return None
+
+
+def require_role_async(*allowed_roles: str):
+    """require_role 의 async 버전 — 역할(role) 기반 인가 의존성 팩토리 (PRD-GOP-01 V-PG-01 §7).
+
+    반환되는 dependency 는 async, 내부에서 get_current_account_user_async 를 사용한다.
+    """
+    async def _role_checker(current_user: AccountUser = Depends(get_current_account_user_async)) -> AccountUser:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient role: requires one of {list(allowed_roles)} (current role: {current_user.role})",
+            )
+        return current_user
+    return _role_checker
+
+
+# 계정 관리(사용자 CRUD/lock/reset) ADMIN 전용 (account:admin) — async 버전
+require_admin_async = require_role_async("ADMIN")
+
+
+def require_perm_async(module: str, verb: str):
+    """require_perm 의 async 버전 — 권한(module:verb) 기반 인가 의존성 팩토리 (FR-SV-04).
+
+    ADMIN bypass. 매트릭스 modules[module][verb]=True 없으면 403. **토큰 필수**.
+    AUTH_MODE 무관 강제(reports 등) 도메인에 사용.
+    """
+    async def _perm_checker(
+        db: AsyncSession = Depends(get_async_db),
+        current_user: AccountUser = Depends(get_current_account_user_async),
+    ) -> AccountUser:
+        # ADMIN bypass — 매트릭스 무관
+        if current_user.role == "ADMIN":
+            return current_user
+        # 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-02, 요청시점 계산)
+        if not await _effective_allows_async(db, current_user, module, verb):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
+            )
+        return current_user
+
+    return _perm_checker
+
+
+def require_perm_optional_async(module: str, verb: str):
+    """require_perm_optional 의 async 버전 — 휴면(dormant) 권한 집행 (FR-SV-04, 배포-대기형).
+
+    - **public 모드**: 항상 통과(토큰 유무·역할 무관). 현 라우터 동작과 100% 동일.
+    - **token 모드**: 토큰 필수(+jti 블랙리스트 검사), ADMIN bypass, 매트릭스 미보유 시 403.
+    """
+    async def _perm_checker_optional(
+        db: AsyncSession = Depends(get_async_db),
+        current_user: "AccountUser | None" = Depends(get_current_account_user_optional_async),
+    ) -> "AccountUser | None":
+        from app.config import settings
+        # public 모드: 전환 대기(미집행) — 현 동작 완전 보존
+        if settings.AUTH_MODE != "token":
+            return current_user
+        # token 모드: optional 이 토큰 필수/jti 검사를 이미 수행 → current_user 존재 보장
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if current_user.role == "ADMIN":
+            return current_user
+        # 유효권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-02, 요청시점 계산)
+        if not await _effective_allows_async(db, current_user, module, verb):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permission: requires {module}:{verb} (role: {current_user.role})",
+            )
+        return current_user
+
+    return _perm_checker_optional
 
 
 @router.get("/me/permissions")

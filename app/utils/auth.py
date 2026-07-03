@@ -1,6 +1,7 @@
 """
 Authentication utility functions
 """
+import asyncio
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -39,6 +40,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         True if password matches, False otherwise
     """
     return pwd_context.verify(plain_password, hashed_password)
+
+
+async def hash_password_async(password: str) -> str:
+    """bcrypt hash를 threadpool에서 실행 — 이벤트루프 블로킹 방지 (v6.0 P4)."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """bcrypt verify를 threadpool에서 실행 — 이벤트루프 블로킹 방지 (v6.0 P4)."""
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

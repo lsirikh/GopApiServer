@@ -96,6 +96,31 @@ PUT {"group_id": null} → 200
 AFTER   probe user group_id=NULL (해제 확인)
 ```
 
+### v5.4 후속 (2) — 클라 REQ Reports verb-RBAC 서버 집행 (2026-07-03)
+
+**요청서**: `docs/REQUEST_Reports_Verb_RBAC_Enforcement.md` (Dotnet.Monitoring.Solution 세션).
+
+**배경**: v5.4 P2-2에서 `PERMISSION_MAP`에 reports 10경로를 등록했으나 중앙 `enforce_matrix`가 실제 게이팅을 못함(`perm=None` default-allow). 무권한 USER가 보고서 생성/삭제/PII 조회 가능한 상태였음.
+
+**조치 — 요청서 §4.2 A안 채택**: `controllers.py`의 검증된 패턴(`require_perm_optional`) 재사용.
+- `app/routers/reports.py` 9개 endpoint에 `dependencies=[Depends(require_perm_optional("reports", verb))]` 부착:
+  - **edit (3)**: `POST /templates`, `PATCH /templates/{id}`, `POST /generate`
+  - **delete (2)**: `DELETE /templates/{id}`, `DELETE /generations/{id}`
+  - **view (4)**: `GET /preview/{id}`, `GET /generations/{id}/download`, `GET /generations/{id}/preview`, `GET /generations/{id}/preview-page`
+  (요청서 §4.2의 PUT /templates/{id}는 코드에 존재하지 않아 제외 → 총 9개)
+- ADMIN bypass · jti 블랙리스트 · 403 응답 모두 `require_perm_optional` 헬퍼가 담당.
+
+**실측 검증 (요청서 §6 완료 기준)** — 무권한 USER(`group_id=null`) 토큰:
+```
+POST   /reports/generate           → 403 ✅
+GET    /reports/preview/{id}       → 403 ✅
+DELETE /reports/templates/{id}     → 403 ✅
+DELETE /reports/generations/{id}   → 403 ✅
+GET    /reports/generations/{id}/download → 403 ✅
+[대조] ADMIN 토큰 POST /generate     → 202 (bypass 확인)
+[대조] ADMIN 토큰 GET /preview/9999 → 404 (핸들러 도달)
+```
+
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.

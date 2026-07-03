@@ -142,7 +142,8 @@ def _template_to_list_response(template: ReportTemplate) -> dict:
 # Report Components Endpoints
 # ==============================================================================
 
-@router.get("/components")
+@router.get("/components",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_components():
     """
     보고서 컴포넌트 목록 조회
@@ -164,7 +165,8 @@ def get_components():
 # Report Engine Status (Busy / Ready)
 # ==============================================================================
 
-@router.get("/status")
+@router.get("/status",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_report_engine_status(db: Session = Depends(get_db)):
     """
     보고서 엔진 Busy/Ready 상태 (read-only)
@@ -227,7 +229,8 @@ def get_report_engine_status(db: Session = Depends(get_db)):
 # Report Templates Endpoints
 # ==============================================================================
 
-@router.get("/templates")
+@router.get("/templates",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_templates(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
@@ -294,7 +297,8 @@ def create_template(
     )
 
 
-@router.get("/templates/{template_id}")
+@router.get("/templates/{template_id}",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_template(
     template_id: int,
     db: Session = Depends(get_db)
@@ -521,7 +525,8 @@ def generate_report(
     )
 
 
-@router.get("/generations")
+@router.get("/generations",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_generations(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
@@ -556,7 +561,8 @@ def get_generations(
     )
 
 
-@router.get("/generations/{generation_id}")
+@router.get("/generations/{generation_id}",
+            dependencies=[Depends(require_perm_optional("reports", "view"))])
 def get_generation(
     generation_id: int,
     db: Session = Depends(get_db)

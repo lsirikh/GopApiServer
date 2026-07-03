@@ -18,7 +18,7 @@ from app.utils.enums import EnumLogoutReason
 
 
 def find_expired_sessions(db, now: datetime):
-    """만료된 활성 세션 조회 (expires_at < now AND is_active=true)."""
+    """만료된 활성 세션 조회 (expires_at < now AND is_active=true) — sync 버전 (기존 유지)."""
     from app.models.user import UserSession
     return db.query(UserSession).filter(
         UserSession.is_active == True,
@@ -26,25 +26,38 @@ def find_expired_sessions(db, now: datetime):
     ).all()
 
 
+async def find_expired_sessions_async(db, now: datetime):
+    """만료된 활성 세션 조회 — async 버전 (AsyncSession)."""
+    from sqlalchemy import select
+    from app.models.user import UserSession
+
+    stmt = select(UserSession).where(
+        UserSession.is_active == True,
+        UserSession.expires_at < now,
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def run_session_sweep() -> int:
     """스케줄러 진입점 — 만료 세션 is_active=false + logout_reason=EXPIRED.
 
     Returns: 갱신된 세션 수.
     """
-    from app.database import SessionLocal
+    from app.database import AsyncSessionLocal
     from app.config import settings
 
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         now = datetime.now(settings.tz).replace(tzinfo=None)
-        expired = find_expired_sessions(db, now)
+        expired = await find_expired_sessions_async(db, now)
         if not expired:
             return 0
         for s in expired:
             s.is_active = False
             s.logout_reason = EnumLogoutReason.EXPIRED.value
             s.logged_out_at = now
-        db.commit()
+        await db.commit()
         return len(expired)
     finally:
-        db.close()
+        await db.close()

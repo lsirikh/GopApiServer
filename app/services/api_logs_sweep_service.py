@@ -18,27 +18,27 @@ async def run_api_logs_sweep(retention_days: int = DEFAULT_RETENTION_DAYS) -> in
     """스케줄러 진입점 — 30일(기본) 초과 api_logs row 삭제.
 
     Returns: 삭제된 row 수.
+
+    v6.0: 내부를 AsyncSession으로 교체 — 스케줄러 이벤트 루프 블로킹 방지.
     """
     from sqlalchemy import text
-    from app.database import SessionLocal
+    from app.database import AsyncSessionLocal
 
-    db = SessionLocal()
-    try:
-        cutoff = datetime.utcnow() - timedelta(days=retention_days)
-        # 컬럼명은 `timestamp` (PostgreSQL 예약어라 quote 필수)
-        result = db.execute(
-            text('DELETE FROM api_logs WHERE "timestamp" < :cutoff'),
-            {"cutoff": cutoff},
-        )
-        deleted = result.rowcount or 0
-        db.commit()
-        return deleted
-    except Exception as e:
-        print(f"[api_logs_sweep] error: {e}")
+    async with AsyncSessionLocal() as db:
         try:
-            db.rollback()
-        except Exception:
-            pass
-        return 0
-    finally:
-        db.close()
+            cutoff = datetime.utcnow() - timedelta(days=retention_days)
+            # 컬럼명은 `timestamp` (PostgreSQL 예약어라 quote 필수)
+            result = await db.execute(
+                text('DELETE FROM api_logs WHERE "timestamp" < :cutoff'),
+                {"cutoff": cutoff},
+            )
+            deleted = result.rowcount or 0
+            await db.commit()
+            return deleted
+        except Exception as e:
+            print(f"[api_logs_sweep] error: {e}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return 0

@@ -67,25 +67,39 @@ def expire_due_grants(db, now: datetime) -> int:
 async def run_grant_sweep() -> int:
     """스케줄러 진입점(FR-04) — 만료 grant is_active=false + GRANT_EXPIRED 감사.
 
-    자체 DB 세션을 열고 닫는다(스케줄러 컨텍스트). 보안 비의존(요청시점 계산이 권위).
+    자체 DB 세션을 열고 닫는다(스케줄러 컨텍스트, AsyncSessionLocal 기반).
+    보안 비의존(요청시점 계산이 권위).
     예외는 호출 측(스케줄러 래퍼)에서 잡아 기동/주기를 막지 않는다.
     """
-    from app.database import SessionLocal
-    from app.config import settings
-    from app.services.audit_service import log_action
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
 
-    db = SessionLocal()
-    try:
+    from app.database import AsyncSessionLocal
+    from app.config import settings
+    from app.models.user import UserGroupGrant
+    from app.services.audit_service import log_action_async
+
+    async with AsyncSessionLocal() as db:
         now = datetime.now(settings.tz).replace(tzinfo=None)
-        due = find_due_grants(db, now)
+        stmt = (
+            select(UserGroupGrant)
+            .options(selectinload(UserGroupGrant.group))
+            .where(
+                UserGroupGrant.is_active == True,  # noqa: E712
+                UserGroupGrant.valid_until.isnot(None),
+                UserGroupGrant.valid_until <= now,
+            )
+        )
+        result = await db.execute(stmt)
+        due = result.scalars().all()
         if not due:
             return 0
         snapshot = [(g.id, g.user_id, (g.group.name if g.group else None)) for g in due]
         for g in due:
             g.is_active = False
-        db.commit()
+        await db.commit()
         for gid, uid, gname in snapshot:
-            await log_action(
+            await log_action_async(
                 db=db,
                 action_type="GRANT_EXPIRED",
                 resource_type="USER_GROUP",
@@ -99,5 +113,3 @@ async def run_grant_sweep() -> int:
         for uid in {u for _, u, _ in snapshot}:
             await publish_permissions_changed(user_id=uid, reason="GRANT_EXPIRED")
         return len(due)
-    finally:
-        db.close()

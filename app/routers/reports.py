@@ -12,8 +12,8 @@ Endpoints:
 - GET /api/reports/generations - 생성 이력 조회
 - GET /api/reports/generations/{id} - 생성 상세 조회
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timedelta
@@ -427,7 +427,8 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
     }
 
     # Preview URL (항상 포함)
-    response["preview_html_url"] = f"/reports/preview/{generation.id}"
+    # v5.4 P0-1: /reports/preview → /api/reports/preview 이동 (무인증 PII 봉합, router 인증 부착)
+    response["preview_html_url"] = f"/api/reports/preview/{generation.id}"
 
     # COMPLETED 상태이고 pdf_file_path가 있으면 다운로드 URL 포함
     if generation.status == "COMPLETED" and generation.pdf_file_path:
@@ -452,7 +453,8 @@ def _run_report_generation(generation_id: int):
 def generate_report(
     request_data: ReportGenerateRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
 ):
     """
     보고서 생성 요청
@@ -469,7 +471,20 @@ def generate_report(
     PRD Reference: PRD_Report_System.md Section 6
 
     Note: 보고서 생성은 BackgroundTasks로 비동기 실행됩니다.
+
+    v5.4 P1-2: generator_id/name/department 스냅샷 기록 (작성자 감사 이력).
     """
+    # v5.4 P0-5: template_id 존재 검증 — psycopg2 FK violation raw 500 노출 차단.
+    if request_data.template_id is not None:
+        template = db.query(ReportTemplate).filter(
+            ReportTemplate.id == request_data.template_id
+        ).first()
+        if template is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Report template not found: template_id={request_data.template_id}",
+            )
+
     # Calculate date range from period_type
     start_date, end_date = _calculate_date_range(request_data.period_type.value)
 
@@ -480,6 +495,10 @@ def generate_report(
         period_type=request_data.period_type.value,
         start_date=start_date,
         end_date=end_date,
+        # v5.4 P1-2: 작성자 스냅샷 기록 (미인증이면 None — v5.5 required 전환 시 항상 채워짐)
+        generator_id=current_user.id if current_user else None,
+        generator_name=current_user.name if current_user else None,
+        generator_department=current_user.department if current_user else None,
         severity_filter=request_data.severity_filter,
         status="PENDING",
     )
@@ -555,6 +574,43 @@ def get_generation(
         success=True,
         message="Report generation retrieved successfully",
         data=_generation_to_response(generation)
+    )
+
+
+@router.delete("/generations/{generation_id}")
+def delete_generation(
+    generation_id: int,
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
+):
+    """
+    보고서 생성 이력 삭제 — v5.4 P1-4 (클라 REQ #3 해결).
+
+    - DB row 삭제
+    - pdf_file_path에 파일 있으면 함께 삭제 (best-effort)
+    - v5.5 인가 강화 시 `require_perm("reports.delete")` 추가 예정
+
+    **응답**: 성공 시 { success: true, message } (204 대신 200 + 엔벨로프로 일관)
+    """
+    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Report generation not found")
+
+    # best-effort 파일 삭제 (파일 삭제 실패해도 row는 지운다)
+    if generation.pdf_file_path and os.path.exists(generation.pdf_file_path):
+        try:
+            os.remove(generation.pdf_file_path)
+        except OSError:
+            pass  # 파일 삭제 실패는 무시 (row 삭제는 계속)
+
+    db.delete(generation)
+    db.commit()
+
+    return ApiResponse(
+        success=True,
+        message=f"Report generation {generation_id} deleted successfully",
+        data=None,
     )
 
 
@@ -675,4 +731,44 @@ def preview_page_redirect(generation_id: int, db: Session = Depends(get_db)):
     if not generation:
         raise HTTPException(status_code=404, detail="Report generation not found")
 
-    return RedirectResponse(url=f"/reports/preview/{generation_id}")
+    return RedirectResponse(url=f"/api/reports/preview/{generation_id}")
+
+
+@router.get("/preview/{generation_id}", response_class=HTMLResponse)
+def report_preview_page(
+    request: Request,
+    generation_id: int,
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
+):
+    """
+    보고서 미리보기 페이지 (HTML)
+
+    v5.4 P0-1: 이전 `/reports/preview/{id}` (main.py, 무인증) → 본 라우터 이관.
+    - 라우터 레벨 `get_current_account_user` 로 Bearer 필수 (401 차단).
+    - jti 블랙리스트 검사 자동 (로그아웃/강등 토큰 차단).
+    - v5.5 인가 강화 시 `require_perm("reports.view")` 추가 예정.
+
+    PRD Reference: PRD_Report_System.md Section 10
+    """
+    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Report generation not found")
+
+    # PRD_Report_Master_Redesign: 프리뷰 == PDF 동일 HTML (정형=전체, 비정형=template 컴포넌트 필터)
+    # 브라우저 기본은 compact(검토용), ?mode=full 로 전체 페이지네이션 확인 가능.
+    from app.services.report_master_builder import build_master_data, build_report_meta
+    from app.services.report_html_renderer import render_report_html
+
+    service = ReportService(db)
+    enabled = service.get_enabled_components(generation)
+    enabled_set = set(enabled) if enabled is not None else None
+    meta = build_report_meta(generation)
+    # v5.4 P1-3: 프리뷰도 severity_filter 반영 (PDF와 동일 HTML 유지)
+    data = build_master_data(
+        db, generation.start_date, generation.end_date, meta, enabled_set,
+        severity_filter=generation.severity_filter,
+    )
+    mode = "full" if request.query_params.get("mode") == "full" else "compact"
+    return HTMLResponse(render_report_html(data, mode=mode))

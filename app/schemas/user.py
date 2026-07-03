@@ -158,12 +158,13 @@ class AccountUserCreate(BaseModel):
         None, description="전화번호",
         json_schema_extra={"example": "010-1234-5678"}
     )
-    role: Optional[str] = Field(
-        "VIEWER", description="사용자 역할 (ADMIN, MAINTAINER, OPERATOR, VIEWER, GUEST)",
-        json_schema_extra={"example": "OPERATOR"}
+    role: Optional[EnumUserRole] = Field(
+        EnumUserRole.USER,
+        description="사용자 역할 (v5.3 Phase 2: ADMIN | USER 2종만 허용)",
+        json_schema_extra={"example": "USER"}
     )
     group_id: Optional[int] = Field(
-        None, description="소속 그룹 ID",
+        None, description="소속 그룹 ID (USER role일 때 UserGroupGrant로 permission 결정)",
         json_schema_extra={"example": 1}
     )
 
@@ -253,9 +254,10 @@ class AccountUserUpdate(BaseModel):
         None, description="전화번호",
         json_schema_extra={"example": "010-1234-5678"}
     )
-    role: Optional[str] = Field(
-        None, description="사용자 역할",
-        json_schema_extra={"example": "OPERATOR"}
+    role: Optional[EnumUserRole] = Field(
+        None,
+        description="사용자 역할 (v5.3 Phase 2: ADMIN | USER 2종만 허용)",
+        json_schema_extra={"example": "USER"}
     )
     group_id: Optional[int] = Field(
         None, description="소속 그룹 ID",

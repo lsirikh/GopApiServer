@@ -305,11 +305,11 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- API Version: 5.3 (2026-06-30)
+- API Version: 5.4 (2026-06-30)
 - 명세: GOP_Restful_Api_연동설계.md v5.0
 - 주요 PRD: PRD_v5.0_Permission_Management.md (v5.0 그룹 권한 관리), PRD_Tracking_History_API.md (v4.11), PRD_v4.9_Followup_AccountIntegration.md (v4.12 RBAC), PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_DeviceGroup_BulkUnassign.md
 """,
-    version="5.3.5",
+    version="5.4.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -679,37 +679,6 @@ async def health_check():
 
 
 # ==============================================================================
-# Report Preview Page (HTML)
+# Report Preview Page → v5.4 P0-1: /api/reports/preview/{id} 로 이관 (인증 강제)
+# 이전 무인증 @app.get 엔드포인트는 삭제됨. routers/reports.py::report_preview_page 참조.
 # ==============================================================================
-
-@app.get("/reports/preview/{generation_id}", include_in_schema=False)
-def report_preview_page(
-    request: Request,
-    generation_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Report Preview Page (HTML)
-
-    개발용 보고서 미리보기 페이지
-    PRD Reference: PRD_Report_System.md Section 10
-    """
-    from fastapi.responses import HTMLResponse
-    from app.services.report_service import ReportService
-    from app.services.report_master_builder import build_master_data, build_report_meta
-    from app.services.report_html_renderer import render_report_html
-
-    generation = db.query(ReportGeneration).filter(ReportGeneration.id == generation_id).first()
-
-    if not generation:
-        raise HTTPException(status_code=404, detail="Report generation not found")
-
-    # PRD_Report_Master_Redesign: 프리뷰 == PDF 동일 HTML (정형=전체, 비정형=template 컴포넌트 필터)
-    # 브라우저 기본은 compact(검토용), ?mode=full 로 전체 페이지네이션 확인 가능.
-    service = ReportService(db)
-    enabled = service.get_enabled_components(generation)
-    enabled_set = set(enabled) if enabled is not None else None
-    meta = build_report_meta(generation)
-    data = build_master_data(db, generation.start_date, generation.end_date, meta, enabled_set)
-    mode = "full" if request.query_params.get("mode") == "full" else "compact"
-    return HTMLResponse(render_report_html(data, mode=mode))

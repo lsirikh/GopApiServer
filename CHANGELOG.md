@@ -4,6 +4,69 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [v5.4] — 2026-07-03
+
+> **하루 1버전 원칙**에 따라 오늘(2026-07-03) 진행된 모든 작업 통합:
+> ① 클라 GET /api/grants 신설, ② Workflow 393 시나리오 검증 결과 P0 6건 hotfix, ③ 클라 결함 지적 5건(PII/RBAC/DELETE/작성자/severity) 대응, ④ **AUTH_MODE public → token 전환** (User/Admin 2계층 인가 강화 발효).
+
+**REQ**: `docs/REQ_Server_Grants_ListAll.md` (클라 요청서)
+
+### Added
+
+- **GET /api/grants** (`app/routers/grants.py`, ADMIN 전용) — 전체 부여 목록. 쿼리 6종(page/size/user_id/group_id/status/active_only), `{success, data, total}` 엔벨로프.
+- **GrantResponse 보강**: user_login_id + user_name (group_name과 대칭)
+- **DELETE /api/reports/generations/{id}** (`app/routers/reports.py`) — 생성 이력 삭제 + best-effort PDF 파일 삭제 (클라 REQ #3)
+- **GET /api/reports/preview/{id}** — 이관 신설(라우터 하위). 인증 강제. (P0-1, 클라 REQ #1)
+- **reports 매트릭스 등록** (`app/security/permission_map.py`) — reports view/edit/delete verb RBAC 서버 집행 (클라 REQ #2)
+- **Swagger** 5.3.5 → **5.4.0**
+
+### Changed / Security
+
+- **P0-1** `/reports/preview/{id}` 무인증 PII 창구 봉합 (main.py 삭제 → /api/reports/preview 이관, logging 제외 해제) — LIVE 은닉 취약점 해결
+- **P0-2** `AccountUserCreate/Update.role`: `str` → `EnumUserRole` — v5.3 Phase 2 회귀 봉합(OPERATOR 등 삭제 role 422 차단, DB 오염 재발 차단)
+- **P0-3** `DetectionEventCreate.type_event`: `str` → `EnumEventType` — 'Bogus' 등 임의값 422 차단
+- **P0-4** Event Update 3종(`DetectionEventUpdate`/`MalfunctionEventUpdate`/`ConnectionEventUpdate`) `model_config = ConfigDict(extra='forbid')` — PATCH 표면 방어(v4.8 Phase 12 docstring 의도 → 코드화)
+- **P0-5** `POST /api/reports/generate` template_id FK 위반 raw 500 → 404 명시 매핑
+- **P0-6** `Server.port` `Field(ge=1, le=65535)` — 포트 범위 검증
+- **P1-2** `POST /api/reports/generate` — generator_id/name/department 스냅샷 기록(작성자 감사 이력, 클라 REQ #4)
+- **P1-3** `severity_filter` — `build_master_data`에 실적용(system_events 4개 쿼리에 severity IN 조건 화이트리스트 검증, 클라 REQ #5)
+- **P2-1** `.env` **`AUTH_MODE=token`** (public→token) — Bearer 토큰 필수화, matrix_enforcer 활성
+
+### Removed
+
+- **`@app.get('/reports/preview/{id}')`** (main.py:685) — 무인증 PII 창구 완전 삭제. `include_in_schema=False` + 로그 제외 3중 은폐 해체.
+- **middleware/logging.py** `/reports/preview` 로그 제외 해제
+
+### Verified (실측)
+
+- 무인증 `/api/users` → **401**, `/api/reports/preview/7` → **401**, 이전 `/reports/preview/7` → **404** (엔드포인트 삭제)
+- admin 토큰 `/api/users` → 200, `/api/reports/preview/7` → 200, `/api/reports/generations` → 200
+- `role=OPERATOR` 계정 생성 → **422**, `role=USER` → 201
+- `type_event=Bogus` detection 생성 → **422**
+- `POST /reports/generate template_id=99999` → **404** (500 아님)
+- `POST /servers port=70000` → **422**
+- `PATCH detections/{id} device_id=99999` → **422** (extra forbid)
+- `PATCH detections/{id} type_event=Bogus` → **422** (enum)
+- `DELETE reports/generations/99999` → **404** (엔드포인트 매핑 확인)
+
+### Migration
+
+- `.env`: AUTH_MODE=public → token
+- schema 변경 없음 (`generator_id`/`generator_name`/`generator_department`는 기존 컬럼 활용)
+
+### Notify (클라 후속)
+
+- LoadAllGrantsAsync 계정 순회 → 단일 GET /api/grants 호출로 교체
+- UserLabel 태깅 로직 제거 (user_login_id/user_name 필드 대체)
+- .NET 3종(GIS/Ironwall/RtspViewer) — Bearer 토큰 부착 확인 필수 (AUTH_MODE=token 전환됨)
+- 클라 결함 지적 5건 서버 대응 완료 → 클라 UI 주석/우회 로직 제거 가능
+
+### Deferred (v5.5+)
+
+- 108 endpoint × 인가 매트릭스 전면 매핑 (현 v5.4는 reports + 기존 30개 + 확장)
+- audit append-only DB RULE/RLS
+- require_perm 세분화 (control 등)
+
 ## [v5.3] — 2026-07-02
 
 > GIS 팀 요청 대응 — Legacy User 모델 완전 삭제 + AccountUser 통일. v5.1 FR-SV-08 잔존 소진. 14/14 PASS.

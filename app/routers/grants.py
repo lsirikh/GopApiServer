@@ -39,9 +39,13 @@ def _to_naive_kst(dt: Optional[datetime]) -> Optional[datetime]:
 
 def _serialize(grant: UserGroupGrant, now: Optional[datetime] = None) -> GrantResponse:
     now = now or _now()
+    # v5.4 (REQ_Server_Grants_ListAll): user_login_id / user_name 비정규화 포함
+    # relationship 'user' 는 UserGroupGrant.user_id → AccountUser (models/user.py:125)
     return GrantResponse(
         id=grant.id,
         user_id=grant.user_id,
+        user_login_id=grant.user.login_id if grant.user else None,
+        user_name=grant.user.name if grant.user else None,
         group_id=grant.group_id,
         group_name=grant.group.name if grant.group else None,
         valid_from=grant.valid_from,
@@ -136,6 +140,75 @@ async def list_grants(
     now = _now()
     grants = db.query(UserGroupGrant).filter(UserGroupGrant.user_id == user_id).all()
     return {"success": True, "data": [_serialize(g, now) for g in grants]}
+
+
+@router.get("/grants", dependencies=[Depends(require_admin)])
+async def list_all_grants(
+    page: int = 1,
+    size: int = 20,
+    user_id: Optional[int] = None,
+    group_id: Optional[int] = None,
+    status: Optional[str] = None,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+    current_user: AccountUser = Depends(get_current_account_user),
+):
+    """전체 grant 목록 조회 (ADMIN 전용) — v5.4 REQ_Server_Grants_ListAll.
+
+    클라 관리자 대시보드 성격: 계정별 순회 대신 단일 호출로 전체 부여 현황 표시.
+
+    **쿼리 파라미터** (모두 선택):
+    - **page**: 페이지 번호 (기본 1)
+    - **size**: 페이지 크기 (기본 20, 최대 100)
+    - **user_id**: 계정 필터
+    - **group_id**: 그룹 필터
+    - **status**: 파생 상태 필터 (ACTIVE/PENDING/EXPIRED/REVOKED)
+    - **active_only**: `is_active=true` 만 (sweep 비정규화 기준)
+
+    **응답**: `{success, data: [GrantResponse...], total}` — 기존 리스트 엔벨로프 일관.
+
+    **Error**: 403 (require_admin) — 나머지 정상 (필터 결과 0건은 빈 배열).
+    """
+    if page < 1:
+        raise HTTPException(status_code=422, detail="page must be >= 1")
+    if size < 1 or size > 100:
+        raise HTTPException(status_code=422, detail="size must be between 1 and 100")
+
+    query = db.query(UserGroupGrant)
+    if user_id is not None:
+        query = query.filter(UserGroupGrant.user_id == user_id)
+    if group_id is not None:
+        query = query.filter(UserGroupGrant.group_id == group_id)
+    if active_only:
+        query = query.filter(UserGroupGrant.is_active == True)
+
+    now = _now()
+
+    # status 필터는 파생값이므로 DB 조회 후 필터 (총 grant 수 소규모 예상)
+    if status is not None:
+        valid_statuses = {"ACTIVE", "PENDING", "EXPIRED", "REVOKED"}
+        if status not in valid_statuses:
+            raise HTTPException(status_code=422, detail=f"status must be one of {sorted(valid_statuses)}")
+        all_grants = query.order_by(UserGroupGrant.created_at.desc()).all()
+        filtered = [g for g in all_grants if grant_status(g, now) == status]
+        total = len(filtered)
+        offset = (page - 1) * size
+        page_items = filtered[offset:offset + size]
+        return {
+            "success": True,
+            "data": [_serialize(g, now) for g in page_items],
+            "total": total,
+        }
+
+    # status 필터 없음 — DB 레벨 페이지네이션
+    total = query.count()
+    offset = (page - 1) * size
+    grants = query.order_by(UserGroupGrant.created_at.desc()).offset(offset).limit(size).all()
+    return {
+        "success": True,
+        "data": [_serialize(g, now) for g in grants],
+        "total": total,
+    }
 
 
 @router.delete("/grants/{grant_id}", dependencies=[Depends(require_admin)])

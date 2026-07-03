@@ -61,6 +61,17 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("POST", "/api/servers"): ("servers", "edit"),
     ("PUT", "/api/servers/{}"): ("servers", "edit"),
     ("DELETE", "/api/servers/{}"): ("servers", "delete"),
+    # 보고서 — v5.4 P2-2 (클라 REQ #2 서버측 verb RBAC 집행)
+    ("POST", "/api/reports/generate"): ("reports", "edit"),
+    ("POST", "/api/reports/templates"): ("reports", "edit"),
+    ("PATCH", "/api/reports/templates/{}"): ("reports", "edit"),
+    ("PUT", "/api/reports/templates/{}"): ("reports", "edit"),
+    ("DELETE", "/api/reports/templates/{}"): ("reports", "delete"),
+    ("DELETE", "/api/reports/generations/{}"): ("reports", "delete"),
+    ("GET", "/api/reports/preview/{}"): ("reports", "view"),
+    ("GET", "/api/reports/generations/{}/download"): ("reports", "view"),
+    ("GET", "/api/reports/generations/{}/preview"): ("reports", "view"),
+    ("GET", "/api/reports/generations/{}/preview-page"): ("reports", "view"),
 }
 
 

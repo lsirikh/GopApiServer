@@ -970,7 +970,8 @@ class ReportService:
             meta = build_report_meta(generation)
 
             data = build_master_data(
-                self.db, generation.start_date, generation.end_date, meta, enabled_set
+                self.db, generation.start_date, generation.end_date, meta, enabled_set,
+                severity_filter=generation.severity_filter,
             )
             html = render_report_html(data, mode="full")
             pdf_bytes = html_to_pdf_bytes(html)

@@ -25,9 +25,15 @@ class GrantCreate(BaseModel):
 
 
 class GrantResponse(BaseModel):
-    """부여 응답 — 파생 status 포함."""
+    """부여 응답 — 파생 status 포함.
+
+    v5.4 (REQ_Server_Grants_ListAll): user_login_id / user_name 필드 추가.
+    → 클라 GrantManagementPanel 이 계정별 매핑 없이 계정 열 표시 가능 (UserLabel 태깅 로직 제거).
+    """
     id: int
     user_id: int
+    user_login_id: Optional[str] = Field(None, description="v5.4 신규 — 부여 대상 계정 로그인 ID (비정규화)")
+    user_name: Optional[str] = Field(None, description="v5.4 신규 — 부여 대상 계정 이름 (비정규화)")
     group_id: int
     group_name: Optional[str] = Field(None, description="부여 그룹명")
     valid_from: KSTDatetime

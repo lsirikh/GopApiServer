@@ -18,6 +18,8 @@ Idempotent: Safe to call multiple times — skips if data already exists.
 import random
 import uuid
 from datetime import datetime, timedelta
+from sqlalchemy import insert, select, update, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.models.user import UserGroup, AccountUser, UserSession, UserLoginLog
@@ -1339,5 +1341,1114 @@ def initialize_sample_data(db: Session):
     # 14. Device settings (proxy + camera)
     _create_proxy_settings(db, server_ids)
     _create_camera_settings(db)
+
+    print("[OK] Sample data initialization complete")
+
+
+# ============================================================
+# Async variants (v6.0 Phase 2 — dual-stack)
+# ============================================================
+# 원칙:
+#   - 기존 sync 함수는 완전 유지 (테스트/caller 호환)
+#   - 신규 `_async` 접미사 함수 병설
+#   - 벌크 삽입은 `insert(Model), [dict, ...]` executemany + 500건 chunk
+#   - `db.query(X).filter(...).first()` → `(await db.execute(select(X).where(...))).scalars().first()`
+#   - `db.commit()` → `await db.commit()`, `db.flush()` → `await db.flush()`
+#   - INIT_SAMPLE_DATA=false 경로는 caller(init_db_async)에서 스킵 — 이 모듈은 진입 시 항상 seed 시도
+# ============================================================
+
+_BULK_CHUNK = 500
+
+
+async def _bulk_insert_async(db: AsyncSession, model, rows: list[dict], chunk: int = _BULK_CHUNK) -> int:
+    """Chunked executemany bulk insert. Returns inserted count."""
+    total = 0
+    if not rows:
+        return 0
+    stmt = insert(model)
+    for i in range(0, len(rows), chunk):
+        batch = rows[i:i + chunk]
+        await db.execute(stmt, batch)
+        total += len(batch)
+    return total
+
+
+# ── User Groups (async) ──────────────────────────────────
+
+async def _create_user_groups_async(db: AsyncSession) -> dict:
+    """Create 3 user groups. Returns {name: id} mapping."""
+    existing_count = (await db.execute(select(func.count()).select_from(UserGroup))).scalar() or 0
+    if existing_count > 0:
+        rows = (await db.execute(select(UserGroup))).scalars().all()
+        print(f"  [OK] User groups already exist: {len(rows)}")
+        return {g.name: g.id for g in rows}
+
+    _RW = {"view": True, "edit": True, "delete": False, "control": False}
+    _R = {"view": True, "edit": False, "delete": False, "control": False}
+    _CTRL = {"view": True, "edit": True, "delete": False, "control": True}
+    data = [
+        {"name": "운영팀", "description": "시스템 운영 담당",
+         "permissions": {"modules": {"devices": _RW, "events": _RW, "reports": _RW, "cameras": _CTRL}}, "is_active": True},
+        {"name": "관제팀", "description": "관제 모니터링 담당",
+         "permissions": {"modules": {"devices": _R, "events": _R, "reports": _R, "cameras": _R}}, "is_active": True},
+        {"name": "유지보수팀", "description": "장비 유지보수 담당",
+         "permissions": {"modules": {"devices": _RW, "events": _R, "reports": _R}}, "is_active": True},
+    ]
+    result = {}
+    for d in data:
+        g = UserGroup(**d)
+        db.add(g)
+        await db.flush()
+        result[g.name] = g.id
+    await db.commit()
+    print(f"  [OK] User groups created: {len(data)}")
+    return result
+
+
+# ── Users (async) ────────────────────────────────────────
+
+async def _create_users_async(db: AsyncSession, group_map: dict) -> list[int]:
+    """Create 5 sample users (excluding admin). Returns list of user IDs."""
+    existing = (await db.execute(
+        select(func.count()).select_from(AccountUser).where(AccountUser.login_id != "admin")
+    )).scalar() or 0
+    if existing >= 5:
+        rows = (await db.execute(
+            select(AccountUser).where(AccountUser.login_id != "admin")
+        )).scalars().all()
+        print(f"  [OK] Sample users already exist: {existing}")
+        return [u.id for u in rows]
+
+    pw = hash_password("user123")
+    ids = []
+    for ud in SAMPLE_USERS:
+        group_key = ud.pop("group_key")
+        u = AccountUser(
+            password_hash=pw,
+            is_active=True,
+            is_locked=False,
+            group_id=group_map.get(group_key),
+            **ud,
+        )
+        ud["group_key"] = group_key
+        db.add(u)
+        await db.flush()
+        ids.append(u.id)
+    await db.commit()
+    print(f"  [OK] Sample users created: {len(ids)}")
+    return ids
+
+
+# ── Servers (async) ──────────────────────────────────────
+
+async def _create_servers_async(db: AsyncSession) -> list[int]:
+    """Create sample servers. Returns list of server IDs."""
+    existing = (await db.execute(select(func.count()).select_from(Server))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Servers already exist: {existing}")
+        rows = (await db.execute(select(Server.id))).scalars().all()
+        return list(rows)
+
+    categories = (await db.execute(select(ServerCategory))).scalars().all()
+    if not categories:
+        print("  [WARN] No server categories — skipping servers")
+        return []
+    cat_map = {c.type_server: c.id for c in categories}
+
+    servers = [
+        {"category_id": cat_map.get(EnumServerType.VMS), "name": "VMS-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.10", "port": 8080, "hostname": "vms-01"},
+        {"category_id": cat_map.get(EnumServerType.VMS), "name": "VMS-02",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.11", "port": 8080, "hostname": "vms-02"},
+        {"category_id": cat_map.get(EnumServerType.AI_ANALYSIS), "name": "AI-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.20", "port": 8081, "hostname": "ai-01"},
+        {"category_id": cat_map.get(EnumServerType.AI_ANALYSIS), "name": "AI-02",
+         "status": EnumServerStatus.WARNING, "ip_address": "192.168.1.21", "port": 8081, "hostname": "ai-02"},
+        {"category_id": cat_map.get(EnumServerType.STREAMING), "name": "STREAM-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.30", "port": 1935, "hostname": "stream-01"},
+        {"category_id": cat_map.get(EnumServerType.STREAMING), "name": "STREAM-02",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.31", "port": 1935, "hostname": "stream-02"},
+        {"category_id": cat_map.get(EnumServerType.BROKER), "name": "BROKER-01",
+         "status": EnumServerStatus.ERROR, "ip_address": "192.168.1.50", "port": 5672, "hostname": "broker-01"},
+        {"category_id": cat_map.get(EnumServerType.BROKER), "name": "BROKER-02",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.51", "port": 5672, "hostname": "broker-02"},
+        {"category_id": cat_map.get(EnumServerType.DB_API), "name": "DBAPI-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.60", "port": 5000, "hostname": "dbapi-01"},
+        {"category_id": cat_map.get(EnumServerType.NVR_API), "name": "NVR-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.70", "port": 8082, "hostname": "nvr-01"},
+        {"category_id": cat_map.get(EnumServerType.SPEAKER_API), "name": "SPKAPI-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.80", "port": 5001, "hostname": "spkapi-01"},
+        {"category_id": cat_map.get(EnumServerType.ENCLOSURE_API), "name": "ENCAPI-01",
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.90", "port": 5002, "hostname": "encapi-01"},
+    ]
+
+    ids = []
+    for sd in servers:
+        if sd["category_id"] is not None:
+            s = Server(**sd)
+            db.add(s)
+            await db.flush()
+            ids.append(s.id)
+    await db.commit()
+    print(f"  [OK] Servers created: {len(ids)}")
+    return ids
+
+
+# ── Devices (async) ──────────────────────────────────────
+
+async def _create_devices_async(db: AsyncSession, server_ids: list[int]) -> dict:
+    """Create all devices with realistic GOP data. Returns {category: [ids]} mapping."""
+    existing = (await db.execute(select(func.count()).select_from(Device))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Devices already exist: {existing}")
+        return {
+            "controllers": list((await db.execute(select(Controller.id))).scalars().all()),
+            "sensors": list((await db.execute(select(Sensor.id))).scalars().all()),
+            "cameras": list((await db.execute(select(Camera.id))).scalars().all()),
+            "speakers": list((await db.execute(select(Speaker.id))).scalars().all()),
+            "enclosures": list((await db.execute(select(Enclosure.id))).scalars().all()),
+            "lamps": list((await db.execute(select(Lamp.id))).scalars().all()),
+        }
+
+    spk_server_id = None
+    if server_ids:
+        spk_servers = (await db.execute(
+            select(Server).join(ServerCategory).where(
+                ServerCategory.type_server == EnumServerType.SPEAKER_API
+            )
+        )).scalars().all()
+        if spk_servers:
+            spk_server_id = spk_servers[0].id
+
+    ids = {"controllers": [], "sensors": [], "cameras": [], "speakers": [], "enclosures": [], "lamps": []}
+
+    # Controllers (4)
+    ctrl_configs = [
+        ("A구역 제어기", "10.0.1.1", 9010, 0),
+        ("B구역 제어기", "10.0.2.1", 9011, 1),
+        ("C구역 제어기", "10.0.3.1", 9012, 2),
+        ("D구역 제어기", "10.0.4.1", 9013, 3),
+    ]
+    for i, (name, ip, port, zone) in enumerate(ctrl_configs):
+        c = Controller(
+            number_device=i + 1, group_device=i + 1, name_device=name,
+            type_device=EnumDeviceType.Controller, status=EnumDeviceStatus.ACTIVATED,
+            is_enable=True, version="v2.1.0",
+            ip_address=ip, ip_port=port,
+            geolocation=_geo(zone, 3),
+        )
+        db.add(c)
+        await db.flush()
+        ids["controllers"].append(c.id)
+
+    # Sensors (402)
+    sensor_specs = [
+        (0, EnumDeviceType.Fence, range(1, 101), "펜스센서-A"),
+        (0, EnumDeviceType.Multi, range(180, 201), "복합센서-A"),
+        (1, EnumDeviceType.Fence, range(1, 101), "펜스센서-B"),
+        (1, EnumDeviceType.Multi, range(180, 201), "복합센서-B"),
+        (2, EnumDeviceType.SmartCompound, range(1, 61), "스마트복합-C"),
+        (3, EnumDeviceType.SmartSensor, range(1, 101), "스마트센서-D"),
+    ]
+    for ctrl_idx, sensor_type, num_range, name_prefix in sensor_specs:
+        ctrl_id = ids["controllers"][ctrl_idx]
+        version_major = 2 if sensor_type == EnumDeviceType.Multi else 1
+        for num in num_range:
+            s = Sensor(
+                number_device=num, group_device=ctrl_idx + 1,
+                name_device=f"{name_prefix}{num:03d}",
+                type_device=sensor_type,
+                status=random.choices(
+                    [EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR, EnumDeviceStatus.DEACTIVATED],
+                    weights=[85, 10, 5],
+                )[0],
+                is_enable=random.choices([True, False], weights=[95, 5])[0],
+                version=f"v{version_major}.{random.randint(0, 5)}.{random.randint(0, 9)}",
+                controller_id=ctrl_id,
+                geolocation=_geo(ctrl_idx, num % 4),
+            )
+            db.add(s)
+    await db.flush()
+    ids["sensors"] = list((await db.execute(select(Sensor.id))).scalars().all())
+
+    # Cameras (300)
+    cam_modes = [EnumCameraMode.ONVIF, EnumCameraMode.EMSTONE_API, EnumCameraMode.INNODEP_API]
+    cam_types = [EnumCameraType.FIXED, EnumCameraType.PTZ]
+    hw_specs = [
+        {"manufacturer": "Hanwha Vision", "model": "XNO-8080R", "resolution": "3840x2160",
+         "sensor": "1/1.8\" 8MP CMOS", "lens": "3.9~9.4mm"},
+        {"manufacturer": "Hanwha Vision", "model": "XNP-9300RW", "resolution": "3840x2160",
+         "sensor": "1/1.8\" 8MP CMOS", "lens": "4.44~142.6mm (32x)"},
+        {"manufacturer": "IDIS", "model": "DC-S6282HRXA", "resolution": "1920x1080",
+         "sensor": "1/2.8\" 2MP CMOS", "lens": "4.5~135mm (30x)"},
+        {"manufacturer": "EMSTONE", "model": "EV-8240AI", "resolution": "3840x2160",
+         "sensor": "1/1.2\" 8MP CMOS", "lens": "3.6~11mm (3x)"},
+        {"manufacturer": "INNODEP", "model": "IDB-IR480", "resolution": "640x480",
+         "sensor": "Uncooled VOx FPA", "lens": "35mm thermal"},
+    ]
+    for i in range(300):
+        zone_idx = i % 4
+        cam_ip = f"10.1.{zone_idx + 1}.{(i % 254) + 1}"
+        cam_type = cam_types[0] if i % 3 != 2 else cam_types[1]
+        cam_mode = cam_modes[i % len(cam_modes)]
+        hw = hw_specs[i % len(hw_specs)]
+        cam = Camera(
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"카메라-{chr(65 + zone_idx)}{(i // 4) + 1:03d}",
+            type_device=EnumDeviceType.IpCamera,
+            status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR], weights=[90, 10])[0],
+            is_enable=True, version=f"v3.{random.randint(0, 3)}.{random.randint(0, 9)}",
+            ip_address=cam_ip, ip_port=554,
+            user_name="admin", user_password="camera123",
+            urls={
+                "homepage": {"url": f"http://{cam_ip}/"},
+                "onvif": {"device_service": f"http://{cam_ip}:8000/onvif/device_service"},
+                "streams": {
+                    "rtsp": {
+                        "main": f"rtsp://{cam_ip}:554/Streaming/Channels/101",
+                        "sub": f"rtsp://{cam_ip}:554/Streaming/Channels/102",
+                    },
+                },
+                "snapshot": {"ch1": f"http://{cam_ip}/cgi-bin/snapshot.cgi"},
+            },
+            mode=cam_mode, category=cam_type,
+            is_record=random.choice([True, False]),
+            hardware_spec=hw,
+            geolocation=_geo(zone_idx, i % 4),
+        )
+        db.add(cam)
+    await db.flush()
+    ids["cameras"] = list((await db.execute(select(Camera.id))).scalars().all())
+
+    # Speakers (200)
+    spk_types = [EnumSpeakerType.NORMAL, EnumSpeakerType.ADMIN, EnumSpeakerType.MONITOR]
+    for i in range(200):
+        zone_idx = i % 4
+        spk = Speaker(
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"스피커-{chr(65 + zone_idx)}{(i // 4) + 1:03d}",
+            type_device=EnumDeviceType.IpSpeaker,
+            status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.DEACTIVATED], weights=[90, 10])[0],
+            is_enable=True, version=f"v1.{random.randint(0, 2)}.0",
+            speaker_type=random.choice(spk_types),
+            server_id=spk_server_id,
+            description=f"스피커 {i + 1} - {chr(65 + zone_idx)}구역 {['초소1', '초소2', '초소3', '감시탑'][i % 4]}",
+            geolocation=_geo(zone_idx, i % 4),
+        )
+        db.add(spk)
+    await db.flush()
+    ids["speakers"] = list((await db.execute(select(Speaker.id))).scalars().all())
+
+    # Enclosures (30)
+    for i in range(30):
+        zone_idx = i % 4
+        enc = Enclosure(
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"함체-{chr(65 + zone_idx)}{(i // 4) + 1:02d}",
+            type_device=EnumDeviceType.Enclosure,
+            status=random.choices(
+                [EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.ERROR, EnumDeviceStatus.DEACTIVATED],
+                weights=[80, 10, 10],
+            )[0],
+            is_enable=True, version=f"v1.{random.randint(0, 3)}.0",
+            door_status=random.choices([EnumDoorStatus.CLOSED, EnumDoorStatus.OPEN], weights=[85, 15])[0],
+            heater_enabled=random.choice([True, False]),
+            fan_enabled=random.choice([True, False]),
+            geolocation=_geo(zone_idx, i % 4),
+            threshold_config={
+                "temperature": {"min": -20.0, "max": 55.0, "unit": "°C"},
+                "humidity": {"min": 10.0, "max": 90.0, "unit": "%"},
+                "voltage": {"min": 11.0, "max": 14.5, "unit": "V"},
+                "current": {"min": 0.0, "max": 10.0, "unit": "A"},
+                "vibration": {"max": 80, "unit": "level"},
+                "ups_battery_level": {"min": 20, "unit": "%"},
+            },
+        )
+        db.add(enc)
+    await db.flush()
+    ids["enclosures"] = list((await db.execute(select(Enclosure.id))).scalars().all())
+
+    # Lamps (30)
+    for i in range(30):
+        zone_idx = i % 4
+        lmp = Lamp(
+            number_device=i + 1, group_device=zone_idx + 1,
+            name_device=f"경광등-{chr(65 + zone_idx)}{(i // 4) + 1:02d}",
+            type_device=EnumDeviceType.Lamp,
+            status=random.choices([EnumDeviceStatus.ACTIVATED, EnumDeviceStatus.DEACTIVATED], weights=[90, 10])[0],
+            is_enable=True, version=f"v1.0.{random.randint(0, 5)}",
+            ip_address=f"10.3.{zone_idx + 1}.{i + 1}", ip_port=80,
+            user_name="admin",
+            user_password="lamp123",
+            description=f"경광등 {i + 1} - {chr(65 + zone_idx)}구역 {['초소1', '초소2', '초소3', '감시탑'][i % 4]}",
+            geolocation=_geo(zone_idx, i % 4),
+        )
+        db.add(lmp)
+    await db.flush()
+    ids["lamps"] = list((await db.execute(select(Lamp.id))).scalars().all())
+
+    await db.commit()
+    total = sum(len(v) for v in ids.values())
+    print(f"  [OK] Devices created: {total} "
+          f"(ctrl:{len(ids['controllers'])} sens:{len(ids['sensors'])} "
+          f"cam:{len(ids['cameras'])} spk:{len(ids['speakers'])} "
+          f"enc:{len(ids['enclosures'])} lamp:{len(ids['lamps'])})")
+    return ids
+
+
+# ── Device Groups (async) ────────────────────────────────
+
+async def _create_device_groups_async(db: AsyncSession, device_ids: dict) -> None:
+    """Create 5 device groups with device mappings."""
+    existing = (await db.execute(select(func.count()).select_from(DeviceGroup))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Device groups already exist: {existing}")
+        return
+
+    groups_data = [
+        {"name": "A구역 전체", "description": "A구역(서쪽) 전체 장비 그룹 — 철원 일대"},
+        {"name": "B구역 전체", "description": "B구역(중앙) 전체 장비 그룹 — 화천 일대"},
+        {"name": "C구역 전체", "description": "C구역(동쪽) 전체 장비 그룹"},
+        {"name": "D구역 전체", "description": "D구역(동북쪽) 전체 장비 그룹 — 양구 일대"},
+        {"name": "PTZ 카메라", "description": "PTZ 회전형 카메라 전체"},
+        {"name": "긴급 방송장비", "description": "긴급 방송용 스피커 + 경광등 그룹"},
+    ]
+
+    group_objs = []
+    for gd in groups_data:
+        g = DeviceGroup(**gd)
+        db.add(g)
+        await db.flush()
+        group_objs.append(g)
+
+    zone_groups = {
+        1: group_objs[0].id, 2: group_objs[1].id, 3: group_objs[2].id,
+        4: group_objs[3].id,
+    }
+    category_map = {
+        "controllers": EnumDeviceCategory.CONTROLLER,
+        "sensors": EnumDeviceCategory.SENSOR,
+        "cameras": EnumDeviceCategory.CAMERA,
+        "speakers": EnumDeviceCategory.SPEAKER,
+        "enclosures": EnumDeviceCategory.ENCLOSURE,
+        "lamps": EnumDeviceCategory.LAMP,
+    }
+
+    # 디바이스 group_device 캐시 (per-category)
+    caches: dict[str, dict[int, int]] = {}
+    for cat_key, model in [
+        ("controllers", Controller),
+        ("sensors", Sensor),
+        ("cameras", Camera),
+        ("speakers", Speaker),
+        ("enclosures", Enclosure),
+        ("lamps", Lamp),
+    ]:
+        rows = (await db.execute(select(model.id, model.group_device))).all()
+        caches[cat_key] = {r[0]: r[1] for r in rows}
+
+    count = 0
+    for cat_key, cat_enum in category_map.items():
+        dev_ids = device_ids.get(cat_key, [])
+        cache = caches[cat_key]
+        for dev_id in dev_ids:
+            gd_val = cache.get(dev_id)
+            if gd_val is not None and gd_val in zone_groups:
+                mapping = DeviceGroupMapping(
+                    device_id=dev_id,
+                    category_device=cat_enum,
+                    group_id=zone_groups[gd_val],
+                )
+                db.add(mapping)
+                count += 1
+
+    # PTZ 카메라 그룹
+    ptz_cameras = (await db.execute(
+        select(Camera).where(Camera.category == EnumCameraType.PTZ)
+    )).scalars().all()
+    for cam in ptz_cameras:
+        db.add(DeviceGroupMapping(
+            device_id=cam.id,
+            category_device=EnumDeviceCategory.CAMERA,
+            group_id=group_objs[4].id,
+        ))
+        count += 1
+
+    # 긴급 방송장비 그룹
+    admin_speakers = (await db.execute(
+        select(Speaker).where(Speaker.speaker_type == EnumSpeakerType.ADMIN)
+    )).scalars().all()
+    for spk in admin_speakers:
+        db.add(DeviceGroupMapping(
+            device_id=spk.id,
+            category_device=EnumDeviceCategory.SPEAKER,
+            group_id=group_objs[5].id,
+        ))
+        count += 1
+
+    all_lamps = (await db.execute(select(Lamp))).scalars().all()
+    for lmp in all_lamps:
+        db.add(DeviceGroupMapping(
+            device_id=lmp.id,
+            category_device=EnumDeviceCategory.LAMP,
+            group_id=group_objs[5].id,
+        ))
+        count += 1
+
+    await db.commit()
+    print(f"  [OK] Device groups created: {len(groups_data)}, mappings: {count}")
+
+
+# ── Camera Presets + ROI + XyPoints (async) ──────────────
+
+async def _create_camera_presets_async(db: AsyncSession) -> None:
+    """Create camera presets with ROI and XyPoints for PTZ cameras."""
+    existing = (await db.execute(select(func.count()).select_from(CameraPreset))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Camera presets already exist: {existing}")
+        return
+
+    ptz_cameras = (await db.execute(
+        select(Camera).where(Camera.category == EnumCameraType.PTZ)
+    )).scalars().all()
+    if not ptz_cameras:
+        print("  [WARN] No PTZ cameras — skipping camera presets")
+        return
+
+    preset_templates = [
+        {"preset_name": "Home", "touring_time": 0, "is_restricted_zone": False},
+        {"preset_name": "좌측 경계", "touring_time": 8, "is_restricted_zone": False},
+        {"preset_name": "우측 경계", "touring_time": 10, "is_restricted_zone": False},
+        {"preset_name": "정문 감시", "touring_time": 12, "is_restricted_zone": False},
+        {"preset_name": "후방 감시", "touring_time": 15, "is_restricted_zone": False},
+    ]
+    restricted_demo_preset = {"preset_name": "감시금지 시연", "touring_time": 0, "is_restricted_zone": True}
+
+    roi_templates = [
+        {"name": "침입 감지 영역", "resolution_width": 1920.0, "resolution_height": 1080.0,
+         "points": [(0.1, 0.3), (0.9, 0.3), (0.9, 0.9), (0.1, 0.9)]},
+        {"name": "배회 감지 영역", "resolution_width": 1920.0, "resolution_height": 1080.0,
+         "points": [(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)]},
+        {"name": "철조망 영역", "resolution_width": 3840.0, "resolution_height": 2160.0,
+         "points": [(0.0, 0.4), (1.0, 0.4), (1.0, 0.7), (0.0, 0.7)]},
+    ]
+
+    preset_count = 0
+    roi_count = 0
+    point_count = 0
+
+    for cam_idx, cam in enumerate(ptz_cameras):
+        for idx, pt in enumerate(preset_templates):
+            preset = CameraPreset(
+                camera_id=cam.id,
+                camera_name=cam.name_device,
+                preset_index=idx + 1,
+                preset_name=pt["preset_name"],
+                touring_time=pt["touring_time"],
+                is_restricted_zone=pt["is_restricted_zone"],
+            )
+            db.add(preset)
+            await db.flush()
+            preset_count += 1
+
+            if idx == 0:
+                num_rois = random.randint(2, 3)
+                for ri in range(num_rois):
+                    rt = roi_templates[ri % len(roi_templates)]
+                    roi = ROI(
+                        preset_id=preset.id,
+                        name=rt["name"],
+                        resolution_width=rt["resolution_width"],
+                        resolution_height=rt["resolution_height"],
+                        is_enable=True,
+                    )
+                    db.add(roi)
+                    await db.flush()
+                    roi_count += 1
+
+                    for order, (x, y) in enumerate(rt["points"]):
+                        db.add(XyPoint(roi_id=roi.id, x=x, y=y, order=order))
+                        point_count += 1
+
+        if cam_idx == 0:
+            demo_preset = CameraPreset(
+                camera_id=cam.id,
+                camera_name=cam.name_device,
+                preset_index=len(preset_templates) + 1,
+                preset_name=restricted_demo_preset["preset_name"],
+                touring_time=restricted_demo_preset["touring_time"],
+                is_restricted_zone=restricted_demo_preset["is_restricted_zone"],
+            )
+            db.add(demo_preset)
+            await db.flush()
+            preset_count += 1
+
+    await db.commit()
+    print(f"  [OK] Camera presets created: {preset_count}, ROIs: {roi_count}, XyPoints: {point_count}")
+
+
+# ── Enclosure Metrics (async, bulk) ──────────────────────
+
+async def _create_enclosure_metrics_async(db: AsyncSession) -> None:
+    """Create time-series enclosure metrics (last 24h, 30min intervals) via bulk insert."""
+    existing = (await db.execute(select(func.count()).select_from(EnclosureMetric))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Enclosure metrics already exist: {existing}")
+        return
+
+    enclosures = (await db.execute(select(Enclosure).limit(10))).scalars().all()
+    if not enclosures:
+        print("  [WARN] No enclosures — skipping enclosure metrics")
+        return
+
+    now = datetime.now(settings.tz).replace(tzinfo=None)
+    rows: list[dict] = []
+    for enc in enclosures:
+        base_temp = random.uniform(-5.0, 25.0)
+        base_humidity = random.uniform(30.0, 70.0)
+        base_voltage = random.uniform(12.0, 13.8)
+
+        for slot in range(48):
+            ts = now - timedelta(minutes=30 * slot)
+            hour = ts.hour
+            temp_offset = 5.0 * (1 - abs(hour - 14) / 14)
+            temp = round(base_temp + temp_offset + random.uniform(-2, 2), 1)
+            humidity = round(base_humidity + random.uniform(-5, 5), 1)
+            voltage = round(base_voltage + random.uniform(-0.5, 0.5), 2)
+            current = round(random.uniform(0.5, 3.5), 2)
+
+            rows.append({
+                "enclosure_id": enc.id,
+                "temperature": str(temp),
+                "humidity": str(humidity),
+                "voltage": str(voltage),
+                "current": str(current),
+                "vibration": random.randint(0, 15),
+                "ups_battery_level": random.randint(70, 100),
+                "ups_charging": random.choice([True, False]),
+                "detail": {
+                    "door_open_count": random.randint(0, 2),
+                    "power_source": random.choice(["AC", "UPS"]),
+                },
+                "created_at": ts,
+            })
+
+    count = await _bulk_insert_async(db, EnclosureMetric, rows)
+    await db.commit()
+    print(f"  [OK] Enclosure metrics created: {count}")
+
+
+# ── Events (async, bulk) ─────────────────────────────────
+
+async def _create_events_async(db: AsyncSession, device_ids: dict) -> dict:
+    """Create 28k+ events via chunked bulk insert (500 rows/batch executemany)."""
+    existing = (await db.execute(select(func.count()).select_from(Event))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Events already exist: {existing}")
+        return {
+            "detection": list((await db.execute(select(DetectionEvent.id))).scalars().all()),
+            "malfunction": list((await db.execute(select(MalfunctionEvent.id))).scalars().all()),
+            "connection": list((await db.execute(select(ConnectionEvent.id))).scalars().all()),
+        }
+
+    sensor_ids = device_ids.get("sensors", [])
+    camera_ids = device_ids.get("cameras", [])
+    all_ids: list[int] = []
+    for v in device_ids.values():
+        all_ids.extend(v)
+
+    # device_description 캐시
+    device_cache: dict[int, str] = {}
+    devs = (await db.execute(select(Device))).scalars().all()
+    for dev in devs:
+        type_val = dev.type_device.value if hasattr(dev.type_device, 'value') else dev.type_device
+        device_cache[dev.id] = f"[{type_val}] {dev.name_device} (number: {dev.number_device}, id: {dev.id})"
+
+    def _desc(dev_id: int | None) -> str | None:
+        if dev_id is None:
+            return None
+        return device_cache.get(dev_id, f"[Unknown] device (id: {dev_id})")
+
+    now = datetime.now(settings.tz).replace(tzinfo=None)
+    eids = {"detection": [], "malfunction": [], "connection": []}
+
+    # Detection events (3000, 3일)
+    print("    Creating detection events (3000)...", flush=True)
+    det_rows: list[dict] = []
+    for i in range(3000):
+        dt = now - timedelta(
+            days=random.randint(0, 2),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
+        if random.random() < 0.7 and sensor_ids:
+            dev_id = random.choice(sensor_ids)
+            detail = random.choice([None, None, None, DETECTION_DETAILS[-1]])
+        elif camera_ids:
+            dev_id = random.choice(camera_ids)
+            detail = random.choice(DETECTION_DETAILS)
+        else:
+            dev_id = random.choice(all_ids) if all_ids else None
+            detail = None
+        det_rows.append({
+            "type_event": "Intrusion",
+            "device_id": dev_id,
+            "device_description": _desc(dev_id),
+            "result": random.choice(DETECTION_TYPES),
+            "action_reported": "False",
+            "detail": detail,
+            "created_at": dt,
+            "updated_at": dt,
+        })
+    await _bulk_insert_async(db, DetectionEvent, det_rows)
+    await db.flush()
+    eids["detection"] = list((await db.execute(select(DetectionEvent.id))).scalars().all())
+
+    # Malfunction events (5000, 5일)
+    print("    Creating malfunction events (5000)...", flush=True)
+    mal_rows: list[dict] = []
+    for i in range(5000):
+        dt = now - timedelta(
+            days=random.randint(0, 4),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
+        dev_id = random.choice(all_ids) if all_ids else None
+        fault = random.choice(FAULT_TYPES)
+        mal_rows.append({
+            "type_event": "Fault",
+            "device_id": dev_id,
+            "device_description": _desc(dev_id),
+            "reason": fault,
+            "action_reported": "False",
+            "detail": {
+                "fault_code": f"ERR-{random.randint(1000, 9999)}",
+                "duration_seconds": random.randint(10, 3600),
+                "auto_recovered": random.choice([True, False]),
+            } if random.random() < 0.6 else None,
+            "created_at": dt,
+            "updated_at": dt,
+        })
+    await _bulk_insert_async(db, MalfunctionEvent, mal_rows)
+    await db.flush()
+    eids["malfunction"] = list((await db.execute(select(MalfunctionEvent.id))).scalars().all())
+
+    # Connection events (20000)
+    print("    Creating connection events (20000)...", flush=True)
+    conn_rows: list[dict] = []
+    for i in range(20000):
+        dt = now - timedelta(
+            days=random.randint(0, 7),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
+        dev_id = random.choice(all_ids) if all_ids else None
+        conn_rows.append({
+            "type_event": "Connection",
+            "device_id": dev_id,
+            "device_description": _desc(dev_id),
+            "created_at": dt,
+            "updated_at": dt,
+        })
+    await _bulk_insert_async(db, ConnectionEvent, conn_rows)
+    await db.flush()
+    eids["connection"] = list((await db.execute(select(ConnectionEvent.id))).scalars().all())
+
+    await db.commit()
+    total = sum(len(v) for v in eids.values())
+    print(f"  [OK] Events created: {total} "
+          f"(det:{len(eids['detection'])} mal:{len(eids['malfunction'])} conn:{len(eids['connection'])})")
+    return eids
+
+
+# ── Action Events (async, bulk) ──────────────────────────
+
+async def _create_action_events_async(db: AsyncSession, event_ids: dict, user_names: list[str]) -> None:
+    """Create 5000 action events. Invariant: action_reported="True" iff ActionEvent exists."""
+    existing = (await db.execute(select(func.count()).select_from(ActionEvent))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Action events already exist: {existing}")
+        return
+
+    det_ids = list(event_ids.get("detection", []))
+    mal_ids = list(event_ids.get("malfunction", []))
+    all_event_ids = det_ids + mal_ids
+    random.shuffle(all_event_ids)
+
+    targets = all_event_ids[:5000]
+
+    print("    Updating action_reported for target events (ActionEvent-backed only)...", flush=True)
+    det_id_set = set(det_ids)
+    mal_id_set = set(mal_ids)
+    det_update = [eid for eid in targets if eid in det_id_set]
+    mal_update = [eid for eid in targets if eid in mal_id_set]
+
+    for batch_start in range(0, len(det_update), 1000):
+        batch = det_update[batch_start:batch_start + 1000]
+        await db.execute(
+            update(DetectionEvent)
+            .where(DetectionEvent.id.in_(batch))
+            .values(action_reported="True")
+        )
+    for batch_start in range(0, len(mal_update), 1000):
+        batch = mal_update[batch_start:batch_start + 1000]
+        await db.execute(
+            update(MalfunctionEvent)
+            .where(MalfunctionEvent.id.in_(batch))
+            .values(action_reported="True")
+        )
+    await db.flush()
+
+    print("    Creating action events (5000)...", flush=True)
+    now = datetime.now(settings.tz).replace(tzinfo=None)
+    rows: list[dict] = []
+    for from_id in targets:
+        dt = now - timedelta(
+            days=random.randint(0, 5),
+            hours=random.randint(0, 23),
+            minutes=random.randint(0, 59),
+            seconds=random.randint(0, 59),
+        )
+        rows.append({
+            "from_event_id": from_id,
+            "type_event": "Action",
+            "content": random.choice(ACTION_CONTENTS),
+            "user": random.choice(user_names),
+            "created_at": dt,
+            "updated_at": dt,
+        })
+    await _bulk_insert_async(db, ActionEvent, rows)
+
+    await db.commit()
+    unreported = len(all_event_ids) - len(targets)
+    print(f"  [OK] Action events created: {len(targets)} "
+          f"(reported: {len(targets)}, unreported: ~{unreported})")
+
+
+# ── System Events (async) ────────────────────────────────
+
+async def _create_system_events_async(db: AsyncSession, server_ids: list[int]) -> None:
+    existing = (await db.execute(select(func.count()).select_from(SystemEvent))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] System events already exist: {existing}")
+        return
+
+    rows: list[dict] = []
+    for i in range(30):
+        typ, sev, title = random.choice(SYS_EVENT_TEMPLATES)
+        srv_id = random.choice(server_ids) if server_ids else None
+        dt = _rand_dt(30)
+        rows.append({
+            "server_id": srv_id,
+            "server_description": f"서버#{srv_id}" if srv_id else None,
+            "type_event": typ,
+            "severity": sev,
+            "title": title,
+            "message": f"{title} - 샘플 이벤트 #{i + 1}",
+            "source": "system_monitor",
+            "is_acknowledged": random.choice([True, False]),
+            "created_at": dt,
+        })
+    await _bulk_insert_async(db, SystemEvent, rows)
+    await db.commit()
+    print(f"  [OK] System events created: 30")
+
+
+# ── Config Change Logs (async) ───────────────────────────
+
+async def _create_config_change_logs_async(db: AsyncSession, user_ids: list[int]) -> None:
+    existing = (await db.execute(select(func.count()).select_from(ConfigChangeLog))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Config change logs already exist: {existing}")
+        return
+
+    user_names = ["김운영", "이운영", "박관제", "최관제", "정유지"]
+    rows: list[dict] = []
+    for i in range(20):
+        res_type, action, desc = random.choice(CONFIG_TEMPLATES)
+        idx = random.randint(0, len(user_ids) - 1) if user_ids else 0
+        actor_id = user_ids[idx] if user_ids else None
+        dt = _rand_dt(30)
+        is_update = action in (EnumConfigActionType.UPDATED, EnumConfigActionType.STATUS_CHANGED)
+        rows.append({
+            "resource_type": res_type,
+            "resource_id": random.randint(1, 100),
+            "resource_name": f"{res_type.value}-{random.randint(1, 50):03d}",
+            "action": action,
+            "before_state": {"status": "ACTIVATED"} if is_update else None,
+            "after_state": {"status": "DEACTIVATED"} if is_update else None,
+            "actor_id": actor_id,
+            "actor_name": user_names[idx] if idx < len(user_names) else "system",
+            "actor_ip": _rand_ip(),
+            "description": desc,
+            "created_at": dt,
+        })
+    await _bulk_insert_async(db, ConfigChangeLog, rows)
+    await db.commit()
+    print(f"  [OK] Config change logs created: 20")
+
+
+# ── Audit Logs (async) ───────────────────────────────────
+
+async def _create_audit_logs_async(db: AsyncSession, user_ids: list[int]) -> None:
+    existing = (await db.execute(select(func.count()).select_from(AuditLog))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Audit logs already exist: {existing}")
+        return
+
+    login_ids = ["operator1", "operator2", "monitor1", "monitor2", "maintainer1"]
+    names = ["김운영", "이운영", "박관제", "최관제", "정유지"]
+    rows: list[dict] = []
+    for i in range(20):
+        action_type, resource_type, desc = random.choice(AUDIT_TEMPLATES)
+        idx = random.randint(0, len(user_ids) - 1) if user_ids else 0
+        actor_id = user_ids[idx] if user_ids else None
+        dt = _rand_dt(30)
+        rows.append({
+            "action_type": action_type.value,
+            "action_status": EnumAuditStatus.SUCCESS.value,
+            "resource_type": resource_type.value,
+            "resource_id": random.randint(1, 10),
+            "resource_name": f"리소스-{random.randint(1, 10)}",
+            "actor_id": actor_id,
+            "actor_login_id": login_ids[idx] if idx < len(login_ids) else "admin",
+            "actor_name": names[idx] if idx < len(names) else "관리자",
+            "actor_role": "OPERATOR",
+            "description": desc,
+            "ip_address": _rand_ip(),
+            "created_at": dt,
+        })
+    await _bulk_insert_async(db, AuditLog, rows)
+    await db.commit()
+    print(f"  [OK] Audit logs created: 20")
+
+
+# ── User Sessions (async, bulk) ──────────────────────────
+
+async def _create_user_sessions_async(db: AsyncSession, user_ids: list[int]) -> None:
+    existing = (await db.execute(select(func.count()).select_from(UserSession))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] User sessions already exist: {existing}")
+        return
+
+    now = datetime.now(settings.tz).replace(tzinfo=None)
+    rows: list[dict] = []
+    for uid in user_ids:
+        rows.append({
+            "user_id": uid,
+            "token": str(uuid.uuid4()),
+            "refresh_token": str(uuid.uuid4()),
+            "ip_address": _rand_ip(),
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "expires_at": now + timedelta(hours=8),
+            "is_active": True,
+            "created_at": now - timedelta(hours=random.randint(1, 4)),
+        })
+        expired = now - timedelta(days=random.randint(1, 7))
+        rows.append({
+            "user_id": uid,
+            "token": str(uuid.uuid4()),
+            "refresh_token": str(uuid.uuid4()),
+            "ip_address": _rand_ip(),
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "expires_at": expired + timedelta(hours=8),
+            "logged_out_at": expired + timedelta(hours=random.randint(2, 8)),
+            "is_active": False,
+            "logout_reason": "EXPIRED",
+            "created_at": expired,
+        })
+    count = await _bulk_insert_async(db, UserSession, rows)
+    await db.commit()
+    print(f"  [OK] User sessions created: {count}")
+
+
+# ── Login Logs (async, bulk) ─────────────────────────────
+
+async def _create_login_logs_async(db: AsyncSession, user_ids: list[int]) -> None:
+    existing = (await db.execute(select(func.count()).select_from(UserLoginLog))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Login logs already exist: {existing}")
+        return
+
+    users = (await db.execute(
+        select(AccountUser).where(AccountUser.id.in_(user_ids))
+    )).scalars().all()
+    user_map = {u.id: u.login_id for u in users}
+
+    rows: list[dict] = []
+    for uid in user_ids:
+        lid = user_map.get(uid, f"user_{uid}")
+        # 3 successful logins
+        for _ in range(3):
+            rows.append({
+                "user_id": uid, "login_id": lid,
+                "action": EnumLoginAction.LOGIN.value,
+                "result": EnumLoginResult.SUCCESS.value,
+                "ip_address": _rand_ip(), "user_agent": "Mozilla/5.0",
+                "created_at": _rand_dt(30),
+            })
+        # 1 failed login
+        rows.append({
+            "user_id": uid, "login_id": lid,
+            "action": EnumLoginAction.LOGIN.value,
+            "result": EnumLoginResult.FAILURE.value,
+            "failure_reason": "INVALID_CREDENTIALS",
+            "ip_address": _rand_ip(), "user_agent": "Mozilla/5.0",
+            "created_at": _rand_dt(30),
+        })
+        # 1 logout
+        rows.append({
+            "user_id": uid, "login_id": lid,
+            "action": EnumLoginAction.LOGOUT.value,
+            "result": EnumLoginResult.SUCCESS.value,
+            "ip_address": _rand_ip(), "user_agent": "Mozilla/5.0",
+            "created_at": _rand_dt(30),
+        })
+        # 1 refresh
+        rows.append({
+            "user_id": uid, "login_id": lid,
+            "action": EnumLoginAction.REFRESH.value,
+            "result": EnumLoginResult.SUCCESS.value,
+            "ip_address": _rand_ip(), "user_agent": "Mozilla/5.0",
+            "created_at": _rand_dt(30),
+        })
+    count = await _bulk_insert_async(db, UserLoginLog, rows)
+    await db.commit()
+    print(f"  [OK] Login logs created: {count}")
+
+
+# ── Proxy/Camera Settings (async) ────────────────────────
+
+async def _create_proxy_settings_async(db: AsyncSession, server_ids: list[int]) -> None:
+    existing = (await db.execute(select(func.count()).select_from(ProxySetting))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Proxy settings already exist: {existing}")
+        return
+
+    windy_modes = [EnumWindyMode.WIND0, EnumWindyMode.WIND1, EnumWindyMode.WIND2, EnumWindyMode.WIND3]
+    count = 0
+    for i, sid in enumerate(server_ids[:4]):
+        db.add(ProxySetting(
+            server_id=sid,
+            operation_mode=EnumOperationMode.NORMAL,
+            windy_mode=windy_modes[i % len(windy_modes)],
+        ))
+        count += 1
+    await db.commit()
+    print(f"  [OK] Proxy settings created: {count}")
+
+
+async def _create_camera_settings_async(db: AsyncSession) -> None:
+    existing = (await db.execute(select(func.count()).select_from(CameraSetting))).scalar() or 0
+    if existing > 0:
+        print(f"  [OK] Camera settings already exist: {existing}")
+        return
+
+    camera_ids = list((await db.execute(select(Camera.id).limit(6))).scalars().all())
+    if not camera_ids:
+        print("  [WARN] No cameras — skipping camera settings")
+        return
+
+    presets = [
+        {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
+         "tracking": EnumTrackingStatus.IDLE},
+        {"weather_mode": EnumWeatherMode.FOG, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
+         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.DAY,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
+         "tracking": EnumTrackingStatus.ACTIVE},
+        {"weather_mode": EnumWeatherMode.RAIN, "heater": EnumOnOff.ON, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.NIGHT,
+         "focus_mode": EnumFocusMode.MANUAL, "iris_mode": EnumIrisMode.AUTO,
+         "tracking": EnumTrackingStatus.LOST,
+         "camera_mode": EnumCameraVideoMode.NIGHT_ENHANCE},
+        {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.AUTO,
+         "palette": EnumPalette.WHITE_HOT},
+        {"weather_mode": EnumWeatherMode.SNOW, "heater": EnumOnOff.ON, "fan": EnumOnOff.ON,
+         "headlight": EnumOnOff.ON, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.AUTO, "iris_mode": EnumIrisMode.MANUAL,
+         "palette": EnumPalette.IRONBOW},
+        {"weather_mode": EnumWeatherMode.NORMAL, "heater": EnumOnOff.OFF, "fan": EnumOnOff.OFF,
+         "headlight": EnumOnOff.OFF, "day_night_mode": EnumDayNightMode.AUTO,
+         "focus_mode": EnumFocusMode.MANUAL, "iris_mode": EnumIrisMode.MANUAL,
+         "tracking": EnumTrackingStatus.ACTIVE,
+         "camera_mode": EnumCameraVideoMode.STABILIZATION},
+    ]
+
+    count = 0
+    for i, cid in enumerate(camera_ids):
+        preset = presets[i % len(presets)]
+        db.add(CameraSetting(camera_id=cid, **preset))
+        count += 1
+    await db.commit()
+    print(f"  [OK] Camera settings created: {count}")
+
+
+# ── Async Main Entry Point ───────────────────────────────
+
+async def initialize_sample_data_async(db: AsyncSession) -> None:
+    """
+    Initialize comprehensive sample data for development/demo (async variant).
+
+    v6.0 Phase 2 dual-stack:
+      - INIT_SAMPLE_DATA=false 시 caller에서 스킵 (이 함수는 항상 seed 시도, 각 step 자체 idempotent)
+      - 28k+ events 등 대량 데이터는 `_bulk_insert_async`로 500건 단위 executemany
+      - 각 step 함수는 count 확인 후 skip → 재실행 안전
+
+    Args:
+        db: Async database session
+    """
+    print("Initializing sample data (async)...")
+
+    # 1. Users
+    group_map = await _create_user_groups_async(db)
+    user_ids = await _create_users_async(db, group_map)
+    user_names = [u["name"] for u in SAMPLE_USERS]
+
+    # 2. Servers
+    server_ids = await _create_servers_async(db)
+
+    # 3. Devices
+    device_ids = await _create_devices_async(db, server_ids)
+
+    # 4. Device groups + mappings
+    await _create_device_groups_async(db, device_ids)
+
+    # 5. Camera presets + ROI + XyPoints
+    await _create_camera_presets_async(db)
+
+    # 6. Enclosure metrics
+    await _create_enclosure_metrics_async(db)
+
+    # 7. Events (bulk 28k)
+    event_ids = await _create_events_async(db, device_ids)
+
+    # 8. Action events (bulk 5k)
+    await _create_action_events_async(db, event_ids, user_names)
+
+    # 9. System events
+    await _create_system_events_async(db, server_ids)
+
+    # 10. Config change logs
+    await _create_config_change_logs_async(db, user_ids)
+
+    # 11. Audit logs
+    await _create_audit_logs_async(db, user_ids)
+
+    # 12. User sessions
+    await _create_user_sessions_async(db, user_ids)
+
+    # 13. Login logs
+    await _create_login_logs_async(db, user_ids)
+
+    # 14. Device settings
+    await _create_proxy_settings_async(db, server_ids)
+    await _create_camera_settings_async(db)
 
     print("[OK] Sample data initialization complete")

@@ -36,7 +36,7 @@ from app.middleware.logging import APILoggingMiddleware
 from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, grants, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking, settings as settings_router
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
-from app.utils.init_db import initialize_database
+from app.utils.init_db import initialize_database_async
 from app.schemas.common import ApiResponse
 from app.security.matrix_enforcer import enforce_matrix
 
@@ -215,9 +215,10 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan events.
 
-    v6.0 P9: sync `initialize_database()` + `apply_triggers()` 는 startup 1회 실행이라
-    이벤트루프 블로킹 무해하나, 대량 시드(28k+ 이벤트)가 옵션이 될 수 있어
-    `asyncio.to_thread` 로 감싸 uvicorn worker health check timeout 리스크 회피.
+    v6.0 후속 Phase 2: `initialize_database_async()` 로 재배선.
+    - admin / preset groups 는 AsyncSessionLocal 경로 (진짜 async)
+    - downstream 시드(init_server/report/sample) 는 함수 내부에서 sync SessionLocal 로 실행
+    - apply_triggers 는 sync SQL 실행이라 `asyncio.to_thread` 그대로 유지
     """
     import asyncio as _asyncio
 
@@ -226,11 +227,11 @@ async def lifespan(app: FastAPI):
     print("GOP API Server Starting...")
     print("=" * 60)
 
-    # Initialize database (sync 유지 — v6.1 batch queue와 함께 별도 리팩터)
-    # to_thread 로 감싸 이벤트루프 자유 (INIT_SAMPLE_DATA=true 시 벌크 삽입 안전)
-    await _asyncio.to_thread(initialize_database)
+    # Initialize database (async — v6.0 후속 Phase 2)
+    # AsyncSessionLocal 기반 admin/preset + sync 하위 시드 위임을 함수 내부에서 처리.
+    await initialize_database_async()
 
-    # Apply PostgreSQL pg_notify triggers (skips if SQLite)
+    # Apply PostgreSQL pg_notify triggers (skips if SQLite) — sync SQL 실행이라 to_thread 유지
     await _asyncio.to_thread(apply_triggers, engine)
 
     print(f"Server running on http://{settings.HOST}:{settings.PORT}")

@@ -373,8 +373,11 @@ async def create_detection_event(
     - 422: 유효하지 않은 enum 값
     """
     # PRD v1.1: Validate device_id exists
+    # v6.0 P8 hotfix: selectin_polymorphic 으로 서브타입 필드 미리 로드 (create 응답 조립 시 lazy load 회피)
     device = (await db.execute(
-        select(Device).where(Device.id == event_data.device_id)
+        select(Device)
+        .options(selectin_polymorphic(Device, [Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(Device.id == event_data.device_id)
     )).scalars().first()
     if not device:
         raise HTTPException(

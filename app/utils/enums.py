@@ -717,15 +717,18 @@ class EnumReportPeriod(str, Enum):
 
 class EnumReportStatus(str, Enum):
     """
-    Report status enumeration (4종)
+    Report status enumeration (5종)
     PRD: PRD_Report_System.md Section 3.1
 
     보고서 생성 상태
+
+    v6.0 후속: CANCELLED 추가 — 사용자가 진행 중 취소 시 마킹.
     """
     PENDING = "PENDING"         # 대기 중
     GENERATING = "GENERATING"   # 생성 중
     COMPLETED = "COMPLETED"     # 완료
     FAILED = "FAILED"           # 실패
+    CANCELLED = "CANCELLED"     # v6.0 후속: 사용자 취소 (POST /generations/{id}/cancel)
 
 
 class EnumChartType(str, Enum):

@@ -10,15 +10,50 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v5.3** (2026-07-02, **Legacy User 완전 삭제 + AccountUser 통일** — GIS 팀 요청 대응, 14/14 PASS) / v5.2 (2026-06-30, hotfix + Force-Logout P1 + Session-Settings P2 + 휴면 RBAC 부착) / v5.1 (2026-06-29, RBAC Enforcement) / v5.0 (2026-06-29, 그룹 권한) |
-| **HEAD commit** | `fc512b3` (docs(v5.3): .NET/GIS 팀 통지 문서 — DOC-03) |
-| **branch** | `feature/report-master-redesign` (공유 작업트리) — ✅ **Gitea v4.8 + origin 모두 push 완료** (v5.3 마감 fc512b3 반영). 태그 `v5.3-final-stable`(b757325a) + `pre-legacy-user-removal` |
-| **Container** | ✅ **v5.3 5-sync 완료** (2026-07-02) — Image rebuild + healthy + **Swagger version=5.3.0** 라이브 + API Version 5.3. **DB `users` 테이블 DROP 완료** (v56 마이그레이션). |
-| **DB** | PostgreSQL 16 / **`users` 테이블 DROP** (v5.3 v56 마이그레이션, FK 파괴 0) + `account_users` 8건 유지 + `app_settings` 등 v5.2 이전 상태 유지. |
+| **차수** | **v6.0** (2026-07-03, **Async 대전환 완결** — SQLAlchemy 2.x + asyncpg + AsyncSession, 41 라우터 async 100%, ~99 endpoint RBAC 매트릭스, api_logs partitioning + batch INSERT, Docker autoheal, 247/247 회귀 PASS) / v5.4 (2026-07-03 오전~오후, Reports RBAC + AUTH_MODE=token + 문서 A-7 저리스크 4건) / v5.3 (2026-07-02, Legacy User 삭제) / v5.2 (2026-06-30, hotfix + Force-Logout P1 + Session-Settings P2) |
+| **HEAD commit** | `61e46fe` (release/v6.0 tip — v6.0 완결) |
+| **branch** | `release/v6.0` (활성) — 태그 `v6.0` (2026-07-03 완결). 병행 유지: `release/v5.4` (안전점), `main` 변경 없음(이 프로젝트는 release/* 위주) |
+| **Container** | ✅ **v6.0 5-sync 완료** (2026-07-03) — Image rebuild + healthy + **Swagger info.version=6.0.0** 라이브 + api-server / postgres / autoheal / gis-ingest / db-monitor / nats. autoheal 신설(unhealthy 컨테이너 자동 재기동). |
+| **DB** | PostgreSQL 16 + **asyncpg 드라이버** / `api_logs` 파티셔닝 + batch INSERT 큐 / `users` DROP 상태 유지(v5.3) / `account_users` 8건 / `app_settings` 등 v5.2~v5.4 상태 계승. |
 
 ---
 
-## 이번 세션 (v5.2 — 2026-06-30, .NET 이관 PRD 2종)
+## 이번 세션 (v6.0 — 2026-07-03, Async 대전환 완결)
+
+> v5.4 오전~오후 마감 → v6.0 오후~밤 Async 대전환(P0~P11) → v6.0 후속 6 Phases 밤~새벽 완결. **문제 A 근본 봉합** + Async 100%.
+
+### v6.0 후속 6 Phases (밤~새벽)
+
+1. **Quick Wins** — 저리스크 정합/미세 튜닝
+2. **Init async** — 앱 부팅/초기화 경로 async 완전 이관
+3. **Report Service async** — 정형/비정형 리포트 서비스 async(+Playwright/Chromium PDF 파이프라인 유지)
+4. **A-7 #1 & #6 (batch queue + partitioning)** — `api_logs` 파티셔닝 + batch INSERT 큐 (문제 A 근본 봉합)
+5. **RBAC 확대** — ~99 endpoint 매트릭스 등록 완료
+6. **최종 검증** — 247/247 시나리오 회귀 PASS
+
+### v6.0 원 P0~P11 (오후~밤, Async 대전환)
+
+- SQLAlchemy 2.x 스타일 + asyncpg + `AsyncSession` 전환
+- 41 라우터 async (100%)
+- Dual-stack fixtures (pytest + pytest-asyncio) — sync/async 병존 인프라
+- selectin_polymorphic 도입 (Device 6종 + Event 3종 상속 계층 로딩)
+
+### v5.4 (오전~오후, 마감분)
+
+- Reports RBAC 부착 (require_perm)
+- `.env AUTH_MODE=token` 플립 완료 (클라 Bearer 동시배포 확인 후)
+- 문서 A-7 저리스크 4건 정합
+- 태그 `release/v5.4` 유지(안전점)
+
+### 핵심 기술 결정 (v6.0)
+
+1. **Dual-stack 원칙** — sync/async 병존. 라우터는 async, 기존 sync 유틸/픽스처 잔존 허용(단계적 이행). pytest는 sync+async fixture 병용.
+2. **selectin_polymorphic 필수** — Device 6종(Camera/Lamp/Server/…) + Event 3종 등 상속 계층은 async 로딩 시 `selectin_polymorphic(*)` 강제(N+1 방지 + polymorphic identity 정확성).
+3. **asyncpg tz-aware/naive 정합 규칙** — **naive KST 컨벤션**. asyncpg는 tz-aware datetime을 UTC로 변환하나, 서버 전역은 naive KST 유지(app_settings/DB 컬럼 일관). Aware ↔ Naive 경계에서 KST offset 명시 후 tzinfo=None 스트립.
+
+---
+
+## v5.2 (2026-06-30, .NET 이관 PRD 2종) — 이력 아카이브
 
 > .NET 클라팀 이관 서버 PRD 3종(`docs/prds/PRD_GOP_Server_*.md`) 중 실행 2종 완료. 계약 4건 PM 확정.
 
@@ -164,14 +199,24 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 2026-06-25  v4.10 Phase 1 — SEC-1 마스킹 폐기 / 평문 회귀 (복호화 경로 부재, 차장님 결재 "그냥 평문으로 보내", 6/6 PASS)
             v4.10 Phase 2 — HTTPS 도입 (mkcert 폐쇄망) + Inno Setup rootCA 인스톨러 (6/6 PASS, 차장님 결재 "가장 간단·신뢰·폐쇄망")
             v4.10 Phase 2-add — PS2EXE Lite 인스톨러 2종 (certs/server_install.exe + client_install.exe, 차장님 결재 "두 개로 패키지해서 쉽게 쓸 수 있게")
-2026-06-30  권한그룹 스케쥴링 분석 + PRD(Draft) — 현행 권한그룹 구조 교차검증(등급↔그룹 Option A 연계 확인, time_restriction/기간컬럼/스케줄러 전무, require_perm 부착 0건) → 옵션B(user_group_grants 부여 테이블) 결재 → docs/prds/PRD_Permission_Group_Scheduling.md 작성. 선결=RBAC 집행(PRD_GOP_Server_RBAC_Enforcement). 승인 대기
+2026-06-30  권한그룹 스케쥴링 분석 + PRD(Draft)
+2026-07-02  v5.3 마감 — Legacy User DROP + AccountUser 통일 (GIS 팀 대응, 14/14 PASS)
+2026-07-03  v5.4 마감(오전~오후) — Reports RBAC + AUTH_MODE=token 플립 + 문서 A-7 저리스크 4건
+2026-07-03  v6.0 마감(오후~새벽) — Async 대전환 P0~P11 + 후속 6 Phases (Quick Wins / Init async / Report Service async / api_logs partitioning+batch INSERT / RBAC ~99 endpoint 매트릭스 / 최종 검증 247/247 PASS). 문제 A 근본 봉합. Docker autoheal 신설. 태그 v6.0.
 ```
 
-## 활성 PRD
+## 활성 PRD / Plan / Phase
 
-- **활성 PRD**: `docs/prds/PRD_Permission_Group_Scheduling.md` (Draft, Phase=prd, Track C)
-- **다음 할 일**: 사용자 승인(`advance-phase.js approve prd`) → plan 스킬로 구현 계획
-- **핵심 기술결정**: 스케쥴은 부여(grant)에 건다(그룹 정의 아님) / 권위판정=request-time `valid_until>now`(sweep 비의존) / 등급매트릭스 ∪ 유효grant 합집합 / 선결=RBAC 집행 0%→집행 활성화
+- **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
+- **활성 PRD**: v6.0 완결 (Async 대전환 종결)
+- **활성 Plan**: 없음 — v6.1 대기 상태
+- **현재 Phase**: `complete`
+- **Track**: C
+- **다음 할 일**: **v6.1 pytest 스위트 async 마이그레이션** (v6.0에서 인프라만 완료 = dual-stack fixture 등, 전체 테스트 async 재작성은 v6.1 별도 차수)
+- **핵심 기술결정 (v6.0 확정)**:
+  1. Dual-stack 원칙 — sync/async 병존 (단계적 이행)
+  2. selectin_polymorphic 필수 — Device 6종 + Event 3종 상속 계층
+  3. asyncpg tz-aware/naive 정합 — naive KST 컨벤션 유지
 
 ---
 
@@ -185,12 +230,12 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 
 ---
 
-**문서 버전**: v5.2 / **최종 업데이트**: 2026-06-30 / **다음 차수 후보**: 푸시·클라통지(C/D) → Force-Logout 활성화(B) → RBAC 잔여 plan(A)
+**문서 버전**: v6.0 / **최종 업데이트**: 2026-07-03 / **다음 차수 후보**: v6.1 pytest 스위트 async 마이그레이션 (전체 테스트 재작성)
 
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-64880
+- **현재 세션 ID**: ppid-73216
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-64880
+- **활성 세션 목록**: ppid-73216
 

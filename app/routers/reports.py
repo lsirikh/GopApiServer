@@ -478,6 +478,11 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
     return response
 
 
+# v6.0 후속: 진행 중 리포트 생성 태스크 추적 — cancel endpoint용.
+# key = generation_id, value = asyncio.Task
+_active_generation_tasks: dict[int, asyncio.Task] = {}
+
+
 async def _run_report_generation(generation_id: int) -> None:
     """BackgroundTasks에서 실행되는 보고서 생성 함수 (async).
 
@@ -489,11 +494,19 @@ async def _run_report_generation(generation_id: int) -> None:
       asyncio.to_thread 로 오프로드해 이벤트루프 보호.
 
     FastAPI BackgroundTasks 는 async 함수 자동 감지 → await 로 실행.
+
+    v6.0 후속: 취소 지원 — current_task를 dict에 등록해 cancel endpoint에서 참조.
+    CancelledError 발생 시 status=CANCELLED로 마킹 후 propagate.
     """
     from app.database import AsyncSessionLocal
     from app.services.report_master_builder import build_master_data_async, build_report_meta
     from app.services.report_html_renderer import render_report_html_async
     from app.utils.html_to_pdf import html_to_pdf_bytes
+
+    # v6.0 후속: 현재 태스크를 dict에 등록 (cancel endpoint용)
+    current = asyncio.current_task()
+    if current is not None:
+        _active_generation_tasks[generation_id] = current
 
     async with AsyncSessionLocal() as db:
         generation = (
@@ -502,6 +515,12 @@ async def _run_report_generation(generation_id: int) -> None:
             )
         ).scalars().first()
         if not generation:
+            _active_generation_tasks.pop(generation_id, None)
+            return
+
+        # 이미 CANCELLED로 마킹된 상태면 즉시 종료 (레이스 조건)
+        if generation.status == "CANCELLED":
+            _active_generation_tasks.pop(generation_id, None)
             return
 
         try:
@@ -542,10 +561,24 @@ async def _run_report_generation(generation_id: int) -> None:
             }
             await db.commit()
 
+        except asyncio.CancelledError:
+            # v6.0 후속: 사용자 취소 — status CANCELLED로 마킹 후 재-raise.
+            # 부분 생성된 PDF는 삭제 (best-effort, 이 시점엔 미확정)
+            try:
+                generation.status = "CANCELLED"
+                generation.error_message = "Cancelled by user"
+                generation.completed_at = datetime.now()
+                await db.commit()
+            except Exception:
+                pass  # 커밋 실패해도 취소 자체는 진행
+            raise
         except Exception as e:
             generation.status = "FAILED"
             generation.error_message = str(e)
             await db.commit()
+        finally:
+            # 태스크 종료 시 dict에서 제거 (성공/실패/취소 모두)
+            _active_generation_tasks.pop(generation_id, None)
 
 
 @router.post("/generate", status_code=202,
@@ -727,6 +760,71 @@ async def delete_generation(
         success=True,
         message=f"Report generation {generation_id} deleted successfully",
         data=None,
+    )
+
+
+@router.post("/generations/{generation_id}/cancel",
+             dependencies=[Depends(require_perm_optional_async("reports", "delete"))])
+async def cancel_generation(
+    generation_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
+):
+    """
+    보고서 생성 취소 — v6.0 후속 신설.
+
+    - PENDING or GENERATING 상태만 취소 가능
+    - COMPLETED/FAILED/CANCELLED는 400 (이미 종료)
+    - 진행 중 asyncio.Task 참조를 dict에서 조회해 task.cancel() 호출
+    - _run_report_generation의 CancelledError 핸들러가 status를 CANCELLED로 마킹
+    - 권한: reports.delete (DELETE와 동급)
+
+    **응답**: 성공 시 { success: true, message, data: {id, status} }
+    **Error**:
+    - 404: 리포트 이력 없음
+    - 400: 이미 종료된 상태 (COMPLETED/FAILED/CANCELLED)
+    """
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Report generation not found")
+
+    if generation.status in ("COMPLETED", "FAILED", "CANCELLED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel: generation is already {generation.status}",
+        )
+
+    # dict에서 태스크 참조 조회 → cancel 호출
+    # _run_report_generation의 except asyncio.CancelledError 블록이 status=CANCELLED 마킹.
+    # 태스크가 이미 종료됐거나 참조 없으면 DB 마킹만 수행 (레이스 조건 안전 커버).
+    task = _active_generation_tasks.get(generation_id)
+    task_cancelled = False
+    if task is not None and not task.done():
+        task.cancel()
+        task_cancelled = True
+
+    # 태스크가 없거나 이미 종료된 경우 직접 DB 마킹
+    # (레이스: task 취소 후 CancelledError 핸들러가 커밋하기 전 응답할 수 있으므로
+    #  안전하게 여기서도 마킹. 중복 커밋은 무해)
+    if not task_cancelled:
+        generation.status = "CANCELLED"
+        generation.error_message = f"Cancelled by user {current_user.login_id}"
+        generation.completed_at = datetime.now()
+        await db.commit()
+
+    return ApiResponse(
+        success=True,
+        message=f"Report generation {generation_id} cancellation requested",
+        data={
+            "id": generation.id,
+            "status": "CANCELLED",
+            "task_cancelled": task_cancelled,
+        },
     )
 
 

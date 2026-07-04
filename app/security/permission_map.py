@@ -141,6 +141,8 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("PUT", "/api/reports/templates/{}"): ("reports", "edit"),
     ("DELETE", "/api/reports/templates/{}"): ("reports", "delete"),
     ("DELETE", "/api/reports/generations/{}"): ("reports", "delete"),
+    # v6.0 후속: 진행 중 리포트 생성 취소 (권한은 delete와 동급)
+    ("POST", "/api/reports/generations/{}/cancel"): ("reports", "delete"),
     ("GET", "/api/reports/preview/{}"): ("reports", "view"),
     ("GET", "/api/reports/generations/{}/download"): ("reports", "view"),
     ("GET", "/api/reports/generations/{}/preview"): ("reports", "view"),

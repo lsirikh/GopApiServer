@@ -24,35 +24,42 @@ def create_tables():
     print("[OK] Database tables created")
 
 
+# v6.2 (2026-07-05): 기본 관리자 계정 Static seed 정책 승격
+# admin(admin123) 외에 팀 매니저 3종 자동 시드. bcrypt 해시로 저장, group_id=NULL(ADMIN bypass).
+# password는 dev/시연 기본값 — 프로덕션 배포 시 최초 로그인 후 변경 권장.
+DEFAULT_ADMIN_ACCOUNTS = [
+    {"login_id": "admin",          "password": "admin123",   "name": "시스템 관리자"},
+    {"login_id": "m_manager",      "password": "sensorway1", "name": "M 매니저"},
+    {"login_id": "vms_manager",    "password": "sensorway1", "name": "VMS 매니저"},
+    {"login_id": "popup_manager",  "password": "sensorway1", "name": "팝업 매니저"},
+]
+
+
 def create_admin_account_user(db: Session):
+    """기본 ADMIN 계정 Static seed (idempotent).
+
+    - login_id 존재 시 스킵 (편집분 보존)
+    - role=ADMIN, group_id=NULL(bypass), is_active=True
+    - password는 bcrypt로 해시 저장
     """
-    Create initial AccountUser admin if not exists
-
-    Args:
-        db: Database session
-    """
-    # Check if admin AccountUser already exists
-    existing_admin = db.query(AccountUser).filter(AccountUser.login_id == "admin").first()
-
-    if existing_admin:
-        print("[OK] AccountUser admin already exists")
-        return
-
-    # Create admin AccountUser
-    admin_account = AccountUser(
-        login_id="admin",
-        password_hash=hash_password("admin123"),
-        name="시스템 관리자",
-        role="ADMIN",
-        is_active=True,
-        is_locked=False
-    )
-
-    db.add(admin_account)
-    db.commit()
-    db.refresh(admin_account)
-
-    print("[OK] AccountUser admin created (login_id: admin, password: admin123)")
+    created = 0
+    for spec in DEFAULT_ADMIN_ACCOUNTS:
+        existing = db.query(AccountUser).filter(AccountUser.login_id == spec["login_id"]).first()
+        if existing:
+            print(f"[OK] AccountUser {spec['login_id']} already exists")
+            continue
+        db.add(AccountUser(
+            login_id=spec["login_id"],
+            password_hash=hash_password(spec["password"]),
+            name=spec["name"],
+            role="ADMIN",
+            is_active=True,
+            is_locked=False,
+        ))
+        created += 1
+        print(f"[OK] AccountUser {spec['login_id']} created (role: ADMIN)")
+    if created:
+        db.commit()
 
 
 def ensure_role_permission_groups(db: Session):
@@ -152,36 +159,30 @@ def initialize_database():
 
 
 async def create_admin_account_user_async(db: AsyncSession) -> None:
-    """Async 병존: 초기 AccountUser admin 생성 (idempotent).
+    """Async 병존: 기본 ADMIN 계정 Static seed (idempotent).
 
-    Args:
-        db: AsyncSession
+    sync `create_admin_account_user` 와 동일 계약 — DEFAULT_ADMIN_ACCOUNTS 순회.
     """
-    # Check if admin AccountUser already exists
-    result = await db.execute(
-        select(AccountUser).where(AccountUser.login_id == "admin")
-    )
-    existing_admin = result.scalars().first()
-
-    if existing_admin:
-        print("[OK] AccountUser admin already exists")
-        return
-
-    # Create admin AccountUser
-    admin_account = AccountUser(
-        login_id="admin",
-        password_hash=hash_password("admin123"),
-        name="시스템 관리자",
-        role="ADMIN",
-        is_active=True,
-        is_locked=False,
-    )
-
-    db.add(admin_account)
-    await db.commit()
-    await db.refresh(admin_account)
-
-    print("[OK] AccountUser admin created (login_id: admin, password: admin123)")
+    created = 0
+    for spec in DEFAULT_ADMIN_ACCOUNTS:
+        result = await db.execute(
+            select(AccountUser).where(AccountUser.login_id == spec["login_id"])
+        )
+        if result.scalars().first():
+            print(f"[OK] AccountUser {spec['login_id']} already exists")
+            continue
+        db.add(AccountUser(
+            login_id=spec["login_id"],
+            password_hash=hash_password(spec["password"]),
+            name=spec["name"],
+            role="ADMIN",
+            is_active=True,
+            is_locked=False,
+        ))
+        created += 1
+        print(f"[OK] AccountUser {spec['login_id']} created (role: ADMIN)")
+    if created:
+        await db.commit()
 
 
 async def ensure_role_permission_groups_async(db: AsyncSession) -> None:

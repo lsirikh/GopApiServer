@@ -4,6 +4,22 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.2 — 기본 ADMIN 계정 3종 Static seed (2026-07-05)
+
+> 사용자 요청 — 팀 매니저 자동 생성으로 컨테이너 빌드 즉시 로그인 가능.
+
+- `app/utils/init_db.py`:
+  - `DEFAULT_ADMIN_ACCOUNTS` 상수 신설 (admin, m_manager, vms_manager, popup_manager)
+  - 신규 3계정: password `sensorway1`, role `ADMIN`, group_id `NULL`(bypass), is_active `True`
+  - password는 `hash_password()`(bcrypt)로 해시 저장
+  - `create_admin_account_user` / `create_admin_account_user_async` 두 함수 모두 idempotent 순회 로직으로 재작성 (login_id 존재 시 스킵)
+- 실측 검증 (2026-07-05):
+  - startup: `[OK] AccountUser {m_manager|vms_manager|popup_manager} created (role: ADMIN)`
+  - `SELECT * FROM account_users` — id 20/21/22 3계정 ADMIN + group_id NULL 확인
+  - 3계정 전부 `/api/auth/login` 200 + access_token 발급 성공
+- 정책 참조: 서버 인스턴스 Static seed 승격(v6.1)과 동일 방향 — 기본 계정도 코드로 고정된 Static seed
+- 보안 노트: 하드코딩 password는 dev/시연 기본값. 프로덕션 배포 시 최초 로그인 후 변경 권장 (README 반영 대상)
+
 ### v6.1 — 리포트/서버 초기화 데이터 정합화 (2026-07-04)
 
 > 사용자 리포트 다운로드 실측 → 4건 결함 발견 및 일괄 픽스. 3중 감사 워크플로우로 원인 진단 후 동일 사이클 통합.

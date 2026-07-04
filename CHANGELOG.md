@@ -4,6 +4,38 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.1 — 리포트/서버 초기화 데이터 정합화 (2026-07-04)
+
+> 사용자 리포트 다운로드 실측 → 4건 결함 발견 및 일괄 픽스. 3중 감사 워크플로우로 원인 진단 후 동일 사이클 통합.
+
+| Issue | 결함 | 원인 | 픽스 |
+|-------|------|------|------|
+| **1(a)** | JSON preview vs HTML/PDF 필터 소스 이중화 | `ReportServiceAsync.get_structured_preview_data`가 `generation.period_type→days`로 재계산 (`datetime.now()-Ndays`), HTML/PDF는 `generation.start_date/end_date` 사용 → 같은 리포트 두 뷰가 다른 데이터 | `_resolve_range(days, start_date, end_date)` 헬퍼 도입, 라우터에서 `generation.start_date/end_date` 전달, 각 도메인 함수 시그니처 확장 |
+| **1(b)** | role 라벨 소스별 상이 (ADMIN vs 관리자) | JSON preview는 원문, HTML/PDF는 `L.label(L.ROLE, ...)` | ReportServiceAsync 전 도메인에 `L.label` 통일 (ROLE/SEVERITY/DETECTION/FAULT/DEVICE_CATEGORY/CONFIG_RESOURCE/CONFIG_ACTION/AUDIT_ACTION/AUDIT_RESOURCE/LOGIN_ACTION/RESULT/SYSTEM_EVENT/ACTION_TYPE) |
+| **1(c)** | event_statistics dates 라벨 off-by-one | `range(days)` → 오늘 미포함, DB 필터는 오늘 포함 | dates를 `[_start.date() … end.date()]` inclusive 생성 |
+| **2** | 세션 목록 user_id 정수만 표시 | `select id, user_id, ip_address, ...` — account_users 조인 부재 | `LEFT JOIN account_users ON u.id = user_sessions.user_id`, 컬럼 `[ID, 로그인ID, 사용자명, IP, 생성일, 만료일]` 확장 (sync + async 두 파이프라인) |
+| **3-a** | audit_logs 행위자 공란 | actor_name만 사용, nullable | `COALESCE(actor_name, actor_login_id, '(system)')` 폴백 |
+| **3-b** | config_change_logs `누가 무엇을 어떻게` 미표시 | `[ID, 일시, 리소스유형, 액션, 리소스ID]` 만 노출 | `[ID, 일시, 행위자, IP, 리소스유형, 리소스명, 액션, 변경설명]` 8컬럼 확장 |
+| **3-c** | system_events title 컬럼 누락 | title NOT NULL이지만 리포트에서 제외 | `[ID, 일시, 유형, 심각도, 제목, 메시지]` 6컬럼 확장 |
+| **4** | Define된 서버 인스턴스 미생성 (servers 0행) | `init_db.py`가 `initialize_server_data(db)` (인자 없이) 호출 → default `include_samples=False`로 진입 | (1) default를 True로 뒤집기 (Static seed 정책), (2) `DEFAULT_SAMPLE_SERVERS` 상수화 + 9카테고리 전부 커버 (14대 — TRANSCODER/DB_API/NVR_API/SPEAKER_API/ENCLOSURE_API 5종 신규), (3) `_build_sample_server_rows` 헬퍼 sync/async 공용화 |
+| **부수 B** | N+1 쿼리 (탐지/장애 그리드) | 이벤트당 `select ActionEvent where from_event_id=e.id` 개별 조회 (3320건=3320회) | `select where from_event_id.in_(event_ids)` 1회 batch fetch + dict lookup |
+
+### Changed (v6.1)
+- `app/utils/init_server_data.py`: `include_samples` default False → True; `DEFAULT_SAMPLE_SERVERS` 14종 (9 카테고리 커버); sync/async 공용 `_build_sample_server_rows` 헬퍼
+- `app/services/report_service.py`: `ReportServiceAsync._resolve_range` 헬퍼, 10 도메인 함수 시그니처에 `start_date/end_date` keyword 추가, N+1 batch fetch, L.label 통일
+- `app/services/report_master_builder.py`: sync `build_master_data` + async `build_master_data_async` 두 파이프라인의 §6/§7/§8/§9 SQL 확장 (title/actor/resource_name/description + LEFT JOIN account_users)
+- `app/routers/reports.py`: `preview_report`에서 `start_date=generation.start_date, end_date=generation.end_date` 전달
+
+### 실측 검증 (2026-07-04)
+- 컨테이너 재빌드 후 startup 로그: `[OK] Sample servers created: 14`
+- `SELECT category, count(*) FROM server_categories JOIN servers` — 9카테고리 전부 최소 1대
+- 신규 리포트 24 생성 → JSON preview 실측: `USER_SESSION_GRID`가 `[ID, 로그인ID(admin), 사용자명(슈퍼사용자), IP, 생성일, 만료일]` 정상, `SYSTEM_CONFIG_GRID` 56행 8컬럼(행위자/IP/리소스명/변경설명 노출), `SYSTEM_AUDIT_GRID` 41행 폴백 정상, `SYSTEM_EVENT_GRID` 6컬럼(제목/메시지), `USER_GRID` 역할 "관리자" (한국어 라벨)
+
+### 별도 트랙 (이 사이클 미포함)
+- **부수 C**: `config_change_logs.actor_id` 95% NULL (56건 중 53건) — 서비스 레이어 로깅 헬퍼가 request context에서 `current_user` 주입 누락. 별도 사이클로 다룸.
+- system_events / login FAILURE 시드 확장 — 데이터 부족은 별도 시드 확장 사이클.
+- 두 리포트 파이프라인 단일화 로드맵 — 이번엔 필터/라벨/컬럼 정합만 통일, 정본 승격은 다음 사이클.
+
 ## [v6.0] — 2026-07-03
 
 > **Async 대전환** (문서 A-7 근본 해결책 2). SQLAlchemy 2.x + asyncpg + AsyncSession 도입.

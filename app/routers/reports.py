@@ -930,11 +930,16 @@ async def preview_report(
             ]
 
     # v6.0 P8-b: sync SessionLocal 제거 — 요청 AsyncSession 위에서 ReportServiceAsync 사용.
+    # v6.1: 필터 소스를 generation.start_date/end_date로 통일 (build_master_data_async와 동일).
     service = ReportServiceAsync(db)
-    # Calculate days from period_type
     period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
     days = period_days.get(generation.period_type, 7)
-    structured_data = await service.get_structured_preview_data(days, enabled_components)
+    structured_data = await service.get_structured_preview_data(
+        days,
+        enabled_components,
+        start_date=generation.start_date,
+        end_date=generation.end_date,
+    )
 
     return ApiResponse(
         success=True,

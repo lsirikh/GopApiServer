@@ -523,6 +523,9 @@ async def _run_report_generation(generation_id: int) -> None:
             _active_generation_tasks.pop(generation_id, None)
             return
 
+        # v6.0 후속 Quick Win Q2: 파일 경로를 로컬 변수로 미리 보관 —
+        # generation.pdf_file_path에 반영되기 전 취소돼도 파일 삭제 가능.
+        _pending_pdf_path: str | None = None
         try:
             generation.status = "GENERATING"
             await db.commit()
@@ -548,6 +551,7 @@ async def _run_report_generation(generation_id: int) -> None:
             os.makedirs(reports_dir, exist_ok=True)
             filename = f"report_{generation.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             file_path = os.path.join(reports_dir, filename)
+            _pending_pdf_path = file_path  # 파일 쓰기 도중 취소돼도 삭제 대상 확보
             with open(file_path, "wb") as f:
                 f.write(pdf_bytes)
 
@@ -562,8 +566,14 @@ async def _run_report_generation(generation_id: int) -> None:
             await db.commit()
 
         except asyncio.CancelledError:
-            # v6.0 후속: 사용자 취소 — status CANCELLED로 마킹 후 재-raise.
-            # 부분 생성된 PDF는 삭제 (best-effort, 이 시점엔 미확정)
+            # v6.0 후속 Quick Win Q2: 부분 생성된 PDF 파일 best-effort 삭제.
+            # generation.pdf_file_path(커밋된 경로) 및 _pending_pdf_path(쓰기 도중 경로) 모두 정리.
+            for _p in (getattr(generation, "pdf_file_path", None), _pending_pdf_path):
+                if _p and os.path.exists(_p):
+                    try:
+                        os.remove(_p)
+                    except OSError:
+                        pass  # 파일 삭제 실패는 무시 (best-effort)
             try:
                 generation.status = "CANCELLED"
                 generation.error_message = "Cancelled by user"

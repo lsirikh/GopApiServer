@@ -4,7 +4,7 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
-### v6.2 — 기본 ADMIN 계정 3종 Static seed (2026-07-05)
+### v6.0-account_rbac — 기본 ADMIN 계정 3종 Static seed (2026-07-05)
 
 > 사용자 요청 — 팀 매니저 자동 생성으로 컨테이너 빌드 즉시 로그인 가능.
 
@@ -20,7 +20,7 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - 정책 참조: 서버 인스턴스 Static seed 승격(v6.1)과 동일 방향 — 기본 계정도 코드로 고정된 Static seed
 - 보안 노트: 하드코딩 password는 dev/시연 기본값. 프로덕션 배포 시 최초 로그인 후 변경 권장 (README 반영 대상)
 
-### v6.1 — 리포트/서버 초기화 데이터 정합화 (2026-07-04)
+### v6.0-report_fixes — 리포트/서버 초기화 데이터 정합화 (2026-07-04)
 
 > 사용자 리포트 다운로드 실측 → 4건 결함 발견 및 일괄 픽스. 3중 감사 워크플로우로 원인 진단 후 동일 사이클 통합.
 

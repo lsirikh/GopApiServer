@@ -10,15 +10,56 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v6.0** (2026-07-03, **Async 대전환 완결** — SQLAlchemy 2.x + asyncpg + AsyncSession, 41 라우터 async 100%, ~99 endpoint RBAC 매트릭스, api_logs partitioning + batch INSERT, Docker autoheal, 247/247 회귀 PASS) / v5.4 (2026-07-03 오전~오후, Reports RBAC + AUTH_MODE=token + 문서 A-7 저리스크 4건) / v5.3 (2026-07-02, Legacy User 삭제) / v5.2 (2026-06-30, hotfix + Force-Logout P1 + Session-Settings P2) |
-| **HEAD commit** | `61e46fe` (release/v6.0 tip — v6.0 완결) |
-| **branch** | `release/v6.0` (활성) — 태그 `v6.0` (2026-07-03 완결). 병행 유지: `release/v5.4` (안전점), `main` 변경 없음(이 프로젝트는 release/* 위주) |
-| **Container** | ✅ **v6.0 5-sync 완료** (2026-07-03) — Image rebuild + healthy + **Swagger info.version=6.0.0** 라이브 + api-server / postgres / autoheal / gis-ingest / db-monitor / nats. autoheal 신설(unhealthy 컨테이너 자동 재기동). |
-| **DB** | PostgreSQL 16 + **asyncpg 드라이버** / `api_logs` 파티셔닝 + batch INSERT 큐 / `users` DROP 상태 유지(v5.3) / `account_users` 8건 / `app_settings` 등 v5.2~v5.4 상태 계승. |
+| **차수** | **v6.1** (2026-07-04, **리포트/서버 초기화 정합화** — 4 Issue + 1 부수결함 일괄 픽스, sample_servers 9카테고리 14대 Static 승격, JSON preview/HTML/PDF 필터 통일, audit/config/system 컬럼 확장 + user_sessions JOIN, N+1 제거) / v6.0 (2026-07-03, Async 대전환) / v5.4~v5.2 (이전 차수) |
+| **HEAD commit** | (v6.1 커밋 예정) — 이전 tip `2f1f5b3` (v6.0 Quick Wins) |
+| **branch** | `release/v6.0` (v6.1 소분 이력을 같은 브랜치 위에 누적) — 태그 `v6.0` 유지, `v6.1` 부여 예정 |
+| **Container** | ✅ **v6.1 rebuild 완료** (2026-07-04) — `[OK] Sample servers created: 14` 확인, 9카테고리 전부 인스턴스 최소 1대. api-server / postgres / autoheal / gis-ingest / db-monitor healthy. |
+| **DB** | PostgreSQL 16 + asyncpg / `servers` 14행 (v6.1 시드), `account_users` 3건, `report_generations` 24건 (v6.1 검증 리포트 포함) / `api_logs` 파티셔닝 v6.0 상태 계승. |
+
+## 이번 세션 (v6.1 — 2026-07-04)
+
+> 사용자 리포트 다운로드 실측 → 4 Issue + 1 부수결함 발견 → 3중 감사 워크플로우로 원인 진단 → 일괄 픽스.
+
+### 감사 결과 (Workflow w8fpw7jid)
+
+| Issue | 결함 | 진단 |
+|---|---|---|
+| 1 | 사용자 현황 미반영 (JSON vs HTML/PDF 소스 이중화) | Critical — 필터 소스/라벨 소스 불일치 |
+| 2 | 세션 목록 user_id=1로만 표시 | High — LEFT JOIN account_users 부재 |
+| 3 | 로그인/감사/설정/시스템 로그 미표시 | Critical — 컬럼 노출 결함 (actor_name/resource_name/description/title) |
+| 4 | Define 서버 미생성 (servers 0행) | Critical — init_db.py include_samples default False |
+| 부수 B | N+1 쿼리 (탐지/장애) | High — 이벤트당 ActionEvent 개별 조회 |
+
+### 픽스 (같은 사이클 통합)
+
+- **Issue 4**: `init_server_data.py` `include_samples` default True로 뒤집기, `DEFAULT_SAMPLE_SERVERS` 14종 상수화 (9카테고리 전부, TRANSCODER/DB_API/NVR_API/SPEAKER_API/ENCLOSURE_API 5종 신규), sync/async 공용 `_build_sample_server_rows` 헬퍼
+- **Issue 1(a)**: `ReportServiceAsync._resolve_range` 헬퍼 + 10 도메인 함수에 `start_date/end_date` keyword, 라우터에서 `generation.start_date/end_date` 전달
+- **Issue 1(b)**: `L.label` 통일 (ROLE/SEVERITY/DETECTION/FAULT/DEVICE_CATEGORY/CONFIG_RESOURCE/CONFIG_ACTION/AUDIT_ACTION/AUDIT_RESOURCE/LOGIN_ACTION/RESULT/SYSTEM_EVENT/ACTION_TYPE)
+- **Issue 1(c)**: event dates off-by-one 픽스 — `[_start.date() … end.date()]` inclusive
+- **Issue 2**: `user_sessions LEFT JOIN account_users` → `[ID, 로그인ID, 사용자명, IP, 생성일, 만료일]`
+- **Issue 3-a**: audit `COALESCE(actor_name, actor_login_id, '(system)')`
+- **Issue 3-b**: config_change 8컬럼 확장 (`행위자, IP, 리소스명, 변경설명` 추가)
+- **Issue 3-c**: system_events 6컬럼 확장 (`제목` 추가)
+- **부수 B**: N+1 → `WHERE from_event_id.in_(event_ids)` 1회 batch fetch + dict lookup
+
+### 검증 (2026-07-04, JSON preview 실측)
+- 리포트 24 생성 → COMPLETED. `SYSTEM_CONFIG_GRID` 56행 8컬럼, `SYSTEM_AUDIT_GRID` 41행 폴백, `SYSTEM_EVENT_GRID` 6컬럼, `USER_GRID` "관리자" 라벨, `USER_SESSION_GRID` "admin/슈퍼사용자" 노출
+- Docker startup 로그: `[OK] Sample servers created: 14`
+- `SELECT category, count(*)` — 9카테고리 전부 최소 1대 (VMS 2, AI 3, STREAM 2, TRANS 1, BROKER 2, DB_API 1, NVR_API 1, SPEAKER_API 1, ENCLOSURE_API 1)
+
+### 핵심 결정 (v6.1)
+- **서버 인스턴스 Static seed 승격** — 이전 v4.6 정책("인스턴스는 옵트인") 명시적 뒤집기. Feedback memory `feedback_static_vs_runtime_seed` 갱신 완료.
+- **감사 컬럼 확장 원칙** — nullable 필드는 COALESCE 폴백 필수, 모델에 있는 스냅샷 필드(actor/resource_name/description/title)는 리포트에 모두 노출.
+- **필터 윈도우 통일 원칙** — 리포트 뷰 간 데이터 일치가 신뢰성의 기본. period_type→days 매핑 폐기, generation.start_date/end_date 단일 소스.
+
+### 별도 트랙 (다음 사이클)
+- config_change_logs actor_id 95% NULL — 서비스 레이어 로깅 헬퍼 감사 필요
+- 두 리포트 파이프라인(ReportServiceAsync + build_master_data_async) 단일화 로드맵 — build_master_data_async를 정본으로 승격
+- system_events 발화 소스(서버 헬스체크 워커) 미가동 — 별도 인프라 사이클
 
 ---
 
-## 이번 세션 (v6.0 — 2026-07-03, Async 대전환 완결)
+## 이전 세션 (v6.0 — 2026-07-03, Async 대전환 완결)
 
 > v5.4 오전~오후 마감 → v6.0 오후~밤 Async 대전환(P0~P11) → v6.0 후속 6 Phases 밤~새벽 완결. **문제 A 근본 봉합** + Async 100%.
 
@@ -235,7 +276,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-73216
+- **현재 세션 ID**: ppid-63448
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-73216
+- **활성 세션 목록**: ppid-63448
 

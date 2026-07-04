@@ -21,6 +21,7 @@ from app.models.config_change_log import ConfigChangeLog
 from app.models.audit_log import AuditLog
 from app.models.user import AccountUser, UserLoginLog, UserSession
 from app.models.report import ReportGeneration, ReportTemplate
+from app.utils import report_labels as L
 
 # PDF 차트/그리드 → EnumReportComponent 매핑 (PRD_Report_CustomTemplate_Filter)
 CHART_COMPONENT_MAP = {
@@ -1017,6 +1018,25 @@ class ReportServiceAsync:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def _resolve_range(
+        days: int,
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+    ) -> tuple[datetime, Optional[datetime]]:
+        """v6.1 필터 윈도우 통일 — start_date/end_date가 있으면 그 값을, 없으면 now-days 사용.
+
+        end_date가 None이면 상한 필터 없음(현재까지).
+        """
+        if start_date is not None:
+            _start = start_date.replace(tzinfo=None) if start_date.tzinfo else start_date
+        else:
+            _start = datetime.now() - timedelta(days=days)
+        _end = None
+        if end_date is not None:
+            _end = end_date.replace(tzinfo=None) if end_date.tzinfo else end_date
+        return _start, _end
+
     async def get_enabled_components(self, generation: ReportGeneration) -> Optional[List[str]]:
         """ReportGeneration 에서 활성화된 컴포넌트 ID 목록 추출."""
         if generation.report_type != "CUSTOM" or not generation.template_id:
@@ -1108,21 +1128,31 @@ class ReportServiceAsync:
             })
         return result
 
-    async def get_event_statistics(self, days: int = 7) -> Dict[str, Any]:
-        """이벤트 통계 수집."""
-        start_date = datetime.now() - timedelta(days=days)
+    async def get_event_statistics(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """이벤트 통계 수집. v6.1: start_date/end_date 우선 사용."""
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
 
         # Category-based counts
         detection_count = (await self.db.execute(
-            select(func.count(DetectionEvent.id)).where(DetectionEvent.created_at >= start_date)
+            select(func.count(DetectionEvent.id)).where(_range(DetectionEvent.created_at))
         )).scalar() or 0
 
         malfunction_count = (await self.db.execute(
-            select(func.count(MalfunctionEvent.id)).where(MalfunctionEvent.created_at >= start_date)
+            select(func.count(MalfunctionEvent.id)).where(_range(MalfunctionEvent.created_at))
         )).scalar() or 0
 
         action_count = (await self.db.execute(
-            select(func.count(ActionEvent.id)).where(ActionEvent.created_at >= start_date)
+            select(func.count(ActionEvent.id)).where(_range(ActionEvent.created_at))
         )).scalar() or 0
 
         event_type_counts = {
@@ -1131,11 +1161,14 @@ class ReportServiceAsync:
             "action": action_count,
         }
 
-        # Date labels
+        # v6.1: dates 라벨을 실제 기간 [start_date.date() … end_date.date()] inclusive 생성 (오늘 포함).
+        end_marker = _end or datetime.now()
+        cur = _start.date()
+        stop = end_marker.date()
         dates: List[str] = []
-        for i in range(days):
-            d = start_date + timedelta(days=i)
-            dates.append(str(d.date()) if hasattr(d, 'date') else str(d)[:10])
+        while cur <= stop:
+            dates.append(str(cur))
+            cur += timedelta(days=1)
 
         # Detection daily trend
         detection_daily: Dict[str, int] = {}
@@ -1144,7 +1177,7 @@ class ReportServiceAsync:
                 func.date(DetectionEvent.created_at).label("date"),
                 func.count(DetectionEvent.id).label("count"),
             )
-            .where(DetectionEvent.created_at >= start_date)
+            .where(_range(DetectionEvent.created_at))
             .group_by(func.date(DetectionEvent.created_at))
         )
         for row in det_result.all():
@@ -1157,7 +1190,7 @@ class ReportServiceAsync:
                 func.date(MalfunctionEvent.created_at).label("date"),
                 func.count(MalfunctionEvent.id).label("count"),
             )
-            .where(MalfunctionEvent.created_at >= start_date)
+            .where(_range(MalfunctionEvent.created_at))
             .group_by(func.date(MalfunctionEvent.created_at))
         )
         for row in mal_result.all():
@@ -1170,7 +1203,7 @@ class ReportServiceAsync:
                 func.date(ActionEvent.created_at).label("date"),
                 func.count(ActionEvent.id).label("count"),
             )
-            .where(ActionEvent.created_at >= start_date)
+            .where(_range(ActionEvent.created_at))
             .group_by(func.date(ActionEvent.created_at))
         )
         for row in act_result.all():
@@ -1188,26 +1221,38 @@ class ReportServiceAsync:
             "daily_labels": dates,
         }
 
-    async def get_system_statistics(self, days: int = 7) -> Dict[str, Any]:
-        """시스템 이벤트 통계 수집."""
-        # Severity counts
+    async def get_system_statistics(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """시스템 이벤트 통계 수집. v6.1: 심각도 라벨 한국어 통일."""
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
+        # Severity counts (한국어 라벨)
         severity_counts: Dict[str, int] = {}
         sev_result = await self.db.execute(
-            select(SystemEvent.severity, func.count(SystemEvent.id)).group_by(SystemEvent.severity)
+            select(SystemEvent.severity, func.count(SystemEvent.id))
+            .where(_range(SystemEvent.created_at))
+            .group_by(SystemEvent.severity)
         )
         for severity, count in sev_result.all():
-            key = severity.value if hasattr(severity, 'value') else severity
-            severity_counts[key] = count
+            severity_counts[L.label(L.SEVERITY, severity)] = count
 
         # Daily trend
-        start_date = datetime.now() - timedelta(days=days)
         daily_trend: List[Dict] = []
         daily_result = await self.db.execute(
             select(
                 func.date(SystemEvent.created_at).label("date"),
                 func.count(SystemEvent.id).label("count"),
             )
-            .where(SystemEvent.created_at >= start_date)
+            .where(_range(SystemEvent.created_at))
             .group_by(func.date(SystemEvent.created_at))
             .order_by(func.date(SystemEvent.created_at))
         )
@@ -1222,25 +1267,36 @@ class ReportServiceAsync:
             "daily_trend": daily_trend,
         }
 
-    async def get_user_statistics(self, days: int = 7) -> Dict[str, Any]:
-        """사용자 통계 수집."""
-        # Role distribution
+    async def get_user_statistics(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """사용자 통계 수집. v6.1: role/result 한국어 라벨 통일 + start_date/end_date."""
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
+        # Role distribution (한국어 라벨)
         role_counts: Dict[str, int] = {}
         role_result = await self.db.execute(
             select(AccountUser.role, func.count(AccountUser.id)).group_by(AccountUser.role)
         )
         for role, count in role_result.all():
-            role_counts[role] = count
+            role_counts[L.label(L.ROLE, role)] = count
 
-        # Login daily trend
-        start_date = datetime.now() - timedelta(days=days)
+        # Login daily trend (기간 필터 적용)
         login_daily_trend: List[Dict] = []
         login_result = await self.db.execute(
             select(
                 func.date(UserLoginLog.created_at).label("date"),
                 func.count(UserLoginLog.id).label("count"),
             )
-            .where(UserLoginLog.created_at >= start_date)
+            .where(_range(UserLoginLog.created_at))
             .group_by(func.date(UserLoginLog.created_at))
             .order_by(func.date(UserLoginLog.created_at))
         )
@@ -1250,13 +1306,15 @@ class ReportServiceAsync:
                 "count": row.count,
             })
 
-        # Login result distribution
+        # Login result distribution (한국어 라벨)
         login_result_counts: Dict[str, int] = {}
         result_res = await self.db.execute(
-            select(UserLoginLog.result, func.count(UserLoginLog.id)).group_by(UserLoginLog.result)
+            select(UserLoginLog.result, func.count(UserLoginLog.id))
+            .where(_range(UserLoginLog.created_at))
+            .group_by(UserLoginLog.result)
         )
         for result_val, count in result_res.all():
-            login_result_counts[result_val] = count
+            login_result_counts[L.label(L.RESULT, result_val)] = count
 
         return {
             "role_counts": role_counts,
@@ -1281,30 +1339,48 @@ class ReportServiceAsync:
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_detection_grid_data(self, days: int = 7) -> Dict[str, Any]:
-        """탐지 이벤트 그리드 데이터."""
+    async def get_detection_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """탐지 이벤트 그리드 데이터. v6.1: N+1 제거 (action 1회 batch fetch) + 라벨 통일."""
         columns = ["ID", "일시", "탐지유형", "장비유형", "장비명",
                    "조치보고일자", "조치자", "조치내용"]
-        start_date = datetime.now() - timedelta(days=days)
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         events_result = await self.db.execute(
             select(DetectionEvent)
             .options(selectinload(DetectionEvent.device))
-            .outerjoin(Device, DetectionEvent.device_id == Device.id)
-            .where(DetectionEvent.created_at >= start_date)
+            .where(_range(DetectionEvent.created_at))
             .order_by(DetectionEvent.created_at.desc())
         )
         events = events_result.scalars().all()
+
+        # v6.1 N+1 제거: 이벤트 ID 목록으로 action 1회 조회 → dict 매핑
+        event_ids = [e.id for e in events]
+        action_by_event: Dict[int, ActionEvent] = {}
+        if event_ids:
+            act_all = await self.db.execute(
+                select(ActionEvent).where(ActionEvent.from_event_id.in_(event_ids))
+            )
+            for a in act_all.scalars().all():
+                action_by_event.setdefault(a.from_event_id, a)
+
         rows = []
         for e in events:
-            act_result = await self.db.execute(
-                select(ActionEvent).where(ActionEvent.from_event_id == e.id)
-            )
-            action = act_result.scalars().first()
+            action = action_by_event.get(e.id)
             rows.append([
                 e.id,
                 e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
-                e.result.value if hasattr(e.result, 'value') else str(e.result) if e.result else "",
-                e.device.category_device.value if e.device and hasattr(e.device.category_device, 'value') else "",
+                L.label(L.DETECTION, e.result),
+                L.label(L.DEVICE_CATEGORY, e.device.category_device) if e.device else "",
                 e.device.name_device if e.device else "",
                 action.created_at.strftime('%Y-%m-%d %H:%M:%S') if action and action.created_at else "-",
                 action.user if action else "-",
@@ -1312,30 +1388,48 @@ class ReportServiceAsync:
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_malfunction_grid_data(self, days: int = 7) -> Dict[str, Any]:
-        """장애 이벤트 그리드 데이터."""
+    async def get_malfunction_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """장애 이벤트 그리드 데이터. v6.1: N+1 제거 + 라벨 통일."""
         columns = ["ID", "일시", "장애유형", "장비유형", "장비명",
                    "조치보고일자", "조치자", "조치내용"]
-        start_date = datetime.now() - timedelta(days=days)
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         events_result = await self.db.execute(
             select(MalfunctionEvent)
             .options(selectinload(MalfunctionEvent.device))
-            .outerjoin(Device, MalfunctionEvent.device_id == Device.id)
-            .where(MalfunctionEvent.created_at >= start_date)
+            .where(_range(MalfunctionEvent.created_at))
             .order_by(MalfunctionEvent.created_at.desc())
         )
         events = events_result.scalars().all()
+
+        # v6.1 N+1 제거
+        event_ids = [e.id for e in events]
+        action_by_event: Dict[int, ActionEvent] = {}
+        if event_ids:
+            act_all = await self.db.execute(
+                select(ActionEvent).where(ActionEvent.from_event_id.in_(event_ids))
+            )
+            for a in act_all.scalars().all():
+                action_by_event.setdefault(a.from_event_id, a)
+
         rows = []
         for e in events:
-            act_result = await self.db.execute(
-                select(ActionEvent).where(ActionEvent.from_event_id == e.id)
-            )
-            action = act_result.scalars().first()
+            action = action_by_event.get(e.id)
             rows.append([
                 e.id,
                 e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
-                e.reason.value if hasattr(e.reason, 'value') else str(e.reason) if e.reason else "",
-                e.device.category_device.value if e.device and hasattr(e.device.category_device, 'value') else "",
+                L.label(L.FAULT, e.reason),
+                L.label(L.DEVICE_CATEGORY, e.device.category_device) if e.device else "",
                 e.device.name_device if e.device else "",
                 action.created_at.strftime('%Y-%m-%d %H:%M:%S') if action and action.created_at else "-",
                 action.user if action else "-",
@@ -1343,13 +1437,24 @@ class ReportServiceAsync:
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_action_grid_data(self, days: int = 7) -> Dict[str, Any]:
+    async def get_action_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
         """조치 이벤트 그리드 데이터."""
         columns = ["ID", "일시", "이벤트유형", "내용", "조치자"]
-        start_date = datetime.now() - timedelta(days=days)
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         result = await self.db.execute(
             select(ActionEvent)
-            .where(ActionEvent.created_at >= start_date)
+            .where(_range(ActionEvent.created_at))
             .order_by(ActionEvent.created_at.desc())
             .limit(100)
         )
@@ -1359,19 +1464,30 @@ class ReportServiceAsync:
             rows.append([
                 e.id,
                 e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
-                e.type_event or "",
+                L.label(L.ACTION_TYPE, e.type_event) if e.type_event else "",
                 getattr(e, 'content', "") or "",
                 getattr(e, 'user', "") or "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_system_event_grid_data(self, days: int = 7) -> Dict[str, Any]:
-        """시스템 이벤트 그리드 데이터."""
-        columns = ["ID", "일시", "유형", "심각도", "메시지"]
-        start_date = datetime.now() - timedelta(days=days)
+    async def get_system_event_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """시스템 이벤트 그리드 데이터. v6.1: title 컬럼 추가 + 라벨 통일."""
+        columns = ["ID", "일시", "유형", "심각도", "제목", "메시지"]
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         result = await self.db.execute(
             select(SystemEvent)
-            .where(SystemEvent.created_at >= start_date)
+            .where(_range(SystemEvent.created_at))
             .order_by(SystemEvent.created_at.desc())
             .limit(100)
         )
@@ -1381,19 +1497,31 @@ class ReportServiceAsync:
             rows.append([
                 e.id,
                 e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else "",
-                e.type_event.value if hasattr(e.type_event, 'value') else str(e.type_event) if e.type_event else "",
-                e.severity.value if hasattr(e.severity, 'value') else str(e.severity) if e.severity else "",
+                L.label(L.SYSTEM_EVENT, e.type_event),
+                L.label(L.SEVERITY, e.severity),
+                e.title or "",
                 e.message or "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_config_grid_data(self, days: int = 7) -> Dict[str, Any]:
-        """설정 변경 이력 그리드 데이터."""
-        columns = ["ID", "일시", "리소스유형", "액션", "리소스ID"]
-        start_date = datetime.now() - timedelta(days=days)
+    async def get_config_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """설정 변경 이력 그리드 데이터. v6.1: actor/resource_name/description 컬럼 확장 + 라벨 통일."""
+        columns = ["ID", "일시", "행위자", "IP", "리소스유형", "리소스명", "액션", "변경설명"]
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         result = await self.db.execute(
             select(ConfigChangeLog)
-            .where(ConfigChangeLog.created_at >= start_date)
+            .where(_range(ConfigChangeLog.created_at))
             .order_by(ConfigChangeLog.created_at.desc())
             .limit(100)
         )
@@ -1403,37 +1531,52 @@ class ReportServiceAsync:
             rows.append([
                 log.id,
                 log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
-                log.resource_type.value if hasattr(log.resource_type, 'value') else (log.resource_type or ""),
-                log.action.value if hasattr(log.action, 'value') else (log.action or ""),
-                log.resource_id if hasattr(log, 'resource_id') else "",
+                getattr(log, 'actor_name', None) or "(system)",
+                getattr(log, 'actor_ip', None) or "",
+                L.label(L.CONFIG_RESOURCE, log.resource_type),
+                getattr(log, 'resource_name', None) or (str(getattr(log, 'resource_id', '')) if getattr(log, 'resource_id', None) is not None else ""),
+                L.label(L.CONFIG_ACTION, log.action),
+                getattr(log, 'description', None) or "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_audit_grid_data(self, days: int = 7) -> Dict[str, Any]:
-        """감사 로그 그리드 데이터."""
+    async def get_audit_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """감사 로그 그리드 데이터. v6.1: actor_login_id 폴백 + 라벨 통일."""
         columns = ["ID", "일시", "액션", "상태", "리소스", "행위자"]
-        start_date = datetime.now() - timedelta(days=days)
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         result = await self.db.execute(
             select(AuditLog)
-            .where(AuditLog.created_at >= start_date)
+            .where(_range(AuditLog.created_at))
             .order_by(AuditLog.created_at.desc())
             .limit(100)
         )
         logs = result.scalars().all()
         rows = []
         for log in logs:
+            actor = log.actor_name or getattr(log, 'actor_login_id', None) or "(system)"
             rows.append([
                 log.id,
                 log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
-                log.action_type or "",
-                log.action_status or "",
-                log.resource_type or "",
-                log.actor_name or "",
+                L.label(L.AUDIT_ACTION, log.action_type),
+                L.label(L.RESULT, log.action_status),
+                L.label(L.AUDIT_RESOURCE, log.resource_type),
+                actor,
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
     async def get_user_grid_data(self) -> Dict[str, Any]:
-        """사용자 목록 그리드 데이터."""
+        """사용자 목록 그리드 데이터. v6.1: role 한국어 라벨 통일."""
         columns = ["ID", "로그인ID", "이름", "역할", "이메일"]
         result = await self.db.execute(select(AccountUser))
         users = result.scalars().all()
@@ -1443,18 +1586,29 @@ class ReportServiceAsync:
                 u.id,
                 u.login_id or "",
                 u.name or "",
-                u.role or "",
+                L.label(L.ROLE, u.role),
                 u.email or "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
-    async def get_user_login_grid_data(self, days: int = 7) -> Dict[str, Any]:
-        """로그인 이력 그리드 데이터."""
+    async def get_user_login_grid_data(
+        self,
+        days: int = 7,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """로그인 이력 그리드 데이터. v6.1: 라벨 통일."""
         columns = ["ID", "일시", "로그인ID", "액션", "결과", "IP"]
-        start_date = datetime.now() - timedelta(days=days)
+        _start, _end = self._resolve_range(days, start_date, end_date)
+
+        def _range(col):
+            cond = col >= _start
+            return cond if _end is None else and_(cond, col <= _end)
+
         result = await self.db.execute(
             select(UserLoginLog)
-            .where(UserLoginLog.created_at >= start_date)
+            .where(_range(UserLoginLog.created_at))
             .order_by(UserLoginLog.created_at.desc())
             .limit(100)
         )
@@ -1465,29 +1619,38 @@ class ReportServiceAsync:
                 log.id,
                 log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else "",
                 log.login_id or "",
-                log.action or "",
-                log.result or "",
+                L.label(L.LOGIN_ACTION, log.action),
+                L.label(L.RESULT, log.result),
                 log.ip_address or "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
     async def get_user_session_grid_data(self) -> Dict[str, Any]:
-        """사용자 세션 그리드 데이터."""
-        columns = ["ID", "사용자ID", "IP", "생성일", "만료일"]
+        """사용자 세션 그리드 데이터. v6.1: account_users LEFT JOIN 으로 로그인ID/사용자명 노출."""
+        columns = ["ID", "로그인ID", "사용자명", "IP", "생성일", "만료일"]
         result = await self.db.execute(
-            select(UserSession)
+            select(
+                UserSession.id,
+                UserSession.user_id,
+                UserSession.ip_address,
+                UserSession.created_at,
+                UserSession.expires_at,
+                AccountUser.login_id,
+                AccountUser.name,
+            )
+            .outerjoin(AccountUser, AccountUser.id == UserSession.user_id)
             .order_by(UserSession.created_at.desc())
             .limit(100)
         )
-        sessions = result.scalars().all()
         rows = []
-        for s in sessions:
+        for r in result.all():
             rows.append([
-                s.id,
-                s.user_id,
-                s.ip_address or "",
-                s.created_at.strftime('%Y-%m-%d %H:%M:%S') if s.created_at else "",
-                s.expires_at.strftime('%Y-%m-%d %H:%M:%S') if s.expires_at else "",
+                r.id,
+                r.login_id or f"(uid:{r.user_id})",
+                r.name or "",
+                r.ip_address or "",
+                r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else "",
+                r.expires_at.strftime('%Y-%m-%d %H:%M:%S') if r.expires_at else "",
             ])
         return {"columns": columns, "rows": rows, "total_rows": len(rows)}
 
@@ -1495,24 +1658,33 @@ class ReportServiceAsync:
         self,
         days: int = 7,
         enabled_components: Optional[List[str]] = None,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
-        """구조화된 보고서 미리보기 데이터 생성 (11섹션)."""
+        """구조화된 보고서 미리보기 데이터 생성 (11섹션).
+
+        v6.1: start_date/end_date 우선 사용 (없으면 days로 now-N일 fallback).
+        HTML/PDF 파이프라인(build_master_data_async)과 필터 소스 통일.
+        """
+        rng = {"start_date": start_date, "end_date": end_date}
+
         device_stats = await self.get_device_statistics()
-        event_stats = await self.get_event_statistics(days)
-        system_stats = await self.get_system_statistics(days)
-        user_stats = await self.get_user_statistics(days)
+        event_stats = await self.get_event_statistics(days, **rng)
+        system_stats = await self.get_system_statistics(days, **rng)
+        user_stats = await self.get_user_statistics(days, **rng)
         device_categories = await self.get_device_category_summary()
         server_status = await self.get_server_status_summary()
 
         device_grid = await self.get_device_grid_data()
-        detection_grid = await self.get_detection_grid_data(days)
-        malfunction_grid = await self.get_malfunction_grid_data(days)
-        action_grid = await self.get_action_grid_data(days)
-        system_event_grid = await self.get_system_event_grid_data(days)
-        config_grid = await self.get_config_grid_data(days)
-        audit_grid = await self.get_audit_grid_data(days)
+        detection_grid = await self.get_detection_grid_data(days, **rng)
+        malfunction_grid = await self.get_malfunction_grid_data(days, **rng)
+        action_grid = await self.get_action_grid_data(days, **rng)
+        system_event_grid = await self.get_system_event_grid_data(days, **rng)
+        config_grid = await self.get_config_grid_data(days, **rng)
+        audit_grid = await self.get_audit_grid_data(days, **rng)
         user_grid = await self.get_user_grid_data()
-        user_login_grid = await self.get_user_login_grid_data(days)
+        user_login_grid = await self.get_user_login_grid_data(days, **rng)
         user_session_grid = await self.get_user_session_grid_data()
 
         sections = [

@@ -212,28 +212,40 @@ def build_master_data(
     # ── 6. 시스템 / 운영 로그 ──
     sys_sev = [(L.label(L.SEVERITY, r[0]), int(r[1])) for r in q(f"select severity, count(*) from system_events where {CC}{SEV_FILTER} group by severity order by 2 desc")]
     sys_daily = q(f"select to_char(date_trunc('day',created_at),'MM-DD'), count(*) from system_events where {CC}{SEV_FILTER} group by 1 order by 1")
-    sys_rows = [[r[0], r[1], L.label(L.SYSTEM_EVENT, r[2]), L.label(L.SEVERITY, r[3]), r[4] or ""]
-                for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, message from system_events where {CC}{SEV_FILTER} order by created_at desc")]
+    # v6.1: title 컬럼 추가
+    sys_rows = [[r[0], r[1], L.label(L.SYSTEM_EVENT, r[2]), L.label(L.SEVERITY, r[3]), r[4], r[5]]
+                for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, coalesce(title,''), coalesce(message,'') from system_events where {CC}{SEV_FILTER} order by created_at desc")]
     sections.append({"no": 6, "name": "시스템 / 운영 로그", "sub": "현황 분석", "blocks": [
         {"type": "charts", "charts": [
             _chart("SYSTEM_SEVERITY_BAR", "sys_sev", "심각도별 분포", "vbar", [x[0] for x in sys_sev], [x[1] for x in sys_sev]),
             _chart("SYSTEM_TREND_LINE", "sys_trend", "시스템 이벤트 추이", "line", [str(r[0]) for r in sys_daily], [int(r[1]) for r in sys_daily]),
         ]},
-        _grid("SYSTEM_EVENT_GRID", "시스템 이벤트 목록", ["번호", "발생 일시", "유형", "심각도", "메시지"],
-              [8, 18, 18, 14, 42], sys_rows, sys_total),
+        _grid("SYSTEM_EVENT_GRID", "시스템 이벤트 목록", ["번호", "발생 일시", "유형", "심각도", "제목", "메시지"],
+              [7, 16, 15, 12, 20, 30], sys_rows, sys_total),
     ]})
 
     # ── 7. 설정 변경 이력 ──
-    cfg_rows = [[r[0], r[1], L.label(L.CONFIG_RESOURCE, r[2]), L.label(L.CONFIG_ACTION, r[3]), str(r[4] or "")]
-                for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), resource_type::text, action::text, resource_id from config_change_logs where {CC} order by created_at desc")]
+    # v6.1: actor_name, actor_ip, resource_name, description 확장
+    cfg_rows = [[r[0], r[1], r[2], r[3], L.label(L.CONFIG_RESOURCE, r[4]),
+                 (r[5] or r[6] or ""), L.label(L.CONFIG_ACTION, r[7]), r[8]]
+                for r in q(f"""select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+                    coalesce(actor_name, '(system)'), coalesce(actor_ip, ''),
+                    resource_type::text, coalesce(resource_name, ''), coalesce(cast(resource_id as text), ''),
+                    action::text, coalesce(description, '')
+                    from config_change_logs where {CC} order by created_at desc""")]
     sections.append({"no": 7, "name": "설정 변경 이력", "sub": "상세 데이터", "blocks": [
-        _grid("SYSTEM_CONFIG_GRID", "설정 변경 이력", ["번호", "변경 일시", "리소스 유형", "액션", "리소스 ID"],
-              [8, 18, 28, 18, 28], cfg_rows, cfg_total),
+        _grid("SYSTEM_CONFIG_GRID", "설정 변경 이력",
+              ["번호", "변경 일시", "행위자", "IP", "리소스 유형", "리소스명", "액션", "변경설명"],
+              [6, 13, 12, 12, 14, 15, 10, 18], cfg_rows, cfg_total),
     ]})
 
     # ── 8. 감사 로그 ──
-    aud_rows = [[r[0], r[1], L.label(L.AUDIT_ACTION, r[2]), L.label(L.RESULT, r[3]), L.label(L.AUDIT_RESOURCE, r[4]), r[5] or ""]
-                for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), action_type, action_status, resource_type, actor_name from audit_logs where {CC} order by created_at desc")]
+    # v6.1: actor_login_id 폴백
+    aud_rows = [[r[0], r[1], L.label(L.AUDIT_ACTION, r[2]), L.label(L.RESULT, r[3]), L.label(L.AUDIT_RESOURCE, r[4]), r[5]]
+                for r in q(f"""select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+                    action_type, action_status, resource_type,
+                    coalesce(actor_name, actor_login_id, '(system)')
+                    from audit_logs where {CC} order by created_at desc""")]
     sections.append({"no": 8, "name": "감사 로그", "sub": "상세 데이터", "blocks": [
         _grid("SYSTEM_AUDIT_GRID", "감사 로그", ["번호", "발생 일시", "액션", "상태", "리소스", "행위자"],
               [8, 18, 18, 14, 20, 22], aud_rows, aud_total),
@@ -247,8 +259,14 @@ def build_master_data(
                 for r in q("select id, login_id, name, role, email from account_users order by id")]
     log_rows = [[r[0], r[1], r[2] or "", L.label(L.LOGIN_ACTION, r[3]), L.label(L.RESULT, r[4]), r[5] or ""]
                 for r in q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), login_id, action, result, ip_address from user_login_logs where {CC} order by created_at desc")]
-    ses_rows = [[r[0], str(r[1] or ""), r[2] or "", r[3], r[4]]
-                for r in q("select id, user_id, ip_address, to_char(created_at,'YYYY-MM-DD HH24:MI'), to_char(expires_at,'YYYY-MM-DD HH24:MI') from user_sessions order by created_at desc")]
+    # v6.1: account_users LEFT JOIN
+    ses_rows = [[r[0], r[2] or f"(uid:{r[1]})", r[3], r[4], r[5], r[6]]
+                for r in q("""select s.id, s.user_id, coalesce(u.login_id,''), coalesce(u.name,''),
+                    coalesce(s.ip_address,''),
+                    to_char(s.created_at,'YYYY-MM-DD HH24:MI'),
+                    to_char(s.expires_at,'YYYY-MM-DD HH24:MI')
+                    from user_sessions s left join account_users u on u.id = s.user_id
+                    order by s.created_at desc""")]
     sections.append({"no": 9, "name": "사용자 현황", "sub": "현황 분석", "blocks": [
         {"type": "charts", "charts": [
             _chart("USER_ROLE_PIE", "usr_role", "역할별 사용자 분포", "doughnut", [x[0] for x in usr_role], [x[1] for x in usr_role], center=[f"{usr_total}", "명"]),
@@ -259,7 +277,8 @@ def build_master_data(
         ]},
         _grid("USER_GRID", "사용자 목록", ["ID", "로그인 ID", "이름", "역할", "이메일"], [8, 20, 18, 18, 36], usr_rows, usr_total),
         _grid("USER_LOGIN_GRID", "로그인 이력", ["번호", "발생 일시", "로그인 ID", "액션", "결과", "IP"], [8, 18, 20, 14, 14, 26], log_rows, log_total),
-        _grid("USER_SESSION_GRID", "세션 목록", ["ID", "사용자 ID", "IP", "생성 일시", "만료 일시"], [10, 16, 24, 25, 25], ses_rows, ses_total),
+        _grid("USER_SESSION_GRID", "세션 목록", ["ID", "로그인 ID", "사용자명", "IP", "생성 일시", "만료 일시"],
+              [8, 15, 15, 15, 22, 25], ses_rows, ses_total),
     ]})
 
     # ── 10. 서버 현황 ──
@@ -433,30 +452,42 @@ async def build_master_data_async(
     _sys_sev_raw = await q(f"select severity, count(*) from system_events where {CC}{SEV_FILTER} group by severity order by 2 desc")
     sys_sev = [(L.label(L.SEVERITY, r[0]), int(r[1])) for r in _sys_sev_raw]
     sys_daily = await q(f"select to_char(date_trunc('day',created_at),'MM-DD'), count(*) from system_events where {CC}{SEV_FILTER} group by 1 order by 1")
-    _sys_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, message from system_events where {CC}{SEV_FILTER} order by created_at desc")
-    sys_rows = [[r[0], r[1], L.label(L.SYSTEM_EVENT, r[2]), L.label(L.SEVERITY, r[3]), r[4] or ""]
+    # v6.1: title 컬럼 추가 (NOT NULL 필드지만 리포트에서 누락됐던 항목)
+    _sys_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, coalesce(title,''), coalesce(message,'') from system_events where {CC}{SEV_FILTER} order by created_at desc")
+    sys_rows = [[r[0], r[1], L.label(L.SYSTEM_EVENT, r[2]), L.label(L.SEVERITY, r[3]), r[4], r[5]]
                 for r in _sys_rows_raw]
     sections.append({"no": 6, "name": "시스템 / 운영 로그", "sub": "현황 분석", "blocks": [
         {"type": "charts", "charts": [
             _chart("SYSTEM_SEVERITY_BAR", "sys_sev", "심각도별 분포", "vbar", [x[0] for x in sys_sev], [x[1] for x in sys_sev]),
             _chart("SYSTEM_TREND_LINE", "sys_trend", "시스템 이벤트 추이", "line", [str(r[0]) for r in sys_daily], [int(r[1]) for r in sys_daily]),
         ]},
-        _grid("SYSTEM_EVENT_GRID", "시스템 이벤트 목록", ["번호", "발생 일시", "유형", "심각도", "메시지"],
-              [8, 18, 18, 14, 42], sys_rows, sys_total),
+        _grid("SYSTEM_EVENT_GRID", "시스템 이벤트 목록", ["번호", "발생 일시", "유형", "심각도", "제목", "메시지"],
+              [7, 16, 15, 12, 20, 30], sys_rows, sys_total),
     ]})
 
     # ── 7. 설정 변경 이력 ──
-    _cfg_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), resource_type::text, action::text, resource_id from config_change_logs where {CC} order by created_at desc")
-    cfg_rows = [[r[0], r[1], L.label(L.CONFIG_RESOURCE, r[2]), L.label(L.CONFIG_ACTION, r[3]), str(r[4] or "")]
+    # v6.1: actor_name, actor_ip, resource_name, description 컬럼 추가 (감사 핵심 정보 노출)
+    _cfg_raw = await q(f"""select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+        coalesce(actor_name, '(system)'), coalesce(actor_ip, ''),
+        resource_type::text, coalesce(resource_name, ''), coalesce(cast(resource_id as text), ''),
+        action::text, coalesce(description, '')
+        from config_change_logs where {CC} order by created_at desc""")
+    cfg_rows = [[r[0], r[1], r[2], r[3], L.label(L.CONFIG_RESOURCE, r[4]),
+                 (r[5] or r[6] or ""), L.label(L.CONFIG_ACTION, r[7]), r[8]]
                 for r in _cfg_raw]
     sections.append({"no": 7, "name": "설정 변경 이력", "sub": "상세 데이터", "blocks": [
-        _grid("SYSTEM_CONFIG_GRID", "설정 변경 이력", ["번호", "변경 일시", "리소스 유형", "액션", "리소스 ID"],
-              [8, 18, 28, 18, 28], cfg_rows, cfg_total),
+        _grid("SYSTEM_CONFIG_GRID", "설정 변경 이력",
+              ["번호", "변경 일시", "행위자", "IP", "리소스 유형", "리소스명", "액션", "변경설명"],
+              [6, 13, 12, 12, 14, 15, 10, 18], cfg_rows, cfg_total),
     ]})
 
     # ── 8. 감사 로그 ──
-    _aud_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), action_type, action_status, resource_type, actor_name from audit_logs where {CC} order by created_at desc")
-    aud_rows = [[r[0], r[1], L.label(L.AUDIT_ACTION, r[2]), L.label(L.RESULT, r[3]), L.label(L.AUDIT_RESOURCE, r[4]), r[5] or ""]
+    # v6.1: actor_login_id 폴백 (actor_name이 NULL이어도 행위자 표시)
+    _aud_raw = await q(f"""select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+        action_type, action_status, resource_type,
+        coalesce(actor_name, actor_login_id, '(system)')
+        from audit_logs where {CC} order by created_at desc""")
+    aud_rows = [[r[0], r[1], L.label(L.AUDIT_ACTION, r[2]), L.label(L.RESULT, r[3]), L.label(L.AUDIT_RESOURCE, r[4]), r[5]]
                 for r in _aud_raw]
     sections.append({"no": 8, "name": "감사 로그", "sub": "상세 데이터", "blocks": [
         _grid("SYSTEM_AUDIT_GRID", "감사 로그", ["번호", "발생 일시", "액션", "상태", "리소스", "행위자"],
@@ -475,8 +506,14 @@ async def build_master_data_async(
     _log_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), login_id, action, result, ip_address from user_login_logs where {CC} order by created_at desc")
     log_rows = [[r[0], r[1], r[2] or "", L.label(L.LOGIN_ACTION, r[3]), L.label(L.RESULT, r[4]), r[5] or ""]
                 for r in _log_rows_raw]
-    _ses_rows_raw = await q("select id, user_id, ip_address, to_char(created_at,'YYYY-MM-DD HH24:MI'), to_char(expires_at,'YYYY-MM-DD HH24:MI') from user_sessions order by created_at desc")
-    ses_rows = [[r[0], str(r[1] or ""), r[2] or "", r[3], r[4]]
+    # v6.1: account_users LEFT JOIN → login_id/name 노출 (사용자 식별 가능)
+    _ses_rows_raw = await q("""select s.id, s.user_id, coalesce(u.login_id, ''), coalesce(u.name, ''),
+        coalesce(s.ip_address, ''),
+        to_char(s.created_at,'YYYY-MM-DD HH24:MI'),
+        to_char(s.expires_at,'YYYY-MM-DD HH24:MI')
+        from user_sessions s left join account_users u on u.id = s.user_id
+        order by s.created_at desc""")
+    ses_rows = [[r[0], r[2] or f"(uid:{r[1]})", r[3], r[4], r[5], r[6]]
                 for r in _ses_rows_raw]
     sections.append({"no": 9, "name": "사용자 현황", "sub": "현황 분석", "blocks": [
         {"type": "charts", "charts": [
@@ -488,7 +525,8 @@ async def build_master_data_async(
         ]},
         _grid("USER_GRID", "사용자 목록", ["ID", "로그인 ID", "이름", "역할", "이메일"], [8, 20, 18, 18, 36], usr_rows, usr_total),
         _grid("USER_LOGIN_GRID", "로그인 이력", ["번호", "발생 일시", "로그인 ID", "액션", "결과", "IP"], [8, 18, 20, 14, 14, 26], log_rows, log_total),
-        _grid("USER_SESSION_GRID", "세션 목록", ["ID", "사용자 ID", "IP", "생성 일시", "만료 일시"], [10, 16, 24, 25, 25], ses_rows, ses_total),
+        _grid("USER_SESSION_GRID", "세션 목록", ["ID", "로그인 ID", "사용자명", "IP", "생성 일시", "만료 일시"],
+              [8, 15, 15, 15, 22, 25], ses_rows, ses_total),
     ]})
 
     # ── 10. 서버 현황 ──

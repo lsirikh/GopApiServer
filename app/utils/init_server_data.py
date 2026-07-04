@@ -10,7 +10,7 @@ from app.models.server import ServerCategory, Server
 from app.utils.enums import EnumServerType, EnumServerStatus
 
 
-# 기본 서버 카테고리 데이터 (9종)
+# 기본 서버 카테고리 (Static seed — 무조건 시드)
 DEFAULT_SERVER_CATEGORIES = [
     {
         "name": "VMS 서버",
@@ -69,6 +69,43 @@ DEFAULT_SERVER_CATEGORIES = [
 ]
 
 
+# Static seed — 9종 카테고리 각 1개 이상 인스턴스 보장 (v6.1: TRANSCODER/DB_API/NVR_API/SPEAKER_API/ENCLOSURE_API 5종 추가)
+# Server 모델 필드만 사용: category_id/name/status/ip_address/port/hostname
+# (cpu/ram/disk 등 실시간 메트릭은 ServerMetric 테이블 소관 — 별도 워커가 채움)
+DEFAULT_SAMPLE_SERVERS = [
+    {"type_server": EnumServerType.VMS,           "name": "VMS-ab1120",     "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.10", "port": 8080, "hostname": "vms-server-01"},
+    {"type_server": EnumServerType.VMS,           "name": "VMS-ab1121",     "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.11", "port": 8080, "hostname": "vms-server-02"},
+    {"type_server": EnumServerType.AI_ANALYSIS,   "name": "AI-ab2201",      "status": EnumServerStatus.WARNING, "ip_address": "192.168.1.20", "port": 8081, "hostname": "ai-server-01"},
+    {"type_server": EnumServerType.AI_ANALYSIS,   "name": "AI-ab2202",      "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.21", "port": 8081, "hostname": "ai-server-02"},
+    {"type_server": EnumServerType.AI_ANALYSIS,   "name": "AI-ab2203",      "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.22", "port": 8081, "hostname": "ai-server-03"},
+    {"type_server": EnumServerType.STREAMING,     "name": "STREAM-ab3301",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.30", "port": 1935, "hostname": "stream-server-01"},
+    {"type_server": EnumServerType.STREAMING,     "name": "STREAM-ab3302",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.31", "port": 1935, "hostname": "stream-server-02"},
+    {"type_server": EnumServerType.TRANSCODER,    "name": "TRANS-ab4401",   "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.40", "port": 8085, "hostname": "trans-server-01"},
+    {"type_server": EnumServerType.BROKER,        "name": "BROKER-ab5501",  "status": EnumServerStatus.ERROR,   "ip_address": "192.168.1.50", "port": 5672, "hostname": "broker-server-01"},
+    {"type_server": EnumServerType.BROKER,        "name": "BROKER-ab5502",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.51", "port": 5672, "hostname": "broker-server-02"},
+    {"type_server": EnumServerType.DB_API,        "name": "DBAPI-ab6601",   "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.60", "port": 8000, "hostname": "dbapi-server-01"},
+    {"type_server": EnumServerType.NVR_API,       "name": "NVRAPI-ab7701",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.70", "port": 8090, "hostname": "nvrapi-server-01"},
+    {"type_server": EnumServerType.SPEAKER_API,   "name": "SPKAPI-ab8801",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.80", "port": 8091, "hostname": "spkapi-server-01"},
+    {"type_server": EnumServerType.ENCLOSURE_API, "name": "ENCAPI-ab9901",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.90", "port": 8092, "hostname": "encapi-server-01"},
+]
+
+
+def _build_sample_server_rows(category_map: dict) -> list[dict]:
+    """DEFAULT_SAMPLE_SERVERS의 type_server를 category_id로 변환한 insert-ready row 목록.
+
+    카테고리 매핑이 없으면 그 인스턴스는 스킵. sync/async 공통 사용.
+    """
+    rows: list[dict] = []
+    for entry in DEFAULT_SAMPLE_SERVERS:
+        category_id = category_map.get(entry["type_server"])
+        if category_id is None:
+            continue
+        row = {k: v for k, v in entry.items() if k != "type_server"}
+        row["category_id"] = category_id
+        rows.append(row)
+    return rows
+
+
 def create_server_categories(db: Session) -> dict:
     """
     Create default server categories if not exists
@@ -110,161 +147,34 @@ def create_server_categories(db: Session) -> dict:
 
 
 def create_sample_servers(db: Session, category_map: dict):
-    """
-    Create sample server instances for testing/demo
+    """Create sample server instances for testing/demo (idempotent).
 
-    Args:
-        db: Database session
-        category_map: Dictionary mapping type_server to category_id
+    카테고리 9종을 모두 커버하는 인스턴스를 Static seed로 삽입.
     """
-    # Check if any servers exist
     existing_count = db.query(Server).count()
     if existing_count > 0:
         print(f"[OK] Sample servers already exist: {existing_count}")
         return
 
-    # Sample server data
-    sample_servers = [
-        # VMS 서버 인스턴스
-        {
-            "category_id": category_map.get(EnumServerType.VMS),
-            "name": "VMS-ab1120",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.10",
-            "port": 8080,
-            "hostname": "vms-server-01",
-            "cpu_usage": 45.0,
-            "ram_usage": 62.0,
-            "disk_usage": 78.0,
-            "network_throughput": "125MB/s"
-        },
-        {
-            "category_id": category_map.get(EnumServerType.VMS),
-            "name": "VMS-ab1121",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.11",
-            "port": 8080,
-            "hostname": "vms-server-02",
-            "cpu_usage": 38.0,
-            "ram_usage": 55.0,
-            "disk_usage": 65.0,
-            "network_throughput": "98MB/s"
-        },
-        # 지능형영상 분석 서버 인스턴스
-        {
-            "category_id": category_map.get(EnumServerType.AI_ANALYSIS),
-            "name": "AI-ab2201",
-            "status": EnumServerStatus.WARNING,
-            "ip_address": "192.168.1.20",
-            "port": 8081,
-            "hostname": "ai-server-01",
-            "cpu_usage": 82.0,
-            "ram_usage": 78.0,
-            "disk_usage": 45.0,
-            "network_throughput": "256MB/s"
-        },
-        {
-            "category_id": category_map.get(EnumServerType.AI_ANALYSIS),
-            "name": "AI-ab2202",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.21",
-            "port": 8081,
-            "hostname": "ai-server-02",
-            "cpu_usage": 65.0,
-            "ram_usage": 70.0,
-            "disk_usage": 52.0,
-            "network_throughput": "189MB/s"
-        },
-        {
-            "category_id": category_map.get(EnumServerType.AI_ANALYSIS),
-            "name": "AI-ab2203",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.22",
-            "port": 8081,
-            "hostname": "ai-server-03",
-            "cpu_usage": 58.0,
-            "ram_usage": 68.0,
-            "disk_usage": 48.0,
-            "network_throughput": "203MB/s"
-        },
-        # 스트리밍 서버 인스턴스
-        {
-            "category_id": category_map.get(EnumServerType.STREAMING),
-            "name": "STREAM-ab3301",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.30",
-            "port": 1935,
-            "hostname": "stream-server-01",
-            "cpu_usage": 52.0,
-            "ram_usage": 48.0,
-            "disk_usage": 35.0,
-            "network_throughput": "512MB/s"
-        },
-        {
-            "category_id": category_map.get(EnumServerType.STREAMING),
-            "name": "STREAM-ab3302",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.31",
-            "port": 1935,
-            "hostname": "stream-server-02",
-            "cpu_usage": 48.0,
-            "ram_usage": 52.0,
-            "disk_usage": 38.0,
-            "network_throughput": "489MB/s"
-        },
-        # 브로커 서버 인스턴스 (오류 상태 포함)
-        {
-            "category_id": category_map.get(EnumServerType.BROKER),
-            "name": "BROKER-ab5501",
-            "status": EnumServerStatus.ERROR,
-            "ip_address": "192.168.1.50",
-            "port": 5672,
-            "hostname": "broker-server-01",
-            "cpu_usage": 95.0,
-            "ram_usage": 88.0,
-            "disk_usage": 92.0,
-            "network_throughput": "45MB/s"
-        },
-        {
-            "category_id": category_map.get(EnumServerType.BROKER),
-            "name": "BROKER-ab5502",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.51",
-            "port": 5672,
-            "hostname": "broker-server-02",
-            "cpu_usage": 42.0,
-            "ram_usage": 55.0,
-            "disk_usage": 68.0,
-            "network_throughput": "78MB/s"
-        },
-    ]
-
-    # Create servers
-    created_count = 0
-    for server_data in sample_servers:
-        if server_data["category_id"] is not None:
-            server = Server(**server_data)
-            db.add(server)
-            created_count += 1
+    rows = _build_sample_server_rows(category_map)
+    for row in rows:
+        db.add(Server(**row))
 
     db.commit()
-    print(f"[OK] Sample servers created: {created_count}")
+    print(f"[OK] Sample servers created: {len(rows)}")
 
 
-def initialize_server_data(db: Session, include_samples: bool = False):
-    """
-    Initialize server monitoring data
+def initialize_server_data(db: Session, include_samples: bool = True):
+    """Initialize server monitoring data.
 
     Args:
         db: Database session
-        include_samples: If True, also create sample server instances
+        include_samples: v6.1부터 default True — Static seed 정책 (반드시 만들어져야 하는 서버).
     """
     print("Initializing server monitoring data...")
 
-    # Create categories
     category_map = create_server_categories(db)
 
-    # Optionally create sample servers
     if include_samples:
         create_sample_servers(db, category_map)
 
@@ -320,14 +230,7 @@ async def create_server_categories_async(db: AsyncSession) -> dict:
 
 
 async def create_sample_servers_async(db: AsyncSession, category_map: dict) -> None:
-    """
-    Async: Create sample server instances for testing/demo.
-
-    Args:
-        db: AsyncSession
-        category_map: Dictionary mapping type_server to category_id
-    """
-    # Check if any servers exist
+    """Async: Create sample server instances for testing/demo (idempotent)."""
     from sqlalchemy import func
     result = await db.execute(select(func.count()).select_from(Server))
     existing_count = result.scalar() or 0
@@ -335,150 +238,27 @@ async def create_sample_servers_async(db: AsyncSession, category_map: dict) -> N
         print(f"[OK] Sample servers already exist: {existing_count}")
         return
 
-    # Sample server data (동일 구조 재사용)
-    sample_servers = [
-        # VMS 서버 인스턴스
-        {
-            "category_id": category_map.get(EnumServerType.VMS),
-            "name": "VMS-ab1120",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.10",
-            "port": 8080,
-            "hostname": "vms-server-01",
-            "cpu_usage": 45.0,
-            "ram_usage": 62.0,
-            "disk_usage": 78.0,
-            "network_throughput": "125MB/s",
-        },
-        {
-            "category_id": category_map.get(EnumServerType.VMS),
-            "name": "VMS-ab1121",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.11",
-            "port": 8080,
-            "hostname": "vms-server-02",
-            "cpu_usage": 38.0,
-            "ram_usage": 55.0,
-            "disk_usage": 65.0,
-            "network_throughput": "98MB/s",
-        },
-        # 지능형영상 분석 서버 인스턴스
-        {
-            "category_id": category_map.get(EnumServerType.AI_ANALYSIS),
-            "name": "AI-ab2201",
-            "status": EnumServerStatus.WARNING,
-            "ip_address": "192.168.1.20",
-            "port": 8081,
-            "hostname": "ai-server-01",
-            "cpu_usage": 82.0,
-            "ram_usage": 78.0,
-            "disk_usage": 45.0,
-            "network_throughput": "256MB/s",
-        },
-        {
-            "category_id": category_map.get(EnumServerType.AI_ANALYSIS),
-            "name": "AI-ab2202",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.21",
-            "port": 8081,
-            "hostname": "ai-server-02",
-            "cpu_usage": 65.0,
-            "ram_usage": 70.0,
-            "disk_usage": 52.0,
-            "network_throughput": "189MB/s",
-        },
-        {
-            "category_id": category_map.get(EnumServerType.AI_ANALYSIS),
-            "name": "AI-ab2203",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.22",
-            "port": 8081,
-            "hostname": "ai-server-03",
-            "cpu_usage": 58.0,
-            "ram_usage": 68.0,
-            "disk_usage": 48.0,
-            "network_throughput": "203MB/s",
-        },
-        # 스트리밍 서버 인스턴스
-        {
-            "category_id": category_map.get(EnumServerType.STREAMING),
-            "name": "STREAM-ab3301",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.30",
-            "port": 1935,
-            "hostname": "stream-server-01",
-            "cpu_usage": 52.0,
-            "ram_usage": 48.0,
-            "disk_usage": 35.0,
-            "network_throughput": "512MB/s",
-        },
-        {
-            "category_id": category_map.get(EnumServerType.STREAMING),
-            "name": "STREAM-ab3302",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.31",
-            "port": 1935,
-            "hostname": "stream-server-02",
-            "cpu_usage": 48.0,
-            "ram_usage": 52.0,
-            "disk_usage": 38.0,
-            "network_throughput": "489MB/s",
-        },
-        # 브로커 서버 인스턴스 (오류 상태 포함)
-        {
-            "category_id": category_map.get(EnumServerType.BROKER),
-            "name": "BROKER-ab5501",
-            "status": EnumServerStatus.ERROR,
-            "ip_address": "192.168.1.50",
-            "port": 5672,
-            "hostname": "broker-server-01",
-            "cpu_usage": 95.0,
-            "ram_usage": 88.0,
-            "disk_usage": 92.0,
-            "network_throughput": "45MB/s",
-        },
-        {
-            "category_id": category_map.get(EnumServerType.BROKER),
-            "name": "BROKER-ab5502",
-            "status": EnumServerStatus.NORMAL,
-            "ip_address": "192.168.1.51",
-            "port": 5672,
-            "hostname": "broker-server-02",
-            "cpu_usage": 42.0,
-            "ram_usage": 55.0,
-            "disk_usage": 68.0,
-            "network_throughput": "78MB/s",
-        },
-    ]
-
-    # Bulk add + single commit (async)
-    created_count = 0
-    for server_data in sample_servers:
-        if server_data["category_id"] is not None:
-            server = Server(**server_data)
-            db.add(server)
-            created_count += 1
+    rows = _build_sample_server_rows(category_map)
+    for row in rows:
+        db.add(Server(**row))
 
     await db.commit()
-    print(f"[OK] Sample servers created: {created_count}")
+    print(f"[OK] Sample servers created: {len(rows)}")
 
 
 async def initialize_server_data_async(
-    db: AsyncSession, include_samples: bool = False
+    db: AsyncSession, include_samples: bool = True
 ) -> None:
-    """
-    Async: Initialize server monitoring data.
+    """Async: Initialize server monitoring data.
 
     Args:
         db: AsyncSession
-        include_samples: If True, also create sample server instances
+        include_samples: v6.1부터 default True — Static seed 정책.
     """
     print("Initializing server monitoring data (async)...")
 
-    # Create categories
     category_map = await create_server_categories_async(db)
 
-    # Optionally create sample servers
     if include_samples:
         await create_sample_servers_async(db, category_map)
 

@@ -4,6 +4,42 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-auth_mode_secure_default — AUTH_MODE 기본값 token 뒤집기 + 부팅 WARN (2026-07-05)
+
+> 사용자 질문 "깃으로 받으면 public으로 동작하나?" 후속 조치. 깃 clone 후 그대로 `docker compose up` 하면 RBAC 무집행 상태로 노출되는 보안 위험 근본 봉합.
+
+**이전 동작**:
+- `.gitignore:49`에 `.env*` — 깃에는 `.env` 없음
+- `docker-compose.yml:49`: `AUTH_MODE=${AUTH_MODE:-public}` → env 없으면 **public 폴백**
+- 클론 → docker up → **Bearer 없이 API 접근 가능** (실수 배포 시 무인증 노출)
+
+**변경**:
+| 파일 | 이전 | 이후 |
+|---|---|---|
+| `docker-compose.yml:49` | `AUTH_MODE=${AUTH_MODE:-public}` | `AUTH_MODE=${AUTH_MODE:-token}` (secure by default) |
+| `app/main.py` lifespan | `Authentication Mode: {mode}` 한 줄 | mode == "public" 이면 **큰 WARN 3줄** (`!!!!` bar + 원인 + 조치 안내) |
+| `app/config.py:88` validator | 유지 (staging/prod에서 public 거부) | 유지 |
+
+**Secure by default 3중 방어**:
+1. **기본값 token** (docker-compose) — 클론 후 즉시 안전 상태
+2. **부팅 WARN** (main.py) — 실수로 public 배포 시 즉시 로그로 감지
+3. **staging/prod 거부** (config.py validator) — `ENVIRONMENT=production/staging`에서 public 강제 거부
+
+**실측 검증 (2026-07-05)**:
+- Env 없이 부팅 → `Authentication Mode: token (RBAC enforced)` (secure default)
+- `AUTH_MODE=public docker compose up` (강제 override) → 부팅 로그:
+  ```
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  [WARN] Authentication Mode: PUBLIC — RBAC dormant, Bearer 없이 API 접근 가능
+  [WARN] 프로덕션 배포 시 .env 또는 환경변수에 AUTH_MODE=token 명시 필요
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ```
+- `.env`에 `AUTH_MODE=token` 있는 로컬 환경 → 동일 `Authentication Mode: token (RBAC enforced)` (기존 개발 동작 무변경)
+
+**클라 관점 (v6.0_report_updates_NOTIFY.md 보완)**:
+- 깃 clone + docker up으로 서버 띄운 클라 세션(.NET)은 이제 **Bearer 필수** 로 동작
+- 개발 편의로 public이 필요하면 `.env`에 `AUTH_MODE=public` 명시적 지정 (당장 auth 없이 API 테스트 필요할 때)
+
 ### v6.0-report_progress_perf — 진행률 + Stall 워치도그 + SQL 집계 이관 (2026-07-05)
 
 > 사용자 요청 — "타임아웃보다 진행률 계산하고 stall만 kill하는 게 낫지 않아?"

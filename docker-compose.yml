@@ -46,7 +46,9 @@ services:
       # v6.0-report_persistence FR-RPP-01: PDF 영속 볼륨 (recreate 시 유지)
       - api-test-reports:/app/reports
     environment:
-      - AUTH_MODE=${AUTH_MODE:-public}
+      # v6.0-auth_mode_secure_default (2026-07-05): 기본값 public → token (secure by default).
+      # 개발 편의로 public이 필요하면 .env 또는 호스트 환경변수에 AUTH_MODE=public 명시.
+      - AUTH_MODE=${AUTH_MODE:-token}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}

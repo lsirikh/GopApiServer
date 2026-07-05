@@ -260,7 +260,15 @@ async def lifespan(app: FastAPI):
 
     print(f"Server running on http://{settings.HOST}:{settings.PORT}")
     print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
-    print(f"Authentication Mode: {settings.AUTH_MODE}")
+    # v6.0-auth_mode_secure_default (2026-07-05): AUTH_MODE 상태를 부팅 로그에 명확히 노출.
+    # public 모드는 RBAC 무집행이라 실수 배포 즉시 감지되도록 큰 경고 표시.
+    if settings.AUTH_MODE == "public":
+        print("!" * 60)
+        print(f"[WARN] Authentication Mode: PUBLIC — RBAC dormant, Bearer 없이 API 접근 가능")
+        print(f"[WARN] 프로덕션 배포 시 .env 또는 환경변수에 AUTH_MODE=token 명시 필요")
+        print("!" * 60)
+    else:
+        print(f"Authentication Mode: {settings.AUTH_MODE} (RBAC enforced)")
     print("=" * 60)
 
     # 경량 sweep 스케줄러 (FR-04, PRD_Permission_Group_Scheduling) — 만료 grant is_active=false.

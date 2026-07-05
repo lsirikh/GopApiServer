@@ -980,7 +980,9 @@ class ReportService:
             html = render_report_html(data, mode="full")
             pdf_bytes = html_to_pdf_bytes(html)
 
-            reports_dir = os.path.join(os.getcwd(), "reports")
+            # v6.0-report_persistence FR-RPP-05: 저장 경로 env 외부화 (docker named volume)
+            from app.config import settings
+            reports_dir = settings.REPORTS_DIR
             os.makedirs(reports_dir, exist_ok=True)
             filename = f"report_{generation.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             file_path = os.path.join(reports_dir, filename)

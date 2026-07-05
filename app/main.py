@@ -234,6 +234,30 @@ async def lifespan(app: FastAPI):
     # Apply PostgreSQL pg_notify triggers (skips if SQLite) — sync SQL 실행이라 to_thread 유지
     await _asyncio.to_thread(apply_triggers, engine)
 
+    # v6.0-report_lifecycle FR-RGL-01+04: Startup 재조정
+    # FastAPI BackgroundTasks는 인프로세스·비영속이라 컨테이너 recreate/재시작 시 in-flight 태스크가 소멸된다.
+    # 부팅 시점에 남아있는 PENDING/GENERATING은 반드시 고아 → FAILED로 확정 (CANCELLED는 사용자 취소로 유지).
+    try:
+        from app.database import AsyncSessionLocal
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as _adb:
+            _result = await _adb.execute(text(
+                "UPDATE report_generations "
+                "SET status = 'FAILED', "
+                "    error_message = COALESCE(error_message, 'server restarted during generation'), "
+                "    completed_at = COALESCE(completed_at, NOW()) "
+                "WHERE status IN ('PENDING', 'GENERATING') "
+                "RETURNING id"
+            ))
+            _rows = _result.all()
+            await _adb.commit()
+            if _rows:
+                print(f"[OK] Report generation reconciled: {len(_rows)} stale → FAILED (ids: {[r[0] for r in _rows]})")
+            else:
+                print("[OK] Report generation reconciled: no stale generations")
+    except Exception as _e:
+        print(f"[WARN] Report generation reconciliation failed: {_e}")
+
     print(f"Server running on http://{settings.HOST}:{settings.PORT}")
     print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
     print(f"Authentication Mode: {settings.AUTH_MODE}")

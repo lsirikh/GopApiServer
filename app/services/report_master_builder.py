@@ -384,21 +384,44 @@ async def build_master_data_async(
     ]})
 
     # ── 3. 탐지 이벤트 ──
-    det_raw = await q(f"""select e.id, to_char(e.created_at,'YYYY-MM-DD HH24:MI'), coalesce(d.name_device,''),
+    # v6.0-report_progress_perf: 통계는 GROUP BY SQL로 이관 (파이썬 66k iter 제거).
+    #   by_type, by_hour, done_count는 전체 대상 정확도 유지.
+    #   by_zone은 sensors.geolocation approximation (파이썬 정규식 name-based zone은 SQL 이관 복잡).
+    # 상세 rows는 LIMIT 500 (사용자 결정 Y: PDF 상위 500 + CSV 다운로드로 전량 보전).
+    _type_raw = await q(f"""select dt.result::text, count(*)
+        from detection_events dt join events e on e.id=dt.id
+        where {EV} group by dt.result order by 2 desc""")
+    type_dist = [(L.label(L.DETECTION, r[0]), int(r[1])) for r in _type_raw]
+
+    _zone_raw = await q(f"""select coalesce(nullif(split_part(s.geolocation->>'location', '-', 1), ''), '미지정') as zone,
+        count(*)
+        from detection_events dt join events e on e.id=dt.id
+        left join sensors s on s.id = e.device_id
+        where {EV} group by zone order by 2 desc""")
+    zone_dist = [(str(r[0]), int(r[1])) for r in _zone_raw]
+
+    _hour_raw = await q(f"""select extract(hour from e.created_at)::int as h, count(*)
+        from detection_events dt join events e on e.id=dt.id
+        where {EV} group by h""")
+    _hour_map = {int(r[0]): int(r[1]) for r in _hour_raw}
+    hourly = [_hour_map.get(h, 0) for h in range(24)]
+
+    det_done = await scalar(f"""select count(*) from detection_events dt join events e on e.id=dt.id
+        where {EV} and (dt.action_reported::text = 'True'
+                       or exists (select 1 from action_events a where a.from_event_id = e.id))""")
+
+    # 상세 rows — 상위 500 (최근순). 전체는 별도 CSV 다운로드로 100% 보전.
+    _det_rows_raw = await q(f"""select e.id, to_char(e.created_at,'YYYY-MM-DD HH24:MI'), coalesce(d.name_device,''),
         dt.result::text, coalesce(dt.action_reported,'False'), coalesce(s.geolocation->>'location',''),
         (select count(*) from action_events a where a.from_event_id=e.id), coalesce(e.device_description,'')
         from detection_events dt join events e on e.id=dt.id
         left join devices d on d.id=e.device_id left join sensors s on s.id=e.device_id
-        where {EV} order by e.created_at desc""")
-    by_type, by_zone, by_hour = Counter(), Counter(), Counter()
-    det_done, det_rows = 0, []
-    for r in det_raw:
+        where {EV} order by e.created_at desc limit 500""")
+    det_rows = []
+    for r in _det_rows_raw:
         name = _parse_name(r[2], r[7]); zone = _zone_of(r[5], name)
         tko = L.label(L.DETECTION, r[3]); done = str(r[4]).lower() == "true" or int(r[6] or 0) > 0
-        det_done += done; by_type[tko] += 1; by_zone[zone] += 1; by_hour[int(str(r[1])[11:13])] += 1
         det_rows.append([r[0], tko, name, zone, r[1], "완료" if done else "미처리"])
-    type_dist, zone_dist = by_type.most_common(), by_zone.most_common()
-    hourly = [by_hour.get(h, 0) for h in range(24)]
     sections.append({"no": 3, "name": "탐지 이벤트 현황", "sub": "현황 분석", "blocks": [
         {"type": "summary", "cid": "EVENT_SUMMARY_PIE", "lines": [
             f"탐지 이벤트 {det_total:,}건 · 조치 완료율 {round(det_done/det_total*100,1) if det_total else 0}% ({det_done:,}/{det_total:,})",
@@ -416,17 +439,22 @@ async def build_master_data_async(
     ]})
 
     # ── 4. 장애 이벤트 ──
-    mal_raw = await q(f"""select e.id, to_char(e.created_at,'YYYY-MM-DD HH24:MI'), m.reason::text,
+    # v6.0-report_progress_perf: 통계는 SQL GROUP BY, 상세 rows는 LIMIT 500.
+    _mal_reason_raw = await q(f"""select m.reason::text, count(*)
+        from malfunction_events m join events e on e.id=m.id
+        where {EV} group by m.reason order by 2 desc""")
+    mal_dist = [(L.label(L.FAULT, r[0]), int(r[1])) for r in _mal_reason_raw]
+
+    _mal_rows_raw = await q(f"""select e.id, to_char(e.created_at,'YYYY-MM-DD HH24:MI'), m.reason::text,
         coalesce(d.name_device,''), coalesce(s.geolocation->>'location',''),
         (select count(*) from action_events a where a.from_event_id=e.id), coalesce(e.device_description,'')
         from malfunction_events m join events e on e.id=m.id
         left join devices d on d.id=e.device_id left join sensors s on s.id=e.device_id
-        where {EV} order by e.created_at desc""")
-    mal_reason, mal_rows = Counter(), []
-    for r in mal_raw:
-        name = _parse_name(r[3], r[6]); rko = L.label(L.FAULT, r[2]); mal_reason[rko] += 1
+        where {EV} order by e.created_at desc limit 500""")
+    mal_rows = []
+    for r in _mal_rows_raw:
+        name = _parse_name(r[3], r[6]); rko = L.label(L.FAULT, r[2])
         mal_rows.append([r[0], rko, name, _zone_of(r[4], name), r[1], "완료" if int(r[5] or 0) > 0 else "미처리"])
-    mal_dist = mal_reason.most_common()
     sections.append({"no": 4, "name": "장애 이벤트 현황", "sub": "현황 분석", "blocks": [
         {"type": "summary", "cid": "EVENT_MALFUNCTION_GRID", "lines": [
             f"장애 이벤트 {mal_total:,}건 발생",
@@ -440,7 +468,8 @@ async def build_master_data_async(
     ]})
 
     # ── 5. 조치 이벤트 ──
-    _act_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event, content, \"user\" from action_events where {CC} order by created_at desc")
+    # v6.0-report_progress_perf: 상세 rows LIMIT 500 (CSV 다운로드로 전량 보전).
+    _act_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event, content, \"user\" from action_events where {CC} order by created_at desc limit 500")
     act_rows = [[r[0], r[1], L.label(L.ACTION_TYPE, r[2]), r[3] or "", r[4] or ""]
                 for r in _act_raw]
     sections.append({"no": 5, "name": "조치 이벤트 현황", "sub": "상세 데이터", "blocks": [
@@ -452,8 +481,8 @@ async def build_master_data_async(
     _sys_sev_raw = await q(f"select severity, count(*) from system_events where {CC}{SEV_FILTER} group by severity order by 2 desc")
     sys_sev = [(L.label(L.SEVERITY, r[0]), int(r[1])) for r in _sys_sev_raw]
     sys_daily = await q(f"select to_char(date_trunc('day',created_at),'MM-DD'), count(*) from system_events where {CC}{SEV_FILTER} group by 1 order by 1")
-    # v6.1: title 컬럼 추가 (NOT NULL 필드지만 리포트에서 누락됐던 항목)
-    _sys_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, coalesce(title,''), coalesce(message,'') from system_events where {CC}{SEV_FILTER} order by created_at desc")
+    # v6.1: title 컬럼 추가. v6.0-report_progress_perf: LIMIT 500.
+    _sys_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), type_event::text, severity::text, coalesce(title,''), coalesce(message,'') from system_events where {CC}{SEV_FILTER} order by created_at desc limit 500")
     sys_rows = [[r[0], r[1], L.label(L.SYSTEM_EVENT, r[2]), L.label(L.SEVERITY, r[3]), r[4], r[5]]
                 for r in _sys_rows_raw]
     sections.append({"no": 6, "name": "시스템 / 운영 로그", "sub": "현황 분석", "blocks": [
@@ -466,12 +495,12 @@ async def build_master_data_async(
     ]})
 
     # ── 7. 설정 변경 이력 ──
-    # v6.1: actor_name, actor_ip, resource_name, description 컬럼 추가 (감사 핵심 정보 노출)
+    # v6.1: actor_name/actor_ip/resource_name/description 확장. v6.0-report_progress_perf: LIMIT 500.
     _cfg_raw = await q(f"""select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
         coalesce(actor_name, '(system)'), coalesce(actor_ip, ''),
         resource_type::text, coalesce(resource_name, ''), coalesce(cast(resource_id as text), ''),
         action::text, coalesce(description, '')
-        from config_change_logs where {CC} order by created_at desc""")
+        from config_change_logs where {CC} order by created_at desc limit 500""")
     cfg_rows = [[r[0], r[1], r[2], r[3], L.label(L.CONFIG_RESOURCE, r[4]),
                  (r[5] or r[6] or ""), L.label(L.CONFIG_ACTION, r[7]), r[8]]
                 for r in _cfg_raw]
@@ -482,11 +511,11 @@ async def build_master_data_async(
     ]})
 
     # ── 8. 감사 로그 ──
-    # v6.1: actor_login_id 폴백 (actor_name이 NULL이어도 행위자 표시)
+    # v6.1: actor_login_id 폴백. v6.0-report_progress_perf: LIMIT 500.
     _aud_raw = await q(f"""select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
         action_type, action_status, resource_type,
         coalesce(actor_name, actor_login_id, '(system)')
-        from audit_logs where {CC} order by created_at desc""")
+        from audit_logs where {CC} order by created_at desc limit 500""")
     aud_rows = [[r[0], r[1], L.label(L.AUDIT_ACTION, r[2]), L.label(L.RESULT, r[3]), L.label(L.AUDIT_RESOURCE, r[4]), r[5]]
                 for r in _aud_raw]
     sections.append({"no": 8, "name": "감사 로그", "sub": "상세 데이터", "blocks": [
@@ -503,16 +532,16 @@ async def build_master_data_async(
     _usr_rows_raw = await q("select id, login_id, name, role, email from account_users order by id")
     usr_rows = [[r[0], r[1] or "", r[2] or "", L.label(L.ROLE, r[3]), r[4] or ""]
                 for r in _usr_rows_raw]
-    _log_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), login_id, action, result, ip_address from user_login_logs where {CC} order by created_at desc")
+    _log_rows_raw = await q(f"select id, to_char(created_at,'YYYY-MM-DD HH24:MI'), login_id, action, result, ip_address from user_login_logs where {CC} order by created_at desc limit 500")
     log_rows = [[r[0], r[1], r[2] or "", L.label(L.LOGIN_ACTION, r[3]), L.label(L.RESULT, r[4]), r[5] or ""]
                 for r in _log_rows_raw]
-    # v6.1: account_users LEFT JOIN → login_id/name 노출 (사용자 식별 가능)
+    # v6.1: account_users LEFT JOIN. v6.0-report_progress_perf: LIMIT 500.
     _ses_rows_raw = await q("""select s.id, s.user_id, coalesce(u.login_id, ''), coalesce(u.name, ''),
         coalesce(s.ip_address, ''),
         to_char(s.created_at,'YYYY-MM-DD HH24:MI'),
         to_char(s.expires_at,'YYYY-MM-DD HH24:MI')
         from user_sessions s left join account_users u on u.id = s.user_id
-        order by s.created_at desc""")
+        order by s.created_at desc limit 500""")
     ses_rows = [[r[0], r[2] or f"(uid:{r[1]})", r[3], r[4], r[5], r[6]]
                 for r in _ses_rows_raw]
     sections.append({"no": 9, "name": "사용자 현황", "sub": "현황 분석", "blocks": [

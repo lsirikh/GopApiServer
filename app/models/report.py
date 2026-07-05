@@ -81,6 +81,12 @@ class ReportGeneration(Base):
     status = Column(String(20), nullable=False, default="PENDING")
     error_message = Column(String(1000), nullable=True)
 
+    # v6.0-report_progress_perf (2026-07-05): 진행률 (0~100), 현재 stage, 마지막 갱신 시각.
+    # stall 워치도그가 progress_updated_at 정체 감지로 hang 판정.
+    progress_pct = Column(Integer, nullable=False, default=0)
+    progress_stage = Column(String(50), nullable=True)
+    progress_updated_at = Column(DateTime, nullable=True)
+
     # 타임스탬프 (created_at만 - 변경 불가)
     created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)

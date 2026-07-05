@@ -43,6 +43,8 @@ services:
       - ./logs:/app/logs
       # PRD v4.10 Phase 2: HTTPS 인증서 (mkcert 발급, certs/ 미존재 시 HTTP fallback)
       - ./certs:/app/certs:ro
+      # v6.0-report_persistence FR-RPP-01: PDF 영속 볼륨 (recreate 시 유지)
+      - api-test-reports:/app/reports
     environment:
       - AUTH_MODE=${AUTH_MODE:-public}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
@@ -141,6 +143,8 @@ services:
 
 volumes:
   api-test-pgdata:
+  # v6.0-report_persistence FR-RPP-01: PDF 저장소 (컨테이너 recreate/재빌드에도 유지)
+  api-test-reports:
 
 networks:
   default:

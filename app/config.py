@@ -110,6 +110,16 @@ class Settings(BaseSettings):
     # Initialization
     INIT_SAMPLE_DATA: bool = False
 
+    # Report Generation (v6.0-report_lifecycle_persistence, 2026-07-05)
+    # v6.0-report_progress_perf: wall-clock timeout 제거, stall timeout으로 대체.
+    # progress_updated_at이 STALL_TIMEOUT_SEC 이상 정체되면 hang으로 판정하고 FAILED.
+    # 정상 진행 중인 큰 리포트는 시간 무제한 완료 가능.
+    REPORT_GEN_STALL_TIMEOUT_SEC: int = 60  # 진행률 정체 감지 임계 (초)
+    REPORT_GEN_STALL_CHECK_INTERVAL_SEC: int = 10  # 워치도그 체크 주기 (초)
+    # (DEPRECATED) REPORT_GEN_TIMEOUT_SEC — v6.0-report_progress_perf에서 제거
+    # PRD_GOP_Server_Reports_PDF_Persistence FR-RPP-05
+    REPORTS_DIR: str = "/app/reports"  # PDF 저장 디렉터리 (docker-compose named volume 마운트)
+
     # Thumbnail Storage
     THUMBNAIL_STORAGE_PATH: str = "data/thumbnails"
 

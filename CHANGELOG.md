@@ -4,6 +4,65 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-report_date_range — 보고서 커스텀 날짜 범위 (2026-07-05)
+
+> `PRD_GOP_Server_Reports_Custom_Date_Range` 구현. 클라(.NET) DatePicker 요청 대응.
+> 파이프라인은 이미 임의 범위 지원 (`build_master_data_async(db, start, end, …)`) — 스키마 열기만 필요했음.
+
+### 문제
+
+- 요청 스키마 `ReportGenerateRequest`가 `period_type`(7d/30d/90d/1y)만 받음
+- 핸들러가 무조건 `_calculate_date_range(period_type)` → `[now-N일, now]` 강제
+- 클라가 임의 기간 (예: "2026-06-01 ~ 2026-06-15") 지정 불가
+
+### 픽스 (FR-RCD-01~07)
+
+| FR | 파일 | 픽스 |
+|---|---|---|
+| **FR-RCD-01** | `app/schemas/report.py` | `ReportGenerateRequest`에 `start_date/end_date: Optional[KSTDatetime]` 추가. `period_type` Optional 완화. Swagger example 3종 (프리셋/커스텀/템플릿) |
+| **FR-RCD-02** | `app/routers/reports.py` `generate_report` | 분기: `start_date+end_date` 오면 그대로 사용 + `period_type="custom"` 저장. 없으면 기존 `_calculate_date_range(period_type)` (하위호환) |
+| **FR-RCD-03** | `app/schemas/report.py` `model_validator` | 검증: 둘 다 있거나 둘 다 없음 / `end ≥ start` / `(end-start).days ≤ REPORT_MAX_RANGE_DAYS` |
+| **FR-RCD-03** | `app/routers/reports.py` | 경계 정규화: `end` 시각이 `00:00:00.0`이면 `23:59:59.999999`로 확장 (끝일 포함 시맨틱) |
+| **FR-RCD-04** | `app/utils/enums.py` | `EnumReportPeriod.CUSTOM = "custom"` 추가 |
+| **FR-RCD-05** | `app/services/report_master_builder.py` `build_report_meta` | `period_label` / `period_days` 필드 신설. 프리셋은 "최근 7일" 유지, 커스텀은 "2026.06.14 ~ 2026.06.28 (15일)" 형식 |
+| **FR-RCD-06** | `app/routers/reports.py` preview-page | `period_days` 재계산: `custom`이면 실제 `(end-start).days`, 프리셋이면 매핑값 fallback |
+| **FR-RCD-07** | `app/config.py` | `REPORT_MAX_RANGE_DAYS: int = 366` env 신설 |
+
+### 요청 예시
+
+**하위호환 (기존)**:
+```json
+{ "report_type": "STANDARD", "period_type": "7d", "title": "주간 보고서" }
+```
+
+**커스텀 범위 (신규)**:
+```json
+{
+  "report_type": "STANDARD",
+  "title": "2주 커스텀 보고서",
+  "start_date": "2026-06-15T00:00:00+09:00",
+  "end_date": "2026-06-28T00:00:00+09:00"
+}
+```
+저장 결과: `period_type="custom"`, `start_date=6/15 00:00 KST`, `end_date=6/28 23:59:59.999 KST` (끝일 포함).
+
+### 실측 검증 (2026-07-05)
+
+| 시나리오 | 결과 |
+|---|---|
+| [1] 하위호환 `period_type=7d`만 | HTTP 200, id=38, `period_type=7d`, start/end = now-7d ~ now |
+| [2] 커스텀 (start+end 날짜만) | HTTP 200, id=39, `period_type=custom`, start=6/15 00:00 KST, end=6/28 23:59:59.999 KST |
+| [3] `end < start` | HTTP **422** — "end_date가 start_date보다 이릅니다" |
+| [4] 상한 초과 (430일 > 366) | HTTP **422** — "범위가 상한을 초과합니다 (430일 > REPORT_MAX_RANGE_DAYS=366일)" |
+| [5] id=39 preview HTML 헤더 | `2026.06.14 — 2026.06.28` 실제 범위 표시 확인 |
+
+### 클라 (.NET) 계약 통지
+
+- 요청: `start_date`/`end_date` 필드 (KSTDatetime, ISO8601 `+09:00`) — 둘 다 필수 (한 개만 오면 422)
+- 응답: `period_type="custom"` 시 프리셋 라벨 대신 실제 범위 표시
+- 경계 시맨틱: **끝일 포함** (end가 `00:00`이면 자동으로 그날 23:59:59.999로 확장)
+- 상한: 366일 (env `REPORT_MAX_RANGE_DAYS`로 조정 가능)
+
 ### v6.0-auth_mode_secure_default — AUTH_MODE 기본값 token 뒤집기 + 부팅 WARN (2026-07-05)
 
 > 사용자 질문 "깃으로 받으면 public으로 동작하나?" 후속 조치. 깃 clone 후 그대로 `docker compose up` 하면 RBAC 무집행 상태로 노출되는 보안 위험 근본 봉합.

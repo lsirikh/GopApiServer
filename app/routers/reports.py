@@ -28,7 +28,7 @@ v6.0 P8-b (SessionLocal 완전 제거):
 """
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse, StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -465,6 +465,10 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
         "status": generation.status,
         "created_at": generation.created_at,
         "completed_at": generation.completed_at,
+        # v6.0-report_progress_perf: 진행률 필드 노출 (클라 폴링 UX용)
+        "progress_pct": getattr(generation, "progress_pct", 0),
+        "progress_stage": getattr(generation, "progress_stage", None),
+        "progress_updated_at": getattr(generation, "progress_updated_at", None),
     }
 
     # Preview URL (항상 포함)
@@ -483,18 +487,67 @@ def _generation_to_response(generation: ReportGeneration) -> dict:
 _active_generation_tasks: dict[int, asyncio.Task] = {}
 
 
+async def _stall_watcher(generation_id: int, gen_task: asyncio.Task) -> str | None:
+    """v6.0-report_progress_perf: 진행률 정체(stall) 감시 워치도그.
+
+    settings.REPORT_GEN_STALL_CHECK_INTERVAL_SEC(기본 10s)마다 progress_updated_at을 확인.
+    NOW() - progress_updated_at > STALL_TIMEOUT_SEC(기본 60s) 이면 gen_task.cancel() 호출.
+
+    Returns: stall이 감지되었으면 "stalled", 아니면 None (gen_task가 스스로 종료).
+    """
+    from app.database import AsyncSessionLocal
+    from sqlalchemy import text
+
+    interval = settings.REPORT_GEN_STALL_CHECK_INTERVAL_SEC
+    stall_limit = settings.REPORT_GEN_STALL_TIMEOUT_SEC
+
+    while not gen_task.done():
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            return None
+        if gen_task.done():
+            return None
+        try:
+            async with AsyncSessionLocal() as chk_db:
+                result = await chk_db.execute(
+                    text("SELECT EXTRACT(EPOCH FROM (NOW() - progress_updated_at))::float, status "
+                         "FROM report_generations WHERE id = :id"),
+                    {"id": generation_id},
+                )
+                row = result.first()
+                if row is None:
+                    return None
+                elapsed_since_progress, status = row
+                # 이미 종결 상태면 워치도그 종료
+                if status in ("COMPLETED", "FAILED", "CANCELLED"):
+                    return None
+                if elapsed_since_progress is None:
+                    continue
+                if float(elapsed_since_progress) > stall_limit:
+                    # stall detected — 생성 태스크 취소
+                    gen_task.cancel()
+                    return "stalled"
+        except Exception:
+            # 워치도그 자체 오류는 무시 (감시 실패가 생성 실패로 이어지면 안 됨)
+            continue
+    return None
+
+
 async def _run_report_generation(generation_id: int) -> None:
     """BackgroundTasks에서 실행되는 보고서 생성 함수 (async).
 
-    v6.0-report_lifecycle_persistence (2026-07-05):
-    - FR-RGL-02: 실작업을 `asyncio.wait_for(..., timeout=settings.REPORT_GEN_TIMEOUT_SEC)`로 감싸
-      임계(기본 180s) 초과 시 TimeoutError → FAILED("generation timeout").
-    - FR-RGL-03: try/except/finally로 감싸 finally에서 GENERATING이면 FAILED 확정 (예외 누락 방지).
-    - FR-RGL-04: 상태 전이는 GENERATING/PENDING 조건일 때만 (CANCELLED 미간섭).
-    - FR-RPP-05: PDF 저장 경로는 settings.REPORTS_DIR (docker-compose named volume 마운트).
+    v6.0-report_progress_perf (2026-07-05):
+    - wall-clock timeout(180s) 제거. progress_updated_at 정체 감지(stall watchdog)로 hang 판정.
+    - 각 stage 완료마다 progress_pct/progress_stage/progress_updated_at 갱신 → 클라 폴링 UX.
+    - 정상 진행 중인 큰 리포트(수십만 이벤트)는 시간 무제한 완료 가능.
+    - 정체 60s 감지 시 gen_task.cancel() → CancelledError 경로에서 stall_flag로 FAILED 구분.
 
-    v6.0 후속: 취소 지원 — current_task를 dict에 등록해 cancel endpoint에서 참조.
-    사용자 취소(task.cancel) → CancelledError 발생 → CANCELLED로 마킹 후 propagate.
+    이전 사이클(v6.0-report_lifecycle_persistence):
+    - FR-RGL-01: startup 재조정 (main.py lifespan)
+    - FR-RGL-03: try/except/finally 종결 보장 유지
+    - FR-RGL-04: 상태 전이는 PENDING/GENERATING 조건일 때만
+    - FR-RPP-05: PDF 저장 경로는 settings.REPORTS_DIR
     """
     from app.database import AsyncSessionLocal
     from app.services.report_master_builder import build_master_data_async, build_report_meta
@@ -521,22 +574,28 @@ async def _run_report_generation(generation_id: int) -> None:
             _active_generation_tasks.pop(generation_id, None)
             return
 
-        # v6.0 후속 Quick Win Q2: 파일 경로를 로컬 변수로 미리 보관 —
-        # generation.pdf_file_path에 반영되기 전 취소돼도 파일 삭제 가능.
         _pending_pdf_path: str | None = None
 
+        async def _progress(pct: int, stage: str) -> None:
+            """진행률 갱신 헬퍼 — 각 stage 완료마다 호출."""
+            generation.progress_pct = pct
+            generation.progress_stage = stage
+            generation.progress_updated_at = datetime.now()
+            await db.commit()
+
         async def _do_generate() -> None:
-            """실제 생성 로직 — asyncio.wait_for로 감쌀 대상."""
+            """실제 생성 로직 — 각 stage 후 _progress 발화 + stall watchdog가 감시."""
             nonlocal _pending_pdf_path
 
             generation.status = "GENERATING"
-            await db.commit()
+            await _progress(5, "start")
 
             service = ReportServiceAsync(db)
             enabled = await service.get_enabled_components(generation)
             enabled_set = set(enabled) if enabled is not None else None
             kind = "비정형" if generation.report_type == "CUSTOM" else "정형"
             meta = build_report_meta(generation)
+            await _progress(10, "setup")
 
             # v6.0 Phase 3 hotfix: asyncpg는 tz-aware/naive datetime 혼용 거부.
             _start_naive = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
@@ -545,15 +604,19 @@ async def _run_report_generation(generation_id: int) -> None:
                 db, _start_naive, _end_naive, meta, enabled_set,
                 severity_filter=generation.severity_filter,
             )
-            html = await render_report_html_async(data, mode="full")
-            pdf_bytes = await asyncio.to_thread(html_to_pdf_bytes, html)
+            await _progress(60, "master_data")
 
-            # FR-RPP-05: 저장 경로 env 외부화 (기본 /app/reports, docker named volume)
+            html = await render_report_html_async(data, mode="full")
+            await _progress(80, "html")
+
+            pdf_bytes = await asyncio.to_thread(html_to_pdf_bytes, html)
+            await _progress(95, "pdf")
+
             reports_dir = settings.REPORTS_DIR
             os.makedirs(reports_dir, exist_ok=True)
             filename = f"report_{generation.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             file_path = os.path.join(reports_dir, filename)
-            _pending_pdf_path = file_path  # 파일 쓰기 도중 취소돼도 삭제 대상 확보
+            _pending_pdf_path = file_path
             with open(file_path, "wb") as f:
                 f.write(pdf_bytes)
 
@@ -565,32 +628,24 @@ async def _run_report_generation(generation_id: int) -> None:
                 "section_count": len(data["sections"]),
                 "report_kind": kind,
             }
-            await db.commit()
+            await _progress(100, "done")
+
+        # v6.0-report_progress_perf: stall watchdog + gen_task 병렬. wall-clock timeout 제거.
+        gen_task: asyncio.Task = asyncio.create_task(_do_generate())
+        watch_task: asyncio.Task = asyncio.create_task(_stall_watcher(generation_id, gen_task))
+        stall_result: str | None = None
 
         try:
-            # FR-RGL-02: 임계 초과 시 TimeoutError → FAILED
-            await asyncio.wait_for(_do_generate(), timeout=settings.REPORT_GEN_TIMEOUT_SEC)
-
+            await gen_task
         except asyncio.CancelledError:
-            # v6.0 후속 Quick Win Q2: 부분 생성된 PDF 파일 best-effort 삭제.
-            for _p in (getattr(generation, "pdf_file_path", None), _pending_pdf_path):
-                if _p and os.path.exists(_p):
-                    try:
-                        os.remove(_p)
-                    except OSError:
-                        pass  # 파일 삭제 실패는 무시 (best-effort)
-            try:
-                # FR-RGL-04: CANCELLED로 마킹 (이미 종결 상태면 건드리지 않음)
-                if generation.status in ("PENDING", "GENERATING"):
-                    generation.status = "CANCELLED"
-                    generation.error_message = "Cancelled by user"
-                    generation.completed_at = datetime.now()
-                    await db.commit()
-            except Exception:
-                pass  # 커밋 실패해도 취소 자체는 진행
-            raise
-        except asyncio.TimeoutError:
-            # FR-RGL-02: 임계 초과 — 타임아웃 FAILED. 부분 생성 PDF는 best-effort 삭제.
+            # 사용자 취소 vs stall 감지 구분 — 워치도그 결과 참조.
+            stall_result = None
+            if watch_task.done():
+                try:
+                    stall_result = watch_task.result()
+                except Exception:
+                    stall_result = None
+            # 부분 생성 PDF best-effort 삭제
             for _p in (getattr(generation, "pdf_file_path", None), _pending_pdf_path):
                 if _p and os.path.exists(_p):
                     try:
@@ -599,34 +654,48 @@ async def _run_report_generation(generation_id: int) -> None:
                         pass
             try:
                 if generation.status in ("PENDING", "GENERATING"):
-                    generation.status = "FAILED"
-                    generation.error_message = f"generation timeout ({settings.REPORT_GEN_TIMEOUT_SEC}s exceeded)"
+                    if stall_result == "stalled":
+                        generation.status = "FAILED"
+                        generation.error_message = f"generation stalled ({settings.REPORT_GEN_STALL_TIMEOUT_SEC}s no progress)"
+                    else:
+                        generation.status = "CANCELLED"
+                        generation.error_message = "Cancelled by user"
                     generation.completed_at = datetime.now()
+                    generation.progress_updated_at = datetime.now()
                     await db.commit()
             except Exception:
                 pass
+            # stall로 인한 cancel은 propagate 안 함 (BackgroundTasks에 traceback 남기지 않음)
+            if stall_result != "stalled":
+                raise
         except Exception as e:
-            # 일반 실패 경로 — FAILED로 마킹
             try:
                 if generation.status in ("PENDING", "GENERATING"):
                     generation.status = "FAILED"
                     generation.error_message = str(e)
                     generation.completed_at = datetime.now()
+                    generation.progress_updated_at = datetime.now()
                     await db.commit()
             except Exception:
                 pass
         finally:
-            # FR-RGL-03: 종결 보장 — 어떤 경로로 왔든 여전히 GENERATING/PENDING이면 FAILED 확정.
-            # (except 블록의 commit이 실패했을 수도, 예외 클래스가 매칭 안 됐을 수도 있어 최종 안전망.)
+            # 워치도그 정리
+            if not watch_task.done():
+                watch_task.cancel()
+                try:
+                    await watch_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            # 최종 안전망 (FR-RGL-03): 여전히 PENDING/GENERATING이면 FAILED 확정
             try:
                 if generation is not None and generation.status in ("PENDING", "GENERATING"):
                     generation.status = "FAILED"
                     generation.error_message = generation.error_message or "generation ended without terminal state"
                     generation.completed_at = generation.completed_at or datetime.now()
+                    generation.progress_updated_at = datetime.now()
                     await db.commit()
             except Exception:
-                pass  # 최종 finally에서의 commit 실패는 무시 (다음 startup 재조정이 잡음)
-            # 태스크 종료 시 dict에서 제거 (성공/실패/취소/타임아웃 모두)
+                pass
             _active_generation_tasks.pop(generation_id, None)
 
 
@@ -931,6 +1000,160 @@ async def download_report(
         path=generation.pdf_file_path,
         headers=headers,
         media_type="application/pdf"
+    )
+
+
+# v6.0-report_progress_perf: 상세 rows CSV 다운로드 endpoint.
+# PDF는 성능/가독성상 상위 500행만 노출하지만, 감사·분석 필요 시 이 endpoint로 전량 확보.
+_CSV_GRID_DEFS = {
+    "detection": {
+        "header": ["ID", "일시", "장비명", "탐지유형", "조치보고", "구역", "조치건수", "장비설명"],
+        "sql": """select e.id, to_char(e.created_at,'YYYY-MM-DD HH24:MI'), coalesce(d.name_device,''),
+            dt.result::text, coalesce(dt.action_reported,'False')::text,
+            coalesce(s.geolocation->>'location',''),
+            (select count(*) from action_events a where a.from_event_id=e.id)::int,
+            coalesce(e.device_description,'')
+            from detection_events dt join events e on e.id=dt.id
+            left join devices d on d.id=e.device_id left join sensors s on s.id=e.device_id
+            where e.created_at >= :start and e.created_at < :end
+            order by e.created_at desc""",
+        "use_range": True,
+    },
+    "malfunction": {
+        "header": ["ID", "일시", "장애유형", "장비명", "구역", "조치건수", "장비설명"],
+        "sql": """select e.id, to_char(e.created_at,'YYYY-MM-DD HH24:MI'), m.reason::text,
+            coalesce(d.name_device,''), coalesce(s.geolocation->>'location',''),
+            (select count(*) from action_events a where a.from_event_id=e.id)::int,
+            coalesce(e.device_description,'')
+            from malfunction_events m join events e on e.id=m.id
+            left join devices d on d.id=e.device_id left join sensors s on s.id=e.device_id
+            where e.created_at >= :start and e.created_at < :end
+            order by e.created_at desc""",
+        "use_range": True,
+    },
+    "action": {
+        "header": ["ID", "일시", "유형", "내용", "조치자"],
+        "sql": """select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+            coalesce(type_event,''), coalesce(content,''), coalesce("user",'')
+            from action_events
+            where created_at >= :start and created_at < :end
+            order by created_at desc""",
+        "use_range": True,
+    },
+    "system": {
+        "header": ["ID", "일시", "유형", "심각도", "제목", "메시지"],
+        "sql": """select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+            type_event::text, severity::text, coalesce(title,''), coalesce(message,'')
+            from system_events
+            where created_at >= :start and created_at < :end
+            order by created_at desc""",
+        "use_range": True,
+    },
+    "config": {
+        "header": ["ID", "일시", "행위자", "IP", "리소스유형", "리소스명", "리소스ID", "액션", "변경설명"],
+        "sql": """select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+            coalesce(actor_name,'(system)'), coalesce(actor_ip,''),
+            resource_type::text, coalesce(resource_name,''),
+            coalesce(cast(resource_id as text),''),
+            action::text, coalesce(description,'')
+            from config_change_logs
+            where created_at >= :start and created_at < :end
+            order by created_at desc""",
+        "use_range": True,
+    },
+    "audit": {
+        "header": ["ID", "일시", "액션", "상태", "리소스", "행위자"],
+        "sql": """select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+            action_type, action_status, resource_type,
+            coalesce(actor_name, actor_login_id, '(system)')
+            from audit_logs
+            where created_at >= :start and created_at < :end
+            order by created_at desc""",
+        "use_range": True,
+    },
+    "login": {
+        "header": ["ID", "일시", "로그인ID", "액션", "결과", "IP"],
+        "sql": """select id, to_char(created_at,'YYYY-MM-DD HH24:MI'),
+            coalesce(login_id,''), coalesce(action,''), coalesce(result,''), coalesce(ip_address,'')
+            from user_login_logs
+            where created_at >= :start and created_at < :end
+            order by created_at desc""",
+        "use_range": True,
+    },
+    "session": {
+        "header": ["ID", "로그인ID", "사용자명", "IP", "생성일", "만료일"],
+        "sql": """select s.id, coalesce(u.login_id, ''), coalesce(u.name, ''),
+            coalesce(s.ip_address, ''),
+            to_char(s.created_at,'YYYY-MM-DD HH24:MI'),
+            to_char(s.expires_at,'YYYY-MM-DD HH24:MI')
+            from user_sessions s left join account_users u on u.id = s.user_id
+            order by s.created_at desc""",
+        "use_range": False,
+    },
+}
+
+
+@router.get("/generations/{generation_id}/detail.csv",
+            dependencies=[Depends(require_perm_optional_async("reports", "view"))])
+async def download_report_detail_csv(
+    generation_id: int,
+    type: str = Query(..., description="그리드 유형: detection|malfunction|action|system|config|audit|login|session"),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """상세 rows CSV 다운로드 (v6.0-report_progress_perf).
+
+    PDF에서 상위 500행으로 잘린 상세 데이터의 전량을 CSV로 제공.
+    generation.start_date/end_date 범위를 그대로 사용.
+
+    **type**: detection / malfunction / action / system / config / audit / login / session
+    **응답**: text/csv (UTF-8 BOM), Content-Disposition: attachment
+    """
+    import csv
+    import io
+    from sqlalchemy import text as sql_text
+
+    generation = (
+        await db.execute(
+            select(ReportGeneration).where(ReportGeneration.id == generation_id)
+        )
+    ).scalars().first()
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Report generation not found")
+    if generation.status != "COMPLETED":
+        raise HTTPException(status_code=400, detail="Report is not COMPLETED yet")
+
+    definition = _CSV_GRID_DEFS.get(type)
+    if definition is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown type '{type}'. Valid: {sorted(_CSV_GRID_DEFS.keys())}",
+        )
+
+    _start = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
+    _end = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
+    params = {"start": _start, "end": _end} if definition["use_range"] else {}
+
+    async def _csv_stream():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        # UTF-8 BOM (Excel 한글 호환)
+        yield "﻿".encode("utf-8")
+        writer.writerow(definition["header"])
+        yield buf.getvalue().encode("utf-8")
+        buf.seek(0); buf.truncate(0)
+
+        result = await db.execute(sql_text(definition["sql"]), params)
+        for row in result:
+            writer.writerow(["" if v is None else v for v in row])
+            yield buf.getvalue().encode("utf-8")
+            buf.seek(0); buf.truncate(0)
+
+    filename = f"report_{generation_id}_{type}.csv"
+    return StreamingResponse(
+        _csv_stream(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

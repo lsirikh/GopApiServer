@@ -145,6 +145,8 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("POST", "/api/reports/generations/{}/cancel"): ("reports", "delete"),
     ("GET", "/api/reports/preview/{}"): ("reports", "view"),
     ("GET", "/api/reports/generations/{}/download"): ("reports", "view"),
+    # v6.0-report_progress_perf: CSV 상세 rows 다운로드
+    ("GET", "/api/reports/generations/{}/detail.csv"): ("reports", "view"),
     ("GET", "/api/reports/generations/{}/preview"): ("reports", "view"),
     ("GET", "/api/reports/generations/{}/preview-page"): ("reports", "view"),
 }

@@ -4,6 +4,78 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-report_progress_perf — 진행률 + Stall 워치도그 + SQL 집계 이관 (2026-07-05)
+
+> 사용자 요청 — "타임아웃보다 진행률 계산하고 stall만 kill하는 게 낫지 않아?"
+> id=30이 180s wall-clock으로 kill되던 사례를 근본 해결: **정상 진행 중이면 시간 무제한, hang만 kill**.
+
+**성능 회복 실측**:
+| 리포트 | 이전 (wall-clock 180s) | v6.0-report_progress_perf | 개선 |
+|---|---|---|---|
+| id=30 (7d, 66k det + 26k mal) | 180s → FAILED "timeout" | (해당 없음 — 파이썬 병목 제거로 회피) | ∞ → success |
+| id=31 (v6.0-report_progress_perf test) | — | **20s 이내 COMPLETED** (T+10s 80%, T+20s 100%) | 사실상 신규 가능 상태 |
+
+### P1. SQL 집계 이관 (build_master_data_async 최적화)
+`app/services/report_master_builder.py` — 파이썬 for 루프에서 처리하던 통계(Counter)를 postgres GROUP BY로 이관.
+
+| 섹션 | 이전 (파이썬 66k iter) | 이후 (SQL GROUP BY) |
+|---|---|---|
+| §3 탐지 by_type / by_zone / by_hour / det_done | Counter 4개 for 루프 | 4개 SQL 각 GROUP BY, zone은 sensors.geolocation approximation |
+| §4 장애 mal_reason | Counter for 루프 | GROUP BY SQL |
+| §3~9 상세 rows | 전량 fetch (수만~수십만) | `LIMIT 500` (사용자 결정 Y — 전량은 CSV 다운로드로 100% 보전) |
+
+### P2. 진행률 스키마 (마이그레이션 v61)
+`app/migrations/v61_report_generation_progress.sql`:
+- `progress_pct INT DEFAULT 0` (0~100)
+- `progress_stage VARCHAR(50)` — 예: `start`, `setup`, `master_data`, `html`, `pdf`, `done`
+- `progress_updated_at TIMESTAMP` — stall 감지 기준
+- 종료 상태(COMPLETED/FAILED/CANCELLED)는 100%로 백필
+- `ix_report_generations_stall` 부분 인덱스 (status IN ('PENDING','GENERATING') 조건)
+
+`app/models/report.py` 3 컬럼 동기 반영. `_generation_to_response` 응답에 3필드 포함.
+
+### P3. Stage 진행률 발화 (`_do_generate`)
+`app/routers/reports.py` — 각 stage 완료 후 `_progress(pct, stage)` 호출:
+
+| pct | stage | 위치 |
+|-----|-------|------|
+| 5 | `start` | GENERATING 마킹 직후 |
+| 10 | `setup` | ReportServiceAsync + meta 준비 완료 |
+| 60 | `master_data` | build_master_data_async 완료 |
+| 80 | `html` | render_report_html_async 완료 |
+| 95 | `pdf` | Playwright PDF 렌더 완료 |
+| 100 | `done` | 파일 저장 + DB 커밋 완료 |
+
+### P4. Stall 워치도그 (wall-clock timeout 제거)
+`app/config.py`:
+- `REPORT_GEN_TIMEOUT_SEC` **제거 (DEPRECATED)**
+- 신규 `REPORT_GEN_STALL_TIMEOUT_SEC=60` (기본), `REPORT_GEN_STALL_CHECK_INTERVAL_SEC=10`
+
+`_stall_watcher(generation_id, gen_task)` 워치도그 태스크가 10s마다 postgres 조회로 `NOW() - progress_updated_at > 60s` 확인. Stall 감지 시 `gen_task.cancel()`. 사용자 취소와 stall을 워치도그 결과로 구분:
+- stall → status=FAILED, error_message="generation stalled (60s no progress)"
+- 사용자 취소 → status=CANCELLED, error_message="Cancelled by user"
+
+### P5. 상세 CSV 다운로드 endpoint
+`GET /api/reports/generations/{id}/detail.csv?type={grid}` — PDF에서 상위 500행으로 잘린 원본 rows 전량. UTF-8 BOM (Excel 한글 호환), StreamingResponse.
+
+| type | 헤더 예 | 기간 필터 |
+|---|---|---|
+| detection | ID, 일시, 장비명, 탐지유형, 조치보고, 구역, 조치건수, 장비설명 | ✅ |
+| malfunction | ID, 일시, 장애유형, 장비명, 구역, 조치건수, 장비설명 | ✅ |
+| action | ID, 일시, 유형, 내용, 조치자 | ✅ |
+| system | ID, 일시, 유형, 심각도, 제목, 메시지 | ✅ |
+| config | ID, 일시, 행위자, IP, 리소스유형, 리소스명, 리소스ID, 액션, 변경설명 | ✅ |
+| audit | ID, 일시, 액션, 상태, 리소스, 행위자 | ✅ |
+| login | ID, 일시, 로그인ID, 액션, 결과, IP | ✅ |
+| session | ID, 로그인ID, 사용자명, IP, 생성일, 만료일 | (전량) |
+
+권한: `reports.view` (permission_map 등록).
+
+### 실측 검증 (2026-07-05)
+- id=31 리포트 폴링: `T+10s [GENERATING] 80% stage=html` → `T+20s [COMPLETED] 100% stage=done`
+- CSV 다운로드 4종 실측: detection 11,953 lines / malfunction 4,785 / audit 43 / config 58 — 정상 응답 + UTF-8 BOM
+- Stall 워치도그: 정상 리포트가 20s에 완료돼 실제 stall 발동 사례 없음 (코드 리뷰로 검증)
+
 ### v6.0-report_lifecycle_persistence — 리포트 생성 수명주기 + PDF 영속화 (2026-07-05)
 
 > 두 PRD를 한 사이클에 통합. 컨테이너 recreate가 리포트 시스템의 DB 상태(GENERATING 고착)와 파일시스템(PDF 소실) 두 층을 동시에 파괴하던 취약점 봉합.

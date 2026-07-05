@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     # Initialization
     INIT_SAMPLE_DATA: bool = False
 
+    # Report Generation (v6.0-report_lifecycle_persistence, 2026-07-05)
+    # PRD_GOP_Server_Reports_Generation_Lifecycle FR-RGL-02
+    REPORT_GEN_TIMEOUT_SEC: int = 180  # asyncio.wait_for 임계 (초). 기본 180s = PDF 렌더 120s + 여유
+    # PRD_GOP_Server_Reports_PDF_Persistence FR-RPP-05
+    REPORTS_DIR: str = "/app/reports"  # PDF 저장 디렉터리 (docker-compose named volume 마운트)
+
     # Thumbnail Storage
     THUMBNAIL_STORAGE_PATH: str = "data/thumbnails"
 

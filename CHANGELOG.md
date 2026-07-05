@@ -4,6 +4,50 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-report_lifecycle_persistence — 리포트 생성 수명주기 + PDF 영속화 (2026-07-05)
+
+> 두 PRD를 한 사이클에 통합. 컨테이너 recreate가 리포트 시스템의 DB 상태(GENERATING 고착)와 파일시스템(PDF 소실) 두 층을 동시에 파괴하던 취약점 봉합.
+
+**참조 PRD**:
+- `PRD_GOP_Server_Reports_Generation_Lifecycle.md` (Draft, 2026-07-05) — id=29 stuck GENERATING 실측 근거
+- `PRD_GOP_Server_Reports_PDF_Persistence.md` (Draft, 2026-07-05) — 다운로드 전건 404 실측 근거
+
+**증거 (배포 전)**:
+- `report_generations.id=29 "월간 표준보고서"` GENERATING **26분+ 잔류** (BackgroundTasks 인프로세스·비영속 → recreate 시 태스크 소멸)
+- `docker-compose.yml` api-server에 `/app/reports` 마운트 없음 → 최근 PDF 소실, DB만 dangling
+
+### Lifecycle 픽스 (FR-RGL-01~04)
+
+| FR | 픽스 |
+|---|---|
+| **FR-RGL-01** | `app/main.py` lifespan에 startup 재조정 — `UPDATE report_generations SET status='FAILED' WHERE status IN ('PENDING','GENERATING') RETURNING id`. `error_message='server restarted during generation'`, `completed_at=NOW()`. 부팅 시 인프로세스 태스크 소실분 자동 정리 |
+| **FR-RGL-02** | `app/config.py` `REPORT_GEN_TIMEOUT_SEC=180` (env). `app/routers/reports.py` `_run_report_generation`의 실작업을 nested `_do_generate()`로 감싸 `asyncio.wait_for(_do_generate(), timeout=…)` 실행. TimeoutError → FAILED (`"generation timeout ({N}s exceeded)"`) |
+| **FR-RGL-03** | try/except/finally 확장 — finally에서 여전히 `PENDING/GENERATING`이면 최종 안전망으로 FAILED 확정. except 블록 commit이 실패해도 재확정 |
+| **FR-RGL-04** | 모든 상태 전이 SQL/코드에 `status IN ('PENDING','GENERATING')` 조건절 명시. CANCELLED 미간섭 |
+
+### Persistence 픽스 (FR-RPP-01/02/03/05)
+
+| FR | 픽스 |
+|---|---|
+| **FR-RPP-01** | `docker-compose.yml` api-server에 `- api-test-reports:/app/reports` named volume 마운트 + top-level `api-test-reports:` 선언. 컨테이너 recreate/재빌드에도 PDF 유지 |
+| **FR-RPP-02** | 정책 (a) — 기존 dangling COMPLETED는 그대로 두고 사용자 재생성 유도 (FR-RPP-03 런타임 응답으로 보완) |
+| **FR-RPP-03** | `app/routers/reports.py` download 엔드포인트가 파일 부재 시 `404` 대신 `HTTP 410 Gone` + `{error_code: PDF_FILE_MISSING, message, report_id}`. 클라가 "없는 보고서(404)"와 "PDF 소실(410)"을 구분 |
+| **FR-RPP-05** | `app/config.py` `REPORTS_DIR="/app/reports"` (env). `reports.py` `_run_report_generation` + `report_service.py` sync 경로 모두 이 상수로 통일 |
+
+### 실측 검증 (2026-07-05, image rebuild + recreate 후)
+
+| 항목 | 결과 |
+|---|---|
+| id=29 (stuck 26분+) | startup 로그 `[OK] Report generation reconciled: 1 stale → FAILED (ids: [29])` — DB status=FAILED, error_message="server restarted during generation" |
+| id=30 (신규, 렌더 지연) | 정확히 180s에 timeout → status=FAILED, error_message="generation timeout (180s exceeded)", elapsed 188s |
+| docker volumes | `api-test-server_api-test-reports` 신규 생성, `/app/reports`에 이전 PDF 유지 확인 |
+| download 파일부재 (id=25) | `HTTP 410` + `{"error_code":"PDF_FILE_MISSING","message":"PDF file has been removed from storage (report re-generation required)","report_id":25}` |
+
+### 별도 트랙 (이 사이클 미포함)
+- **FR-RPP-04** — 컨테이너 healthcheck TLS 리스너 준비 후에만 healthy. 별도 인프라 사이클
+- **FR-RGL-05** — durable queue 이관. dev 단계는 FR-01/02/03로 충분
+- **PDF 렌더 성능** — id=30이 180s 넘긴 사유(build_master_data_async + Playwright)는 별개 성능 튜닝 트랙
+
 ### v6.0-account_rbac — 기본 ADMIN 계정 3종 Static seed (2026-07-05)
 
 > 사용자 요청 — 팀 매니저 자동 생성으로 컨테이너 빌드 즉시 로그인 가능.

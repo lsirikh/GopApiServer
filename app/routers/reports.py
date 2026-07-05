@@ -486,17 +486,15 @@ _active_generation_tasks: dict[int, asyncio.Task] = {}
 async def _run_report_generation(generation_id: int) -> None:
     """BackgroundTasks에서 실행되는 보고서 생성 함수 (async).
 
-    v6.0 P8-b: sync SessionLocal 제거 — 전 파이프라인 async 화.
-    - AsyncSessionLocal 로 별도 세션 개시 (요청 세션 라이프사이클 밖에서 실행).
-    - ReportServiceAsync.get_enabled_components → build_master_data_async
-      → render_report_html_async → asyncio.to_thread(html_to_pdf_bytes) 체인.
-    - Chromium PDF 렌더링(Playwright sync API)은 여전히 blocking 이므로
-      asyncio.to_thread 로 오프로드해 이벤트루프 보호.
-
-    FastAPI BackgroundTasks 는 async 함수 자동 감지 → await 로 실행.
+    v6.0-report_lifecycle_persistence (2026-07-05):
+    - FR-RGL-02: 실작업을 `asyncio.wait_for(..., timeout=settings.REPORT_GEN_TIMEOUT_SEC)`로 감싸
+      임계(기본 180s) 초과 시 TimeoutError → FAILED("generation timeout").
+    - FR-RGL-03: try/except/finally로 감싸 finally에서 GENERATING이면 FAILED 확정 (예외 누락 방지).
+    - FR-RGL-04: 상태 전이는 GENERATING/PENDING 조건일 때만 (CANCELLED 미간섭).
+    - FR-RPP-05: PDF 저장 경로는 settings.REPORTS_DIR (docker-compose named volume 마운트).
 
     v6.0 후속: 취소 지원 — current_task를 dict에 등록해 cancel endpoint에서 참조.
-    CancelledError 발생 시 status=CANCELLED로 마킹 후 propagate.
+    사용자 취소(task.cancel) → CancelledError 발생 → CANCELLED로 마킹 후 propagate.
     """
     from app.database import AsyncSessionLocal
     from app.services.report_master_builder import build_master_data_async, build_report_meta
@@ -518,7 +516,7 @@ async def _run_report_generation(generation_id: int) -> None:
             _active_generation_tasks.pop(generation_id, None)
             return
 
-        # 이미 CANCELLED로 마킹된 상태면 즉시 종료 (레이스 조건)
+        # 이미 CANCELLED로 마킹된 상태면 즉시 종료 (레이스 조건 — FR-RGL-04)
         if generation.status == "CANCELLED":
             _active_generation_tasks.pop(generation_id, None)
             return
@@ -526,7 +524,11 @@ async def _run_report_generation(generation_id: int) -> None:
         # v6.0 후속 Quick Win Q2: 파일 경로를 로컬 변수로 미리 보관 —
         # generation.pdf_file_path에 반영되기 전 취소돼도 파일 삭제 가능.
         _pending_pdf_path: str | None = None
-        try:
+
+        async def _do_generate() -> None:
+            """실제 생성 로직 — asyncio.wait_for로 감쌀 대상."""
+            nonlocal _pending_pdf_path
+
             generation.status = "GENERATING"
             await db.commit()
 
@@ -537,7 +539,6 @@ async def _run_report_generation(generation_id: int) -> None:
             meta = build_report_meta(generation)
 
             # v6.0 Phase 3 hotfix: asyncpg는 tz-aware/naive datetime 혼용 거부.
-            # start_date/end_date는 timestamptz(+09:00), events.created_at은 naive → tzinfo 제거로 정합.
             _start_naive = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
             _end_naive = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
             data = await build_master_data_async(
@@ -547,7 +548,8 @@ async def _run_report_generation(generation_id: int) -> None:
             html = await render_report_html_async(data, mode="full")
             pdf_bytes = await asyncio.to_thread(html_to_pdf_bytes, html)
 
-            reports_dir = os.path.join(os.getcwd(), "reports")
+            # FR-RPP-05: 저장 경로 env 외부화 (기본 /app/reports, docker named volume)
+            reports_dir = settings.REPORTS_DIR
             os.makedirs(reports_dir, exist_ok=True)
             filename = f"report_{generation.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             file_path = os.path.join(reports_dir, filename)
@@ -565,9 +567,12 @@ async def _run_report_generation(generation_id: int) -> None:
             }
             await db.commit()
 
+        try:
+            # FR-RGL-02: 임계 초과 시 TimeoutError → FAILED
+            await asyncio.wait_for(_do_generate(), timeout=settings.REPORT_GEN_TIMEOUT_SEC)
+
         except asyncio.CancelledError:
             # v6.0 후속 Quick Win Q2: 부분 생성된 PDF 파일 best-effort 삭제.
-            # generation.pdf_file_path(커밋된 경로) 및 _pending_pdf_path(쓰기 도중 경로) 모두 정리.
             for _p in (getattr(generation, "pdf_file_path", None), _pending_pdf_path):
                 if _p and os.path.exists(_p):
                     try:
@@ -575,19 +580,53 @@ async def _run_report_generation(generation_id: int) -> None:
                     except OSError:
                         pass  # 파일 삭제 실패는 무시 (best-effort)
             try:
-                generation.status = "CANCELLED"
-                generation.error_message = "Cancelled by user"
-                generation.completed_at = datetime.now()
-                await db.commit()
+                # FR-RGL-04: CANCELLED로 마킹 (이미 종결 상태면 건드리지 않음)
+                if generation.status in ("PENDING", "GENERATING"):
+                    generation.status = "CANCELLED"
+                    generation.error_message = "Cancelled by user"
+                    generation.completed_at = datetime.now()
+                    await db.commit()
             except Exception:
                 pass  # 커밋 실패해도 취소 자체는 진행
             raise
+        except asyncio.TimeoutError:
+            # FR-RGL-02: 임계 초과 — 타임아웃 FAILED. 부분 생성 PDF는 best-effort 삭제.
+            for _p in (getattr(generation, "pdf_file_path", None), _pending_pdf_path):
+                if _p and os.path.exists(_p):
+                    try:
+                        os.remove(_p)
+                    except OSError:
+                        pass
+            try:
+                if generation.status in ("PENDING", "GENERATING"):
+                    generation.status = "FAILED"
+                    generation.error_message = f"generation timeout ({settings.REPORT_GEN_TIMEOUT_SEC}s exceeded)"
+                    generation.completed_at = datetime.now()
+                    await db.commit()
+            except Exception:
+                pass
         except Exception as e:
-            generation.status = "FAILED"
-            generation.error_message = str(e)
-            await db.commit()
+            # 일반 실패 경로 — FAILED로 마킹
+            try:
+                if generation.status in ("PENDING", "GENERATING"):
+                    generation.status = "FAILED"
+                    generation.error_message = str(e)
+                    generation.completed_at = datetime.now()
+                    await db.commit()
+            except Exception:
+                pass
         finally:
-            # 태스크 종료 시 dict에서 제거 (성공/실패/취소 모두)
+            # FR-RGL-03: 종결 보장 — 어떤 경로로 왔든 여전히 GENERATING/PENDING이면 FAILED 확정.
+            # (except 블록의 commit이 실패했을 수도, 예외 클래스가 매칭 안 됐을 수도 있어 최종 안전망.)
+            try:
+                if generation is not None and generation.status in ("PENDING", "GENERATING"):
+                    generation.status = "FAILED"
+                    generation.error_message = generation.error_message or "generation ended without terminal state"
+                    generation.completed_at = generation.completed_at or datetime.now()
+                    await db.commit()
+            except Exception:
+                pass  # 최종 finally에서의 commit 실패는 무시 (다음 startup 재조정이 잡음)
+            # 태스크 종료 시 dict에서 제거 (성공/실패/취소/타임아웃 모두)
             _active_generation_tasks.pop(generation_id, None)
 
 
@@ -868,11 +907,21 @@ async def download_report(
     if generation.status != "COMPLETED":
         raise HTTPException(status_code=400, detail="Report is not COMPLETED yet")
 
+    # FR-RPP-03 (v6.0-report_persistence): 파일 부재 시 404 대신 HTTP 410 Gone + 구분 코드.
+    # 이유: "레코드 자체가 없는 경우(404)"와 "PDF 파일만 소실된 경우(410)"를 클라가 구분하도록.
+    # pdf_file_path 자체가 null (=생성 미완/실패 잔재) → 400 계열이 정확하나 하위호환 위해 여전히 404.
     if not generation.pdf_file_path:
         raise HTTPException(status_code=404, detail="PDF file not found")
 
     if not os.path.exists(generation.pdf_file_path):
-        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "PDF_FILE_MISSING",
+                "message": "PDF file has been removed from storage (report re-generation required)",
+                "report_id": generation_id,
+            },
+        )
 
     encoded_name = quote(f"{generation.title}.pdf")
     headers = {

@@ -111,54 +111,96 @@ GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 �
 
 ## Quick Start
 
-### 1. 저장소 준비
+> **처음 배포하는 PC (Windows)**: 아래 **1-Click 방식** 권장 — `bootstrap.ps1` 하나가 인증서 발급 + 컨테이너 기동까지 자동.
+
+### 🚀 1-Click 배포 (신규 PC 권장)
+
+Windows Explorer 에서 `bootstrap.ps1` 우클릭 → **PowerShell 로 실행** (UAC 승인).
+또는 PowerShell 창에서:
+
+```powershell
+git clone <repo-url>
+cd api-test-server
+powershell -ExecutionPolicy Bypass -File bootstrap.ps1
+```
+
+이 스크립트가 자동으로 처리하는 것:
+
+| 단계 | 내용 |
+|---|---|
+| 0 | 관리자 권한 UAC 자동 상승 (mkcert 로컬 CA 등록에 필수) |
+| 1 | Docker Desktop 실행 상태 확인 · `.env` 자동 생성 |
+| 2 | `certs/server.crt` · `server.key` 없으면 `certs/server_install.exe` 자동 실행 → mkcert 자동 다운로드 + rootCA 등록 + 인증서 발급 |
+| 3 | `docker compose build` |
+| 4 | `docker compose up -d` + `pids-api-server` healthy 대기 (최대 120초) |
+| 5 | 접속 URL · 기본 계정 · 클라 rootCA 배포 방법 안내 |
+
+**옵션 스위치**:
+| 스위치 | 용도 |
+|---|---|
+| `-SkipCerts` | 인증서 발급 스킵 (이미 발급된 경우) |
+| `-SkipDocker` | 인증서만 발급, docker 실행 스킵 |
+| `-Rebuild` | `docker compose build --no-cache` |
+| `-AllowHttpFallback` | 인증서 없이 HTTP 로 기동 (개발 편의, **프로덕션 금지**) |
+
+### 🔧 수동 배포 (Linux / macOS / 세부 제어)
 
 ```bash
+# 1. 저장소 준비
 git clone <repo-url>
 cd api-test-server
 cp .env.example .env
+
+# 2. HTTPS 인증서 발급
+# Windows: certs\server_install.exe 를 관리자 권한으로 실행 (mkcert 자동 발급)
+# Linux/macOS: mkcert 를 직접 설치 후 아래 실행
+mkcert -install
+mkcert -cert-file certs/server.crt -key-file certs/server.key localhost 127.0.0.1 ::1 host.docker.internal
+
+# 3. 컨테이너 기동
+docker compose up -d --build
+
+# (선택) 인증서 없이 HTTP 로 급히 기동 (프로덕션 금지)
+ALLOW_HTTP_FALLBACK=true docker compose up -d --build
 ```
 
-### 2. 컨테이너 기동
-
-```bash
-# 빌드 + 백그라운드 기동 (권장)
-docker-compose up -d --build
-
-# 로그 스트리밍하며 기동
-docker-compose up --build
-```
-
-### 3. Swagger 접속
+### 로그인
 
 ```
-https://localhost:8000/docs
+기본 관리자    : admin / admin123
+매니저 계정 8종 : m_manager, vms_manager, popup_manager,
+                CameraManager, BroadcastingManager, QLiteLampManager,
+                NVRManager, EnclosureManager  (모두 pw: sensorway1)
 ```
 
-> `certs/` 폴더 부재 시 HTTP fallback. mkcert 로컬 CA 설치 후 `certs/` 마운트 권장.
-
-### 4. 로그인
-
-```
-Username: admin
-Password: admin123
-```
+> ⚠️ 매니저 계정 pw `sensorway1` 은 **dev/시연 기본값**. 프로덕션에서는 최초 로그인 후 즉시 변경.
 
 Swagger UI 우측 상단 **Authorize** 버튼 → Bearer token 입력 후 보호 endpoint 호출.
 
-### 5. 상태 확인
+### 상태 확인
 
 ```bash
-docker-compose ps
-docker-compose logs -f api-server
+docker compose ps
+docker logs -f pids-api-server
 ```
 
 ### 종료
 
 ```bash
-docker-compose stop       # 컨테이너 중지 (데이터 유지)
-docker-compose down       # 컨테이너 삭제 (데이터 유지)
-docker-compose down -v    # 데이터까지 완전 초기화
+docker compose stop       # 컨테이너 중지 (데이터 유지)
+docker compose down       # 컨테이너 삭제 (데이터·볼륨 유지)
+docker compose down -v    # 데이터·볼륨까지 완전 초기화 ⚠️
+```
+
+### 클라이언트 PC 에 rootCA 배포
+
+브라우저/.NET 클라이언트가 mkcert 발급 인증서를 신뢰하려면 각 클라 PC 에 rootCA 등록 필요:
+
+```
+1. certs/client_install.exe 를 클라 PC 로 복사 (USB, 파일공유 등)
+2. 클라 PC 에서 관리자 권한으로 실행
+3. Windows LocalMachine\Root 저장소에 rootCA 자동 등록
+4. 브라우저/앱 재시작 → HTTPS 경고 없이 접속
 ```
 
 ---

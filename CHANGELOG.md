@@ -4,6 +4,61 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-bootstrap_automation — clone → 1클릭 HTTPS 배포 (2026-07-06)
+
+> 사용자 요청 — "다른 PC 에서 git clone 하면 docker build 로 HTTPS 까지 자동으로 되나?"
+> 완전 자동은 인증서의 호스트 관리자권한 특성상 불가지만, **1스크립트 실행**으로 최소화.
+
+### 배포 절차 변화
+
+| 시점 | 조치 |
+|---|---|
+| 이전 (수동 다단계) | clone → certs 발급 여부 확인 → mkcert 설치 판단 → docker build → up → cert 오류 시 원인 파악 |
+| **v6.0-bootstrap_automation** | **clone → `bootstrap.ps1` 실행** — 나머지 자동 |
+
+### 신규 파일
+
+- **`bootstrap.ps1`** (프로젝트 루트) — Windows PowerShell 5.1+ 대상
+  - 관리자 권한 UAC 자동 상승
+  - Docker Desktop 실행 상태 검증
+  - `.env` 없으면 `.env.example` 복사
+  - `certs/server.crt` 없으면 `certs/server_install.exe` 자동 호출 → mkcert 다운로드 + rootCA 등록 + 인증서 발급
+  - `docker compose build` → `up -d` → `pids-api-server` healthy 대기(최대 120s)
+  - 접속 URL · 계정 · rootCA 배포 안내
+  - **옵션 스위치**: `-SkipCerts`, `-SkipDocker`, `-Rebuild`, `-AllowHttpFallback`
+  - UTF-8 BOM 저장 (WinPS 5.1 CP949 오해석 방지)
+
+### 재빌드된 인스톨러 EXE (v6.0-cert_installer_fix 반영)
+
+- `certs/server_install.exe` (35KB) — 버그 3 CertDir 로직 픽스 반영
+- `certs/client_install.exe` (36KB) — rootCA embed
+
+이전 EXE 는 옛 폴더 구조 참조 + BOM 없는 상태로 빌드된 지뢰였음. 이번 재빌드로 clone 시 즉시 사용 가능.
+
+### README 업데이트
+
+Quick Start 섹션 재구성:
+- 🚀 **1-Click 배포** (권장) — `bootstrap.ps1` 실행 절차
+- 🔧 **수동 배포** (Linux/macOS/세부 제어) — mkcert 직접 사용
+- 매니저 계정 8종 안내 (m_manager 외 v6.0-account_managers_expand 5종 포함)
+- 클라이언트 PC rootCA 배포 방법 (`certs/client_install.exe`)
+
+### 자동화 한계 (기술적)
+
+**완전 자동은 불가** — 근본 이유:
+- 인증서(`certs/*.crt`, `*.key`, `*.pem`)는 gitignore 필수 (보안). clone 에 포함될 수 없음
+- `mkcert` 는 호스트 OS 신뢰 저장소에 rootCA 를 등록해야 함 → **호스트 관리자권한 필수** → 컨테이너 안 자동 실행 불가
+
+`bootstrap.ps1` 은 이 한계 안에서 **사용자 조치를 "스크립트 1회 실행"** 으로 압축한 방식이며, 이론상 이보다 더 자동화하기는 어려움.
+
+### 실측
+
+- PS2EXE 모듈 자동 설치 (`Install-Module -Name ps2exe -Scope CurrentUser`)
+- `build_install_exe.ps1` 실행 → 새 EXE 2종 재빌드 성공 (2026-07-06 22:16:34)
+- `bootstrap.ps1` PowerShell 파서 `PARSE OK` (0 syntax errors)
+- BOM 확인: `efbbbf` ✅
+- Docker Desktop 이미 실행 상태에서 기존 컨테이너 healthy 유지
+
 ### v6.0-servers_port_response_relax — servers.port=0 응답 500 근본 시정 (2026-07-06)
 
 > 이슈 제기: SensorwayManagers 팀 (`docs/prds/GOPDB_servers_port0_issue.md`).

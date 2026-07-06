@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     GOP API Server Certificate Setup
@@ -12,7 +12,9 @@
 
 [CmdletBinding()]
 param(
-    [string]$CertDir       = (Join-Path $PSScriptRoot 'certs'),
+    # 버그 3 픽스 (2026-07-06): param() 기본값 평가 시점에 $PSScriptRoot가 잘못 참조될 수 있음.
+    # 본문에서 실행 방식(PS1 직접 실행 vs PS2EXE 빌드된 EXE 실행) 감지 후 계산.
+    [string]$CertDir       = '',
     [string]$MkcertVersion = 'v1.4.4',
     [string[]]$ExtraSans   = @()
 )
@@ -21,6 +23,23 @@ param(
 $ErrorActionPreference = 'Stop'
 $script:LogPath = Join-Path $env:TEMP 'GOP-Server-Install.log'
 $script:ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+
+# ----- CertDir 기본값 (본문 계산 — 버그 3 픽스) ----------------------------
+# 실행 시나리오 2종:
+#   (A) PS1 직접 실행: $script:ScriptRoot = <repo>\certs\installer_ps2exe
+#       → CertDir = <repo>\certs  (상위 폴더)
+#   (B) PS2EXE 빌드된 server_install.exe 실행: $script:ScriptRoot = <repo>\certs (EXE가 이 폴더)
+#       → CertDir = <repo>\certs  (같은 폴더)
+# 감지: 스크립트 경로에 'installer_ps2exe'가 포함되면 (A), 아니면 (B).
+if (-not $CertDir) {
+    if ($script:ScriptRoot -like '*installer_ps2exe*') {
+        # (A) PS1 직접 실행 - 상위 폴더 사용
+        $CertDir = Split-Path -Parent $script:ScriptRoot
+    } else {
+        # (B) PS2EXE / EXE 실행 - 스크립트/EXE 위치 자체가 certs 폴더
+        $CertDir = $script:ScriptRoot
+    }
+}
 
 # 콘솔 한글 깨짐 방지
 try {

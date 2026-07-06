@@ -4,6 +4,238 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-swagger_v6_notes — Swagger description v6.0 업데이트 (2026-07-06)
+
+> 사용자 요청 — "Swagger에도 v6.0 업데이트 내용 정리해줘. v5.4까지만 있어."
+> `/docs` 상단 description에 v6.0 하이라이트를 담아 배포/클라 팀이 API 진입 시 즉시 최신 컨텍스트 파악 가능하도록.
+
+### 변경 (`app/main.py` FastAPI description)
+
+- `API Version: 5.4 (2026-06-30)` → `6.0 (release/v6.0 브랜치, 후속 픽스 진행 중)`
+- 신규 섹션 **"v6.0 주요 업데이트 (2026-07-03 ~ 진행 중)"** 4 카테고리로 정리:
+  - **Async 대전환** (`v6.0`): SQLAlchemy 2.x + asyncpg, 41 라우터 async 100%, api_logs 파티셔닝, autoheal
+  - **리포트 시스템** (`v6.0-report_*` 4 태그): 컬럼 확장/필터 통일 · Startup 재조정 + PDF 영속화 · 진행률 + Stall 워치도그 + SQL 집계 이관 · 커스텀 날짜 범위
+  - **인증 · 계정** (`v6.0-auth_*`, `v6.0-account_*` 3 태그): AUTH_MODE=token secure default · ADMIN 9종 Static seed
+  - **API 계약 개선**: `ServerResponse.port` ge=1→ge=0 · PDF 소실 시 HTTP 410
+  - **인프라 · 배포** (3 태그): pids-api-* rename · 인증서 fail-fast · bootstrap.ps1 1-Click
+- 신규/변경 endpoint 표 6건 (`/generations/{id}` progress 필드, `/generate` start_date/end_date, `/detail.csv`, `/cancel`, `/download` 410, `/servers` port relax)
+
+### 실측 검증
+
+- `curl https://localhost:8000/openapi.json` → description 4,210 자
+- 12 v6.0 태그 마커 전부 존재 확인 (`v6.0`, `v6.0-report_fixes`, ..., `v6.0-bootstrap_automation`)
+- Swagger UI `/docs` 상단에서 렌더링 확인
+
+### v6.0-bootstrap_automation — clone → 1클릭 HTTPS 배포 (2026-07-06)
+
+> 사용자 요청 — "다른 PC 에서 git clone 하면 docker build 로 HTTPS 까지 자동으로 되나?"
+> 완전 자동은 인증서의 호스트 관리자권한 특성상 불가지만, **1스크립트 실행**으로 최소화.
+
+### 배포 절차 변화
+
+| 시점 | 조치 |
+|---|---|
+| 이전 (수동 다단계) | clone → certs 발급 여부 확인 → mkcert 설치 판단 → docker build → up → cert 오류 시 원인 파악 |
+| **v6.0-bootstrap_automation** | **clone → `bootstrap.ps1` 실행** — 나머지 자동 |
+
+### 신규 파일
+
+- **`bootstrap.ps1`** (프로젝트 루트) — Windows PowerShell 5.1+ 대상
+  - 관리자 권한 UAC 자동 상승
+  - Docker Desktop 실행 상태 검증
+  - `.env` 없으면 `.env.example` 복사
+  - `certs/server.crt` 없으면 `certs/server_install.exe` 자동 호출 → mkcert 다운로드 + rootCA 등록 + 인증서 발급
+  - `docker compose build` → `up -d` → `pids-api-server` healthy 대기(최대 120s)
+  - 접속 URL · 계정 · rootCA 배포 안내
+  - **옵션 스위치**: `-SkipCerts`, `-SkipDocker`, `-Rebuild`, `-AllowHttpFallback`
+  - UTF-8 BOM 저장 (WinPS 5.1 CP949 오해석 방지)
+
+### 재빌드된 인스톨러 EXE (v6.0-cert_installer_fix 반영)
+
+- `certs/server_install.exe` (35KB) — 버그 3 CertDir 로직 픽스 반영
+- `certs/client_install.exe` (36KB) — rootCA embed
+
+이전 EXE 는 옛 폴더 구조 참조 + BOM 없는 상태로 빌드된 지뢰였음. 이번 재빌드로 clone 시 즉시 사용 가능.
+
+### README 업데이트
+
+Quick Start 섹션 재구성:
+- 🚀 **1-Click 배포** (권장) — `bootstrap.ps1` 실행 절차
+- 🔧 **수동 배포** (Linux/macOS/세부 제어) — mkcert 직접 사용
+- 매니저 계정 8종 안내 (m_manager 외 v6.0-account_managers_expand 5종 포함)
+- 클라이언트 PC rootCA 배포 방법 (`certs/client_install.exe`)
+
+### 자동화 한계 (기술적)
+
+**완전 자동은 불가** — 근본 이유:
+- 인증서(`certs/*.crt`, `*.key`, `*.pem`)는 gitignore 필수 (보안). clone 에 포함될 수 없음
+- `mkcert` 는 호스트 OS 신뢰 저장소에 rootCA 를 등록해야 함 → **호스트 관리자권한 필수** → 컨테이너 안 자동 실행 불가
+
+`bootstrap.ps1` 은 이 한계 안에서 **사용자 조치를 "스크립트 1회 실행"** 으로 압축한 방식이며, 이론상 이보다 더 자동화하기는 어려움.
+
+### 실측
+
+- PS2EXE 모듈 자동 설치 (`Install-Module -Name ps2exe -Scope CurrentUser`)
+- `build_install_exe.ps1` 실행 → 새 EXE 2종 재빌드 성공 (2026-07-06 22:16:34)
+- `bootstrap.ps1` PowerShell 파서 `PARSE OK` (0 syntax errors)
+- BOM 확인: `efbbbf` ✅
+- Docker Desktop 이미 실행 상태에서 기존 컨테이너 healthy 유지
+
+### v6.0-servers_port_response_relax — servers.port=0 응답 500 근본 시정 (2026-07-06)
+
+> 이슈 제기: SensorwayManagers 팀 (`docs/prds/GOPDB_servers_port0_issue.md`).
+> 원격 GOPDB `GET /api/servers` 가 이미 저장된 `port=0` 행 때문에 목록 응답 직렬화 단계에서
+> `ServerResponse.port ge=1` 검증에 걸려 **목록 전체 500 (INTERNAL_ERROR)** 발생.
+
+### 원인 (서버측 설계 실수 자인)
+
+**요청은 엄격, 응답은 관대**(Postel's Law)가 API 설계 원칙인데, **응답 스키마에도 요청과 동일한 `ge=1` 제약**을 그대로 부여한 것이 지뢰. DB에는 옛 SensorwayManagers 옵션 default(`ManagerServerPort=0`)로 저장된 `port=0` 행이 남았고, 스키마를 뒤에 강화하면서 그 행이 응답에 담길 때 pydantic 검증 실패 → 목록 전체 500.
+
+**행 1개가 목록 엔드포인트 전체를 죽이는** blast radius 문제이기도 함.
+
+### 픽스 (2층 방어)
+
+#### L1. 응답 스키마 제약 완화 (`app/schemas/server.py`)
+
+| 스키마 | 필드 | 이전 | 이후 |
+|---|---|---|---|
+| `ServerCreate.port` | 요청 | `Field(..., ge=1, le=65535)` | **유지** (새 데이터 위생) |
+| `ServerUpdate.port` | 요청 | `Optional[int]... ge=1, le=65535` | **유지** |
+| **`ServerResponse.port`** | 응답 | `Field(..., ge=1, le=65535)` | **`Field(..., ge=0, le=65535)`** — port=0 허용 |
+| **`ServerNestedResponse.port`** | 응답 (중첩) | `Field(..., ge=1, le=65535)` | **`Field(..., ge=0, le=65535)`** |
+
+description도 `"서버 포트 (0~65535, 0=미지정)"` 로 갱신.
+
+#### L2. 목록 fault tolerance (`app/routers/servers.py`)
+
+- `_safe_server_to_response(server)` 헬퍼 신설 — try/except로 감싸 실패 시 `logger.warning(...)` + `None` 반환
+- `list_servers` / `get_server_summary` 목록 컴프리헨션을 walrus + `None` 필터로 변경
+- **한 행이 스키마 위반이어도 나머지 정상 행은 그대로 반환**. WARN 로그로 관측 가능
+- 단건 조회(`get_server`)는 이 헬퍼를 쓰지 않음 — 단건은 실패 시 명확히 알려주는 게 옳음
+
+### 실측 (2026-07-06)
+
+| 시나리오 | HTTP | 결과 |
+|---|---|---|
+| 회귀: 정상 상태 GET /api/servers | 200 | 14 rows 정상 |
+| **인위 주입**: `UPDATE servers SET port=0 WHERE id=3` (VMS-ab1120) | — | port=0 저장 확인 |
+| **재실측**: GET /api/servers (port=0 존재 상태) | **200** | **14 rows 정상 응답 + id=3의 port=0 그대로 노출** |
+| 원위치: `UPDATE servers SET port=8080 WHERE id=3` | — | 정상 복구 |
+
+**즉 이전엔 500이었을 상황이 이제 200으로 정상 처리됨.** L1이 근본 해소, L2는 미래 다른 스키마 위반 대비 방어깊이.
+
+### 데이터 위생 (SensorwayManagers 팀 조치 요청)
+
+서버측 픽스는 **응답 500을 막는 대증요법에 가깝고**, 근본은 **원격 GOPDB의 `port=0` 행 자체를 정리**하는 것.
+아래 SQL을 GOP DB 관리자가 원격 실행 권장:
+
+```sql
+-- 진단
+SELECT id, name, ip_address, port
+  FROM servers
+ WHERE port = 0;
+
+-- 유효값으로 갱신 (권장 — 이력 보존)
+UPDATE servers SET port = 1 WHERE port = 0;
+```
+
+응답 문서: `docs/GOP_Server_API_servers_port0_issue_REPLY.md`
+
+### v6.0-account_managers_expand — 장비 도메인별 ADMIN 매니저 5종 추가 (2026-07-06)
+
+> 사용자 요청 — 장비 도메인별 매니저 계정 5종 Static seed에 추가.
+
+### 추가 계정 (DEFAULT_ADMIN_ACCOUNTS)
+
+| login_id | password | role | 이름 |
+|---|---|---|---|
+| **CameraManager** | sensorway1 | ADMIN | Camera 매니저 |
+| **BroadcastingManager** | sensorway1 | ADMIN | Broadcasting 매니저 |
+| **QLiteLampManager** | sensorway1 | ADMIN | QLiteLamp 매니저 |
+| **NVRManager** | sensorway1 | ADMIN | NVR 매니저 |
+| **EnclosureManager** | sensorway1 | ADMIN | Enclosure 매니저 |
+
+- 저장: bcrypt 해시. group_id NULL (ADMIN bypass).
+- Idempotent — 재빌드/재시작 시 이미 존재하면 스킵 (사용자가 변경한 password 보존).
+
+### 계정 인벤토리 (9종 ADMIN + 3종 USER)
+
+| Static seed ADMIN (v6.2 + v6.0-account_managers_expand) |
+|---|
+| admin / m_manager / vms_manager / popup_manager |
+| CameraManager / BroadcastingManager / QLiteLampManager / NVRManager / EnclosureManager |
+
+### 실측 검증 (2026-07-06)
+- Startup 로그: `[OK] AccountUser {5종} created (role: ADMIN)` (기존 4종은 `already exists`)
+- DB: id 24~28 신규, role=ADMIN, group_id NULL 확인
+- Login: 5계정 전부 `POST /api/auth/login` 200 + access_token (207~219자) 발급 성공
+
+### v6.0-cert_installer_fix — 인증서 인스톨러 6 버그 픽스 + HTTPS 강제 (2026-07-06)
+
+> 사용자 리포트: 다른 PC에서 git clone 후 build했더니 HTTP로 로그인됨. 클라(.NET) SSL 실패 → 503.
+> **근본 원인**: 인증서 설치 실패 후 서버가 조용히 HTTP로 fallback → healthcheck·클라 HTTPS 강제와 충돌.
+> 6 버그 일괄 정리 + HTTPS 정책 강화.
+
+### 픽스 (6 버그)
+
+| # | 버그 | 원인 | 픽스 |
+|---|---|---|---|
+| **1** | `server_install.ps1` UTF-8 BOM 없음 | Windows PS 5.1이 CP949로 오해석 → 한글 파싱 실패 | 현재 파일 BOM 있음 확인 (`efbbbf`). CERT_INSTALLER_README에 저장 규칙 명시 |
+| **2** | 기존 `server_install.exe`가 깨진 스크립트로 빌드 | PS2EXE가 빌드 시점 코드 embed → 원본 수정해도 EXE 안 바뀜 | README에 재빌드 필요 시점 표 명시. 이번 픽스 반영 EXE 재빌드 필요 |
+| **3** | `server_install.ps1` CertDir 경로 오류 | `Join-Path $PSScriptRoot 'certs'` — PS1 직접실행/EXE실행 구분 없음 | 본문 계산: `$script:ScriptRoot -like '*installer_ps2exe*'`이면 상위 폴더, 아니면 EXE 위치 사용 |
+| **4** | `build_install_exe.ps1` 잘못된 경로 참조 | `certs\installer\scripts\server_install.ps1` (구 구조) 사용 | `Join-Path $PSScriptRoot 'server_install.ps1'` (같은 폴더) |
+| **5** | `build_install_exe.ps1` param 기본값 null | `$MyInvocation.MyCommand.Path`가 `powershell.exe -File` 실행 시 null | param에 빈 문자열, 본문에서 `$PSScriptRoot` 기반 계산 |
+| **6** | **HTTP fallback vs HTTPS 강제 충돌** | Dockerfile CMD가 인증서 없으면 조용히 HTTP fallback → healthcheck(HTTPS)/클라(HTTPS)와 충돌 | Fail-fast + opt-in HTTP (아래 상세) |
+
+### Dockerfile CMD 정책 강화
+
+3 모드 정의:
+
+| 조건 | 동작 |
+|---|---|
+| `/app/certs/server.crt` + `server.key` 존재 | `[HTTPS] certs OK - uvicorn HTTPS 기동` → HTTPS 8000 |
+| 인증서 없음 + `ALLOW_HTTP_FALLBACK=true` (opt-in) | `[WARN]` bar × 3줄 → HTTP 8000 (개발/시연 편의) |
+| 인증서 없음 + `ALLOW_HTTP_FALLBACK=false` (기본) | **`[FATAL]` bar + 조치 안내 3줄 → exit 1** (재시작 루프) |
+
+`docker-compose.yml`에 `ALLOW_HTTP_FALLBACK=${ALLOW_HTTP_FALLBACK:-false}` env 파이프 추가.
+
+### 실측 검증 (2026-07-06)
+
+| 시나리오 | 결과 |
+|---|---|
+| 인증서 있음 | `[HTTPS] certs OK - uvicorn HTTPS 기동`, `HTTPS=200` |
+| 인증서 임시 rename (`server.crt.bak`) | `[FATAL] ... 미존재 - 서버 기동 중단` × 조치 3줄, `exit 1`, `Restarting (1)` 상태 |
+| `ALLOW_HTTP_FALLBACK=true` 강제 opt-in | `Uvicorn running on http://0.0.0.0:8000`, `HTTP=200` (평문) |
+| 인증서 원위치 | `[HTTPS] certs OK - uvicorn HTTPS 기동`, `HTTPS=200` 복구 |
+
+### PS1 파일 인코딩 (필수)
+
+**모든 `.ps1`는 UTF-8 BOM으로 저장한다.**
+- VS Code: 우하단 인코딩 → "UTF-8 with BOM"
+- 확인: 파일 첫 3바이트가 `EF BB BF` (Python `print(open('x.ps1','rb').read(3).hex())` = `efbbbf`)
+- 현재 3 파일 모두 BOM 있음 확인 (`server_install.ps1`, `client_install.ps1`, `build_install_exe.ps1`)
+
+### EXE 재빌드 필요 (사용자 조치)
+
+기존 `certs/server_install.exe` / `client_install.exe`는 **버그 스크립트로 embed된 상태**입니다.
+아래 명령으로 재빌드하세요 (BOM 유지 + 픽스 반영):
+
+```powershell
+cd certs\installer_ps2exe
+pwsh -ExecutionPolicy Bypass -File build_install_exe.ps1
+```
+
+결과:
+- `certs\server_install.exe` (새 로직으로 embed)
+- `certs\client_install.exe` (새 로직으로 embed)
+
+### 다음 예상 이슈 (사용자 리포트에 언급됨)
+
+HTTPS 해결 후 `test_user`가 로그인 전 startup에서 `GET /api/servers/1/proxy-settings` 호출 → **401 Unauthorized** 예상 (AUTH_MODE=token, RBAC enforced 상태).
+클라 조치 필요 (서버측 무관):
+- 로그인 완료 후 프록시 설정 조회
+- 또는 초기화 순서를 DeviceProviderService 패턴(로그인 게이팅)에 맞추기
+
 ### v6.0-rename_pids — 컨테이너/이미지 이름 pids-api-* 로 rename (2026-07-06)
 
 > 사용자 요청 — `api-test-server` → `pids-api-server`로 브랜딩 변경. **A안 (최소 침습)**: 컨테이너/이미지 이름만 변경, 볼륨·네트워크·데이터 100% 보전.

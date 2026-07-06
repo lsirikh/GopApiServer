@@ -6,7 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+import logging
 import math
+
+logger = logging.getLogger(__name__)
 
 from app.dependencies import get_async_db
 from app.routers.auth import (
@@ -44,6 +47,30 @@ def _server_to_response(server: Server) -> ServerResponse:
         created_at=server.created_at,
         updated_at=server.updated_at
     )
+
+
+def _safe_server_to_response(server: Server) -> Optional[ServerResponse]:
+    """v6.0-servers_port_response_relax L2 (2026-07-06): fault-tolerant 변환.
+
+    목록 응답을 조립할 때 한 행이 스키마 위반이어도 목록 전체가 500이 되지 않도록,
+    실패 행은 WARN 로그와 함께 제외한다(Postel's Law 응답 관대 원칙).
+    단건 조회는 이 헬퍼를 쓰지 않는다 — 단건은 실패 시 명확히 알려주는 게 옳다.
+
+    사건 이력: SensorwayManagers 옛 ManagerServerPort default=0 이 servers.port=0 으로
+    저장되어 있었고, ServerResponse.port ge=1 제약과 충돌해 GET /api/servers 전체 500이 났음.
+    L1 스키마 완화(ge=0)로 해당 케이스는 해소됐지만, 미래 다른 위반에 대비한 방어깊이.
+    """
+    try:
+        return _server_to_response(server)
+    except Exception as exc:
+        logger.warning(
+            "[servers.list] response 직렬화 실패 → 목록에서 skip: server_id=%s name=%r port=%r reason=%s",
+            getattr(server, "id", "?"),
+            getattr(server, "name", "?"),
+            getattr(server, "port", "?"),
+            exc,
+        )
+        return None
 
 
 @router.get("/summary", response_model=ApiSingleResponse[list[ServerCategorySummary]])
@@ -84,8 +111,8 @@ async def get_server_summary(
         warning_count = sum(1 for s in servers if s.status == EnumServerStatus.WARNING)
         error_count = sum(1 for s in servers if s.status == EnumServerStatus.ERROR)
 
-        # Create server responses
-        server_responses = [_server_to_response(s) for s in servers]
+        # Create server responses (v6.0-servers_port_response_relax L2: fault-tolerant)
+        server_responses = [r for s in servers if (r := _safe_server_to_response(s)) is not None]
 
         summary = ServerCategorySummary(
             id=category.id,
@@ -151,8 +178,9 @@ async def get_servers(
         await db.execute(stmt.order_by(Server.id).offset(skip).limit(limit))
     ).scalars().all()
 
-    # Convert to response format
-    server_responses = [_server_to_response(s) for s in servers]
+    # Convert to response format (v6.0-servers_port_response_relax L2: fault-tolerant)
+    # 한 행이 스키마 위반이어도 목록 전체 500이 되지 않도록 skip + WARN.
+    server_responses = [r for s in servers if (r := _safe_server_to_response(s)) is not None]
 
     pagination = PaginationMeta(
         page=page,

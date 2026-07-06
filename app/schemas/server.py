@@ -134,13 +134,18 @@ class ServerResponse(BaseModel):
     """Schema for Server response
 
     v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원 (.NET 장비 접속 자격증명)
+
+    v6.0-servers_port_response_relax (2026-07-06): port 응답 제약을 ge=1 → ge=0 완화.
+      요청(ServerCreate/Update)은 여전히 ge=1 유지 (새 데이터 위생).
+      응답 관대 원칙(Postel's Law) 적용 — DB에 저장된 옛 port=0 행도 그대로 노출.
+      옛 SensorwayManagers 옵션 default(ManagerServerPort=0)로 등록된 잔재를 목록에서 볼 수 있게 함.
     """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
     status: EnumServerStatus = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
     ip_address: str = Field(..., description="서버 IP 주소")
-    port: int = Field(..., ge=1, le=65535, description="서버 포트 (1~65535)")
+    port: int = Field(..., ge=0, le=65535, description="서버 포트 (0~65535, 0=미지정)")
     hostname: Optional[str] = Field(None, description="호스트명")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
     user_password: Optional[str] = Field(None, description="접속 비밀번호")
@@ -183,13 +188,14 @@ class ServerNestedResponse(BaseModel):
     Excludes created_at, updated_at per nested response rule
 
     v4.10 Phase 1 (2026-06-25): SEC-1 마스킹 정책 회귀 — 평문 응답 복원
+    v6.0-servers_port_response_relax (2026-07-06): port ge=1 → ge=0 완화 (ServerResponse와 동일 이유)
     """
     id: int = Field(..., description="서버 ID")
     category_id: int = Field(..., description="소속 카테고리 ID")
     name: str = Field(..., description="서버 이름")
     status: EnumServerStatus = Field(..., description="서버 상태 (NORMAL/WARNING/ERROR)")
     ip_address: str = Field(..., description="서버 IP 주소")
-    port: int = Field(..., ge=1, le=65535, description="서버 포트 (1~65535)")
+    port: int = Field(..., ge=0, le=65535, description="서버 포트 (0~65535, 0=미지정)")
     hostname: Optional[str] = Field(None, description="호스트명")
     user_name: Optional[str] = Field(None, description="접속 사용자명")
     user_password: Optional[str] = Field(None, description="접속 비밀번호")

@@ -28,10 +28,17 @@ def create_tables():
 # admin(admin123) 외에 팀 매니저 3종 자동 시드. bcrypt 해시로 저장, group_id=NULL(ADMIN bypass).
 # password는 dev/시연 기본값 — 프로덕션 배포 시 최초 로그인 후 변경 권장.
 DEFAULT_ADMIN_ACCOUNTS = [
-    {"login_id": "admin",          "password": "admin123",   "name": "시스템 관리자"},
-    {"login_id": "m_manager",      "password": "sensorway1", "name": "M 매니저"},
-    {"login_id": "vms_manager",    "password": "sensorway1", "name": "VMS 매니저"},
-    {"login_id": "popup_manager",  "password": "sensorway1", "name": "팝업 매니저"},
+    {"login_id": "admin",               "password": "admin123",   "name": "시스템 관리자"},
+    # v6.2 (2026-07-05): 팀 매니저 3종
+    {"login_id": "m_manager",           "password": "sensorway1", "name": "M 매니저"},
+    {"login_id": "vms_manager",         "password": "sensorway1", "name": "VMS 매니저"},
+    {"login_id": "popup_manager",       "password": "sensorway1", "name": "팝업 매니저"},
+    # v6.0-account_managers_expand (2026-07-06): 장비 도메인별 매니저 5종
+    {"login_id": "CameraManager",       "password": "sensorway1", "name": "Camera 매니저"},
+    {"login_id": "BroadcastingManager", "password": "sensorway1", "name": "Broadcasting 매니저"},
+    {"login_id": "QLiteLampManager",    "password": "sensorway1", "name": "QLiteLamp 매니저"},
+    {"login_id": "NVRManager",          "password": "sensorway1", "name": "NVR 매니저"},
+    {"login_id": "EnclosureManager",    "password": "sensorway1", "name": "Enclosure 매니저"},
 ]
 
 

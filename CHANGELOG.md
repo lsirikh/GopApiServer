@@ -4,6 +4,28 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-swagger_v6_notes — Swagger description v6.0 업데이트 (2026-07-06)
+
+> 사용자 요청 — "Swagger에도 v6.0 업데이트 내용 정리해줘. v5.4까지만 있어."
+> `/docs` 상단 description에 v6.0 하이라이트를 담아 배포/클라 팀이 API 진입 시 즉시 최신 컨텍스트 파악 가능하도록.
+
+### 변경 (`app/main.py` FastAPI description)
+
+- `API Version: 5.4 (2026-06-30)` → `6.0 (release/v6.0 브랜치, 후속 픽스 진행 중)`
+- 신규 섹션 **"v6.0 주요 업데이트 (2026-07-03 ~ 진행 중)"** 4 카테고리로 정리:
+  - **Async 대전환** (`v6.0`): SQLAlchemy 2.x + asyncpg, 41 라우터 async 100%, api_logs 파티셔닝, autoheal
+  - **리포트 시스템** (`v6.0-report_*` 4 태그): 컬럼 확장/필터 통일 · Startup 재조정 + PDF 영속화 · 진행률 + Stall 워치도그 + SQL 집계 이관 · 커스텀 날짜 범위
+  - **인증 · 계정** (`v6.0-auth_*`, `v6.0-account_*` 3 태그): AUTH_MODE=token secure default · ADMIN 9종 Static seed
+  - **API 계약 개선**: `ServerResponse.port` ge=1→ge=0 · PDF 소실 시 HTTP 410
+  - **인프라 · 배포** (3 태그): pids-api-* rename · 인증서 fail-fast · bootstrap.ps1 1-Click
+- 신규/변경 endpoint 표 6건 (`/generations/{id}` progress 필드, `/generate` start_date/end_date, `/detail.csv`, `/cancel`, `/download` 410, `/servers` port relax)
+
+### 실측 검증
+
+- `curl https://localhost:8000/openapi.json` → description 4,210 자
+- 12 v6.0 태그 마커 전부 존재 확인 (`v6.0`, `v6.0-report_fixes`, ..., `v6.0-bootstrap_automation`)
+- Swagger UI `/docs` 상단에서 렌더링 확인
+
 ### v6.0-bootstrap_automation — clone → 1클릭 HTTPS 배포 (2026-07-06)
 
 > 사용자 요청 — "다른 PC 에서 git clone 하면 docker build 로 HTTPS 까지 자동으로 되나?"

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     server_install.exe + client_install.exe 빌드 자동화
 .DESCRIPTION
@@ -12,11 +12,13 @@
 
 [CmdletBinding()]
 param(
-    [string]$ProjectRoot     = (Split-Path -Parent $MyInvocation.MyCommand.Path),
-    [string]$CertsDir        = $null,
-    [string]$ServerPs1       = $null,
-    [string]$ClientPs1       = $null,
-    [string]$RootCaPath      = $null,
+    # 버그 5 픽스 (2026-07-06): param() 기본값 평가 시 $MyInvocation.MyCommand.Path가 null일 수 있음
+    # (powershell.exe -File 방식 실행 시 등). 본문에서 $PSScriptRoot 기반으로 계산.
+    [string]$ProjectRoot     = '',
+    [string]$CertsDir        = '',
+    [string]$ServerPs1       = '',
+    [string]$ClientPs1       = '',
+    [string]$RootCaPath      = '',
     [string]$Version         = '1.0.0.0',
     [string]$Company         = 'GOP',
     [switch]$SkipModuleCheck,
@@ -25,10 +27,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ----- 경로 기본값 ----------------------------------------------------------
-if (-not $CertsDir)  { $CertsDir  = Join-Path $ProjectRoot 'certs' }
-if (-not $ServerPs1) { $ServerPs1 = Join-Path $ProjectRoot 'certs\installer\scripts\server_install.ps1' }
-if (-not $ClientPs1) { $ClientPs1 = Join-Path $ProjectRoot 'certs\installer\scripts\client_install.ps1' }
+# ----- 경로 기본값 (본문에서 계산 — 버그 4·5 픽스) --------------------------
+# 이 스크립트 위치: <repo>\certs\installer_ps2exe\build_install_exe.ps1
+#   $PSScriptRoot                          = <repo>\certs\installer_ps2exe
+#   Split-Path -Parent $PSScriptRoot       = <repo>\certs
+#   Split-Path -Parent (그 부모)            = <repo>
+if (-not $ProjectRoot) { $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
+if (-not $CertsDir)    { $CertsDir    = Split-Path -Parent $PSScriptRoot }  # <repo>\certs
+if (-not $ServerPs1)   { $ServerPs1   = Join-Path $PSScriptRoot 'server_install.ps1' }
+if (-not $ClientPs1)   { $ClientPs1   = Join-Path $PSScriptRoot 'client_install.ps1' }
 if (-not $RootCaPath) {
     # mkcert -CAROOT 가능하면 사용
     $mkcert = Get-Command mkcert.exe -ErrorAction SilentlyContinue

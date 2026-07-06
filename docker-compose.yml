@@ -49,6 +49,9 @@ services:
       # v6.0-auth_mode_secure_default (2026-07-05): 기본값 public → token (secure by default).
       # 개발 편의로 public이 필요하면 .env 또는 호스트 환경변수에 AUTH_MODE=public 명시.
       - AUTH_MODE=${AUTH_MODE:-token}
+      # v6.0-cert_installer_fix (2026-07-06): HTTPS 강제. 인증서 없이 HTTP로 뜨려면 명시적 opt-in.
+      # Dockerfile CMD가 이 env를 확인해 fail-fast vs HTTP fallback을 결정.
+      - ALLOW_HTTP_FALLBACK=${ALLOW_HTTP_FALLBACK:-false}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}

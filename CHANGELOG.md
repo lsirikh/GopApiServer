@@ -4,6 +4,72 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-cert_installer_fix — 인증서 인스톨러 6 버그 픽스 + HTTPS 강제 (2026-07-06)
+
+> 사용자 리포트: 다른 PC에서 git clone 후 build했더니 HTTP로 로그인됨. 클라(.NET) SSL 실패 → 503.
+> **근본 원인**: 인증서 설치 실패 후 서버가 조용히 HTTP로 fallback → healthcheck·클라 HTTPS 강제와 충돌.
+> 6 버그 일괄 정리 + HTTPS 정책 강화.
+
+### 픽스 (6 버그)
+
+| # | 버그 | 원인 | 픽스 |
+|---|---|---|---|
+| **1** | `server_install.ps1` UTF-8 BOM 없음 | Windows PS 5.1이 CP949로 오해석 → 한글 파싱 실패 | 현재 파일 BOM 있음 확인 (`efbbbf`). CERT_INSTALLER_README에 저장 규칙 명시 |
+| **2** | 기존 `server_install.exe`가 깨진 스크립트로 빌드 | PS2EXE가 빌드 시점 코드 embed → 원본 수정해도 EXE 안 바뀜 | README에 재빌드 필요 시점 표 명시. 이번 픽스 반영 EXE 재빌드 필요 |
+| **3** | `server_install.ps1` CertDir 경로 오류 | `Join-Path $PSScriptRoot 'certs'` — PS1 직접실행/EXE실행 구분 없음 | 본문 계산: `$script:ScriptRoot -like '*installer_ps2exe*'`이면 상위 폴더, 아니면 EXE 위치 사용 |
+| **4** | `build_install_exe.ps1` 잘못된 경로 참조 | `certs\installer\scripts\server_install.ps1` (구 구조) 사용 | `Join-Path $PSScriptRoot 'server_install.ps1'` (같은 폴더) |
+| **5** | `build_install_exe.ps1` param 기본값 null | `$MyInvocation.MyCommand.Path`가 `powershell.exe -File` 실행 시 null | param에 빈 문자열, 본문에서 `$PSScriptRoot` 기반 계산 |
+| **6** | **HTTP fallback vs HTTPS 강제 충돌** | Dockerfile CMD가 인증서 없으면 조용히 HTTP fallback → healthcheck(HTTPS)/클라(HTTPS)와 충돌 | Fail-fast + opt-in HTTP (아래 상세) |
+
+### Dockerfile CMD 정책 강화
+
+3 모드 정의:
+
+| 조건 | 동작 |
+|---|---|
+| `/app/certs/server.crt` + `server.key` 존재 | `[HTTPS] certs OK - uvicorn HTTPS 기동` → HTTPS 8000 |
+| 인증서 없음 + `ALLOW_HTTP_FALLBACK=true` (opt-in) | `[WARN]` bar × 3줄 → HTTP 8000 (개발/시연 편의) |
+| 인증서 없음 + `ALLOW_HTTP_FALLBACK=false` (기본) | **`[FATAL]` bar + 조치 안내 3줄 → exit 1** (재시작 루프) |
+
+`docker-compose.yml`에 `ALLOW_HTTP_FALLBACK=${ALLOW_HTTP_FALLBACK:-false}` env 파이프 추가.
+
+### 실측 검증 (2026-07-06)
+
+| 시나리오 | 결과 |
+|---|---|
+| 인증서 있음 | `[HTTPS] certs OK - uvicorn HTTPS 기동`, `HTTPS=200` |
+| 인증서 임시 rename (`server.crt.bak`) | `[FATAL] ... 미존재 - 서버 기동 중단` × 조치 3줄, `exit 1`, `Restarting (1)` 상태 |
+| `ALLOW_HTTP_FALLBACK=true` 강제 opt-in | `Uvicorn running on http://0.0.0.0:8000`, `HTTP=200` (평문) |
+| 인증서 원위치 | `[HTTPS] certs OK - uvicorn HTTPS 기동`, `HTTPS=200` 복구 |
+
+### PS1 파일 인코딩 (필수)
+
+**모든 `.ps1`는 UTF-8 BOM으로 저장한다.**
+- VS Code: 우하단 인코딩 → "UTF-8 with BOM"
+- 확인: 파일 첫 3바이트가 `EF BB BF` (Python `print(open('x.ps1','rb').read(3).hex())` = `efbbbf`)
+- 현재 3 파일 모두 BOM 있음 확인 (`server_install.ps1`, `client_install.ps1`, `build_install_exe.ps1`)
+
+### EXE 재빌드 필요 (사용자 조치)
+
+기존 `certs/server_install.exe` / `client_install.exe`는 **버그 스크립트로 embed된 상태**입니다.
+아래 명령으로 재빌드하세요 (BOM 유지 + 픽스 반영):
+
+```powershell
+cd certs\installer_ps2exe
+pwsh -ExecutionPolicy Bypass -File build_install_exe.ps1
+```
+
+결과:
+- `certs\server_install.exe` (새 로직으로 embed)
+- `certs\client_install.exe` (새 로직으로 embed)
+
+### 다음 예상 이슈 (사용자 리포트에 언급됨)
+
+HTTPS 해결 후 `test_user`가 로그인 전 startup에서 `GET /api/servers/1/proxy-settings` 호출 → **401 Unauthorized** 예상 (AUTH_MODE=token, RBAC enforced 상태).
+클라 조치 필요 (서버측 무관):
+- 로그인 완료 후 프록시 설정 조회
+- 또는 초기화 순서를 DeviceProviderService 패턴(로그인 게이팅)에 맞추기
+
 ### v6.0-rename_pids — 컨테이너/이미지 이름 pids-api-* 로 rename (2026-07-06)
 
 > 사용자 요청 — `api-test-server` → `pids-api-server`로 브랜딩 변경. **A안 (최소 침습)**: 컨테이너/이미지 이름만 변경, 볼륨·네트워크·데이터 100% 보전.

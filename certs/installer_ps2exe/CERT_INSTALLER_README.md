@@ -74,14 +74,41 @@
 
 ## 빌드 (개발/PM 측)
 
+### ⚠ 필수 선결 조건 (2026-07-06 픽스)
+
+**모든 `.ps1` 파일은 반드시 UTF-8 BOM으로 저장한다.**
+- Windows PowerShell 5.1은 BOM 없는 UTF-8을 CP949로 오해석 → 한글 문자열 파싱 실패
+- 저장 방법: VS Code 우하단 인코딩 클릭 → "UTF-8 with BOM"으로 저장
+- 확인 방법: `python -c "print(open(r'server_install.ps1','rb').read(3).hex())"` → `efbbbf`가 나오면 OK
+
+### 빌드 절차
+
 ```powershell
 # 1) mkcert -CAROOT 에 rootCA.pem 이 있는 PC 에서
+# 2) certs/installer_ps2exe/ 폴더에서 실행 (스크립트가 자체 위치 감지)
 pwsh -ExecutionPolicy Bypass -File build_install_exe.ps1
 
 # 결과
 #   certs/server_install.exe
 #   certs/client_install.exe
 ```
+
+### EXE 재빌드가 필요한 시점
+
+`server_install.exe` / `client_install.exe`는 빌드 시점의 PS1 코드를 EXE 내부에 embed 합니다.
+아래 상황에서 반드시 재빌드하세요:
+
+| 상황 | 재빌드 필요 |
+|---|---|
+| `server_install.ps1` 로직 수정 | ✅ |
+| `client_install.ps1` 로직 수정 | ✅ |
+| rootCA.pem 갱신 (client 임베드용) | ✅ |
+| BOM 없는 상태로 저장된 PS1을 BOM 있게 재저장 | ✅ (필수) |
+
+**과거 EXE의 알려진 결함** (v6.0-cert_installer_fix 이전 빌드):
+- BOM 없는 PS1으로 빌드 → PS2EXE 실행 시 "문자열 종결자 없음", "닫는 } 없음" 파서 오류
+- 인증서 발급 실패 → Docker HTTP fallback → healthcheck 실패 → 클라 SSL 실패
+- 반드시 위 픽스 반영된 코드로 재빌드 필요
 
 세부 옵션:
 

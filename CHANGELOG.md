@@ -4,6 +4,65 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-installer_ps2exe_path_fix — 자동 설치 근본 원인(PS2EXE 경로 소실) 규명·해결 (2026-07-07)
+
+> 이슈: 다른 PC에서 gitea clone 후 `bootstrap.ps1` 자동 설치 시 인증서 발급 실패 → HTTP 로그인됨.
+> 원 문서: `docs/prds/GOP_API_Server_자동설치_문제점_정리.md` (설치 팀 작성, winget PATH 문제로 추정)
+
+### 근본 원인 규명 (실측)
+
+원 문서는 winget PATH 미반영으로 추정했으나 **현재 코드는 winget 미사용**(GitHub 직접 다운로드).
+진짜 원인은 **PS2EXE로 빌드된 EXE에서 스크립트 경로 변수가 전부 빈 문자열**:
+
+| 변수 (PS2EXE EXE 실행 시) | 값 |
+|---|---|
+| `$PSScriptRoot` | `''` |
+| `$MyInvocation.MyCommand.Path` | `''` |
+| `$PSCommandPath` | `''` |
+| `$MyInvocation.MyCommand.Definition` | (소스코드 — 경로 아님) |
+| **`MainModule.FileName`** | **EXE 절대경로** ← 유일 신뢰 가능 |
+
+→ `server_install.ps1:25` else 분기 `Split-Path -Parent ''` → `ScriptRoot=''` → `CertDir=''` → `Join-Path '' 'server.crt'` 실패/CWD 오생성 → bootstrap이 `certs\server.crt` 못 찾아 실패.
+
+### 왜 개발 PC엔 무문제였나
+
+1. 개발 PC엔 `certs\server.crt/key` 이미 존재 → bootstrap이 EXE 실행 자체를 스킵
+2. mkcert가 PATH에 이미 설치 → 다운로드 경로 안 탐
+3. "신규 PC 조건(인증서 없음 + mkcert 없음)"을 EXE로 재현 테스트한 적 없음 → PS2EXE 경로 버그 잠복
+
+### 픽스 (3층 + 부수)
+
+| Layer | 파일 | 내용 |
+|---|---|---|
+| **L1** | `certs/installer_ps2exe/server_install.ps1` | 경로 획득을 `MainModule.FileName` 폴백으로 (PS2EXE-safe). CertDir 빈값 시 CWD 폴백 방어 |
+| **L2** | `certs/installer_ps2exe/server_install.ps1` | `-NonInteractive` 스위치 — 추가 SAN 입력/종료 대기 `Read-Host` 스킵 (자동화 정지 제거) |
+| **L3** | `bootstrap.ps1` | server_install.exe 호출에 `-CertDir "$certDir" -NonInteractive -WorkingDirectory $certDir` 명시. 발급 후 `certs\certs` 중첩 등 오생성 재귀 탐색 안전망 |
+| **L4** | `.gitignore` | `certs/mkcert.exe`, `certs/tools/` 커밋 방지 (신규 PC 자동 다운로드 ~5MB) |
+| **부수** | bootstrap.ps1 | `-NonInteractive` param + UAC 재실행 전파 + 완료 안내 Read-Host 조건화 |
+
+### EXE 재빌드 + 실측 검증 (2026-07-07)
+
+`build_install_exe.ps1` 로 `server_install.exe`·`client_install.exe` 재빌드. PS2EXE 경로 로직을 EXE로 실행 검증:
+
+| 시나리오 | ScriptRoot | CertDir | crt 대상 |
+|---|---|---|---|
+| A. 신규 PC 재현 (EXE는 certs\, CWD=USERPROFILE) | `...\certs` ✅ | `...\certs` ✅ | `...\certs\server.crt` ✅ |
+| B. `-CertDir` 명시 (bootstrap 방식) | `...\certs` ✅ | `...\certs` ✅ | `...\certs\server.crt` ✅ |
+
+수정 전이었다면 A에서 CertDir=`''` → 실패. 수정 후 두 시나리오 모두 정확한 경로 반환.
+
+### 재발 방지 원칙
+
+1. PS2EXE 빌드 스크립트는 경로를 `MainModule.FileName` 으로 획득
+2. 인증서 경로는 호출측(bootstrap)이 `-CertDir` 명시 전달
+3. PS2EXE EXE는 `-NonInteractive` 로 무인 실행 가능해야
+4. "신규 PC 시나리오" 릴리스 전 clean 환경 재현 검증 필수
+5. 스크립트 수정 후 반드시 EXE 재빌드
+
+### 통지 문서
+
+`docs/GOP_Server_API_installer_ps2exe_path_fix_REPLY.md` — 설치 팀에 근본 원인·수정·재발방지 정리.
+
 ### v6.0-users_role_response_relax — AccountUserResponse.role 응답 500 근본 시정 (2026-07-06)
 
 > 이슈 리포트: 다른 PC 배포 팀. `admin` 로그인 후 `GET /api/users?page=1&limit=100` → HTTP 500

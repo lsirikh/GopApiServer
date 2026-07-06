@@ -4,6 +4,62 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-rename_pids — 컨테이너/이미지 이름 pids-api-* 로 rename (2026-07-06)
+
+> 사용자 요청 — `api-test-server` → `pids-api-server`로 브랜딩 변경. **A안 (최소 침습)**: 컨테이너/이미지 이름만 변경, 볼륨·네트워크·데이터 100% 보전.
+
+### 변경 (docker-compose.yml)
+
+| 이전 | 이후 |
+|---|---|
+| `container_name: api-test-server` | `container_name: pids-api-server` |
+| `image: api-test-server:latest` | `image: pids-api-server:latest` |
+| `container_name: api-test-postgres` | `container_name: pids-api-postgres` |
+| `container_name: api-test-db-monitor` | `container_name: pids-api-db-monitor` |
+| `image: api-test-db-monitor:latest` | `image: pids-api-db-monitor:latest` |
+| `container_name: api-test-gis-ingest` | `container_name: pids-api-gis-ingest` |
+| `image: api-test-gis-ingest:latest` | `image: pids-api-gis-ingest:latest` |
+| `container_name: api-test-autoheal` | `container_name: pids-api-autoheal` |
+| `container_name: api-test-db-admin` | `container_name: pids-api-db-admin` |
+
+### 유지 (A안 원칙 — 데이터 보전)
+
+- **볼륨 이름**: `api-test-pgdata`, `api-test-reports` 유지 → postgres 데이터 66,004 detections + 10 reports 등 100% 보전
+- **볼륨 접두어**: `api-test-server_*` 유지 (compose 프로젝트 이름 = 폴더명 기반)
+- **폴더 이름**: `c:\workspace_python\api-test-server` 유지
+- **CLAUDE.md `project_name`**: 유지 (프로젝트 논리 이름)
+- **서비스 이름** (compose 내): `api-server`, `postgres`, `db-monitor`, `gis-ingest` 유지 → 컨테이너간 통신(DATABASE_URL 등) 무영향
+
+### 부수 정합화
+- `scripts/seed_period_data.py:12` docstring — `docker exec api-test-server` → `docker exec pids-api-server`
+- `README.md` 아키텍처 다이어그램 서비스 라벨 — `api-test-server` → `pids-api-server`
+
+### 실측 검증 (2026-07-06)
+
+| 항목 | 결과 |
+|---|---|
+| `docker compose down` (볼륨 보존) | ✅ 컨테이너 6개 제거, `api-test-server_default` 네트워크 제거 |
+| `docker compose build` | ✅ 3 이미지 새 이름으로 빌드 (`pids-api-server:latest`, `pids-api-db-monitor:latest`, `pids-api-gis-ingest:latest`) |
+| `docker compose up -d` | ✅ 6 컨테이너 전부 `pids-api-*` 이름으로 기동 |
+| 볼륨 유지 | ✅ `api-test-server_api-test-pgdata`, `api-test-server_api-test-reports` 접근 정상 |
+| Postgres 데이터 | ✅ users=7, servers=14, detection_events=66,004, report_generations=10 (rename 전과 동일) |
+| Startup 로그 | ✅ 4개 ADMIN 이미 존재, sample servers 14대 존재, Reconciled: no stale |
+| Auth | ✅ `AUTH_MODE=token (RBAC enforced)`, m_manager 로그인 200 + token 205자 발급 |
+| Autoheal | ✅ `pids-api-server` label=autoheal 감지 (label 방식이라 이름 무관) |
+
+### 잔여 옛 이미지 정리 (선택)
+
+```bash
+# 이전 이미지 3종 (재사용 불가) 정리하려면:
+docker image rm api-test-server:latest api-test-db-monitor:latest api-test-gis-ingest:latest
+# pre-v5.2 태그도 필요 없으면:
+docker image rm api-test-server:pre-v5.2
+```
+
+### 위험도
+
+**변경 없음** — Bearer 토큰 발급/응답 · DATABASE_URL · 앱 코드 · 클라(.NET) `localhost:8000` 접근 · NATS 통신 모두 무영향. 사용자 관점 유일한 변화는 `docker ps` 표시명과 `docker exec {이름} ...` 진입 이름.
+
 ### v6.0-report_date_range — 보고서 커스텀 날짜 범위 (2026-07-05)
 
 > `PRD_GOP_Server_Reports_Custom_Date_Range` 구현. 클라(.NET) DatePicker 요청 대응.

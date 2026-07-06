@@ -9,7 +9,7 @@ x-logging: &default-logging
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: api-test-postgres
+    container_name: pids-api-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gop}
       POSTGRES_USER: ${POSTGRES_USER:-gop_user}
@@ -28,8 +28,8 @@ services:
     logging: *default-logging
 
   api-server:
-    container_name: api-test-server
-    image: api-test-server:latest
+    container_name: pids-api-server
+    image: pids-api-server:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -76,8 +76,8 @@ services:
     build:
       context: ./db_monitor
       dockerfile: Dockerfile
-    container_name: api-test-db-monitor
-    image: api-test-db-monitor:latest
+    container_name: pids-api-db-monitor
+    image: pids-api-db-monitor:latest
     environment:
       - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
       - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
@@ -98,8 +98,8 @@ services:
     build:
       context: ./gis_ingest
       dockerfile: Dockerfile
-    container_name: api-test-gis-ingest
-    image: api-test-gis-ingest:latest
+    container_name: pids-api-gis-ingest
+    image: pids-api-gis-ingest:latest
     environment:
       - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
       - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
@@ -117,9 +117,9 @@ services:
   autoheal:
     # A-7 #5 Quick Win: healthcheck unhealthy 감지 시 컨테이너 자동 재기동
     # AUTOHEAL_CONTAINER_LABEL=all → healthcheck 정의된 모든 컨테이너 감시
-    # (특정 라벨만 대상으로 좁히려면 값을 'autoheal'로 바꾸면 됨 — api-server에 label 부여 완료)
+    # (특정 라벨만 대상으로 좁히려면 값을 'autoheal'로 바꾸면 됨 — pids-api-server에 label 부여 완료)
     image: willfarrell/autoheal:latest
-    container_name: api-test-autoheal
+    container_name: pids-api-autoheal
     restart: unless-stopped
     environment:
       - AUTOHEAL_CONTAINER_LABEL=all
@@ -132,7 +132,7 @@ services:
     logging: *default-logging
 
   db-admin:
-    container_name: api-test-db-admin
+    container_name: pids-api-db-admin
     image: adminer
     ports:
       - "8080:8080"

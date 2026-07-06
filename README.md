@@ -193,7 +193,7 @@ docker-compose down -v    # 데이터까지 완전 초기화
                        │ HTTPS + JWT (Bearer)
                        ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│                  api-test-server (FastAPI · Async)                 │
+│                  pids-api-server (FastAPI · Async)                 │
 │  ┌──────────────┬───────────────┬──────────────┬──────────────┐    │
 │  │  Middleware  │  RBAC Matrix  │  Routers x41 │   Services   │    │
 │  │ Request ID · │  Enforcer     │ (all async)  │ audit/grant/ │    │

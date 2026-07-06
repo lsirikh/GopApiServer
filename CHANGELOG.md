@@ -4,6 +4,35 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-account_managers_expand — 장비 도메인별 ADMIN 매니저 5종 추가 (2026-07-06)
+
+> 사용자 요청 — 장비 도메인별 매니저 계정 5종 Static seed에 추가.
+
+### 추가 계정 (DEFAULT_ADMIN_ACCOUNTS)
+
+| login_id | password | role | 이름 |
+|---|---|---|---|
+| **CameraManager** | sensorway1 | ADMIN | Camera 매니저 |
+| **BroadcastingManager** | sensorway1 | ADMIN | Broadcasting 매니저 |
+| **QLiteLampManager** | sensorway1 | ADMIN | QLiteLamp 매니저 |
+| **NVRManager** | sensorway1 | ADMIN | NVR 매니저 |
+| **EnclosureManager** | sensorway1 | ADMIN | Enclosure 매니저 |
+
+- 저장: bcrypt 해시. group_id NULL (ADMIN bypass).
+- Idempotent — 재빌드/재시작 시 이미 존재하면 스킵 (사용자가 변경한 password 보존).
+
+### 계정 인벤토리 (9종 ADMIN + 3종 USER)
+
+| Static seed ADMIN (v6.2 + v6.0-account_managers_expand) |
+|---|
+| admin / m_manager / vms_manager / popup_manager |
+| CameraManager / BroadcastingManager / QLiteLampManager / NVRManager / EnclosureManager |
+
+### 실측 검증 (2026-07-06)
+- Startup 로그: `[OK] AccountUser {5종} created (role: ADMIN)` (기존 4종은 `already exists`)
+- DB: id 24~28 신규, role=ADMIN, group_id NULL 확인
+- Login: 5계정 전부 `POST /api/auth/login` 200 + access_token (207~219자) 발급 성공
+
 ### v6.0-cert_installer_fix — 인증서 인스톨러 6 버그 픽스 + HTTPS 강제 (2026-07-06)
 
 > 사용자 리포트: 다른 PC에서 git clone 후 build했더니 HTTP로 로그인됨. 클라(.NET) SSL 실패 → 503.

@@ -4,6 +4,66 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-clone_deploy_bugfix — clone 배포 후 6개 버그 근본 해결 (2026-07-07)
+
+> 이슈: 다른 PC gitea clone 배포 후 발견된 6개 버그 (`docs/reports/BUG_REPORT_*.md`).
+> 근본 3갈래: (A) 응답 strict Enum 반복, (B) 마이그레이션 자동적용 부재, (C) 개별 코드 버그 2건.
+
+| # | 리포트 | 원인 | 픽스 |
+|---|---|---|---|
+| 1 | USER_ROLE_ENUM | 응답 strict Enum + 생성 기본값 VIEWER + 샘플 OPERATOR | 응답완화(선행) + `users.py` 기본값 USER + `init_sample_data` actor_role USER |
+| 2 | AUDIT_LOGS_ENUM | `AuditLogResponse.actor_role` strict Enum + append-only 옛값 | `Optional[EnumUserRole]`→`Optional[str]` + 목록 fault tolerance |
+| 3 | CONNECTIONS_LAZYLOAD | async `mapping.group` lazy-load → greenlet_spawn | `selectinload(DeviceGroupMapping.group)` |
+| 4 | EVENT_STATISTICS_TZ | tz-aware 입력 ↔ naive created_at 500 | `_naive_kst()` 헬퍼, 4 endpoint 진입부 정규화 |
+| 5 | REPORT_GENERATIONS_LIST | progress_pct 컬럼 DB 미적용 | **startup 자동 마이그레이션** |
+| 6 | REPORT_STATUS | 동일 | 동일 |
+
+### 근본 픽스 — startup 자동 마이그레이션 (#5·#6)
+
+`app/utils/init_db.py`:
+- `IDEMPOTENT_MIGRATIONS` 화이트리스트 (`ADD COLUMN IF NOT EXISTS` 계열만, 파괴적 마이그레이션 제외)
+- `apply_idempotent_migrations(engine)` — **BEGIN/COMMIT strip 후 psycopg2 raw cursor 실행**
+  * ⚠️ 명시적 BEGIN/COMMIT 은 psycopg2 자동 트랜잭션과 충돌해 조용히 no-op → strip 필수 (실측으로 발견)
+  * ⚠️ `exec_driver_sql` 은 파라미터 바인딩 이슈(immutabledict) → raw cursor + `raw.commit()` 사용
+
+`app/main.py` lifespan: `apply_triggers` 옆에 결선 (매 startup 스키마 보정).
+
+### 응답 스키마 완화 (#1·#2)
+
+- `app/schemas/audit_log.py` `actor_role`: Enum → str
+- `app/routers/audit_logs.py`: 목록 try/except + WARN skip
+- (선행 `v6.0-users_role_response_relax` 로 users.role 은 이미 완화됨)
+
+### 코드 버그 (#3·#4)
+
+- `app/routers/connections.py`: `_build_device_nested_response` 에 `selectinload`
+- `app/routers/event_statistics.py`: `_naive_kst()` + summary/by_device/trend/dashboard 정규화
+
+### 데이터 원천 정리 (#1)
+
+- `app/routers/users.py`: 생성 기본 role `VIEWER` → `USER`
+- `app/utils/init_sample_data.py`: 감사로그 시드 `actor_role="OPERATOR"` → `"USER"` (sync+async)
+
+### 실측 검증 (2026-07-07)
+
+| 검증 | 결과 |
+|---|---|
+| #5·#6 자동복구 | 컬럼 3개 DROP(신규 PC 재현) → GET 500 → restart → `[OK] migration applied` → 컬럼 복구 → GET 200 |
+| #3 connections | 200 |
+| #4 tz-aware `+09:00` / naive | 200 / 200 (회귀 유지) |
+| #2 audit_logs OPERATOR 주입 | 200 + OPERATOR 행 정상 노출 (이전 500) |
+| #1 생성 기본 role | USER 확정 |
+
+### 왜 개발 PC엔 무문제였나
+
+- #5·#6: v61 수동 적용해둠 → 개발 DB엔 컬럼 존재. 신규 PC는 create_all()만 → 컬럼 없음
+- #1·#2: 개발 `.env`는 INIT_SAMPLE_DATA=false. docker-compose 기본은 `:-true` → 신규 PC 샘플 시드가 OPERATOR 주입
+- #3·#4: 해당 조건으로 endpoint 호출한 적 없어 미발견
+
+### 통지
+
+`docs/GOP_Server_API_clone_deploy_bugfix_REPLY.md` — 6개 버그 근본원인·수정·재발방지 정리.
+
 ### v6.0-installer_ps2exe_path_fix — 자동 설치 근본 원인(PS2EXE 경로 소실) 규명·해결 (2026-07-07)
 
 > 이슈: 다른 PC에서 gitea clone 후 `bootstrap.ps1` 자동 설치 시 인증서 발급 실패 → HTTP 로그인됨.

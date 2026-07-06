@@ -36,7 +36,7 @@ from app.middleware.logging import APILoggingMiddleware
 from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, grants, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking, settings as settings_router
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
-from app.utils.init_db import initialize_database_async
+from app.utils.init_db import initialize_database_async, apply_idempotent_migrations
 from app.schemas.common import ApiResponse
 from app.security.matrix_enforcer import enforce_matrix
 
@@ -233,6 +233,11 @@ async def lifespan(app: FastAPI):
 
     # Apply PostgreSQL pg_notify triggers (skips if SQLite) — sync SQL 실행이라 to_thread 유지
     await _asyncio.to_thread(apply_triggers, engine)
+
+    # v6.0-clone_deploy_bugfix (#5·#6): startup 스키마 보정 마이그레이션 (idempotent, 화이트리스트).
+    # create_all() 은 기존 테이블에 새 컬럼을 추가하지 않으므로, git pull 만 한 기존 DB 에서
+    # progress_pct 등 누락 → 500. 여기서 IF NOT EXISTS 마이그레이션을 실행해 스키마를 보정한다.
+    await _asyncio.to_thread(apply_idempotent_migrations, engine)
 
     # v6.0-report_lifecycle FR-RGL-01+04: Startup 재조정
     # FastAPI BackgroundTasks는 인프로세스·비영속이라 컨테이너 recreate/재시작 시 in-flight 태스크가 소멸된다.

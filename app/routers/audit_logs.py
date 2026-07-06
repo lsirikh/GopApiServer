@@ -7,7 +7,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime
+import logging
 import math
+
+logger = logging.getLogger(__name__)
 
 from app.dependencies import get_async_db
 from app.routers.auth import get_current_account_user_optional_async
@@ -140,10 +143,22 @@ async def get_audit_logs(
 
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
+    # v6.0-clone_deploy_bugfix (#2): 목록 fault tolerance — 한 행의 스키마 위반이
+    # 목록 전체를 500 으로 만들지 않도록 skip + WARN.
+    _data = []
+    for log in audit_logs:
+        try:
+            _data.append(AuditLogResponse.model_validate(log))
+        except Exception as exc:
+            logger.warning(
+                "[audit_logs.list] response 직렬화 실패 → skip: id=%s actor_role=%r reason=%s",
+                getattr(log, "id", "?"), getattr(log, "actor_role", "?"), exc,
+            )
+
     return ApiResponse(
         success=True,
         message="감사 로그 목록 조회 성공",
-        data=[AuditLogResponse.model_validate(log) for log in audit_logs],
+        data=_data,
         pagination=PaginationMeta(
             page=page,
             limit=limit,

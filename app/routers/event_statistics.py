@@ -27,9 +27,22 @@ from app.schemas.event_statistics import (
     ActiveDevices,
 )
 from app.schemas.common import ApiSingleResponse
+from app.config import settings
 
 
 router = APIRouter()
+
+
+def _naive_kst(dt: datetime) -> datetime:
+    """v6.0-clone_deploy_bugfix (#4): tz-aware 입력을 naive KST 로 정규화.
+
+    events.created_at 이 naive DateTime 이므로, 클라가 Swagger 예시대로 `+09:00` 을 붙여 보내면
+    asyncpg 가 offset-naive vs offset-aware 비교에서 500 을 낸다. 서버 컨벤션(naive KST)에 맞춰
+    tz-aware 는 KST 로 변환 후 tzinfo 를 제거하고, 이미 naive 면 그대로 둔다.
+    """
+    if dt is not None and dt.tzinfo is not None:
+        return dt.astimezone(settings.tz).replace(tzinfo=None)
+    return dt
 
 
 async def _count_detections_by_device_category(db: AsyncSession, category: EnumDeviceCategory, start_date, end_date) -> int:
@@ -57,6 +70,7 @@ async def get_event_summary(
     end_date: datetime = Query(..., description="조회 종료 시간 (ISO 8601)"),
     db: AsyncSession = Depends(get_async_db),
 ):
+    start_date, end_date = _naive_kst(start_date), _naive_kst(end_date)  # #4 tz 정규화
     # 1. 기본 건수 집계
     sensor_count = await _count_detections_by_device_category(db, EnumDeviceCategory.SENSOR, start_date, end_date)
     camera_count = await _count_detections_by_device_category(db, EnumDeviceCategory.CAMERA, start_date, end_date)
@@ -272,6 +286,7 @@ async def get_event_by_device(
     end_date: datetime = Query(..., description="조회 종료 시간 (ISO 8601)"),
     db: AsyncSession = Depends(get_async_db),
 ):
+    start_date, end_date = _naive_kst(start_date), _naive_kst(end_date)  # #4 tz 정규화
     # Part 1: 제어기별 센서 이벤트 집계
     # Sensor, Controller 모두 Device JTI 상속 → devices 테이블 충돌 방지용 alias
     CtrlAlias = aliased(Controller, flat=True)
@@ -379,6 +394,7 @@ async def get_event_trend(
     interval: str = Query("hour", description="집계 단위: hour/day"),
     db: AsyncSession = Depends(get_async_db),
 ):
+    start_date, end_date = _naive_kst(start_date), _naive_kst(end_date)  # #4 tz 정규화
     series = await _build_trend_series(db, start_date, end_date, interval)
 
     return ApiSingleResponse(
@@ -403,6 +419,7 @@ async def get_event_dashboard(
     interval: str = Query("hour", description="집계 단위: hour/day"),
     db: AsyncSession = Depends(get_async_db),
 ):
+    start_date, end_date = _naive_kst(start_date), _naive_kst(end_date)  # #4 tz 정규화
     summary_resp = await get_event_summary(start_date, end_date, db)
     trend_resp = await get_event_trend(start_date, end_date, interval, db)
     by_device_resp = await get_event_by_device(start_date, end_date, db)

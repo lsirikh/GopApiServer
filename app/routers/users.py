@@ -454,7 +454,9 @@ async def create_user(
         employee_number=user_data.employee_number,
         photo_url=user_data.photo_url,
         phone=user_data.phone,
-        role=user_data.role or "VIEWER",
+        # v6.0-clone_deploy_bugfix (#1): 기본값 VIEWER → USER (v5.3 role 2분화 정책 정합).
+        # 세부 권한은 group_id 매트릭스로 부여. VIEWER 는 v5.3에서 폐지된 레거시 값.
+        role=user_data.role or "USER",
         group_id=user_data.group_id,
         is_active=True,
         is_locked=False

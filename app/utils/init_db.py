@@ -24,6 +24,60 @@ def create_tables():
     print("[OK] Database tables created")
 
 
+# ============================================================
+# v6.0-clone_deploy_bugfix (#5·#6): startup 스키마 보정 마이그레이션
+# ============================================================
+# 문제: create_all() 은 "이미 존재하는 테이블"에 새 컬럼을 추가하지 않는다.
+#   → 기존 볼륨을 가진 PC(또는 옛 스키마로 만들어진 DB)에서 코드만 git pull 하면
+#     모델엔 progress_pct 등이 있지만 DB엔 없어 UndefinedColumnError(500) 발생.
+# 해결: startup 에 화이트리스트 idempotent 마이그레이션을 실행한다.
+#   ★ 파괴적 마이그레이션(v56_drop_users 등)은 절대 넣지 않는다.
+#   ★ 각 SQL 은 IF NOT EXISTS / IF EXISTS 로 재실행 안전해야 한다.
+IDEMPOTENT_MIGRATIONS = [
+    "v61_report_generation_progress.sql",   # progress_pct/stage/updated_at (ADD COLUMN IF NOT EXISTS)
+]
+
+
+def apply_idempotent_migrations(engine_) -> None:
+    """화이트리스트 idempotent 마이그레이션을 실행 (PostgreSQL only, SQLite skip).
+
+    각 파일은 `BEGIN;/COMMIT;` 을 포함한 multi-statement 다. raw cursor 로 통째 실행하면
+    psycopg2 의 자동 트랜잭션 관리와 명시적 BEGIN/COMMIT 이 충돌해 조용히 no-op 이 될 수 있다.
+    → BEGIN/COMMIT 라인을 제거하고 SQLAlchemy `engine.begin()`(트랜잭션 관리) +
+      `exec_driver_sql`(psycopg2 multi-statement 직접 전달) 로 실행한다.
+    실패해도 앱 기동은 계속 (해당 API 만 영향, 로그로 감지).
+    """
+    if engine_.dialect.name != "postgresql":
+        return
+    import os
+    import re
+    migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
+    for fname in IDEMPOTENT_MIGRATIONS:
+        path = os.path.join(migrations_dir, fname)
+        if not os.path.exists(path):
+            print(f"[WARN] idempotent migration 파일 없음: {fname}")
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            sql = f.read()
+        # BEGIN;/COMMIT; 단독 라인 제거 — psycopg2 자동 트랜잭션 + raw.commit() 이 관리.
+        # (명시적 BEGIN/COMMIT 이 있으면 psycopg2 트랜잭션과 충돌해 ALTER 가 커밋 안 됨)
+        sql = re.sub(r"(?im)^\s*(BEGIN|COMMIT)\s*;\s*$", "", sql)
+        if not sql.strip():
+            continue
+        raw = engine_.raw_connection()
+        try:
+            cur = raw.cursor()
+            cur.execute(sql)     # psycopg2 multi-statement, ADD COLUMN IF NOT EXISTS
+            raw.commit()
+            cur.close()
+            print(f"[OK] idempotent migration applied: {fname}")
+        except Exception as e:
+            raw.rollback()
+            print(f"[WARN] idempotent migration {fname} 실패(무시): {e}")
+        finally:
+            raw.close()
+
+
 # v6.2 (2026-07-05): 기본 관리자 계정 Static seed 정책 승격
 # admin(admin123) 외에 팀 매니저 3종 자동 시드. bcrypt 해시로 저장, group_id=NULL(ADMIN bypass).
 # password는 dev/시연 기본값 — 프로덕션 배포 시 최초 로그인 후 변경 권장.

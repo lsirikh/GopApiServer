@@ -1092,7 +1092,7 @@ def _create_audit_logs(db: Session, user_ids: list[int]):
             actor_id=actor_id,
             actor_login_id=login_ids[idx] if idx < len(login_ids) else "admin",
             actor_name=names[idx] if idx < len(names) else "관리자",
-            actor_role="OPERATOR",
+            actor_role="USER",  # v6.0-clone_deploy_bugfix (#2): 레거시 OPERATOR → USER (v5.3 정책)
             description=desc,
             ip_address=_rand_ip(),
             created_at=dt,
@@ -2216,7 +2216,7 @@ async def _create_audit_logs_async(db: AsyncSession, user_ids: list[int]) -> Non
             "actor_id": actor_id,
             "actor_login_id": login_ids[idx] if idx < len(login_ids) else "admin",
             "actor_name": names[idx] if idx < len(names) else "관리자",
-            "actor_role": "OPERATOR",
+            "actor_role": "USER",  # v6.0-clone_deploy_bugfix (#2): 레거시 OPERATOR → USER
             "description": desc,
             "ip_address": _rand_ip(),
             "created_at": dt,

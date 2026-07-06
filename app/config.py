@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     # (DEPRECATED) REPORT_GEN_TIMEOUT_SEC — v6.0-report_progress_perf에서 제거
     # PRD_GOP_Server_Reports_PDF_Persistence FR-RPP-05
     REPORTS_DIR: str = "/app/reports"  # PDF 저장 디렉터리 (docker-compose named volume 마운트)
+    # v6.0-report_date_range (FR-RCD-03): 커스텀 날짜 범위 상한 (기본 366일 = 1년+윤년 여유)
+    REPORT_MAX_RANGE_DAYS: int = 366
 
     # Thumbnail Storage
     THUMBNAIL_STORAGE_PATH: str = "data/thumbnails"

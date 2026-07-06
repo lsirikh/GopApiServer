@@ -7,12 +7,13 @@ PRD: PRD_Report_System.md Section 5
 - ReportGenerateRequest: 보고서 생성 요청
 - ReportGenerationResponse: 보고서 생성 결과
 """
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from datetime import datetime, timedelta
 from app.schemas.common import KSTDatetime
 from typing import Optional, List, Any
 
 from app.utils.enums import EnumReportType, EnumReportPeriod, EnumReportStatus
+from app.config import settings
 
 
 # ============================================================
@@ -94,6 +95,11 @@ class ReportGenerateRequest(BaseModel):
     """
     보고서 생성 요청 스키마
     PRD: PRD_Report_System.md Section 5.5
+
+    v6.0-report_date_range (2026-07-05, FR-RCD-01~03):
+    - start_date/end_date 커스텀 범위 지원 (Optional, KSTDatetime).
+    - 둘 다 주어지면 period_type은 무시하고 "custom"으로 저장.
+    - period_type은 Optional 완화 (start/end 없을 때만 필수).
     """
     report_type: EnumReportType = Field(
         ...,
@@ -105,10 +111,20 @@ class ReportGenerateRequest(BaseModel):
         description="보고서 제목",
         json_schema_extra={"example": "주간 운영 보고서"}
     )
-    period_type: EnumReportPeriod = Field(
-        ...,
-        description="조회 기간 유형",
+    period_type: Optional[EnumReportPeriod] = Field(
+        default=None,
+        description="조회 기간 유형 (7d/30d/90d/1y/custom). start_date+end_date를 함께 주면 무시되고 'custom' 저장.",
         json_schema_extra={"example": "7d"}
+    )
+    start_date: Optional[KSTDatetime] = Field(
+        default=None,
+        description="커스텀 시작일 (KST). end_date와 함께 사용. 날짜만(00:00) 오면 그대로 사용.",
+        json_schema_extra={"example": "2026-06-01T00:00:00+09:00"}
+    )
+    end_date: Optional[KSTDatetime] = Field(
+        default=None,
+        description="커스텀 종료일 (KST). 00:00 시각이면 그날 23:59:59.999로 정규화 (끝일 포함).",
+        json_schema_extra={"example": "2026-06-15T23:59:59+09:00"}
     )
     template_id: Optional[int] = Field(
         default=None,
@@ -126,12 +142,18 @@ class ReportGenerateRequest(BaseModel):
             "examples": [
                 {
                     "report_type": "STANDARD",
-                    "title": "주간 운영 보고서",
+                    "title": "주간 운영 보고서 (프리셋)",
                     "period_type": "7d"
                 },
                 {
+                    "report_type": "STANDARD",
+                    "title": "커스텀 범위 보고서 (2주)",
+                    "start_date": "2026-06-01T00:00:00+09:00",
+                    "end_date": "2026-06-15T23:59:59+09:00"
+                },
+                {
                     "report_type": "CUSTOM",
-                    "title": "월간 보안 보고서",
+                    "title": "월간 보안 보고서 (템플릿)",
                     "period_type": "30d",
                     "template_id": 1,
                     "severity_filter": ["CRITICAL", "WARNING"]
@@ -146,6 +168,47 @@ class ReportGenerateRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError('title cannot be empty')
         return v
+
+    @model_validator(mode='after')
+    def validate_date_range(self) -> "ReportGenerateRequest":
+        """v6.0-report_date_range FR-RCD-03: 날짜 범위 상호 검증.
+
+        - start_date/end_date는 둘 다 있거나 둘 다 없어야 함
+        - end_date >= start_date
+        - (end - start).days <= REPORT_MAX_RANGE_DAYS
+        - 둘 다 없으면 period_type 필수
+        """
+        has_start = self.start_date is not None
+        has_end = self.end_date is not None
+
+        # 하나만 있으면 422
+        if has_start != has_end:
+            raise ValueError(
+                "start_date와 end_date는 함께 지정해야 합니다 (둘 다 or 둘 다 없음)."
+            )
+
+        if has_start and has_end:
+            # end >= start
+            if self.end_date < self.start_date:
+                raise ValueError(
+                    f"end_date({self.end_date.isoformat()})가 "
+                    f"start_date({self.start_date.isoformat()})보다 이릅니다."
+                )
+            # 범위 상한
+            span_days = (self.end_date - self.start_date).days
+            if span_days > settings.REPORT_MAX_RANGE_DAYS:
+                raise ValueError(
+                    f"범위가 상한을 초과합니다 ({span_days}일 > "
+                    f"REPORT_MAX_RANGE_DAYS={settings.REPORT_MAX_RANGE_DAYS}일)."
+                )
+        else:
+            # 커스텀 범위 없으면 period_type 필수
+            if self.period_type is None:
+                raise ValueError(
+                    "period_type 또는 (start_date + end_date) 중 하나는 필수입니다."
+                )
+
+        return self
 
 
 # ============================================================

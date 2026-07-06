@@ -738,14 +738,27 @@ async def generate_report(
                 detail=f"Report template not found: template_id={request_data.template_id}",
             )
 
-    # Calculate date range from period_type
-    start_date, end_date = _calculate_date_range(request_data.period_type.value)
+    # v6.0-report_date_range (FR-RCD-02, 2026-07-05): 커스텀 날짜 범위 분기.
+    # start_date+end_date가 오면 그 값 그대로 사용 (period_type="custom" 강제),
+    # 없으면 기존 _calculate_date_range(period_type) 사용 (하위호환).
+    if request_data.start_date is not None and request_data.end_date is not None:
+        start_date = request_data.start_date
+        end_date = request_data.end_date
+        # FR-RCD-03 경계 정규화: 끝일이 00:00:00 시각으로 왔으면 "그날 전체" 커버 의미로 판단
+        # → 23:59:59.999999로 확장 (끝일 포함 시맨틱). 시간까지 명시했으면 그대로.
+        if (end_date.hour == 0 and end_date.minute == 0
+                and end_date.second == 0 and end_date.microsecond == 0):
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        period_type_value = "custom"
+    else:
+        start_date, end_date = _calculate_date_range(request_data.period_type.value)
+        period_type_value = request_data.period_type.value
 
     generation = ReportGeneration(
         report_type=request_data.report_type.value,
         template_id=request_data.template_id,
         title=request_data.title,
-        period_type=request_data.period_type.value,
+        period_type=period_type_value,
         start_date=start_date,
         end_date=end_date,
         # v5.4 P1-2: 작성자 스냅샷 기록 (미인증이면 None — v5.5 required 전환 시 항상 채워짐)
@@ -1203,9 +1216,12 @@ async def preview_report(
 
     # v6.0 P8-b: sync SessionLocal 제거 — 요청 AsyncSession 위에서 ReportServiceAsync 사용.
     # v6.1: 필터 소스를 generation.start_date/end_date로 통일 (build_master_data_async와 동일).
+    # v6.0-report_date_range (FR-RCD-06): custom period_type이거나 프리셋과 실제 범위가 불일치할 수 있으므로
+    #   days는 실제 (end_date - start_date).days로 산출. period_type 프리셋은 fallback.
     service = ReportServiceAsync(db)
-    period_days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
-    days = period_days.get(generation.period_type, 7)
+    _period_days_preset = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+    _actual_days = max(1, (generation.end_date - generation.start_date).days)
+    days = _actual_days if generation.period_type == "custom" else _period_days_preset.get(generation.period_type, _actual_days)
     structured_data = await service.get_structured_preview_data(
         days,
         enabled_components,

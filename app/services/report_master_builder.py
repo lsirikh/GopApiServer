@@ -41,9 +41,22 @@ def _zone_of(loc: str, name: str) -> str:
 
 
 def build_report_meta(generation) -> dict:
-    """ReportGeneration → 표지/헤더 메타. report_service·preview 공통 사용."""
+    """ReportGeneration → 표지/헤더 메타. report_service·preview 공통 사용.
+
+    v6.0-report_date_range (FR-RCD-05, 2026-07-05):
+      - period_type="custom"이거나 프리셋과 실제 범위 불일치 시 "YYYY.MM.DD ~ YYYY.MM.DD (N일)" 표기.
+      - 프리셋 4종은 "최근 N일" 라벨 유지 (하위호환).
+    """
     is_custom = getattr(generation, "report_type", None) == "CUSTOM"
     kind = "비정형" if is_custom else "정형"
+    # 실제 기간 일수 (양 끝일 포함이면 +1 — 여기선 (end-start).days를 그대로 표기, 단일일=0일 방지)
+    span_days = max(1, (generation.end_date - generation.start_date).days + 1)
+    period_type = getattr(generation, "period_type", None)
+    preset_labels = {"7d": "최근 7일", "30d": "최근 30일", "90d": "최근 90일", "1y": "최근 1년"}
+    if period_type in preset_labels:
+        period_label = preset_labels[period_type]
+    else:  # "custom" 또는 알 수 없는 값
+        period_label = f"{generation.start_date.strftime('%Y.%m.%d')} ~ {generation.end_date.strftime('%Y.%m.%d')} ({span_days}일)"
     return {
         "doc_no": f"GOP-RPT-{generation.id}",
         "title": generation.title,
@@ -52,7 +65,9 @@ def build_report_meta(generation) -> dict:
         "system": "GOP 통합 관제 시스템",
         "period_start": generation.start_date.strftime("%Y.%m.%d"),
         "period_end": generation.end_date.strftime("%Y.%m.%d"),
-        "period_type": generation.period_type,
+        "period_type": period_type,
+        "period_label": period_label,
+        "period_days": span_days,
         "report_id": f"#{generation.id}",
         "report_kind": f"{kind} (선택 섹션)" if is_custom else f"{kind} (전 섹션)",
     }

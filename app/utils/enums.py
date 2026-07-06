@@ -713,6 +713,7 @@ class EnumReportPeriod(str, Enum):
     DAYS_30 = "30d"         # 30일 (1개월)
     DAYS_90 = "90d"         # 90일 (3개월)
     YEAR_1 = "1y"           # 1년
+    CUSTOM = "custom"       # v6.0-report_date_range: start_date/end_date 임의 범위
 
 
 class EnumReportStatus(str, Enum):

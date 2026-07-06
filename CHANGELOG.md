@@ -4,6 +4,72 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-users_role_response_relax — AccountUserResponse.role 응답 500 근본 시정 (2026-07-06)
+
+> 이슈 리포트: 다른 PC 배포 팀. `admin` 로그인 후 `GET /api/users?page=1&limit=100` → HTTP 500
+> `INTERNAL_ERROR: input_value='OPERATOR', input_type=str` (Enum 검증 실패).
+>
+> **v6.0-servers_port_response_relax 와 정확히 동일 패턴** — 응답 스키마에 요청 제약 복사한 설계 실수.
+
+### 원인 자인 (반복된 실수)
+
+`v5.3 Phase 2` (2026-07-02) 에서 `EnumUserRole` 축소 (5종 → 2종: ADMIN/USER). 그러나:
+- 응답 스키마 `AccountUserResponse.role: EnumUserRole` 그대로 유지 (요청과 동일 제약)
+- DB에 옛 role 값(`OPERATOR`, `MAINTAINER`, `VIEWER`, `GUEST`) 잔재
+- `example="OPERATOR"` 로 v5.3 이후 무효 값을 예시로 유지 (더 웃긴 지뢰)
+- 결과: 옛 role 사용자가 목록에 있으면 pydantic 검증 실패 → 목록 전체 500
+
+이전 사이클 `v6.0-servers_port_response_relax` §7 에서 "유사 필드 감사 별도 사이클 예정"이라 했으나 실행 지연 → 이번 재발.
+
+### 픽스 2층 방어 (servers 케이스와 동일 방법론)
+
+#### L1. 응답 스키마 Enum → str (`app/schemas/user.py`)
+
+| 스키마 | 필드 | 이전 | 이후 |
+|---|---|---|---|
+| `AccountUserCreate.role` | 요청 | `Optional[EnumUserRole]` | **유지** (새 데이터 위생) |
+| `AccountUserUpdate.role` | 요청 | `Optional[EnumUserRole]` | **유지** |
+| **`AccountUserResponse.role`** | 응답 | `EnumUserRole` | **`str`** + description 갱신 + example `"OPERATOR"` → `"USER"` |
+| **`AccountUserNestedResponse.role`** | 응답 (중첩) | `EnumUserRole` | **`str`** |
+| **`UserSessionResponse.role`** | 응답 (세션 JOIN) | `Optional[EnumUserRole]` | **`Optional[str]`** |
+
+#### L2. 목록 fault tolerance (`app/routers/users.py` `get_users`)
+
+- `AccountUserResponse.model_validate(u)` 를 try/except로 감싸 실패 시 `logger.warning(...)` + skip
+- 한 행이 스키마 위반이어도 나머지 정상 사용자는 그대로 반환
+- 헬퍼 신설 대신 for 루프 인라인 (`servers` 케이스는 헬퍼 방식이었으나 여기는 사용처 1곳이라 인라인)
+
+### 실측 (2026-07-06)
+
+| # | 시나리오 | HTTP | 결과 |
+|---|---|---|---|
+| 1 | 회귀 (정상 상태) | 200 | 12 rows |
+| 2 | `UPDATE account_users SET role='OPERATOR' WHERE id=23` 인위 주입 | — | 저장 확인 |
+| 3 | **재실측** GET /api/users | **200** ✅ | **12 rows + id=23 role=OPERATOR 그대로 노출** |
+| 4 | 원위치 `UPDATE ... SET role='USER'` | — | 정상 복구 |
+
+이전 500 케이스가 이번 픽스 이후 200 정상 처리 확인.
+
+### 데이터 위생 조치 (원격/다른 PC GOP DB 조치 요청)
+
+REPLY 문서: `docs/GOP_Server_API_users_role_response_relax_REPLY.md`
+
+```sql
+BEGIN;
+UPDATE account_users
+   SET role = 'USER', updated_at = NOW()
+ WHERE role IN ('OPERATOR', 'MAINTAINER', 'VIEWER', 'GUEST');
+COMMIT;
+```
+
+`audit_logs.actor_role` 은 append-only 정책상 건드리지 않음 (이력 보존).
+
+### 후속 감사 약속
+
+`v6.0-servers_port_response_relax` §7 에서 예고한 "유사 필드 감사" 를 이번 이슈로 즉시 착수. 예정 태그: **`v6.0-response_schema_audit`**.
+
+대상: 모든 `*Response` 스키마의 Enum/제약 필드가 응답 관대 원칙 위배하지 않는지 스캔.
+
 ### v6.0-swagger_v6_notes — Swagger description v6.0 업데이트 (2026-07-06)
 
 > 사용자 요청 — "Swagger에도 v6.0 업데이트 내용 정리해줘. v5.4까지만 있어."

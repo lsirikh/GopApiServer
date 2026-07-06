@@ -177,3 +177,4 @@ claude-skill-harness*/
 # v6.0-* NOTIFY/REPLY 문서 (클라 통지용 — 커밋 포함)
 !docs/GOP_Server_API_v6.0_report_updates_NOTIFY.md
 !docs/GOP_Server_API_servers_port0_issue_REPLY.md
+!docs/GOP_Server_API_users_role_response_relax_REPLY.md

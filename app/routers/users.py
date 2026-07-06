@@ -12,8 +12,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, func, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
+import logging
 import os
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.dependencies import get_async_db
@@ -70,9 +73,25 @@ async def get_users(
     result = await db.execute(stmt.offset(offset).limit(limit))
     users = result.scalars().all()
 
+    # v6.0-users_role_response_relax L2 (2026-07-06): fault-tolerant 직렬화.
+    # 한 행의 스키마 위반이 목록 전체를 500 으로 만들지 않도록 skip + WARN.
+    # (사건 이력: v5.3 EnumUserRole 축소 후 DB 옛 값 OPERATOR/MAINTAINER/… 잔재로 목록 500 발생)
+    data = []
+    for u in users:
+        try:
+            data.append(AccountUserResponse.model_validate(u))
+        except Exception as exc:
+            logger.warning(
+                "[users.list] response 직렬화 실패 → 목록에서 skip: user_id=%s login_id=%r role=%r reason=%s",
+                getattr(u, "id", "?"),
+                getattr(u, "login_id", "?"),
+                getattr(u, "role", "?"),
+                exc,
+            )
+
     return {
         "success": True,
-        "data": [AccountUserResponse.model_validate(user) for user in users]
+        "data": data,
     }
 
 

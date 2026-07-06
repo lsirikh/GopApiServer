@@ -9,7 +9,7 @@ Seed period data — 2026-06-01 ~ 2026-07-03 (33일)
 5. ActionEvent 500/day → Detection/Malfunction 이벤트 subset을 from_event_id로 참조
 
 실행:
-    docker exec api-test-server python scripts/seed_period_data.py [--clean]
+    docker exec pids-api-server python scripts/seed_period_data.py [--clean]
 
 옵션:
     --clean: 기존 시드용 devices(number_device >= 1000) + 기간 내 events 삭제 후 재생성

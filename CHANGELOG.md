@@ -4,6 +4,66 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-servers_port_response_relax — servers.port=0 응답 500 근본 시정 (2026-07-06)
+
+> 이슈 제기: SensorwayManagers 팀 (`docs/prds/GOPDB_servers_port0_issue.md`).
+> 원격 GOPDB `GET /api/servers` 가 이미 저장된 `port=0` 행 때문에 목록 응답 직렬화 단계에서
+> `ServerResponse.port ge=1` 검증에 걸려 **목록 전체 500 (INTERNAL_ERROR)** 발생.
+
+### 원인 (서버측 설계 실수 자인)
+
+**요청은 엄격, 응답은 관대**(Postel's Law)가 API 설계 원칙인데, **응답 스키마에도 요청과 동일한 `ge=1` 제약**을 그대로 부여한 것이 지뢰. DB에는 옛 SensorwayManagers 옵션 default(`ManagerServerPort=0`)로 저장된 `port=0` 행이 남았고, 스키마를 뒤에 강화하면서 그 행이 응답에 담길 때 pydantic 검증 실패 → 목록 전체 500.
+
+**행 1개가 목록 엔드포인트 전체를 죽이는** blast radius 문제이기도 함.
+
+### 픽스 (2층 방어)
+
+#### L1. 응답 스키마 제약 완화 (`app/schemas/server.py`)
+
+| 스키마 | 필드 | 이전 | 이후 |
+|---|---|---|---|
+| `ServerCreate.port` | 요청 | `Field(..., ge=1, le=65535)` | **유지** (새 데이터 위생) |
+| `ServerUpdate.port` | 요청 | `Optional[int]... ge=1, le=65535` | **유지** |
+| **`ServerResponse.port`** | 응답 | `Field(..., ge=1, le=65535)` | **`Field(..., ge=0, le=65535)`** — port=0 허용 |
+| **`ServerNestedResponse.port`** | 응답 (중첩) | `Field(..., ge=1, le=65535)` | **`Field(..., ge=0, le=65535)`** |
+
+description도 `"서버 포트 (0~65535, 0=미지정)"` 로 갱신.
+
+#### L2. 목록 fault tolerance (`app/routers/servers.py`)
+
+- `_safe_server_to_response(server)` 헬퍼 신설 — try/except로 감싸 실패 시 `logger.warning(...)` + `None` 반환
+- `list_servers` / `get_server_summary` 목록 컴프리헨션을 walrus + `None` 필터로 변경
+- **한 행이 스키마 위반이어도 나머지 정상 행은 그대로 반환**. WARN 로그로 관측 가능
+- 단건 조회(`get_server`)는 이 헬퍼를 쓰지 않음 — 단건은 실패 시 명확히 알려주는 게 옳음
+
+### 실측 (2026-07-06)
+
+| 시나리오 | HTTP | 결과 |
+|---|---|---|
+| 회귀: 정상 상태 GET /api/servers | 200 | 14 rows 정상 |
+| **인위 주입**: `UPDATE servers SET port=0 WHERE id=3` (VMS-ab1120) | — | port=0 저장 확인 |
+| **재실측**: GET /api/servers (port=0 존재 상태) | **200** | **14 rows 정상 응답 + id=3의 port=0 그대로 노출** |
+| 원위치: `UPDATE servers SET port=8080 WHERE id=3` | — | 정상 복구 |
+
+**즉 이전엔 500이었을 상황이 이제 200으로 정상 처리됨.** L1이 근본 해소, L2는 미래 다른 스키마 위반 대비 방어깊이.
+
+### 데이터 위생 (SensorwayManagers 팀 조치 요청)
+
+서버측 픽스는 **응답 500을 막는 대증요법에 가깝고**, 근본은 **원격 GOPDB의 `port=0` 행 자체를 정리**하는 것.
+아래 SQL을 GOP DB 관리자가 원격 실행 권장:
+
+```sql
+-- 진단
+SELECT id, name, ip_address, port
+  FROM servers
+ WHERE port = 0;
+
+-- 유효값으로 갱신 (권장 — 이력 보존)
+UPDATE servers SET port = 1 WHERE port = 0;
+```
+
+응답 문서: `docs/GOP_Server_API_servers_port0_issue_REPLY.md`
+
 ### v6.0-account_managers_expand — 장비 도메인별 ADMIN 매니저 5종 추가 (2026-07-06)
 
 > 사용자 요청 — 장비 도메인별 매니저 계정 5종 Static seed에 추가.

@@ -4,6 +4,50 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-response_schema_audit — 응답 스키마 지뢰 전수 감사·완화 (2026-07-07)
+
+> 같은 버그(String 컬럼 + strict Enum 응답 → 목록 500)를 servers.port/users.role/audit.actor_role 로 4번 얻어걸린 뒤, 남은 지뢰를 예방적으로 전수 제거.
+
+### 감사 방식 (introspection)
+
+컨테이너 런타임에서 모든 `*Response` pydantic 필드 ↔ SQLAlchemy 컬럼 타입 대조:
+- 응답 Enum 필드 + DB `String/JSON` 컬럼 → **LANDMINE** (옛/임의 값 저장 가능 → 응답 500)
+- 응답 Enum 필드 + DB `SQLEnum` 컬럼 → safe (DB가 값 강제)
+
+스캔: `*Response` 91개, Enum 응답 필드 ~100건 → **지뢰 21건 발견**, safe 77건.
+
+### 완화 21건 (Enum → str, 요청 스키마는 유지)
+
+| 파일 | 필드 |
+|---|---|
+| `report.py` | ReportGeneration(List)Response report_type/period_type/status, ReportTemplate(List)Response report_type/default_period, ReportPreviewResponse period_type |
+| `event.py` | Detection/Log type_event·action_reported·result, Malfunction type_event·action_reported·reason, Connection/Action type_event |
+| `user.py` | UserLoginLogResponse action·result·failure_reason, UserSessionResponse logout_reason |
+| `audit_log.py` | AuditLogResponse action_status |
+
+특히 **report_generations.period_type** 은 방금 `v6.0-report_date_range` 로 `custom` 추가 → 옛 행에 없던 값이라 목록 500 지뢰였음. 함께 제거.
+
+### 검증 (2026-07-07)
+
+- introspection 재실행: **LANDMINE 21 → 0**
+- 회귀: GET /reports/generations·status, /events/detections·malfunctions·actions·connections, /audit-logs, /users 전부 **200**
+- unknown 2건 (`DeviceNestedResponse.category/mode`): Camera 모델 `SQLEnum` 소스 → 안전 확인
+
+### 클라 영향 — 없음
+
+응답 JSON 값은 동일 문자열. Swagger enum 표시만 사라짐. 하위호환 100%.
+
+### 재발 방지 정책
+
+1. `*Response` 에는 Enum/제약을 붙이지 않는다 (Postel's Law) — 검증은 요청+DB 계층
+2. DB `SQLEnum` 컬럼이면 응답 Enum 안전, `String` 컬럼일 때만 지뢰
+3. 신규 Response 필드는 introspection 스크립트로 회귀 검사
+4. 장기: String 컬럼 → SQLEnum 승격 마이그레이션 검토 (근본, 파괴적)
+
+### 통지
+
+`docs/GOP_Server_API_response_schema_audit_REPLY.md`
+
 ### v6.0-clone_deploy_bugfix — clone 배포 후 6개 버그 근본 해결 (2026-07-07)
 
 > 이슈: 다른 PC gitea clone 배포 후 발견된 6개 버그 (`docs/reports/BUG_REPORT_*.md`).

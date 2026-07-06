@@ -116,9 +116,10 @@ class DetectionEventResponse(BaseModel):
     - Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)
     """
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: EnumEventType = Field(..., example="Intrusion", description="이벤트 유형")
-    action_reported: EnumTrueFalse = Field(..., example="False", description="조치 보고 여부")
-    result: EnumDetectionType = Field(..., example="PIR_SENSOR", description="탐지 결과")
+    # v6.0-response_schema_audit: Enum → str (String 컬럼 지뢰 — 옛/임의 값 응답 500 방지)
+    type_event: str = Field(..., example="Intrusion", description="이벤트 유형")
+    action_reported: str = Field(..., example="False", description="조치 보고 여부")
+    result: str = Field(..., example="PIR_SENSOR", description="탐지 결과")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
@@ -273,9 +274,10 @@ class MalfunctionEventResponse(BaseModel):
     - first_start/end, second_start/end: detail JSONB로 이동
     """
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: EnumEventType = Field(..., example="Fault", description="이벤트 유형")
-    action_reported: EnumTrueFalse = Field(..., example="False", description="조치 보고 여부")
-    reason: EnumFaultType = Field(..., example="FAULT_CONTROLLER", description="고장 원인")
+    # v6.0-response_schema_audit: Enum → str (String 컬럼 지뢰)
+    type_event: str = Field(..., example="Fault", description="이벤트 유형")
+    action_reported: str = Field(..., example="False", description="조치 보고 여부")
+    reason: str = Field(..., example="FAULT_CONTROLLER", description="고장 원인")
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
@@ -401,7 +403,7 @@ class ConnectionEventResponse(BaseModel):
     - Camera → CameraNestedResponse (rtsp_uri, mode, category 등 포함)
     """
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: EnumEventType = Field(..., example="Connection", description="이벤트 유형")
+    type_event: str = Field(..., example="Connection", description="이벤트 유형")  # v6.0-response_schema_audit: Enum→str
     # PRD v2.7: device polymorphic nested response (타입에 따라 다른 스키마)
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보 (Polymorphic, Device 삭제 시 null)")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
@@ -476,7 +478,7 @@ class ActionEventReplace(BaseModel):
 class ActionEventResponse(BaseModel):
     """Schema for ActionEvent response"""
     id: int = Field(..., example=1, description="이벤트 ID")
-    type_event: EnumEventType = Field(..., example="Action", description="이벤트 유형")
+    type_event: str = Field(..., example="Action", description="이벤트 유형")  # v6.0-response_schema_audit: Enum→str
     content: str = Field(..., example="침입 확인 및 경비 출동", description="조치 내용")
     user: str = Field(..., example="operator1", description="조치자")
     from_event: Union['DetectionEventResponse', 'MalfunctionEventResponse', 'ConnectionEventResponse'] = Field(..., description="원본 이벤트 객체")
@@ -516,9 +518,10 @@ class ActionNested(BaseModel):
 class DetectionLogResponse(BaseModel):
     """Detection Log 응답 스키마 (DetectionEvent + ActionEvent LEFT JOIN)"""
     id: int = Field(..., description="탐지 이벤트 ID")
-    type_event: EnumEventType = Field(..., description="이벤트 유형")
-    action_reported: EnumTrueFalse = Field(..., description="조치보고 여부")
-    result: EnumDetectionType = Field(..., description="탐지 결과")
+    # v6.0-response_schema_audit: Enum → str (String 컬럼 지뢰)
+    type_event: str = Field(..., description="이벤트 유형")
+    action_reported: str = Field(..., description="조치보고 여부")
+    result: str = Field(..., description="탐지 결과")
     device: Optional[Union["SensorNestedResponse", "ControllerNestedResponse", "CameraNestedResponse", "SpeakerNestedResponse", "LampNestedResponse", "DeviceNestedResponse"]] = Field(None, description="장치 정보")
     device_description: Optional[str] = Field(None, description="장치 정보 스냅샷")
     detail: Optional[Dict[str, Any]] = Field(None, description="탐지 상세 정보")

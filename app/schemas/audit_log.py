@@ -104,7 +104,8 @@ class AuditLogResponse(BaseModel):
     #   audit_logs 는 append-only(DELETE 불가)라 과거 비-enum 값(예: 테스트 'TEST_INS'/'TEST')이
     #   영구 잔존 → strict enum 이면 목록 직렬화가 500. create 측(AuditLogCreate)도 str 이므로 정합.
     action_type: str = Field(..., description="행위 유형 (EnumAuditActionType)", json_schema_extra={"example": "USER_CREATED"})
-    action_status: EnumAuditStatus = Field(..., description="행위 결과", json_schema_extra={"example": "SUCCESS"})
+    # v6.0-response_schema_audit: EnumAuditStatus → str (String 컬럼 지뢰, action_type 은 이미 str)
+    action_status: str = Field(..., description="행위 결과 (SUCCESS/FAILURE 등)", json_schema_extra={"example": "SUCCESS"})
 
     # 대상 리소스 정보
     resource_type: str = Field(..., description="대상 리소스 유형 (EnumAuditResourceType)", json_schema_extra={"example": "USER"})

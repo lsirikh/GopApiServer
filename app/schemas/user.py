@@ -328,7 +328,7 @@ class UserSessionResponse(BaseModel):
     user_agent: Optional[str] = None
     expires_at: KSTDatetime
     is_active: bool
-    logout_reason: Optional[EnumLogoutReason] = None
+    logout_reason: Optional[str] = None  # v6.0-response_schema_audit: Enum→str (String 컬럼 지뢰)
     logged_out_at: Optional[KSTDatetime] = None
     # Standard timestamps (renamed from login_at, last_activity)
     created_at: KSTDatetime
@@ -348,13 +348,17 @@ class UserSessionListResponse(BaseModel):
 # ============================================================
 
 class UserLoginLogResponse(BaseModel):
-    """Schema for user login log response"""
+    """Schema for user login log response
+
+    v6.0-response_schema_audit (2026-07-07): action/result/failure_reason Enum→str.
+    user_login_logs 컬럼이 String 이라 옛/임의 값 저장 가능 → strict Enum 응답이면 목록 500.
+    """
     id: int
     user_id: Optional[int] = None
     login_id: str
-    action: EnumLoginAction
-    result: EnumLoginResult
-    failure_reason: Optional[EnumLoginFailureReason] = None
+    action: str
+    result: str
+    failure_reason: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     created_at: KSTDatetime

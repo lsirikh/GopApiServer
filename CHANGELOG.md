@@ -4,6 +4,69 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-force_logout_tz_fix — 강제 로그아웃 500 버그 수정 (tz-aware naive 정합) (2026-07-07)
+
+> 사용자 지적: 세션 강제 로그아웃 실행 시 버그. 실측 재현 → HTTP 500.
+
+### 근본 원인
+
+`app/routers/user_sessions.py` 의 강제 로그아웃(`force_logout_session` L439) + 자기 로그아웃(`self logout` L326)에서:
+```python
+session.logged_out_at = datetime.now(settings.tz)   # tz-aware(Asia/Seoul)
+```
+`user_sessions.logged_out_at` 컬럼은 **naive DateTime**(TIMESTAMP WITHOUT TIME ZONE)이라, asyncpg 가 tz-aware 값을 거부:
+```
+asyncpg.exceptions.DataError: can't subtract offset-naive and offset-aware datetimes
+UPDATE user_sessions SET logged_out_at=$1::TIMESTAMP WITHOUT TIME ZONE ...
+```
+→ 강제 로그아웃 전체가 500 + 롤백 → **세션 무효화·jti 블랙리스트도 롤백되어 토큰이 안 막힘** (이중 실패).
+
+프로젝트의 **naive KST 컨벤션** 위반. 다른 곳(auth.py:588, users.py:250, user_sessions.py:182 벌크)은 이미 `.replace(tzinfo=None)` 있었으나 이 2곳만 누락.
+
+### 픽스
+
+`app/routers/user_sessions.py`:
+- L326 (자기 세션 로그아웃): `datetime.now(settings.tz)` → `.replace(tzinfo=None)`
+- L439 (단건 강제 로그아웃): 동일
+
+(벌크 force_logout L182 는 이미 정상)
+
+### 실측 검증 (2026-07-07)
+
+| 단계 | 이전(버그) | 수정 후 |
+|---|---|---|
+| DELETE /user-sessions/{id} 강제로그아웃 | **HTTP 500** (DataError) | **200 success** |
+| 강제로그아웃 후 그 토큰으로 /users/me | **200** (안 막힘) | **401** (차단) |
+
+토큰 jti 블랙리스트 커밋도 정상화되어 강제 로그아웃 즉시 무효화 확인.
+
+### v6.0-role_seed_normalize — Role 규칙(v5.3 2종) 시드/기존 데이터 재적용 (2026-07-07)
+
+> 사용자 실측: `GET /api/users` 응답에 `operator1=OPERATOR`, `monitor1=VIEWER`, `maintainer1=MAINTAINER` (07-02 시드) — v5.3 role 2종(ADMIN/USER) 축소가 DB에 미반영.
+
+### 원인 (2갈래)
+
+1. **모델 default 미수정** — `app/models/user.py` `role = Column(..., default="VIEWER")` 였음. VIEWER 는 v5.3 폐지값인데 미지정 생성 시 옛 값 주입.
+2. **정규화 마이그레이션 미적용** — 시드 코드(`SAMPLE_USERS`)는 이미 `role="USER"` 로 고쳐졌으나, **기존 볼륨 DB의 옛 시드 행(07-02)은 그대로**. 시드는 idempotent 스킵이라 코드 수정이 기존 행에 반영 안 됨. v57 role 정규화 마이그레이션은 수동 실행이라 신규/기존 배포에 누락.
+
+### 픽스
+
+- `app/models/user.py`: role default `VIEWER` → `USER`
+- `app/migrations/v62_role_normalize.sql` (신규): `UPDATE account_users SET role='USER' WHERE role NOT IN ('ADMIN','USER')` — idempotent, 파괴적 DDL 없음
+- `app/utils/init_db.py`: `IDEMPOTENT_MIGRATIONS` 화이트리스트에 v62 등록 → **매 startup 자동 정규화** (v6.0-clone_deploy_bugfix #5·#6 인프라 재활용)
+- `app/routers/users.py`: docstring 옛 role 예시(OPERATOR/VIEWER) → ADMIN/USER 정정
+
+### 검증 (2026-07-07)
+
+- 사용자 DB 조건 재현: `gop_user=OPERATOR`, `gop_operator=VIEWER`, `test_user=MAINTAINER` 인위 주입
+- 컨테이너 재시작 → startup 로그 `[OK] idempotent migration applied: v62_role_normalize.sql`
+- 정규화 후 role 분포: **ADMIN 9 / USER 3** (OPERATOR/VIEWER/MAINTAINER 전부 → USER, ADMIN 유지)
+
+### 사용자 조치
+
+`git pull` + `docker compose up -d --no-deps api-server` → 재시작 시 기존 DB 옛 role 자동 정리.
+(신규 시드는 `role="USER"` 로 이미 정상, 모델 default 도 USER 로 수정됨.)
+
 ### v6.0-response_schema_audit — 응답 스키마 지뢰 전수 감사·완화 (2026-07-07)
 
 > 같은 버그(String 컬럼 + strict Enum 응답 → 목록 500)를 servers.port/users.role/audit.actor_role 로 4번 얻어걸린 뒤, 남은 지뢰를 예방적으로 전수 제거.

@@ -323,7 +323,9 @@ async def delete_my_session(
 
     session.is_active = False
     session.logout_reason = "SELF_LOGOUT"
-    session.logged_out_at = datetime.now(settings.tz)
+    # v6.0-force_logout_tz_fix (2026-07-07): logged_out_at 컬럼은 naive DateTime.
+    # tz-aware(Asia/Seoul) 를 넣으면 asyncpg 가 offset-naive/aware 비교 거부 → 500.
+    session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
 
     await db.commit()
 
@@ -436,7 +438,9 @@ async def force_logout_session(
     session.is_active = False
     session.logout_reason = "FORCED"
     session.forced_by = current_user.id
-    session.logged_out_at = datetime.now(settings.tz)
+    # v6.0-force_logout_tz_fix (2026-07-07): logged_out_at 은 naive DateTime 컬럼.
+    # tz-aware 를 넣으면 asyncpg DataError(offset-naive/aware) → 강제로그아웃 전체 500 + 롤백.
+    session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
 
     # ★ 토큰 즉시 무효화 — is_active=False 만으로는 이미 발급된 JWT가 exp(24h)까지 통과하여
     #    강제 로그아웃이 실효 없음. access + refresh jti 를 블랙리스트에 등록해야:

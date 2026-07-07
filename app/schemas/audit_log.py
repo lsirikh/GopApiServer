@@ -67,14 +67,14 @@ class AuditLogCreate(BaseModel):
         None,
         description="변경 내역 {before: {...}, after: {...}}",
         json_schema_extra={"example": {
-            "before": {"role": "VIEWER"},
-            "after": {"role": "OPERATOR"}
+            "before": {"role": "USER"},
+            "after": {"role": "ADMIN"}
         }}
     )
     description: Optional[str] = Field(
         None,
         description="활동 설명",
-        json_schema_extra={"example": "사용자 역할 변경: VIEWER → OPERATOR"}
+        json_schema_extra={"example": "사용자 역할 변경: USER → ADMIN"}
     )
     ip_address: Optional[str] = Field(
         None,

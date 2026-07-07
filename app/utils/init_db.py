@@ -35,6 +35,7 @@ def create_tables():
 #   ★ 각 SQL 은 IF NOT EXISTS / IF EXISTS 로 재실행 안전해야 한다.
 IDEMPOTENT_MIGRATIONS = [
     "v61_report_generation_progress.sql",   # progress_pct/stage/updated_at (ADD COLUMN IF NOT EXISTS)
+    "v62_role_normalize.sql",               # account_users.role 옛값(OPERATOR 등) → USER 정규화
 ]
 
 

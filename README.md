@@ -5,11 +5,11 @@
 ![framework](https://img.shields.io/badge/FastAPI-async-teal)
 ![sqlalchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-red)
 ![postgres](https://img.shields.io/badge/PostgreSQL-16-blue)
-![status](https://img.shields.io/badge/release-2026--07--03-success)
+![status](https://img.shields.io/badge/release-2026--07--07-success)
 
 GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-> **현재 버전**: v6.0.0 (2026-07-03) — Async 대전환 완결.
+> **현재 버전**: v6.0.0 (2026-07-03 Async 대전환) + 후속 안정화 (2026-07-04~07, `release/v6.0`).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 
 ---
@@ -56,6 +56,18 @@ GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 �
 - init 모듈 4종 async 화(`init_db` / `init_server_data` / `init_report_data` / `init_sample_data`)
 - Polymorphic eager load: `selectin_polymorphic(Device, [...])`
 
+### 후속 안정화 (2026-07-04~07, `release/v6.0` 위 소분 태그)
+
+> clone 배포·운영 실측으로 드러난 결함을 근본 수정. 각 `v6.0-{topic}` 태그로 누적.
+
+| 영역 | 태그 | 요약 |
+|---|---|---|
+| 리포트 | `report_fixes` / `report_lifecycle_persistence` / `report_progress_perf` / `report_date_range` | 그리드 컬럼 확장·필터 통일, PDF 영속화·수명주기, 진행률+stall 워치도그+SQL 집계, 커스텀 날짜 범위 |
+| 인증·계정 | `auth_mode_secure_default` / `account_rbac` / `account_managers_expand` / `role_seed_normalize` | AUTH_MODE=token 기본, ADMIN 9종 seed, role 규칙 v5.3 2종 재적용 |
+| API 계약 | `servers_port_response_relax` / `users_role_response_relax` / `response_schema_audit` | 응답 스키마 strict Enum 지뢰 전수 완화(21건) — 옛/임의 값 목록 500 원천 차단 |
+| 안정성 | `clone_deploy_bugfix` / `force_logout_tz_fix` | 신규 PC 6버그(startup 자동 마이그레이션 포함), 세션 강제 로그아웃 500 수정 |
+| 배포·인프라 | `rename_pids` / `cert_installer_fix` / `installer_ps2exe_path_fix` / `bootstrap_automation` | 컨테이너 `pids-api-*` 리네임, HTTPS 인증서 fail-fast, PS2EXE 경로 근본 수정, 1-Click bootstrap.ps1 |
+
 ---
 
 ## 기술 스택
@@ -70,7 +82,7 @@ GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 �
 | **Auth** | JWT (HS256, 24h access + 7d refresh), RBAC matrix enforcer |
 | **Messaging** | NATS (SYNC 이벤트 발행 · Force-Logout revoke publisher) |
 | **Report** | Playwright (Chromium) — HTML → PDF |
-| **Container** | Docker Compose (api-server / postgres / autoheal / gis-ingest / db-monitor / adminer) |
+| **Container** | Docker Compose (`pids-api-server` / `pids-api-postgres` / `pids-api-autoheal` / `pids-api-gis-ingest` / `pids-api-db-monitor` / `pids-api-db-admin`) |
 | **Test** | pytest + pytest-asyncio (dual-stack fixture) |
 | **Docs** | Swagger UI / ReDoc (한글 문서화) |
 

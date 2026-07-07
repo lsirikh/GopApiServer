@@ -49,7 +49,7 @@ router = APIRouter(tags=["Audit Logs"])
                                     "after": {
                                         "login_id": "operator01",
                                         "name": "홍길동",
-                                        "role": "OPERATOR"
+                                        "role": "USER"
                                     }
                                 },
                                 "description": "사용자 생성: operator01",
@@ -190,10 +190,10 @@ async def get_audit_logs(
                             "actor_name": "관리자",
                             "actor_role": "ADMIN",
                             "changes": {
-                                "before": {"role": "VIEWER"},
-                                "after": {"role": "OPERATOR"}
+                                "before": {"role": "USER"},
+                                "after": {"role": "ADMIN"}
                             },
-                            "description": "역할 변경: VIEWER → OPERATOR",
+                            "description": "역할 변경: USER → ADMIN",
                             "ip_address": "192.168.1.100",
                             "user_agent": "Mozilla/5.0...",
                             "error_message": None,

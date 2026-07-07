@@ -60,7 +60,9 @@ class AccountUser(Base):
     phone = Column(String(20), nullable=True)
 
     # Role and Group
-    role = Column(String(20), default="VIEWER", nullable=False)
+    # v6.0-role_seed_normalize (2026-07-07): default VIEWER → USER (v5.3 role 2종 축소 정합).
+    # VIEWER 는 v5.3 Phase 2 에서 폐지된 레거시 값 — 미지정 생성 시 옛 값이 들어가던 지뢰.
+    role = Column(String(20), default="USER", nullable=False)
     group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
 
     # Status fields

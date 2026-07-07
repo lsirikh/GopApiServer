@@ -422,6 +422,14 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 | `POST /api/reports/generations/{id}/cancel` | 진행 중 리포트 취소 (v6.0 후속에서 도입) |
 | `GET /api/reports/generations/{id}/download` | 파일 소실 시 404 → **HTTP 410 `PDF_FILE_MISSING`** 분화 |
 | `GET /api/servers` | 응답 `port` 제약 `ge=1` → `ge=0`. 목록 응답 fault tolerance |
+
+#### v6.0 후속 안정화 (2026-07-06~07, clone 배포 대응)
+
+- **`clone_deploy_bugfix`** — 신규 PC clone 배포 6버그 근본 해결 (startup 자동 마이그레이션, connections selectinload, event_statistics tz 정규화, audit_role 완화)
+- **`response_schema_audit`** — 전 `*Response` 스키마 Enum 지뢰 21건 전수 완화 (String 컬럼 + strict Enum → 목록 500 원천 차단). `report_type`/`period_type`/`status`/`type_event`/`result`/`action`/`actor_role` 등 응답 필드 Enum → str
+- **`role_seed_normalize`** — role 규칙(v5.3 ADMIN/USER 2종) 시드·기존 데이터 재적용. startup 자동 정규화(옛 OPERATOR/VIEWER/MAINTAINER → USER)
+- **`force_logout_tz_fix`** — 세션 강제 로그아웃 500 버그 수정 (logged_out_at tz-aware → naive KST). `DELETE /api/user-sessions/{id}` 정상화 + 토큰 즉시 무효화
+- **`installer_ps2exe_path_fix`** / **`bootstrap_automation`** — 신규 PC 1-Click 설치 (bootstrap.ps1 + PS2EXE 경로 근본 수정)
 """,
     version="6.0.0",
     docs_url=None,  # Disable default docs to use custom

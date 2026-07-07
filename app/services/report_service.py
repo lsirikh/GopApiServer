@@ -321,7 +321,7 @@ class ReportService:
 
         Returns:
             dict: {
-                "role_counts": {"ADMIN": n, "VIEWER": m, ...},
+                "role_counts": {"ADMIN": n, "USER": m},
                 "login_daily_trend": [{"date": "2024-01-01", "count": 10}, ...],
                 "login_result_counts": {"SUCCESS": n, "FAILURE": m}
             }

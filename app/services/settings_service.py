@@ -85,6 +85,25 @@ def get(db: Session, key: str) -> Any:
     return value
 
 
+# v6.0-session_enabled (2026-07-07): 세션 만료 마스터 스위치.
+# session_enabled=False 면 세션이 사실상 무기한 유지되도록 매우 긴 만료를 반환한다.
+# (JWT 는 exp 가 필수라 진짜 무한대는 불가 → 10년으로 근사. session.expires_at·sweep 도 동일 정합.)
+SESSION_DISABLED_TIMEOUT_HOURS = 24 * 365 * 10   # 10년
+SESSION_DISABLED_REFRESH_DAYS = 365 * 10         # 10년
+
+
+def resolve_session_expiry(db: Session) -> tuple[int, int]:
+    """(access_timeout_hours, refresh_days) 를 session_enabled 반영해 반환.
+
+    - session_enabled=True  → (session_timeout_hours, refresh_expiration_days) 설정값
+    - session_enabled=False → 10년(사실상 무기한). 세션 기간성 자체를 끈다.
+    로그인/리프레시가 이 값을 access·refresh exp + session.expires_at 에 일관 적용.
+    """
+    if not get(db, SettingKey.SESSION_ENABLED):
+        return SESSION_DISABLED_TIMEOUT_HOURS, SESSION_DISABLED_REFRESH_DAYS
+    return get(db, SettingKey.SESSION_TIMEOUT_HOURS), get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+
+
 def put(db: Session, key: str, value: Any, actor_id: Optional[int] = None) -> Any:
     """편집 가능한 키의 값을 UPSERT + 캐시 무효화. value_type 은 기본값 정의에서 결정."""
     _, vtype = _defaults().get(key, (None, "str"))

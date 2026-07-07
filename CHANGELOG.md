@@ -4,6 +4,36 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-session_enabled_switch — session_enabled 세션 만료 마스터 스위치 구현 (2026-07-07)
+
+> 앞 검토(`session_settings_verify`)에서 `session_enabled` 가 저장만 되고 미연결이었음.
+> 사용자 정의: **세션 기간성 on/off 스위치** — 켜면 `session_timeout` 동작, 끄면 세션 무기한 유지.
+
+### 구현
+
+`app/services/settings_service.py`:
+- `resolve_session_expiry(db) -> (timeout_hours, refresh_days)` 헬퍼 신설
+  - `session_enabled=True` → 설정값(`session_timeout_hours`, `refresh_expiration_days`)
+  - `session_enabled=False` → **10년**(`SESSION_DISABLED_TIMEOUT_HOURS`/`_REFRESH_DAYS`) — JWT는 exp 필수라 진짜 무한대 불가 → 10년으로 근사(사실상 무기한)
+
+`app/routers/auth.py`:
+- login(L422) + refresh(L720) 두 지점을 `resolve_session_expiry(db)` 로 교체
+- access token exp / refresh exp / `session.expires_at`(L468) 3계층 일관 적용
+- session_sweep 은 expires_at 이 10년 후라 자동으로 안 건드림
+
+### 동작
+
+| session_enabled | access token exp | 의미 |
+|---|---|---|
+| **ON** | `session_timeout_hours` (예: 12h) | 세션 만료 동작 |
+| **OFF** | 10년 (사실상 무기한) | 세션 기간성 끔 — 로그인 유지 |
+
+### 실측 (2026-07-07)
+
+- ON + timeout=12h → access token exp **12.0h**
+- OFF → access token exp **87600h(10.0년)** + `session.expires_at` **~10년** (3계층 정합)
+- 토글 즉시 반영 (settings_service 캐시 무효화)
+
 ### v6.0-session_settings_verify — 세션 설정 API 실동작 검증 + 블랙리스트 TTL 정합 (2026-07-07)
 
 > 사용자 요청: 세션 시간·비밀번호 실패 횟수 등 설정 API가 실제로 동작하는지 검토.

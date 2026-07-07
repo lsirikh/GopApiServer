@@ -417,10 +417,10 @@ async def login(
     user_agent = request.headers.get("User-Agent")
 
     # FR-SVS-05: 토큰/세션 만료를 런타임 설정에서 읽음(시드 기본값 = .env 와 동일하므로 미설정 시 기존 동작).
+    # v6.0-session_enabled: session_enabled=False 면 10년(사실상 무기한) — 세션 기간성 마스터 스위치.
     from app.services import settings_service
     from app.services.settings_service import SettingKey
-    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
-    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+    _timeout_hours, _refresh_days = settings_service.resolve_session_expiry(db)
 
     # v5.4 클라 지적 P1-B: SUPERSEDED — 로그인 시 같은 계정의 활성 세션들을 evict.
     # 1) is_active=False + logout_reason=DUPLICATE 마킹
@@ -715,10 +715,10 @@ async def refresh(
         token_payload["sid"] = sid
 
     # Create new tokens (sid 승계, jti만 회전). FR-SVS-05: 만료는 런타임 설정 적용.
+    # v6.0-session_enabled: session_enabled=False 면 10년(무기한) — login 과 동일 정책.
     from app.services import settings_service
     from app.services.settings_service import SettingKey
-    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
-    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+    _timeout_hours, _refresh_days = settings_service.resolve_session_expiry(db)
     access_token = create_access_token(data=token_payload, expires_delta=timedelta(hours=_timeout_hours))
     new_refresh_token = create_refresh_token(data=token_payload, expires_delta=timedelta(days=_refresh_days))
 

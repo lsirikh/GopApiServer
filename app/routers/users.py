@@ -53,7 +53,7 @@ async def get_users(
     **Query Parameters**:
     - **page**: 페이지 번호 (기본값: 1)
     - **limit**: 페이지당 항목 수 (기본값: 100, 최대: 100)
-    - **role**: 역할 필터 (ADMIN, OPERATOR, VIEWER)
+    - **role**: 역할 필터 (ADMIN, USER — v5.3 role 2종 축소)
     - **group_id**: 그룹 ID 필터
     - **department**: 부서 필터
 
@@ -414,7 +414,7 @@ async def create_user(
     - **name**: 이름 (필수)
     - **email**: 이메일 (선택)
     - **department**: 부서 (선택)
-    - **role**: 역할 (선택, 기본값: VIEWER)
+    - **role**: 역할 (선택, 기본값: USER — v5.3 role 2종 축소)
     - **group_id**: 그룹 ID (선택)
 
     **Response**: success, data (생성된 사용자 정보)

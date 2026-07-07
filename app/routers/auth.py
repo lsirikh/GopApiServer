@@ -417,10 +417,10 @@ async def login(
     user_agent = request.headers.get("User-Agent")
 
     # FR-SVS-05: 토큰/세션 만료를 런타임 설정에서 읽음(시드 기본값 = .env 와 동일하므로 미설정 시 기존 동작).
+    # v6.0-session_enabled: session_enabled=False 면 10년(사실상 무기한) — 세션 기간성 마스터 스위치.
     from app.services import settings_service
     from app.services.settings_service import SettingKey
-    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
-    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+    _timeout_hours, _refresh_days = settings_service.resolve_session_expiry(db)
 
     # v5.4 클라 지적 P1-B: SUPERSEDED — 로그인 시 같은 계정의 활성 세션들을 evict.
     # 1) is_active=False + logout_reason=DUPLICATE 마킹
@@ -619,14 +619,20 @@ async def logout(
     # 새 토큰을 발급받아 세션이 부활함. force_logout_session(user_sessions.py:368-376) 동일 패턴.
     if session and session.refresh_token:
         from app.services.token_blacklist_service import add_to_blacklist
+        from app.services import settings_service as _ss
+        from app.services.settings_service import SettingKey as _SK
         from datetime import timedelta as _td
+        # v6.0-blacklist_ttl_dynamic (2026-07-07): 블랙리스트 TTL을 런타임 refresh_expiration_days 에서 읽음.
+        # 정적 env(JWT_REFRESH_EXPIRATION_DAYS)를 쓰면 설정으로 refresh 만료를 늘려도 블랙리스트가 먼저
+        # 만료되어 폐기된 refresh 가 부활하는 틈이 생김.
+        _refresh_days = _ss.get(db, _SK.REFRESH_EXPIRATION_DAYS)
         try:
             refresh_data = decode_token(session.refresh_token, expected_type="refresh")
             if refresh_data.jti:
                 add_to_blacklist(
                     db=db,
                     jti=refresh_data.jti,
-                    expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
+                    expires_at=datetime.utcnow() + _td(days=_refresh_days),
                     reason="LOGOUT",
                     user_id=session.user_id,
                     token_type="refresh",
@@ -688,8 +694,11 @@ async def refresh(
         )
 
     # PRD v4.9 Phase 2-A4: rotation — 옛 refresh jti 블랙리스트 등록 (replay 차단)
+    # v6.0-blacklist_ttl_dynamic (2026-07-07): TTL을 런타임 refresh_expiration_days 에서 읽음.
+    from app.services import settings_service as _ss
+    from app.services.settings_service import SettingKey as _SK
     if token_data.jti:
-        old_refresh_expires = datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
+        old_refresh_expires = datetime.utcnow() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS))
         add_to_blacklist(
             db=db,
             jti=token_data.jti,
@@ -706,10 +715,10 @@ async def refresh(
         token_payload["sid"] = sid
 
     # Create new tokens (sid 승계, jti만 회전). FR-SVS-05: 만료는 런타임 설정 적용.
+    # v6.0-session_enabled: session_enabled=False 면 10년(무기한) — login 과 동일 정책.
     from app.services import settings_service
     from app.services.settings_service import SettingKey
-    _timeout_hours = settings_service.get(db, SettingKey.SESSION_TIMEOUT_HOURS)
-    _refresh_days = settings_service.get(db, SettingKey.REFRESH_EXPIRATION_DAYS)
+    _timeout_hours, _refresh_days = settings_service.resolve_session_expiry(db)
     access_token = create_access_token(data=token_payload, expires_delta=timedelta(hours=_timeout_hours))
     new_refresh_token = create_refresh_token(data=token_payload, expires_delta=timedelta(days=_refresh_days))
 

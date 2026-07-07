@@ -4,6 +4,137 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-rbac_matrix_gate — 계정/그룹/세션 관리 require_admin → 매트릭스 전환 (2026-07-07)
+
+> 사용자 검토: monitor1(다른 사이트)에 한시 "ADMIN 그룹" grant 를 줬는데 안 먹힘.
+> 근본원인: 계정/그룹/세션 관리 엔드포인트가 `require_admin`(role=="ADMIN" **문자열만** 검사)이라
+> grant 로 병합된 **권한 매트릭스를 아예 안 봄**. grant 는 도메인(require_perm) 엔드포인트만 뚫었음.
+> 설계 방향(사용자 확정): role=ADMIN=전권 bypass / USER=매트릭스(등급 ∪ grant), 스케쥴 만료 시 복귀.
+> ADR_Permission_Model_v5.2 가 이미 문서화한 모델에 **코드를 정합**(반쪽 남았던 RBAC 이주 완성).
+
+### 변경 — require_admin → require_perm 전환 (26 엔드포인트, 6 파일)
+
+| 파일 | 매트릭스 개방(temp-admin 동작) | base-ADMIN 전용 유지 |
+|---|---|---|
+| `users.py` | GET·POST·PUT·DELETE·lock·unlock·reset-pw (users:view/edit/delete/control) | — (아래 가드로 상승 차단) |
+| `user_groups.py` | GET 3종 (user_groups:view) | POST·PUT·permissions·DELETE (매트릭스 정의) |
+| `user_sessions.py` | GET 2종(view)·force-logout 2종(control) (users) | — |
+| `grants.py` | GET 2종 (users:view) | POST 부여·DELETE 회수 (승격 메커니즘) |
+| `settings.py` | GET·PUT /session (setup_system:view/edit) | — |
+| `servers.py` | PATCH → require_perm_optional(servers:edit) — 형제 POST/PUT/DELETE 와 정합 | — |
+
+### 권한상승 가드 (한시성 복귀 보장 — `app/routers/users.py`)
+
+grant 로 한시 승격된 USER 가 **영구 승격**을 자가 생성하는 경로를 base-ADMIN 전용으로 잠금:
+- `_assert_can_define_permissions`: 비-ADMIN 의 **role·group_id 변경** 차단 (자기 승격/전권그룹 고정 방지)
+- `_assert_can_modify_admin_target`: 비-ADMIN 의 **ADMIN 대상 계정 변경**(pw초기화/삭제/잠금/수정) 차단 (횡적 탈취 방지)
+- grant 부여(POST)·그룹 매트릭스 편집은 라우터 레벨에서 base-ADMIN 유지
+
+### 검증 (2026-07-07)
+
+- **Live 컨테이너 E2E 10/10**: temp-admin grant 로 GET users/user-groups/user-sessions·PUT settings·프로필수정 = 200,
+  self role=ADMIN·self group_id·self grant·ADMIN pw초기화·그룹매트릭스편집 = 403
+- **단위 테스트**: `tests/test_users_escalation_guards.py` 7 passed (가드 순수함수)
+- **무회귀**: base-ADMIN 은 전 구간 bypass(그룹/계정/grant 생성 정상), 마지막 ADMIN 가드 유지·강화
+
+### 운영 주의
+
+- 클라 "ADMIN 그룹"(예시)은 enum 12모듈 중 8개만 보유 → grant 시 `setup_system·broadcast·map·setup_feature` 미개방.
+  완전 임시전권은 그룹에 4모듈 추가 필요(또는 role=ADMIN, 단 한시성 없음).
+- 통합 테스트 harness 는 v6.0 async 전환 후 conftest 가 **sync dep 오버라이드** → async 라우터 미적용(401)로 사전파손. 본 변경과 무관.
+
+### v6.0-session_enabled_switch — session_enabled 세션 만료 마스터 스위치 구현 (2026-07-07)
+
+> 앞 검토(`session_settings_verify`)에서 `session_enabled` 가 저장만 되고 미연결이었음.
+> 사용자 정의: **세션 기간성 on/off 스위치** — 켜면 `session_timeout` 동작, 끄면 세션 무기한 유지.
+
+### 구현
+
+`app/services/settings_service.py`:
+- `resolve_session_expiry(db) -> (timeout_hours, refresh_days)` 헬퍼 신설
+  - `session_enabled=True` → 설정값(`session_timeout_hours`, `refresh_expiration_days`)
+  - `session_enabled=False` → **10년**(`SESSION_DISABLED_TIMEOUT_HOURS`/`_REFRESH_DAYS`) — JWT는 exp 필수라 진짜 무한대 불가 → 10년으로 근사(사실상 무기한)
+
+`app/routers/auth.py`:
+- login(L422) + refresh(L720) 두 지점을 `resolve_session_expiry(db)` 로 교체
+- access token exp / refresh exp / `session.expires_at`(L468) 3계층 일관 적용
+- session_sweep 은 expires_at 이 10년 후라 자동으로 안 건드림
+
+### 동작
+
+| session_enabled | access token exp | 의미 |
+|---|---|---|
+| **ON** | `session_timeout_hours` (예: 12h) | 세션 만료 동작 |
+| **OFF** | 10년 (사실상 무기한) | 세션 기간성 끔 — 로그인 유지 |
+
+### 실측 (2026-07-07)
+
+- ON + timeout=12h → access token exp **12.0h**
+- OFF → access token exp **87600h(10.0년)** + `session.expires_at` **~10년** (3계층 정합)
+- 토글 즉시 반영 (settings_service 캐시 무효화)
+
+### v6.0-session_settings_verify — 세션 설정 API 실동작 검증 + 블랙리스트 TTL 정합 (2026-07-07)
+
+> 사용자 요청: 세션 시간·비밀번호 실패 횟수 등 설정 API가 실제로 동작하는지 검토.
+
+### 검증 결과 — 설정 API는 실제 동작함 ✅
+
+`GET`/`PUT /api/settings/session` 저장값이 인증 로직에 실시간 반영됨(실측):
+
+| 설정 | 저장 | 실제 동작 | 실측 |
+|---|---|---|---|
+| `lockout_threshold` | ✅ | ✅ | 3 설정 → 정확히 3회째 계정 잠금(`is_locked=true`), 올바른 비번도 "Account is locked" 차단 |
+| `session_timeout_hours` | ✅ | ✅ | 1h→access token exp 1.00h, 12h→12.00h (JWT exp 직접 확인) |
+| `refresh_expiration_days` | ✅ | ✅ | 7일→refresh token exp 7.00일 |
+| `session_enabled` | ✅ | ❌ 미사용 | 저장만 됨, auth 로직 어디서도 참조 안 함(별개 트랙) |
+
+로그인(auth.py:402/422/468/478/480)이 `settings_service.get()` 으로 런타임 값을 읽어 잠금 임계·access·refresh exp에 적용. refresh 엔드포인트(L711~714)도 동적.
+
+### 발견·수정한 경미한 결함 — 블랙리스트 TTL 불일치
+
+`logout`(L629) + `refresh rotation`(L692)에서 폐기 refresh 를 블랙리스트 등재할 때 만료(TTL)를 **정적 env `JWT_REFRESH_EXPIRATION_DAYS`** 로 계산했음. 사용자가 `refresh_expiration_days` 를 늘리면(예: 30일) 실제 refresh 는 30일 유효한데 블랙리스트는 7일만 유지 → **8~30일차에 폐기된 refresh 가 블랙리스트에서 빠져 부활할 수 있는 틈**.
+
+수정: 두 지점 모두 `settings_service.get(db, REFRESH_EXPIRATION_DAYS)` 동적 값 사용.
+
+### 실측 (2026-07-07)
+
+- `refresh_expiration_days=30` 설정 → logout → 블랙리스트 refresh 항목 TTL **29일**(≈30, 이전 7일)
+- 전 검증 후 원복(7일)
+
+### 별개 트랙
+- `session_enabled` 는 정의만 있고 실제 로직 미연결 — 의도된 의미(세션 관리 기능 전체 on/off?) 확정 후 구현 필요
+
+### v6.0-default_profile_image — 프로필 사진 없는 계정 default 이미지 제공 (2026-07-07)
+
+> 사용자 요청: 계정 사진 없을 때 default 이미지 제공. 기존엔 `photo_url: null` + 없는 파일 요청 시 404.
+
+### 구현 (방식 A+B)
+
+| 파일 | 역할 |
+|---|---|
+| `app/utils/default_profile.py` (신규) | Pillow 로 `default.png` 생성 (256×256, 회색 배경 + 중립 실루엣) |
+| `app/main.py` lifespan | startup 에서 `default.png` 없으면 자동 생성 — `data/profiles/` 는 gitignore 라 clone 배포엔 없으므로 |
+| `app/schemas/user.py` | `AccountUserResponse` model_validator: `photo_url` null → `/api/users/photo/default.png` (모든 사용자 응답 경로 일괄) |
+| `app/routers/users.py` | `GET /photo/{file_name}`: 파일 없으면 404 대신 default 반환 (없으면 즉석 생성) |
+
+### 동작
+
+- 사진 없는 계정 응답: `"photo_url": "/api/users/photo/default.png"` (이전 `null`)
+- 없는 파일명 요청: **200 + default png** (이전 404)
+- 실제 사진 있는 계정: 원본 URL 유지 (영향 없음)
+- audit 로그 before/after 상태는 실제 null 보존 (감사 정확성 — 미변경)
+
+### 견고성
+
+`default.png` 는 개인 사진 폴더(gitignore)라 clone 엔 없지만, **startup 자동 생성 + 서빙 시 즉석 생성** 이중 안전망으로 신규 PC 배포에도 동작.
+
+### 실측 (2026-07-07)
+
+- startup 로그: `[OK] default profile image created: data/profiles/default.png`
+- `GET /api/users/photo/default.png` → 200 image/png 1440B
+- `GET /api/users` 응답: 12계정 중 10 default_url / 2 real_photo / **still_null 0**
+- 없는 파일명 `GET /photo/nonexistent.jpg` → 200 (default 폴백, 이전 404)
+
 ### v6.0-force_logout_tz_fix — 강제 로그아웃 500 버그 수정 (tz-aware naive 정합) (2026-07-07)
 
 > 사용자 지적: 세션 강제 로그아웃 실행 시 버그. 실측 재현 → HTTP 500.

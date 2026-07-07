@@ -10,7 +10,7 @@ from typing import Optional, List
 from app.dependencies import get_async_db
 from app.models.user import UserSession, AccountUser, UserLoginLog
 from app.schemas.user import UserSessionResponse
-from app.routers.auth import get_current_account_user_async, require_admin_async
+from app.routers.auth import get_current_account_user_async, require_perm_async
 from app.services.audit_service import log_action_async
 from app.services import nats_revoke_publisher
 from app.utils.enums import EnumLogoutReason
@@ -78,7 +78,7 @@ async def _remaining_active_admin_sessions(
     return (await db.execute(count_stmt)).scalar() or 0
 
 
-@router.get("", dependencies=[Depends(require_admin_async)])
+@router.get("", dependencies=[Depends(require_perm_async("users", "view"))])
 async def get_user_sessions(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -116,7 +116,7 @@ async def get_user_sessions(
     }
 
 
-@router.delete("/user/{user_id}", dependencies=[Depends(require_admin_async)])
+@router.delete("/user/{user_id}", dependencies=[Depends(require_perm_async("users", "control"))])
 async def force_logout_all_user_sessions(
     user_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -350,7 +350,7 @@ async def delete_my_session(
     }
 
 
-@router.get("/{session_id}", dependencies=[Depends(require_admin_async)])
+@router.get("/{session_id}", dependencies=[Depends(require_perm_async("users", "view"))])
 async def get_user_session_by_id(
     session_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -388,7 +388,7 @@ async def get_user_session_by_id(
     }
 
 
-@router.delete("/{session_id}", dependencies=[Depends(require_admin_async)])
+@router.delete("/{session_id}", dependencies=[Depends(require_perm_async("users", "control"))])
 async def force_logout_session(
     session_id: int,
     db: AsyncSession = Depends(get_async_db),

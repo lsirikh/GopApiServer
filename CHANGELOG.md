@@ -4,6 +4,42 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-force_logout_tz_fix — 강제 로그아웃 500 버그 수정 (tz-aware naive 정합) (2026-07-07)
+
+> 사용자 지적: 세션 강제 로그아웃 실행 시 버그. 실측 재현 → HTTP 500.
+
+### 근본 원인
+
+`app/routers/user_sessions.py` 의 강제 로그아웃(`force_logout_session` L439) + 자기 로그아웃(`self logout` L326)에서:
+```python
+session.logged_out_at = datetime.now(settings.tz)   # tz-aware(Asia/Seoul)
+```
+`user_sessions.logged_out_at` 컬럼은 **naive DateTime**(TIMESTAMP WITHOUT TIME ZONE)이라, asyncpg 가 tz-aware 값을 거부:
+```
+asyncpg.exceptions.DataError: can't subtract offset-naive and offset-aware datetimes
+UPDATE user_sessions SET logged_out_at=$1::TIMESTAMP WITHOUT TIME ZONE ...
+```
+→ 강제 로그아웃 전체가 500 + 롤백 → **세션 무효화·jti 블랙리스트도 롤백되어 토큰이 안 막힘** (이중 실패).
+
+프로젝트의 **naive KST 컨벤션** 위반. 다른 곳(auth.py:588, users.py:250, user_sessions.py:182 벌크)은 이미 `.replace(tzinfo=None)` 있었으나 이 2곳만 누락.
+
+### 픽스
+
+`app/routers/user_sessions.py`:
+- L326 (자기 세션 로그아웃): `datetime.now(settings.tz)` → `.replace(tzinfo=None)`
+- L439 (단건 강제 로그아웃): 동일
+
+(벌크 force_logout L182 는 이미 정상)
+
+### 실측 검증 (2026-07-07)
+
+| 단계 | 이전(버그) | 수정 후 |
+|---|---|---|
+| DELETE /user-sessions/{id} 강제로그아웃 | **HTTP 500** (DataError) | **200 success** |
+| 강제로그아웃 후 그 토큰으로 /users/me | **200** (안 막힘) | **401** (차단) |
+
+토큰 jti 블랙리스트 커밋도 정상화되어 강제 로그아웃 즉시 무효화 확인.
+
 ### v6.0-role_seed_normalize — Role 규칙(v5.3 2종) 시드/기존 데이터 재적용 (2026-07-07)
 
 > 사용자 실측: `GET /api/users` 응답에 `operator1=OPERATOR`, `monitor1=VIEWER`, `maintainer1=MAINTAINER` (07-02 시드) — v5.3 role 2종(ADMIN/USER) 축소가 DB에 미반영.

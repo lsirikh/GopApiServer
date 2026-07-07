@@ -2,7 +2,7 @@
 User Pydantic schemas
 PRD: PRD_Account_Design.md Section 4
 """
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.schemas.common import KSTDatetime
@@ -295,6 +295,14 @@ class AccountUserResponse(BaseModel):
     updated_at: KSTDatetime = Field(..., description="수정 시간", json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _fill_default_photo(self) -> "AccountUserResponse":
+        # v6.0-default_profile_image (2026-07-07): 사진 미설정 계정은 default 이미지 URL 제공.
+        # 상대 경로 → 클라가 base_url 과 조합. 서빙 엔드포인트가 default.png 를 반환(startup 자동 생성).
+        if not self.photo_url:
+            self.photo_url = "/api/users/photo/default.png"
+        return self
 
 
 class AccountUserNestedResponse(BaseModel):

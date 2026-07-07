@@ -354,11 +354,24 @@ async def upload_my_photo(
 
 @router.get("/photo/{file_name}", summary="프로필 사진 다운로드(파일명 기반)")
 async def get_profile_photo(file_name: str):
-    """data/profiles/{file_name} 이미지 바이너리 반환. 인증 불필요(파일명 uuid라 비공개성 확보)."""
+    """data/profiles/{file_name} 이미지 바이너리 반환. 인증 불필요(파일명 uuid라 비공개성 확보).
+
+    v6.0-default_profile_image (2026-07-07): 파일이 없으면 404 대신 default 이미지를 반환한다.
+    - 응답 스키마가 photo_url null → '/api/users/photo/default.png' 로 채우므로 이 경로가 default 서빙.
+    - 개인 사진 파일이 (볼륨 이슈 등으로) 사라져도 깨진 이미지 대신 default 노출.
+    """
+    from app.utils.default_profile import DEFAULT_PROFILE_FILENAME, ensure_default_profile_image
+
     if "/" in file_name or "\\" in file_name or ".." in file_name:   # 경로 traversal 차단
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file name")
     file_path = os.path.join(settings.PROFILE_STORAGE_PATH, file_name)
     if not os.path.exists(file_path):
+        # default 로 폴백 (없으면 즉석 생성 시도)
+        default_path = os.path.join(settings.PROFILE_STORAGE_PATH, DEFAULT_PROFILE_FILENAME)
+        if not os.path.exists(default_path):
+            ensure_default_profile_image(settings.PROFILE_STORAGE_PATH)
+        if os.path.exists(default_path):
+            return FileResponse(path=default_path, media_type="image/png")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile photo not found")
     return FileResponse(path=file_path)
 

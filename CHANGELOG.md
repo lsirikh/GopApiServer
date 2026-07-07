@@ -4,6 +4,37 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-default_profile_image — 프로필 사진 없는 계정 default 이미지 제공 (2026-07-07)
+
+> 사용자 요청: 계정 사진 없을 때 default 이미지 제공. 기존엔 `photo_url: null` + 없는 파일 요청 시 404.
+
+### 구현 (방식 A+B)
+
+| 파일 | 역할 |
+|---|---|
+| `app/utils/default_profile.py` (신규) | Pillow 로 `default.png` 생성 (256×256, 회색 배경 + 중립 실루엣) |
+| `app/main.py` lifespan | startup 에서 `default.png` 없으면 자동 생성 — `data/profiles/` 는 gitignore 라 clone 배포엔 없으므로 |
+| `app/schemas/user.py` | `AccountUserResponse` model_validator: `photo_url` null → `/api/users/photo/default.png` (모든 사용자 응답 경로 일괄) |
+| `app/routers/users.py` | `GET /photo/{file_name}`: 파일 없으면 404 대신 default 반환 (없으면 즉석 생성) |
+
+### 동작
+
+- 사진 없는 계정 응답: `"photo_url": "/api/users/photo/default.png"` (이전 `null`)
+- 없는 파일명 요청: **200 + default png** (이전 404)
+- 실제 사진 있는 계정: 원본 URL 유지 (영향 없음)
+- audit 로그 before/after 상태는 실제 null 보존 (감사 정확성 — 미변경)
+
+### 견고성
+
+`default.png` 는 개인 사진 폴더(gitignore)라 clone 엔 없지만, **startup 자동 생성 + 서빙 시 즉석 생성** 이중 안전망으로 신규 PC 배포에도 동작.
+
+### 실측 (2026-07-07)
+
+- startup 로그: `[OK] default profile image created: data/profiles/default.png`
+- `GET /api/users/photo/default.png` → 200 image/png 1440B
+- `GET /api/users` 응답: 12계정 중 10 default_url / 2 real_photo / **still_null 0**
+- 없는 파일명 `GET /photo/nonexistent.jpg` → 200 (default 폴백, 이전 404)
+
 ### v6.0-force_logout_tz_fix — 강제 로그아웃 500 버그 수정 (tz-aware naive 정합) (2026-07-07)
 
 > 사용자 지적: 세션 강제 로그아웃 실행 시 버그. 실측 재현 → HTTP 500.

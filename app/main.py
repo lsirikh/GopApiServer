@@ -239,6 +239,11 @@ async def lifespan(app: FastAPI):
     # progress_pct 등 누락 → 500. 여기서 IF NOT EXISTS 마이그레이션을 실행해 스키마를 보정한다.
     await _asyncio.to_thread(apply_idempotent_migrations, engine)
 
+    # v6.0-default_profile_image (2026-07-07): 사진 없는 계정용 default 이미지 보장.
+    # data/profiles/default.png 는 gitignore 라 clone 배포엔 없음 → 없으면 Pillow 로 자동 생성.
+    from app.utils.default_profile import ensure_default_profile_image
+    await _asyncio.to_thread(ensure_default_profile_image, settings.PROFILE_STORAGE_PATH)
+
     # v6.0-report_lifecycle FR-RGL-01+04: Startup 재조정
     # FastAPI BackgroundTasks는 인프로세스·비영속이라 컨테이너 recreate/재시작 시 in-flight 태스크가 소멸된다.
     # 부팅 시점에 남아있는 PENDING/GENERATING은 반드시 고아 → FAILED로 확정 (CANCELLED는 사용자 취소로 유지).

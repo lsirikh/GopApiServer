@@ -280,7 +280,10 @@ class AccountUserResponse(BaseModel):
     employee_number: Optional[str] = Field(None, description="군번/사번", json_schema_extra={"example": "21-12345678"})
     photo_url: Optional[str] = Field(None, description="프로필 사진 URL")
     phone: Optional[str] = Field(None, description="전화번호", json_schema_extra={"example": "010-1234-5678"})
-    role: EnumUserRole = Field(..., description="사용자 역할", json_schema_extra={"example": "OPERATOR"})
+    # v6.0-users_role_response_relax (2026-07-06): EnumUserRole → str 완화.
+    # v5.3 Phase 2에서 EnumUserRole 축소(5종 → ADMIN/USER)했으나 DB에 옛 값(OPERATOR/MAINTAINER/VIEWER/GUEST)
+    # 남은 사이트가 있어 목록 응답 시 pydantic 검증 실패로 500 발생. 응답 관대 원칙(Postel's Law).
+    role: str = Field(..., description="사용자 역할 (ADMIN/USER, 옛 데이터는 OPERATOR/MAINTAINER/VIEWER/GUEST 가능)", json_schema_extra={"example": "USER"})
     group_id: Optional[int] = Field(None, description="소속 그룹 ID", json_schema_extra={"example": 1})
     is_active: bool = Field(..., description="활성 상태", json_schema_extra={"example": True})
     is_locked: bool = Field(..., description="잠금 상태", json_schema_extra={"example": False})
@@ -295,11 +298,14 @@ class AccountUserResponse(BaseModel):
 
 
 class AccountUserNestedResponse(BaseModel):
-    """Schema for nested user reference (minimal fields for session/group)"""
+    """Schema for nested user reference (minimal fields for session/group)
+
+    v6.0-users_role_response_relax (2026-07-06): role Enum → str (AccountUserResponse와 동일 이유).
+    """
     id: int
     login_id: str
     name: str
-    role: EnumUserRole
+    role: str
 
     model_config = {"from_attributes": True}
 
@@ -309,17 +315,20 @@ class AccountUserNestedResponse(BaseModel):
 # ============================================================
 
 class UserSessionResponse(BaseModel):
-    """Schema for user session response (PRD_UserSession_Improvement.md v1.2)"""
+    """Schema for user session response (PRD_UserSession_Improvement.md v1.2)
+
+    v6.0-users_role_response_relax (2026-07-06): role Enum → str (동일 완화).
+    """
     id: int
     user_id: int
     # JOIN fields (US-3: AccountUser lookup for better response)
     login_id: Optional[str] = None
-    role: Optional[EnumUserRole] = None
+    role: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     expires_at: KSTDatetime
     is_active: bool
-    logout_reason: Optional[EnumLogoutReason] = None
+    logout_reason: Optional[str] = None  # v6.0-response_schema_audit: Enum→str (String 컬럼 지뢰)
     logged_out_at: Optional[KSTDatetime] = None
     # Standard timestamps (renamed from login_at, last_activity)
     created_at: KSTDatetime
@@ -339,13 +348,17 @@ class UserSessionListResponse(BaseModel):
 # ============================================================
 
 class UserLoginLogResponse(BaseModel):
-    """Schema for user login log response"""
+    """Schema for user login log response
+
+    v6.0-response_schema_audit (2026-07-07): action/result/failure_reason Enum→str.
+    user_login_logs 컬럼이 String 이라 옛/임의 값 저장 가능 → strict Enum 응답이면 목록 500.
+    """
     id: int
     user_id: Optional[int] = None
     login_id: str
-    action: EnumLoginAction
-    result: EnumLoginResult
-    failure_reason: Optional[EnumLoginFailureReason] = None
+    action: str
+    result: str
+    failure_reason: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     created_at: KSTDatetime

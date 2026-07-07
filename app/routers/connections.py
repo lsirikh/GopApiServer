@@ -78,8 +78,12 @@ async def _build_device_nested_response(device: Optional[Device], db: AsyncSessi
     # PRD v1.2: Build device_groups from group_mappings relationship
     # v6.0 P8: 명시적 select 쿼리 (AsyncSession)
     device_groups = []
+    # v6.0-clone_deploy_bugfix (#3): async 세션에서 mapping.group lazy-load 는
+    # greenlet_spawn 오류를 낸다. selectinload 로 eager 로딩 (detection_logs/malfunctions 패턴 동일).
     mappings_result = await db.execute(
-        select(DeviceGroupMapping).where(DeviceGroupMapping.device_id == device.id)
+        select(DeviceGroupMapping)
+        .options(selectinload(DeviceGroupMapping.group))
+        .where(DeviceGroupMapping.device_id == device.id)
     )
     mappings = mappings_result.scalars().all()
     for mapping in mappings:

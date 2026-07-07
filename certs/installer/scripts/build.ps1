@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     GOP rootCA Inno Setup 인스톨러 빌드 스크립트
 .DESCRIPTION

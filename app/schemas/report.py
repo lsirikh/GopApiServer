@@ -72,14 +72,17 @@ class ReportTemplateResponse(BaseModel):
     """
     보고서 템플릿 응답 스키마
     PRD: PRD_Report_System.md Section 5.4
+
+    v6.0-response_schema_audit (2026-07-07): report_type/default_period 를 Enum → str.
+    DB 컬럼이 String 이라 옛/임의 값 저장 가능 → strict Enum 응답이면 목록 500 (Postel's Law).
     """
     id: int
     name: str
-    report_type: EnumReportType
+    report_type: str
     owner_id: Optional[int] = None
     is_public: bool
     components: List[Any]  # JSON stored as list of dicts
-    default_period: EnumReportPeriod
+    default_period: str
     description: Optional[str] = None
     created_at: KSTDatetime
     updated_at: KSTDatetime
@@ -258,10 +261,10 @@ class ReportSection(BaseModel):
 
 
 class ReportPreviewResponse(BaseModel):
-    """보고서 미리보기 응답"""
+    """보고서 미리보기 응답 (v6.0-response_schema_audit: period_type Enum→str)"""
     id: int
     title: str
-    period_type: EnumReportPeriod
+    period_type: str
     start_date: KSTDatetime
     end_date: KSTDatetime
     sections: List[ReportSection]
@@ -294,27 +297,27 @@ class ComponentCategoryResponse(BaseModel):
 # ============================================================
 
 class ReportTemplateListResponse(BaseModel):
-    """템플릿 목록 응답 (경량)"""
+    """템플릿 목록 응답 (경량) — v6.0-response_schema_audit: report_type/default_period Enum→str"""
     id: int
     name: str
     description: Optional[str] = None
-    report_type: EnumReportType
+    report_type: str
     owner_id: Optional[int] = None
     is_public: bool
     component_count: int
-    default_period: EnumReportPeriod
+    default_period: str
     created_at: KSTDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ReportGenerationListResponse(BaseModel):
-    """보고서 생성 목록 응답 (경량)"""
+    """보고서 생성 목록 응답 (경량) — v6.0-response_schema_audit: report_type/period_type/status Enum→str"""
     id: int
-    report_type: EnumReportType
+    report_type: str
     title: str
-    period_type: EnumReportPeriod
-    status: EnumReportStatus
+    period_type: str
+    status: str
     created_at: KSTDatetime
     generator_name: Optional[str] = None
     completed_at: Optional[KSTDatetime] = None
@@ -331,13 +334,14 @@ class ReportGenerationResponse(BaseModel):
     보고서 생성 결과 응답 스키마
     PRD: PRD_Report_System.md Section 5.6
     """
+    # v6.0-response_schema_audit: report_type/period_type/status Enum→str (String 컬럼 지뢰)
     id: int
-    report_type: EnumReportType
+    report_type: str
     title: str
-    period_type: EnumReportPeriod
+    period_type: str
     start_date: KSTDatetime
     end_date: KSTDatetime
-    status: EnumReportStatus
+    status: str
     created_at: KSTDatetime
 
     # Nullable fields

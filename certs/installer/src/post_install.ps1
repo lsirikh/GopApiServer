@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     GOP rootCA 를 LocalMachine\Root (신뢰할 수 있는 루트 인증 기관) 에 등록한다.
 .PARAMETER CertPath

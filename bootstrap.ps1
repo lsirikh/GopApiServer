@@ -24,7 +24,8 @@ param(
     [switch]$SkipCerts,       # 인증서 발급 스킵 (이미 발급됨)
     [switch]$SkipDocker,      # docker compose up 스킵
     [switch]$Rebuild,         # docker compose build --no-cache
-    [switch]$AllowHttpFallback  # 인증서 없이 HTTP로 기동 (개발용, 프로덕션 금지)
+    [switch]$AllowHttpFallback,  # 인증서 없이 HTTP로 기동 (개발용, 프로덕션 금지)
+    [switch]$NonInteractive   # 완전 무인 (실패 시 종료 대기 Read-Host 도 스킵 — CI/스크립트용)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,12 +68,13 @@ if (-not (Test-IsAdmin)) {
     $scriptPath = $PSCommandPath
     if (-not $scriptPath) { $scriptPath = $MyInvocation.MyCommand.Path }
 
-    # 원본 param 재조립
+    # 원본 param 재조립 (UAC 재실행에도 스위치 전파)
     $argList = @('-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"")
     if ($SkipCerts)          { $argList += '-SkipCerts' }
     if ($SkipDocker)         { $argList += '-SkipDocker' }
     if ($Rebuild)            { $argList += '-Rebuild' }
     if ($AllowHttpFallback)  { $argList += '-AllowHttpFallback' }
+    if ($NonInteractive)     { $argList += '-NonInteractive' }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit
@@ -147,22 +149,44 @@ if ($SkipCerts) {
     Write-Host "  강제 재발급이 필요하면: $serverInstallExe 직접 실행" -ForegroundColor DarkGray
 } elseif (Test-Path $serverInstallExe) {
     Write-Host "  server_install.exe 실행 중 (mkcert 자동 다운로드 + rootCA 등록 + server.crt/key 발급)..." -ForegroundColor Cyan
-    Write-Host "  → 창이 열리면 진행 후 엔터를 눌러 닫아 주세요." -ForegroundColor DarkGray
 
-    $installProc = Start-Process -FilePath $serverInstallExe -Wait -PassThru
+    # v6.0-installer_ps2exe_path_fix (2026-07-07):
+    #   -CertDir 을 명시 전달 → EXE 내부 경로 자동판정(PS2EXE에서 빈 문자열 위험)에 의존하지 않음.
+    #   -NonInteractive → EXE 가 SAN 입력/종료 대기에서 멈추지 않고 무인 진행.
+    #   -WorkingDirectory → 혹시 상대경로 폴백이 타더라도 certs 를 CWD 로.
+    $installArgs = @('-CertDir', "`"$certDir`"", '-NonInteractive')
+    $installProc = Start-Process -FilePath $serverInstallExe -ArgumentList $installArgs `
+                                 -WorkingDirectory $certDir -Wait -PassThru
     if ($installProc.ExitCode -ne 0) {
         Write-Host "[FAIL] server_install.exe exit code = $($installProc.ExitCode)" -ForegroundColor Red
         Write-Host "  로그: %TEMP%\GOP-Server-Install.log" -ForegroundColor Yellow
-        Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
-        [void](Read-Host)
+        if (-not $NonInteractive) { Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray; [void](Read-Host) }
         exit 1
+    }
+
+    # 발급 결과 검증 + certs\certs 중첩 등 오생성 안전망 (v6.0-installer_ps2exe_path_fix)
+    if (-not ((Test-Path $crt) -and (Test-Path $key))) {
+        Write-Host "  기대 경로에 인증서 없음 → 하위 경로 재탐색 (certs\certs 중첩 등 대비)..." -ForegroundColor Yellow
+        $foundCrt = Get-ChildItem -Path $repoRoot -Filter 'server.crt' -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -ne $crt } | Select-Object -First 1
+        if ($foundCrt) {
+            $foundDir = Split-Path -Parent $foundCrt.FullName
+            $foundKey = Join-Path $foundDir 'server.key'
+            Write-Host "  발견: $($foundCrt.FullName) → certs\ 로 이동" -ForegroundColor Cyan
+            Copy-Item -Path $foundCrt.FullName -Destination $crt -Force
+            if (Test-Path $foundKey) { Copy-Item -Path $foundKey -Destination $key -Force }
+            # rootCA.pem 도 같은 폴더에 있으면 함께 회수
+            $foundRootCa = Join-Path $foundDir 'rootCA.pem'
+            if (Test-Path $foundRootCa) { Copy-Item -Path $foundRootCa -Destination (Join-Path $certDir 'rootCA.pem') -Force }
+        }
     }
 
     if (-not ((Test-Path $crt) -and (Test-Path $key))) {
         Write-Host "[FAIL] 인증서 발급 후에도 server.crt / server.key 를 찾을 수 없습니다." -ForegroundColor Red
-        Write-Host "  경로 : $certDir" -ForegroundColor DarkGray
-        Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
-        [void](Read-Host)
+        Write-Host "  기대 경로 : $certDir" -ForegroundColor DarkGray
+        Write-Host "  로그      : %TEMP%\GOP-Server-Install.log" -ForegroundColor DarkGray
+        Write-Host "  수동 확인 : Get-ChildItem -Path `"$repoRoot`" -Filter server.crt -Recurse" -ForegroundColor DarkGray
+        if (-not $NonInteractive) { Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray; [void](Read-Host) }
         exit 1
     }
     Write-Host "  인증서 발급 완료: server.crt + server.key" -ForegroundColor Green
@@ -252,6 +276,8 @@ Write-Host "매니저 pw   : sensorway1 (프로덕션에서는 즉시 변경)" -
 Write-Host ""
 Write-Host "HTTPS 신뢰: 클라이언트 PC 에는 certs\client_install.exe 를 배포하여 rootCA 를 신뢰 저장소에 등록하세요." -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "엔터를 눌러 종료..." -ForegroundColor DarkGray
-[void](Read-Host)
+if (-not $NonInteractive) {
+    Write-Host "엔터를 눌러 종료..." -ForegroundColor DarkGray
+    [void](Read-Host)
+}
 exit 0

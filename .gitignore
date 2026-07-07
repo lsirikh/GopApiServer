@@ -118,6 +118,9 @@ certs/*.crt
 certs/*.key
 certs/*.pem
 !certs/installer/
+# v6.0-installer_ps2exe_path_fix: mkcert.exe 는 신규 PC 에서 자동 다운로드 → 커밋 금지 (~5MB)
+certs/mkcert.exe
+certs/tools/
 
 # Inno Setup 빌드 산출물
 certs/installer/build/*.exe
@@ -177,3 +180,8 @@ claude-skill-harness*/
 # v6.0-* NOTIFY/REPLY 문서 (클라 통지용 — 커밋 포함)
 !docs/GOP_Server_API_v6.0_report_updates_NOTIFY.md
 !docs/GOP_Server_API_servers_port0_issue_REPLY.md
+!docs/GOP_Server_API_users_role_response_relax_REPLY.md
+!docs/GOP_Server_API_installer_ps2exe_path_fix_REPLY.md
+!docs/GOP_Server_API_clone_deploy_bugfix_REPLY.md
+!docs/GOP_Server_API_response_schema_audit_REPLY.md
+!docs/reports/BUG_REPORT_*.md

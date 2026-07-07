@@ -104,7 +104,8 @@ class AuditLogResponse(BaseModel):
     #   audit_logs 는 append-only(DELETE 불가)라 과거 비-enum 값(예: 테스트 'TEST_INS'/'TEST')이
     #   영구 잔존 → strict enum 이면 목록 직렬화가 500. create 측(AuditLogCreate)도 str 이므로 정합.
     action_type: str = Field(..., description="행위 유형 (EnumAuditActionType)", json_schema_extra={"example": "USER_CREATED"})
-    action_status: EnumAuditStatus = Field(..., description="행위 결과", json_schema_extra={"example": "SUCCESS"})
+    # v6.0-response_schema_audit: EnumAuditStatus → str (String 컬럼 지뢰, action_type 은 이미 str)
+    action_status: str = Field(..., description="행위 결과 (SUCCESS/FAILURE 등)", json_schema_extra={"example": "SUCCESS"})
 
     # 대상 리소스 정보
     resource_type: str = Field(..., description="대상 리소스 유형 (EnumAuditResourceType)", json_schema_extra={"example": "USER"})
@@ -115,7 +116,10 @@ class AuditLogResponse(BaseModel):
     actor_id: Optional[int] = Field(None, description="행위자 ID", json_schema_extra={"example": 1})
     actor_login_id: str = Field(..., description="행위자 로그인 ID", json_schema_extra={"example": "admin"})
     actor_name: Optional[str] = Field(None, description="행위자 이름", json_schema_extra={"example": "관리자"})
-    actor_role: Optional[EnumUserRole] = Field(None, description="행위자 역할", json_schema_extra={"example": "ADMIN"})
+    # v6.0-clone_deploy_bugfix (#2): EnumUserRole → str 완화 (servers.port·users.role 과 동일 패턴).
+    # v5.3 role 축소 후에도 audit_logs 는 append-only 라 옛 값(OPERATOR/MAINTAINER/VIEWER) 이 영구 잔존.
+    # 감사 로그 응답에서 strict enum 검증하면 옛 행 1개가 목록 전체를 500 으로 만든다 (Postel's Law).
+    actor_role: Optional[str] = Field(None, description="행위자 역할 (ADMIN/USER, 옛 감사행은 OPERATOR 등 가능)", json_schema_extra={"example": "ADMIN"})
 
     # 변경 상세
     changes: Optional[Dict[str, Any]] = Field(None, description="변경 내역")

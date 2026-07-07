@@ -12,33 +12,61 @@
 
 [CmdletBinding()]
 param(
-    # 버그 3 픽스 (2026-07-06): param() 기본값 평가 시점에 $PSScriptRoot가 잘못 참조될 수 있음.
-    # 본문에서 실행 방식(PS1 직접 실행 vs PS2EXE 빌드된 EXE 실행) 감지 후 계산.
-    [string]$CertDir       = '',
-    [string]$MkcertVersion = 'v1.4.4',
-    [string[]]$ExtraSans   = @()
+    # v6.0-cert_installer_fix / v6.0-installer_ps2exe_path_fix:
+    # CertDir 은 본문에서 실행 방식(PS1 직접 실행 vs PS2EXE EXE)을 감지해 계산.
+    # bootstrap.ps1 이 -CertDir 을 명시 전달하면 그 값을 최우선 사용(권장, 경로 불일치 원천 차단).
+    [string]$CertDir        = '',
+    [string]$MkcertVersion  = 'v1.4.4',
+    [string[]]$ExtraSans    = @(),
+    # v6.0-installer_ps2exe_path_fix (2026-07-07): 무인 자동 실행 모드.
+    # 지정 시 대화형 프롬프트(추가 SAN 입력 / 종료 대기 Read-Host) 전부 스킵.
+    # bootstrap.ps1 이 이 스위치를 넘겨 EXE 가 중간에 멈추지 않게 한다.
+    [switch]$NonInteractive
 )
 
 # ----- 환경 설정 ------------------------------------------------------------
 $ErrorActionPreference = 'Stop'
 $script:LogPath = Join-Path $env:TEMP 'GOP-Server-Install.log'
-$script:ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 
-# ----- CertDir 기본값 (본문 계산 — 버그 3 픽스) ----------------------------
-# 실행 시나리오 2종:
-#   (A) PS1 직접 실행: $script:ScriptRoot = <repo>\certs\installer_ps2exe
-#       → CertDir = <repo>\certs  (상위 폴더)
-#   (B) PS2EXE 빌드된 server_install.exe 실행: $script:ScriptRoot = <repo>\certs (EXE가 이 폴더)
-#       → CertDir = <repo>\certs  (같은 폴더)
-# 감지: 스크립트 경로에 'installer_ps2exe'가 포함되면 (A), 아니면 (B).
+# ----- 스크립트/EXE 실제 위치 획득 (v6.0-installer_ps2exe_path_fix) --------
+# ★ 근본 원인 규명 (2026-07-07 실측):
+#   PS2EXE 로 빌드된 EXE 실행 시 아래 변수가 전부 빈 문자열이 된다.
+#     $PSScriptRoot                    = ''
+#     $MyInvocation.MyCommand.Path      = ''
+#     $PSCommandPath                    = ''
+#     $MyInvocation.MyCommand.Definition = (스크립트 소스코드 — 경로 아님)
+#   유일하게 신뢰 가능한 값:
+#     [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName = EXE 절대경로
+#   → 이전엔 else 분기가 빈 문자열을 반환해 CertDir 이 ''(빈값)이 되고,
+#     Join-Path '' 'server.crt' 가 실패/CWD 오생성 → bootstrap 이 인증서를 못 찾는 버그.
+$script:ScriptRoot =
+    if ($PSScriptRoot) {
+        $PSScriptRoot                                      # PS1 직접 실행 (개발 PC)
+    } elseif ($MyInvocation.MyCommand.Path) {
+        Split-Path -Parent $MyInvocation.MyCommand.Path    # 일부 호스트
+    } else {
+        # PS2EXE 빌드된 EXE: MainModule.FileName 만 EXE 절대경로를 준다.
+        try {
+            Split-Path -Parent ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
+        } catch {
+            (Get-Location).Path                            # 최후 안전망 (CWD)
+        }
+    }
+
+# ----- CertDir 기본값 (본문 계산) ------------------------------------------
+# 우선순위: -CertDir 명시값 > 실행 방식 감지.
+#   (A) PS1 직접 실행: $ScriptRoot = <repo>\certs\installer_ps2exe → CertDir = 상위(<repo>\certs)
+#   (B) PS2EXE EXE:    $ScriptRoot = <repo>\certs (EXE 위치)       → CertDir = 자체
 if (-not $CertDir) {
     if ($script:ScriptRoot -like '*installer_ps2exe*') {
-        # (A) PS1 직접 실행 - 상위 폴더 사용
-        $CertDir = Split-Path -Parent $script:ScriptRoot
+        $CertDir = Split-Path -Parent $script:ScriptRoot   # (A) PS1 직접 실행
     } else {
-        # (B) PS2EXE / EXE 실행 - 스크립트/EXE 위치 자체가 certs 폴더
-        $CertDir = $script:ScriptRoot
+        $CertDir = $script:ScriptRoot                       # (B) EXE = certs 폴더 안
     }
+}
+# 방어: 그래도 빈 값이면 CWD 로 폴백 (인증서가 '' 경로에 안 생기도록)
+if ([string]::IsNullOrWhiteSpace($CertDir)) {
+    $CertDir = (Get-Location).Path
 }
 
 # 콘솔 한글 깨짐 방지
@@ -185,9 +213,15 @@ try {
     Invoke-Mkcert -ExePath $mkcert -Args @('-install')
     Write-Log '로컬 CA 등록 완료' 'OK'
 
-    # 3) SAN 입력
+    # 3) SAN 입력 (v6.0-installer_ps2exe_path_fix: NonInteractive 면 프롬프트 스킵)
     Write-Banner '[3/5] 추가 SAN 입력'
-    $userSans = if ($ExtraSans -and $ExtraSans.Count -gt 0) { $ExtraSans } else { Read-AdditionalIPs }
+    $userSans =
+        if ($ExtraSans -and $ExtraSans.Count -gt 0) { $ExtraSans }
+        elseif ($NonInteractive) {
+            Write-Log '무인 모드(NonInteractive): 추가 SAN 입력 스킵, 기본 SAN 만 사용' 'INFO'
+            @()
+        }
+        else { Read-AdditionalIPs }
     $defaultSans = @('localhost','127.0.0.1','::1','host.docker.internal')
     $allSans = ($defaultSans + $userSans) | Where-Object { $_ } | Select-Object -Unique
     Write-Log ("SAN 목록: " + ($allSans -join ', ')) 'INFO'
@@ -233,8 +267,11 @@ try {
     Write-Host '  2) 클라이언트 PC 에서 client_install.exe 실행' -ForegroundColor White
     Write-Host "  3) 로그 확인: $script:LogPath" -ForegroundColor DarkGray
     Write-Host ''
-    Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
-    [void](Read-Host)
+    # v6.0-installer_ps2exe_path_fix: 무인 모드면 종료 대기 스킵 (bootstrap 자동 흐름 유지)
+    if (-not $NonInteractive) {
+        Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
+        [void](Read-Host)
+    }
     exit 0
 }
 catch {
@@ -242,7 +279,9 @@ catch {
     Write-Log "위치: $($_.InvocationInfo.PositionMessage)" 'ERROR'
     Write-Host ''
     Write-Host "설치 실패. 로그: $script:LogPath" -ForegroundColor Red
-    Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
-    [void](Read-Host)
+    if (-not $NonInteractive) {
+        Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
+        [void](Read-Host)
+    }
     exit 1
 }

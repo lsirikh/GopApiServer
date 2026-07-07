@@ -4,6 +4,235 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-response_schema_audit — 응답 스키마 지뢰 전수 감사·완화 (2026-07-07)
+
+> 같은 버그(String 컬럼 + strict Enum 응답 → 목록 500)를 servers.port/users.role/audit.actor_role 로 4번 얻어걸린 뒤, 남은 지뢰를 예방적으로 전수 제거.
+
+### 감사 방식 (introspection)
+
+컨테이너 런타임에서 모든 `*Response` pydantic 필드 ↔ SQLAlchemy 컬럼 타입 대조:
+- 응답 Enum 필드 + DB `String/JSON` 컬럼 → **LANDMINE** (옛/임의 값 저장 가능 → 응답 500)
+- 응답 Enum 필드 + DB `SQLEnum` 컬럼 → safe (DB가 값 강제)
+
+스캔: `*Response` 91개, Enum 응답 필드 ~100건 → **지뢰 21건 발견**, safe 77건.
+
+### 완화 21건 (Enum → str, 요청 스키마는 유지)
+
+| 파일 | 필드 |
+|---|---|
+| `report.py` | ReportGeneration(List)Response report_type/period_type/status, ReportTemplate(List)Response report_type/default_period, ReportPreviewResponse period_type |
+| `event.py` | Detection/Log type_event·action_reported·result, Malfunction type_event·action_reported·reason, Connection/Action type_event |
+| `user.py` | UserLoginLogResponse action·result·failure_reason, UserSessionResponse logout_reason |
+| `audit_log.py` | AuditLogResponse action_status |
+
+특히 **report_generations.period_type** 은 방금 `v6.0-report_date_range` 로 `custom` 추가 → 옛 행에 없던 값이라 목록 500 지뢰였음. 함께 제거.
+
+### 검증 (2026-07-07)
+
+- introspection 재실행: **LANDMINE 21 → 0**
+- 회귀: GET /reports/generations·status, /events/detections·malfunctions·actions·connections, /audit-logs, /users 전부 **200**
+- unknown 2건 (`DeviceNestedResponse.category/mode`): Camera 모델 `SQLEnum` 소스 → 안전 확인
+
+### 클라 영향 — 없음
+
+응답 JSON 값은 동일 문자열. Swagger enum 표시만 사라짐. 하위호환 100%.
+
+### 재발 방지 정책
+
+1. `*Response` 에는 Enum/제약을 붙이지 않는다 (Postel's Law) — 검증은 요청+DB 계층
+2. DB `SQLEnum` 컬럼이면 응답 Enum 안전, `String` 컬럼일 때만 지뢰
+3. 신규 Response 필드는 introspection 스크립트로 회귀 검사
+4. 장기: String 컬럼 → SQLEnum 승격 마이그레이션 검토 (근본, 파괴적)
+
+### 통지
+
+`docs/GOP_Server_API_response_schema_audit_REPLY.md`
+
+### v6.0-clone_deploy_bugfix — clone 배포 후 6개 버그 근본 해결 (2026-07-07)
+
+> 이슈: 다른 PC gitea clone 배포 후 발견된 6개 버그 (`docs/reports/BUG_REPORT_*.md`).
+> 근본 3갈래: (A) 응답 strict Enum 반복, (B) 마이그레이션 자동적용 부재, (C) 개별 코드 버그 2건.
+
+| # | 리포트 | 원인 | 픽스 |
+|---|---|---|---|
+| 1 | USER_ROLE_ENUM | 응답 strict Enum + 생성 기본값 VIEWER + 샘플 OPERATOR | 응답완화(선행) + `users.py` 기본값 USER + `init_sample_data` actor_role USER |
+| 2 | AUDIT_LOGS_ENUM | `AuditLogResponse.actor_role` strict Enum + append-only 옛값 | `Optional[EnumUserRole]`→`Optional[str]` + 목록 fault tolerance |
+| 3 | CONNECTIONS_LAZYLOAD | async `mapping.group` lazy-load → greenlet_spawn | `selectinload(DeviceGroupMapping.group)` |
+| 4 | EVENT_STATISTICS_TZ | tz-aware 입력 ↔ naive created_at 500 | `_naive_kst()` 헬퍼, 4 endpoint 진입부 정규화 |
+| 5 | REPORT_GENERATIONS_LIST | progress_pct 컬럼 DB 미적용 | **startup 자동 마이그레이션** |
+| 6 | REPORT_STATUS | 동일 | 동일 |
+
+### 근본 픽스 — startup 자동 마이그레이션 (#5·#6)
+
+`app/utils/init_db.py`:
+- `IDEMPOTENT_MIGRATIONS` 화이트리스트 (`ADD COLUMN IF NOT EXISTS` 계열만, 파괴적 마이그레이션 제외)
+- `apply_idempotent_migrations(engine)` — **BEGIN/COMMIT strip 후 psycopg2 raw cursor 실행**
+  * ⚠️ 명시적 BEGIN/COMMIT 은 psycopg2 자동 트랜잭션과 충돌해 조용히 no-op → strip 필수 (실측으로 발견)
+  * ⚠️ `exec_driver_sql` 은 파라미터 바인딩 이슈(immutabledict) → raw cursor + `raw.commit()` 사용
+
+`app/main.py` lifespan: `apply_triggers` 옆에 결선 (매 startup 스키마 보정).
+
+### 응답 스키마 완화 (#1·#2)
+
+- `app/schemas/audit_log.py` `actor_role`: Enum → str
+- `app/routers/audit_logs.py`: 목록 try/except + WARN skip
+- (선행 `v6.0-users_role_response_relax` 로 users.role 은 이미 완화됨)
+
+### 코드 버그 (#3·#4)
+
+- `app/routers/connections.py`: `_build_device_nested_response` 에 `selectinload`
+- `app/routers/event_statistics.py`: `_naive_kst()` + summary/by_device/trend/dashboard 정규화
+
+### 데이터 원천 정리 (#1)
+
+- `app/routers/users.py`: 생성 기본 role `VIEWER` → `USER`
+- `app/utils/init_sample_data.py`: 감사로그 시드 `actor_role="OPERATOR"` → `"USER"` (sync+async)
+
+### 실측 검증 (2026-07-07)
+
+| 검증 | 결과 |
+|---|---|
+| #5·#6 자동복구 | 컬럼 3개 DROP(신규 PC 재현) → GET 500 → restart → `[OK] migration applied` → 컬럼 복구 → GET 200 |
+| #3 connections | 200 |
+| #4 tz-aware `+09:00` / naive | 200 / 200 (회귀 유지) |
+| #2 audit_logs OPERATOR 주입 | 200 + OPERATOR 행 정상 노출 (이전 500) |
+| #1 생성 기본 role | USER 확정 |
+
+### 왜 개발 PC엔 무문제였나
+
+- #5·#6: v61 수동 적용해둠 → 개발 DB엔 컬럼 존재. 신규 PC는 create_all()만 → 컬럼 없음
+- #1·#2: 개발 `.env`는 INIT_SAMPLE_DATA=false. docker-compose 기본은 `:-true` → 신규 PC 샘플 시드가 OPERATOR 주입
+- #3·#4: 해당 조건으로 endpoint 호출한 적 없어 미발견
+
+### 통지
+
+`docs/GOP_Server_API_clone_deploy_bugfix_REPLY.md` — 6개 버그 근본원인·수정·재발방지 정리.
+
+### v6.0-installer_ps2exe_path_fix — 자동 설치 근본 원인(PS2EXE 경로 소실) 규명·해결 (2026-07-07)
+
+> 이슈: 다른 PC에서 gitea clone 후 `bootstrap.ps1` 자동 설치 시 인증서 발급 실패 → HTTP 로그인됨.
+> 원 문서: `docs/prds/GOP_API_Server_자동설치_문제점_정리.md` (설치 팀 작성, winget PATH 문제로 추정)
+
+### 근본 원인 규명 (실측)
+
+원 문서는 winget PATH 미반영으로 추정했으나 **현재 코드는 winget 미사용**(GitHub 직접 다운로드).
+진짜 원인은 **PS2EXE로 빌드된 EXE에서 스크립트 경로 변수가 전부 빈 문자열**:
+
+| 변수 (PS2EXE EXE 실행 시) | 값 |
+|---|---|
+| `$PSScriptRoot` | `''` |
+| `$MyInvocation.MyCommand.Path` | `''` |
+| `$PSCommandPath` | `''` |
+| `$MyInvocation.MyCommand.Definition` | (소스코드 — 경로 아님) |
+| **`MainModule.FileName`** | **EXE 절대경로** ← 유일 신뢰 가능 |
+
+→ `server_install.ps1:25` else 분기 `Split-Path -Parent ''` → `ScriptRoot=''` → `CertDir=''` → `Join-Path '' 'server.crt'` 실패/CWD 오생성 → bootstrap이 `certs\server.crt` 못 찾아 실패.
+
+### 왜 개발 PC엔 무문제였나
+
+1. 개발 PC엔 `certs\server.crt/key` 이미 존재 → bootstrap이 EXE 실행 자체를 스킵
+2. mkcert가 PATH에 이미 설치 → 다운로드 경로 안 탐
+3. "신규 PC 조건(인증서 없음 + mkcert 없음)"을 EXE로 재현 테스트한 적 없음 → PS2EXE 경로 버그 잠복
+
+### 픽스 (3층 + 부수)
+
+| Layer | 파일 | 내용 |
+|---|---|---|
+| **L1** | `certs/installer_ps2exe/server_install.ps1` | 경로 획득을 `MainModule.FileName` 폴백으로 (PS2EXE-safe). CertDir 빈값 시 CWD 폴백 방어 |
+| **L2** | `certs/installer_ps2exe/server_install.ps1` | `-NonInteractive` 스위치 — 추가 SAN 입력/종료 대기 `Read-Host` 스킵 (자동화 정지 제거) |
+| **L3** | `bootstrap.ps1` | server_install.exe 호출에 `-CertDir "$certDir" -NonInteractive -WorkingDirectory $certDir` 명시. 발급 후 `certs\certs` 중첩 등 오생성 재귀 탐색 안전망 |
+| **L4** | `.gitignore` | `certs/mkcert.exe`, `certs/tools/` 커밋 방지 (신규 PC 자동 다운로드 ~5MB) |
+| **부수** | bootstrap.ps1 | `-NonInteractive` param + UAC 재실행 전파 + 완료 안내 Read-Host 조건화 |
+
+### EXE 재빌드 + 실측 검증 (2026-07-07)
+
+`build_install_exe.ps1` 로 `server_install.exe`·`client_install.exe` 재빌드. PS2EXE 경로 로직을 EXE로 실행 검증:
+
+| 시나리오 | ScriptRoot | CertDir | crt 대상 |
+|---|---|---|---|
+| A. 신규 PC 재현 (EXE는 certs\, CWD=USERPROFILE) | `...\certs` ✅ | `...\certs` ✅ | `...\certs\server.crt` ✅ |
+| B. `-CertDir` 명시 (bootstrap 방식) | `...\certs` ✅ | `...\certs` ✅ | `...\certs\server.crt` ✅ |
+
+수정 전이었다면 A에서 CertDir=`''` → 실패. 수정 후 두 시나리오 모두 정확한 경로 반환.
+
+### 재발 방지 원칙
+
+1. PS2EXE 빌드 스크립트는 경로를 `MainModule.FileName` 으로 획득
+2. 인증서 경로는 호출측(bootstrap)이 `-CertDir` 명시 전달
+3. PS2EXE EXE는 `-NonInteractive` 로 무인 실행 가능해야
+4. "신규 PC 시나리오" 릴리스 전 clean 환경 재현 검증 필수
+5. 스크립트 수정 후 반드시 EXE 재빌드
+
+### 통지 문서
+
+`docs/GOP_Server_API_installer_ps2exe_path_fix_REPLY.md` — 설치 팀에 근본 원인·수정·재발방지 정리.
+
+### v6.0-users_role_response_relax — AccountUserResponse.role 응답 500 근본 시정 (2026-07-06)
+
+> 이슈 리포트: 다른 PC 배포 팀. `admin` 로그인 후 `GET /api/users?page=1&limit=100` → HTTP 500
+> `INTERNAL_ERROR: input_value='OPERATOR', input_type=str` (Enum 검증 실패).
+>
+> **v6.0-servers_port_response_relax 와 정확히 동일 패턴** — 응답 스키마에 요청 제약 복사한 설계 실수.
+
+### 원인 자인 (반복된 실수)
+
+`v5.3 Phase 2` (2026-07-02) 에서 `EnumUserRole` 축소 (5종 → 2종: ADMIN/USER). 그러나:
+- 응답 스키마 `AccountUserResponse.role: EnumUserRole` 그대로 유지 (요청과 동일 제약)
+- DB에 옛 role 값(`OPERATOR`, `MAINTAINER`, `VIEWER`, `GUEST`) 잔재
+- `example="OPERATOR"` 로 v5.3 이후 무효 값을 예시로 유지 (더 웃긴 지뢰)
+- 결과: 옛 role 사용자가 목록에 있으면 pydantic 검증 실패 → 목록 전체 500
+
+이전 사이클 `v6.0-servers_port_response_relax` §7 에서 "유사 필드 감사 별도 사이클 예정"이라 했으나 실행 지연 → 이번 재발.
+
+### 픽스 2층 방어 (servers 케이스와 동일 방법론)
+
+#### L1. 응답 스키마 Enum → str (`app/schemas/user.py`)
+
+| 스키마 | 필드 | 이전 | 이후 |
+|---|---|---|---|
+| `AccountUserCreate.role` | 요청 | `Optional[EnumUserRole]` | **유지** (새 데이터 위생) |
+| `AccountUserUpdate.role` | 요청 | `Optional[EnumUserRole]` | **유지** |
+| **`AccountUserResponse.role`** | 응답 | `EnumUserRole` | **`str`** + description 갱신 + example `"OPERATOR"` → `"USER"` |
+| **`AccountUserNestedResponse.role`** | 응답 (중첩) | `EnumUserRole` | **`str`** |
+| **`UserSessionResponse.role`** | 응답 (세션 JOIN) | `Optional[EnumUserRole]` | **`Optional[str]`** |
+
+#### L2. 목록 fault tolerance (`app/routers/users.py` `get_users`)
+
+- `AccountUserResponse.model_validate(u)` 를 try/except로 감싸 실패 시 `logger.warning(...)` + skip
+- 한 행이 스키마 위반이어도 나머지 정상 사용자는 그대로 반환
+- 헬퍼 신설 대신 for 루프 인라인 (`servers` 케이스는 헬퍼 방식이었으나 여기는 사용처 1곳이라 인라인)
+
+### 실측 (2026-07-06)
+
+| # | 시나리오 | HTTP | 결과 |
+|---|---|---|---|
+| 1 | 회귀 (정상 상태) | 200 | 12 rows |
+| 2 | `UPDATE account_users SET role='OPERATOR' WHERE id=23` 인위 주입 | — | 저장 확인 |
+| 3 | **재실측** GET /api/users | **200** ✅ | **12 rows + id=23 role=OPERATOR 그대로 노출** |
+| 4 | 원위치 `UPDATE ... SET role='USER'` | — | 정상 복구 |
+
+이전 500 케이스가 이번 픽스 이후 200 정상 처리 확인.
+
+### 데이터 위생 조치 (원격/다른 PC GOP DB 조치 요청)
+
+REPLY 문서: `docs/GOP_Server_API_users_role_response_relax_REPLY.md`
+
+```sql
+BEGIN;
+UPDATE account_users
+   SET role = 'USER', updated_at = NOW()
+ WHERE role IN ('OPERATOR', 'MAINTAINER', 'VIEWER', 'GUEST');
+COMMIT;
+```
+
+`audit_logs.actor_role` 은 append-only 정책상 건드리지 않음 (이력 보존).
+
+### 후속 감사 약속
+
+`v6.0-servers_port_response_relax` §7 에서 예고한 "유사 필드 감사" 를 이번 이슈로 즉시 착수. 예정 태그: **`v6.0-response_schema_audit`**.
+
+대상: 모든 `*Response` 스키마의 Enum/제약 필드가 응답 관대 원칙 위배하지 않는지 스캔.
+
 ### v6.0-swagger_v6_notes — Swagger description v6.0 업데이트 (2026-07-06)
 
 > 사용자 요청 — "Swagger에도 v6.0 업데이트 내용 정리해줘. v5.4까지만 있어."

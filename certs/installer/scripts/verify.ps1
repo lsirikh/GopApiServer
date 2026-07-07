@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     GOP rootCA Installer EXE 무결성 검증
 .DESCRIPTION

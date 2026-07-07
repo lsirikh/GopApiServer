@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db
-from app.routers.auth import require_admin_async, get_current_account_user_async
+from app.routers.auth import require_perm_async, get_current_account_user_async
 from app.models.user import AccountUser
 from app.services import settings_service
 from app.services.settings_service import SettingKey
@@ -37,24 +37,24 @@ async def _current(db: AsyncSession) -> dict:
     }
 
 
-@router.get("/session", response_model=None, dependencies=[Depends(require_admin_async)])
+@router.get("/session", response_model=None, dependencies=[Depends(require_perm_async("setup_system", "view"))])
 async def get_session_settings(
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async),
 ):
-    """현재 세션/인증 정책 조회 (ADMIN 전용)."""
+    """현재 세션/인증 정책 조회 (setup_system:view — ADMIN bypass 또는 매트릭스)."""
     await settings_service.seed_if_empty_async(db)
     return {"success": True, "data": SessionSettingsResponse(**(await _current(db))).model_dump()}
 
 
-@router.put("/session", response_model=None, dependencies=[Depends(require_admin_async)])
+@router.put("/session", response_model=None, dependencies=[Depends(require_perm_async("setup_system", "edit"))])
 async def update_session_settings(
     payload: SessionSettingsUpdate,
     request: Request,
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async),
 ):
-    """세션/인증 정책 변경 (ADMIN 전용) — 편집 부분집합만, 변경분 ConfigChangeLog 감사."""
+    """세션/인증 정책 변경 (setup_system:edit — ADMIN bypass 또는 매트릭스) — 편집 부분집합만, 변경분 ConfigChangeLog 감사."""
     await settings_service.seed_if_empty_async(db)
     before = await _current(db)
 

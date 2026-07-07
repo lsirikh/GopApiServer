@@ -1,6 +1,8 @@
 """
-UserGroupGrant API — 권한그룹 시간기반 부여 관리 (ADMIN 전용)
+UserGroupGrant API — 권한그룹 시간기반 부여 관리
 PRD: PRD_Permission_Group_Scheduling.md FR-03
+인가(v6.0-rbac_matrix_gate): 부여(POST)·회수(DELETE)=base-ADMIN 전용(승격 메커니즘),
+조회(GET)=users:view 매트릭스(ADMIN bypass).
 
 경로(main.py 에서 prefix="/api" 로 마운트 — users.py 무접촉):
 - POST   /api/users/{user_id}/grants   부여
@@ -18,7 +20,7 @@ from app.config import settings
 from app.dependencies import get_async_db
 from app.models.user import AccountUser, UserGroup, UserGroupGrant
 from app.schemas.grant import GrantCreate, GrantResponse
-from app.routers.auth import get_current_account_user_async, require_admin_async
+from app.routers.auth import get_current_account_user_async, require_admin_async, require_perm_async
 from app.services.audit_service import log_action_async
 from app.services.grant_service import grant_status
 from app.services.nats_revoke_publisher import publish_permissions_changed
@@ -136,13 +138,13 @@ async def create_grant(
     return {"success": True, "data": _serialize(grant, now)}
 
 
-@router.get("/users/{user_id}/grants", dependencies=[Depends(require_admin_async)])
+@router.get("/users/{user_id}/grants", dependencies=[Depends(require_perm_async("users", "view"))])
 async def list_grants(
     user_id: int,
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async),
 ):
-    """사용자의 부여 목록(+파생 status) 조회 (ADMIN 전용)."""
+    """사용자의 부여 목록(+파생 status) 조회 (users:view — ADMIN bypass 또는 매트릭스)."""
     user = (await db.execute(
         select(AccountUser).where(AccountUser.id == user_id)
     )).scalars().first()
@@ -158,7 +160,7 @@ async def list_grants(
     return {"success": True, "data": [_serialize(g, now) for g in grants]}
 
 
-@router.get("/grants", dependencies=[Depends(require_admin_async)])
+@router.get("/grants", dependencies=[Depends(require_perm_async("users", "view"))])
 async def list_all_grants(
     page: int = 1,
     size: int = 20,
@@ -169,7 +171,7 @@ async def list_all_grants(
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async),
 ):
-    """전체 grant 목록 조회 (ADMIN 전용) — v5.4 REQ_Server_Grants_ListAll.
+    """전체 grant 목록 조회 (users:view — ADMIN bypass 또는 매트릭스) — v5.4 REQ_Server_Grants_ListAll.
 
     클라 관리자 대시보드 성격: 계정별 순회 대신 단일 호출로 전체 부여 현황 표시.
 
@@ -183,7 +185,7 @@ async def list_all_grants(
 
     **응답**: `{success, data: [GrantResponse...], total}` — 기존 리스트 엔벨로프 일관.
 
-    **Error**: 403 (require_admin) — 나머지 정상 (필터 결과 0건은 빈 배열).
+    **Error**: 403 (users:view 미보유) — 나머지 정상 (필터 결과 0건은 빈 배열).
     """
     if page < 1:
         raise HTTPException(status_code=422, detail="page must be >= 1")

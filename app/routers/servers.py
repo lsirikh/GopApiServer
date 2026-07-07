@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 from app.dependencies import get_async_db
 from app.routers.auth import (
     get_current_account_user_optional_async,
-    require_admin_async,
     require_perm_optional_async,
 )
 from app.models.server import ServerCategory, Server
@@ -382,7 +381,7 @@ async def create_server(
     )
 
 
-@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_admin_async)])
+@router.patch("/{server_id}", response_model=ApiSingleResponse[ServerResponse], dependencies=[Depends(require_perm_optional_async("servers", "edit"))])
 async def update_server(
     server_id: int,
     server_data: ServerUpdate,

@@ -24,7 +24,7 @@ from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
-from app.routers.auth import get_current_account_user_async, require_admin_async, bearer_scheme
+from app.routers.auth import get_current_account_user_async, require_perm_async, bearer_scheme
 from app.utils.auth import hash_password_async, verify_password_async, decode_token
 from app.services.audit_service import log_action_async, get_changes
 from app.services.token_blacklist_service import add_to_blacklist_async
@@ -35,7 +35,34 @@ from datetime import datetime, timedelta
 router = APIRouter(tags=["Users"])
 
 
-@router.get("", dependencies=[Depends(require_admin_async)])
+# ── v6.x RBAC 매트릭스 전환 가드 (require_admin → require_perm) ──────────────
+# 계정 관리 endpoint 를 role 문자열 검사에서 매트릭스(등급 ∪ grant) 기반으로 전환한다.
+# 단, "권한 정의(role/group 변경)·ADMIN 대상 변경" 은 base-ADMIN(role==ADMIN) 전용으로
+# 남겨, grant 로 한시 승격된 USER 가 스스로 영구 승격하는 경로를 차단한다
+# (스케쥴 만료 시 원래 등급 RBAC 로 깨끗이 복귀함을 보장).
+def _assert_can_modify_admin_target(actor: AccountUser, target: AccountUser) -> None:
+    """비-ADMIN(매트릭스 권한자)은 ADMIN 역할 대상 계정을 변경할 수 없다.
+    ADMIN 계정의 pw 초기화/잠금/삭제/수정을 통한 횡적 권한 탈취를 차단한다."""
+    if actor.role != "ADMIN" and target.role == "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only ADMIN role can modify an ADMIN account",
+        )
+
+
+def _assert_can_define_permissions(
+    actor: AccountUser, *, changing_role: bool, changing_group: bool
+) -> None:
+    """비-ADMIN(매트릭스 권한자)은 role/group_id(권한 정의)를 변경할 수 없다.
+    자기 자신을 영구 승격시키는 경로를 차단한다(한시성 복귀 보장)."""
+    if actor.role != "ADMIN" and (changing_role or changing_group):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only ADMIN role can change role or group assignment",
+        )
+
+
+@router.get("", dependencies=[Depends(require_perm_async("users", "view"))])
 async def get_users(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -376,7 +403,7 @@ async def get_profile_photo(file_name: str):
     return FileResponse(path=file_path)
 
 
-@router.get("/{user_id}", dependencies=[Depends(require_admin_async)])
+@router.get("/{user_id}", dependencies=[Depends(require_perm_async("users", "view"))])
 async def get_user_by_id(
     user_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -410,7 +437,7 @@ async def get_user_by_id(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin_async)])
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_async("users", "edit"))])
 async def create_user(
     user_data: AccountUserCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -435,6 +462,13 @@ async def create_user(
     **Error**:
     - 400: 중복된 login_id
     """
+    # v6.x 권한정의 가드: 비-ADMIN 은 role(≠USER)·group_id 지정 불가 (한시 승격 자가영구화 차단)
+    _assert_can_define_permissions(
+        current_user,
+        changing_role=(user_data.role is not None and user_data.role != "USER"),
+        changing_group=(user_data.group_id is not None),
+    )
+
     # Check for duplicate login_id
     existing = (await db.execute(
         select(AccountUser).where(AccountUser.login_id == user_data.login_id)
@@ -498,7 +532,7 @@ async def create_user(
     }
 
 
-@router.put("/{user_id}", dependencies=[Depends(require_admin_async)])
+@router.put("/{user_id}", dependencies=[Depends(require_perm_async("users", "edit"))])
 async def update_user(
     user_id: int,
     user_data: AccountUserUpdate,
@@ -536,6 +570,15 @@ async def update_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # v6.x 가드: 비-ADMIN 은 ADMIN 대상 수정 불가 + role/group 변경 불가
+    _assert_can_modify_admin_target(current_user, user)
+    _provided = user_data.model_fields_set
+    _assert_can_define_permissions(
+        current_user,
+        changing_role=("role" in _provided and user_data.role is not None),
+        changing_group=("group_id" in _provided),
+    )
 
     # ADMIN 강등(role 변경) 또는 비활성화 시도 검사 (자기 자신 포함)
     is_admin_demotion = (
@@ -637,7 +680,7 @@ async def update_user(
     }
 
 
-@router.delete("/{user_id}", dependencies=[Depends(require_admin_async)])
+@router.delete("/{user_id}", dependencies=[Depends(require_perm_async("users", "delete"))])
 async def delete_user(
     user_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -668,6 +711,9 @@ async def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # v6.x 가드: 비-ADMIN 은 ADMIN 대상 삭제 불가
+    _assert_can_modify_admin_target(current_user, user)
 
     # 삭제 대상이 ADMIN이면 잔여 ADMIN 수 확인 (자기 자신 포함된 잠금 상태에서 fetch)
     if user.role == "ADMIN":
@@ -712,7 +758,7 @@ async def delete_user(
     }
 
 
-@router.post("/{user_id}/lock", dependencies=[Depends(require_admin_async)])
+@router.post("/{user_id}/lock", dependencies=[Depends(require_perm_async("users", "control"))])
 async def lock_user(
     user_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -740,6 +786,9 @@ async def lock_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # v6.x 가드: 비-ADMIN 은 ADMIN 대상 잠금 불가
+    _assert_can_modify_admin_target(current_user, user)
 
     user.is_locked = True
 
@@ -780,7 +829,7 @@ async def lock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/unlock", dependencies=[Depends(require_admin_async)])
+@router.post("/{user_id}/unlock", dependencies=[Depends(require_perm_async("users", "control"))])
 async def unlock_user(
     user_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -808,6 +857,9 @@ async def unlock_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # v6.x 가드: 비-ADMIN 은 ADMIN 대상 잠금해제 불가
+    _assert_can_modify_admin_target(current_user, user)
 
     user.is_locked = False
 
@@ -840,7 +892,7 @@ async def unlock_user(
     return {"success": True}
 
 
-@router.post("/{user_id}/reset-password", dependencies=[Depends(require_admin_async)])
+@router.post("/{user_id}/reset-password", dependencies=[Depends(require_perm_async("users", "edit"))])
 async def reset_user_password(
     user_id: int,
     password_data: PasswordResetRequest,
@@ -872,6 +924,9 @@ async def reset_user_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    # v6.x 가드: 비-ADMIN 은 ADMIN 대상 비밀번호 초기화 불가 (횡적 탈취 차단)
+    _assert_can_modify_admin_target(current_user, user)
 
     # P4: bcrypt threadpool async
     user.password_hash = await hash_password_async(password_data.new_password)

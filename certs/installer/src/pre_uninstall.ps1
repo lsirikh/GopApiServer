@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     GOP rootCA 신뢰 제거 (LocalMachine\Root)
 .PARAMETER CertPath

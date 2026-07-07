@@ -4,6 +4,37 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-session_settings_verify — 세션 설정 API 실동작 검증 + 블랙리스트 TTL 정합 (2026-07-07)
+
+> 사용자 요청: 세션 시간·비밀번호 실패 횟수 등 설정 API가 실제로 동작하는지 검토.
+
+### 검증 결과 — 설정 API는 실제 동작함 ✅
+
+`GET`/`PUT /api/settings/session` 저장값이 인증 로직에 실시간 반영됨(실측):
+
+| 설정 | 저장 | 실제 동작 | 실측 |
+|---|---|---|---|
+| `lockout_threshold` | ✅ | ✅ | 3 설정 → 정확히 3회째 계정 잠금(`is_locked=true`), 올바른 비번도 "Account is locked" 차단 |
+| `session_timeout_hours` | ✅ | ✅ | 1h→access token exp 1.00h, 12h→12.00h (JWT exp 직접 확인) |
+| `refresh_expiration_days` | ✅ | ✅ | 7일→refresh token exp 7.00일 |
+| `session_enabled` | ✅ | ❌ 미사용 | 저장만 됨, auth 로직 어디서도 참조 안 함(별개 트랙) |
+
+로그인(auth.py:402/422/468/478/480)이 `settings_service.get()` 으로 런타임 값을 읽어 잠금 임계·access·refresh exp에 적용. refresh 엔드포인트(L711~714)도 동적.
+
+### 발견·수정한 경미한 결함 — 블랙리스트 TTL 불일치
+
+`logout`(L629) + `refresh rotation`(L692)에서 폐기 refresh 를 블랙리스트 등재할 때 만료(TTL)를 **정적 env `JWT_REFRESH_EXPIRATION_DAYS`** 로 계산했음. 사용자가 `refresh_expiration_days` 를 늘리면(예: 30일) 실제 refresh 는 30일 유효한데 블랙리스트는 7일만 유지 → **8~30일차에 폐기된 refresh 가 블랙리스트에서 빠져 부활할 수 있는 틈**.
+
+수정: 두 지점 모두 `settings_service.get(db, REFRESH_EXPIRATION_DAYS)` 동적 값 사용.
+
+### 실측 (2026-07-07)
+
+- `refresh_expiration_days=30` 설정 → logout → 블랙리스트 refresh 항목 TTL **29일**(≈30, 이전 7일)
+- 전 검증 후 원복(7일)
+
+### 별개 트랙
+- `session_enabled` 는 정의만 있고 실제 로직 미연결 — 의도된 의미(세션 관리 기능 전체 on/off?) 확정 후 구현 필요
+
 ### v6.0-default_profile_image — 프로필 사진 없는 계정 default 이미지 제공 (2026-07-07)
 
 > 사용자 요청: 계정 사진 없을 때 default 이미지 제공. 기존엔 `photo_url: null` + 없는 파일 요청 시 404.

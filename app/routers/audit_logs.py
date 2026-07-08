@@ -20,7 +20,7 @@ from app.schemas.audit_log import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
 
-router = APIRouter(tags=["Audit Logs"])
+router = APIRouter()
 
 
 @router.get(

@@ -32,7 +32,7 @@ from app.routers.auth import get_current_account_user_optional_async
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change_async, get_changed_fields, model_to_dict
 
-router = APIRouter(tags=["Event Mapping Lamps"])
+router = APIRouter()
 
 
 def _build_lamp_nested(lamp: Lamp) -> Optional[LampNestedResponseIntegration]:
@@ -451,7 +451,7 @@ async def delete_event_mapping_lamp(
 # 독립 List API (PRD_MappingSubResource_ListAPI.md v1.0)
 # ============================================================
 
-flat_router = APIRouter(tags=["Mapping Lamps"])
+flat_router = APIRouter()
 
 
 @flat_router.get(

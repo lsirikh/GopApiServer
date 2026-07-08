@@ -21,7 +21,7 @@ from app.schemas.server import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 
-router = APIRouter(tags=["Server Categories"])
+router = APIRouter()
 
 
 @router.get("", response_model=ApiResponse[list[ServerCategoryResponse]])

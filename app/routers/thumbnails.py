@@ -30,7 +30,7 @@ from app.schemas.thumbnail import ThumbnailResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.config import settings
 
-router = APIRouter(tags=["Thumbnails"])
+router = APIRouter()
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 

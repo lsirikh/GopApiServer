@@ -20,7 +20,7 @@ from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_changed_fields, model_to_dict
 
 
-router = APIRouter(tags=["FileGroups"])
+router = APIRouter()
 
 
 # ============================================

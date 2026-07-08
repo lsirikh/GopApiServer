@@ -19,7 +19,7 @@ from app.schemas.settings import SessionSettingsResponse, SessionSettingsUpdate
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.config import settings as app_config
 
-router = APIRouter(tags=["Settings"])
+router = APIRouter()
 
 
 async def _current(db: AsyncSession) -> dict:

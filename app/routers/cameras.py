@@ -19,7 +19,7 @@ from app.schemas.camera_preset import CameraPresetNestedResponse, ROIListNestedR
 from app.models.camera_preset import CameraPreset, ROI
 from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 
-router = APIRouter(tags=["Cameras"])
+router = APIRouter()
 
 
 async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA) -> List[DeviceGroupNestedResponse]:

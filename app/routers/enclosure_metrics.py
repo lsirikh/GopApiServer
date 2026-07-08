@@ -16,10 +16,10 @@ from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Enclosure, EnclosureMetric
 from app.schemas.device import EnclosureMetricCreate, EnclosureMetricResponse, EnclosureMetricLatestResponse
 
-router = APIRouter(tags=["Enclosure Metrics"])
+router = APIRouter()
 
 # Separate router for /api/enclosure-metrics endpoint
-list_router = APIRouter(tags=["Enclosure Metrics"])
+list_router = APIRouter()
 
 
 def _metric_to_response(metric: EnclosureMetric) -> dict:

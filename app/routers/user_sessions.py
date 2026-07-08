@@ -15,7 +15,7 @@ from app.services.audit_service import log_action_async
 from app.services import nats_revoke_publisher
 from app.utils.enums import EnumLogoutReason
 
-router = APIRouter(tags=["User Sessions"])
+router = APIRouter()
 
 
 def _session_to_response(session: UserSession) -> dict:

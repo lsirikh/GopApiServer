@@ -40,7 +40,7 @@ from app.services.config_log_service import (
     model_to_dict,
 )
 
-router = APIRouter(tags=["Event Mapping Speakers"])
+router = APIRouter()
 
 
 def _build_speaker_nested(speaker: Speaker) -> Optional[SpeakerNestedResponseIntegration]:
@@ -477,7 +477,7 @@ async def delete_event_mapping_speaker(
 # 독립 List API (PRD_MappingSubResource_ListAPI.md v1.0)
 # ============================================================
 
-flat_router = APIRouter(tags=["Mapping Speakers"])
+flat_router = APIRouter()
 
 
 @flat_router.get(

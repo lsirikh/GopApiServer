@@ -32,7 +32,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError
 from datetime import datetime, timedelta
 
-router = APIRouter(tags=["Users"])
+router = APIRouter()
 
 
 # ── v6.x RBAC 매트릭스 전환 가드 (require_admin → require_perm) ──────────────

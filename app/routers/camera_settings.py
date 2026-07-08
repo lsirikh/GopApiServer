@@ -15,7 +15,7 @@ from app.models.device_setting import CameraSetting
 from app.schemas.device_setting import CameraSettingCreate, CameraSettingUpdate, CameraSettingResponse
 from app.schemas.common import ApiSingleResponse
 
-router = APIRouter(tags=["Camera Settings"])
+router = APIRouter()
 
 
 @router.get(

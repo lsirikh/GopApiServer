@@ -18,7 +18,7 @@ from app.schemas.device import LampCreate, LampUpdate, LampResponse, DeviceGroup
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
-router = APIRouter(tags=["Lamps"])
+router = APIRouter()
 
 
 async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.LAMP) -> List[DeviceGroupNestedResponse]:

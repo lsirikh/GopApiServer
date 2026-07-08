@@ -15,7 +15,7 @@ from app.models.device_setting import ProxySetting
 from app.schemas.device_setting import ProxySettingCreate, ProxySettingUpdate, ProxySettingResponse
 from app.schemas.common import ApiSingleResponse
 
-router = APIRouter(tags=["Proxy Settings"])
+router = APIRouter()
 
 
 @router.get(

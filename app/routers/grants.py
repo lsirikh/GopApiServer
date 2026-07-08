@@ -25,7 +25,7 @@ from app.services.audit_service import log_action_async
 from app.services.grant_service import grant_status
 from app.services.nats_revoke_publisher import publish_permissions_changed
 
-router = APIRouter(tags=["User Group Grants"])
+router = APIRouter()
 
 
 def _now() -> datetime:

@@ -24,7 +24,7 @@ from app.schemas.tracking import (
 )
 from app.schemas.common import ApiResponse, KST
 
-router = APIRouter(tags=["Tracking"])
+router = APIRouter()
 
 DEFAULT_LIMIT = 1000
 MAX_LIMIT = 5000

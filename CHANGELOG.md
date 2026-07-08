@@ -4,6 +4,15 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-review_polish — 외부 리뷰 후속: Swagger tag 중복 제거(API-01) + 문서 버전 정합(DOC-01) (2026-07-09)
+
+> `docs/Analysis/API_Server_Overall_Review_20260708.md` API-01/DOC-01 (cosmetic, 구조 변경).
+
+- **API-01**: operation 168건에 동일 tag 2회 등록되던 문제 — router 선언(`APIRouter(tags=[...])`)과
+  `include_router(tags=...)` 이중 지정 탓. **router 레벨 populated tags 를 28개 파일에서 제거**,
+  `include_router`(main.py, 44개 일관)를 단일 소스로. `prefix=`/`dependencies=` 보존. 실측 **중복 168→0, 무태그 0**.
+- **DOC-01**: 연동설계서 본문 헤더 버전 `v5.4 → v6.0`(Swagger `6.0.0` 정합). 내부 v5.0/v5.4 는 기능 이력 마커라 보존.
+
 ### v6.0-review_authz — 외부 리뷰 후속: system-events 무인증 노출 차단(AUTH-01) + CORS prod 검증(OPS-03) (2026-07-09)
 
 > `docs/Analysis/API_Server_Overall_Review_20260708.md` AUTH-01/OPS-03. 검증 우선으로 실제 노출만 좁혀 수정.

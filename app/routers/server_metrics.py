@@ -20,7 +20,7 @@ from app.schemas.server import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse
 
-router = APIRouter(tags=["Server Metrics"])
+router = APIRouter()
 
 
 def _metrics_to_response(

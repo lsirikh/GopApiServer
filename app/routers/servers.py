@@ -27,7 +27,7 @@ from app.schemas.server import (
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 
-router = APIRouter(tags=["Servers"])
+router = APIRouter()
 
 
 def _server_to_response(server: Server) -> ServerResponse:

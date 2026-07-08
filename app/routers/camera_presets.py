@@ -24,7 +24,7 @@ from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 from app.services.config_log_service import log_config_change, get_identifier, get_changed_fields, model_to_dict
 
-router = APIRouter(tags=["CameraPresets"])
+router = APIRouter()
 
 
 @router.get("/{camera_id}/presets", response_model=ApiResponse[CameraPresetListData])

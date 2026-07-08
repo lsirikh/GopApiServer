@@ -19,7 +19,7 @@ from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
 
-router = APIRouter(tags=["Controllers"])
+router = APIRouter()
 
 
 async def _get_device_groups(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CONTROLLER) -> List[DeviceGroupResponse]:

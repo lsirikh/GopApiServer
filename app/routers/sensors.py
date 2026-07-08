@@ -18,7 +18,7 @@ from app.schemas.device_group import DeviceGroupResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 
-router = APIRouter(tags=["Sensors"])
+router = APIRouter()
 
 
 async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.SENSOR) -> List[DeviceGroupNestedResponse]:

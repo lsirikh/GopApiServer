@@ -27,7 +27,7 @@ from app.services.config_log_service import (
     model_to_dict,
 )
 
-router = APIRouter(tags=["ROIs"])
+router = APIRouter()
 
 
 @router.get("/{preset_id}/rois", response_model=ApiResponse[ROIListData])

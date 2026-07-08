@@ -25,7 +25,7 @@ class XyPointBulkUpdate(BaseModel):
     points: List[XyPointCreate] = Field(..., min_length=3, description="Minimum 3 points for polygon")
 
 
-router = APIRouter(tags=["XyPoints"])
+router = APIRouter()
 
 
 @router.get("/{roi_id}/points", response_model=ApiResponse[XyPointListData])

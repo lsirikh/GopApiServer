@@ -14,7 +14,7 @@ from app.routers.auth import get_current_account_user_async, require_admin_async
 from app.services.audit_service import log_action, get_changes
 from app.schemas.user import PermissionsSchema
 
-router = APIRouter(tags=["User Groups"])
+router = APIRouter()
 
 
 @router.get("", dependencies=[Depends(require_perm_async("user_groups", "view"))])

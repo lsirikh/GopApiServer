@@ -35,7 +35,7 @@ from app.schemas.device_group import (
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
 from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 
-router = APIRouter(prefix="/devices/groups", tags=["DeviceGroups"])
+router = APIRouter(prefix="/devices/groups")
 
 
 @router.get(

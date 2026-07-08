@@ -134,6 +134,25 @@ class Settings(BaseSettings):
     # Timezone
     TIMEZONE: str = "Asia/Seoul"
 
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def validate_cors_per_env(cls, v: str) -> str:
+        """OPS-03: staging/prod 에서 CORS 와일드카드('*') 거부.
+        allow_credentials=True 와 '*' 조합은 브라우저 스펙상 위험 + 임의 오리진 신뢰.
+        dev 는 편의상 허용(경고 없음). 파싱 실패 시 다른 validator 흐름 방해 않도록 그대로 통과."""
+        env = os.environ.get("ENVIRONMENT", "dev")
+        if env in ("staging", "prod"):
+            try:
+                origins = json.loads(v)
+            except (ValueError, TypeError):
+                return v
+            if "*" in origins:
+                raise ValueError(
+                    f"CORS_ORIGINS 에 '*' 는 {env} 환경에서 허용 안 됨 — "
+                    "명시적 허용 도메인 목록으로 설정 필수 (allow_credentials=True 와 와일드카드 조합 위험)"
+                )
+        return v
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS string to list"""

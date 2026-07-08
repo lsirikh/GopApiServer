@@ -4,6 +4,24 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-review_authz — 외부 리뷰 후속: system-events 무인증 노출 차단(AUTH-01) + CORS prod 검증(OPS-03) (2026-07-09)
+
+> `docs/Analysis/API_Server_Overall_Review_20260708.md` AUTH-01/OPS-03. 검증 우선으로 실제 노출만 좁혀 수정.
+
+**AUTH-01 — 무인증 mutation 실측 감사 + system-events 쓰기 4종 차단**
+- 리뷰의 "미등록 46 mutation"은 **중앙 permission_map ↔ router 의존성 이중 집행**을 노출로 오인한 것.
+  OpenAPI `security` 필드로 재감사 → 실제 인증 미부착 mutation 은 **6건**, 그중 `auth/login`·`auth/refresh`는
+  의도적 공개. **실제 노출은 `system-events` 쓰기 4종**(POST/PATCH/DELETE/acknowledge).
+- `app/routers/system_events.py`: 4종에 `require_perm_optional_async("servers", edit|control|delete)` 부착
+  (서버 모니터링 도메인 = servers 매트릭스. 형제 도메인과 동일 optional 패턴 → token 모드 집행, public 휴면=무파손).
+- `tests/test_mutation_auth_contract.py`: 모든 mutation 이 security 를 갖는지 검사(허용목록: login/refresh) — 회귀 방지.
+- 실측: 4종 무인증 **422→401**, auth/login 공개 유지, contract 2 passed.
+- (구조 결정 보류: 중앙 map 을 단일 choke point 로 삼는 default-deny 전환·stale 정리는 별도 차수.)
+
+**OPS-03 — CORS 와일드카드 prod 방어**
+- `app/config.py`: `CORS_ORIGINS` field_validator 추가 — staging/prod 에서 `'*'` 거부(기존 JWT/AUTH_MODE 검증기와 동일 패턴).
+  `allow_credentials=True` + `'*'` 조합 위험 차단. dev 는 편의 허용.
+
 ### v6.0-review_reliability — 외부 리뷰 후속: api_logs 파티션 자동생성(DB-02) + subtype SYNC 트리거(MSG-01) + db-monitor 재연결(MSG-02) (2026-07-09)
 
 > `docs/Analysis/API_Server_Overall_Review_20260708.md` 의 검증된 P1 신뢰성 3건.

@@ -4,6 +4,24 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-authz_map_contract — permission_map stale 정리 + system-events 모듈 정합 + contract 테스트 (2026-07-09)
+
+> 외부 리뷰 AUTH-01 후속(stale map 정리 + map↔OpenAPI 자동비교). `enforce_matrix` 는 전역 dependency 로 활성.
+
+- **permission_map stale 5건 제거** — enforce_matrix(전역)가 절대 발화 못 하는 죽은 항목(메서드/경로 오기재)이라
+  "보호되는 듯하나 실제 무집행"인 착시를 유발. 실측 stale 5건:
+  - `POST/DELETE /api/enclosure-metrics{,/{}}` — list_router(GET전용) 경로 오기재. 실제 create/delete 는
+    `/api/devices/enclosures/{}/metrics` 이며 optional-auth(머신 인제스트 의도)로 운용 → 제거.
+  - `PATCH /api/system-events/{}/acknowledge` — 실제 POST. 아래 route-level 가드로 대체 → 제거.
+  - `POST /api/devices/cameras/{}/settings` — POST 라우트 없음(PATCH/PUT 유효 매핑 존재) → 중복 제거.
+  - `PUT /api/reports/templates/{}` — PUT 라우트 없음(PATCH 유효 매핑 존재) → 중복 제거.
+- **system-events 모듈 정합(AUTH-01 재조정)** — 직전 `review_authz` 에서 붙인 route 가드가 `servers` 였으나
+  중앙 map(106/108)은 `system-events` 를 **`events`** 모듈로 규정 → 전역 enforce_matrix(events)와
+  route 가드(servers)가 **이중집행 충돌**(둘 다 요구)해 무력화되던 것을, route 가드를 **`events`로 통일**해 해소.
+  POST/PATCH/DELETE/acknowledge = events:edit/edit/delete/edit.
+- **`tests/test_permission_map_contract.py`** — 모든 map 키가 실제 OpenAPI 라우트와 매칭(stale=0) + (module,verb) 유효성 검사. stale 재유입 회귀 차단.
+- 실측: contract 통과, system-events 무인증 401 유지, ADMIN bypass 정상.
+
 ### v6.0-review_polish — 외부 리뷰 후속: Swagger tag 중복 제거(API-01) + 문서 버전 정합(DOC-01) (2026-07-09)
 
 > `docs/Analysis/API_Server_Overall_Review_20260708.md` API-01/DOC-01 (cosmetic, 구조 변경).

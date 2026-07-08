@@ -84,9 +84,9 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("PATCH", "/api/devices/groups/{}"): ("devices", "edit"),
     ("PUT", "/api/devices/groups/{}"): ("devices", "edit"),
     ("DELETE", "/api/devices/groups/{}"): ("devices", "delete"),
-    # 함체 metrics (v6.0 후속 Phase 5 확대)
-    ("POST", "/api/enclosure-metrics"): ("devices", "edit"),
-    ("DELETE", "/api/enclosure-metrics/{}"): ("devices", "delete"),
+    # 함체 metrics: 실제 라우트는 /api/devices/enclosures/{}/metrics (POST/DELETE) 이며
+    #   optional-auth(머신 인제스트 의도)로 운용된다. 과거 여기 있던 /api/enclosure-metrics
+    #   경로 항목은 list_router(GET 전용) 경로를 잘못 가리킨 stale 이라 제거(AUTH-01, 2026-07-09).
     # 서버
     ("POST", "/api/servers"): ("servers", "edit"),
     ("PATCH", "/api/servers/{}"): ("servers", "edit"),  # v6.0 후속: PATCH 추가 (기존 PUT만)
@@ -104,7 +104,8 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("PUT", "/api/servers/{}/proxy-settings"): ("servers", "edit"),
     # 시스템 이벤트 (v6.0 후속 Phase 5 확대)
     ("POST", "/api/system-events"): ("events", "edit"),
-    ("PATCH", "/api/system-events/{}/acknowledge"): ("events", "edit"),
+    # acknowledge 는 실제 POST 라우트 — 과거 PATCH 항목은 stale 이라 제거.
+    #   POST /api/system-events/{}/acknowledge 는 route-level events:edit 가드로 보호(AUTH-01, 2026-07-09).
     ("DELETE", "/api/system-events/{}"): ("events", "delete"),
     # Integrations — event mappings (v6.0 후속 Phase 5 확대)
     ("POST", "/api/integrations/event-mappings"): ("integrations", "edit"),
@@ -127,7 +128,7 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("POST", "/api/thumbnails"): ("files", "edit"),
     ("DELETE", "/api/thumbnails/{}"): ("files", "delete"),
     # Camera settings / presets / ROIs / xypoints (v6.0 후속 Phase 5 확대)
-    ("POST", "/api/devices/cameras/{}/settings"): ("cameras", "edit"),
+    # settings 는 PATCH/PUT 만 실재(POST 라우트 없음 → 과거 POST 항목 stale 제거, AUTH-01 2026-07-09).
     ("PATCH", "/api/devices/cameras/{}/settings"): ("cameras", "edit"),
     ("PUT", "/api/devices/cameras/{}/settings"): ("cameras", "edit"),
     ("POST", "/api/devices/cameras/{}/presets"): ("cameras", "edit"),
@@ -137,8 +138,8 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     # 보고서 — v5.4 P2-2 (클라 REQ #2 서버측 verb RBAC 집행)
     ("POST", "/api/reports/generate"): ("reports", "edit"),
     ("POST", "/api/reports/templates"): ("reports", "edit"),
+    # templates 수정은 PATCH 만 실재(PUT 라우트 없음 → 과거 PUT 항목 stale 제거, AUTH-01 2026-07-09).
     ("PATCH", "/api/reports/templates/{}"): ("reports", "edit"),
-    ("PUT", "/api/reports/templates/{}"): ("reports", "edit"),
     ("DELETE", "/api/reports/templates/{}"): ("reports", "delete"),
     ("DELETE", "/api/reports/generations/{}"): ("reports", "delete"),
     # v6.0 후속: 진행 중 리포트 생성 취소 (권한은 delete와 동급)

@@ -33,7 +33,8 @@ from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 from app.routers.auth import require_perm_optional_async
 
 # AUTH-01 (2026-07-09): system-events 쓰기 4종(POST/PATCH/DELETE/acknowledge)이 무인증 노출이던 것 차단.
-# 서버 모니터링 도메인이므로 servers 모듈 매트릭스로 게이트. 형제 도메인(servers/cameras)과 동일한
+# 모듈은 **events** 로 통일 — 중앙 permission_map 이 이미 system-events 를 events 모듈로 규정
+# (POST/DELETE). 전역 enforce_matrix(events) 와 route-level 가드가 같은 모듈이라 이중집행 충돌 없음.
 # require_perm_optional 패턴 — AUTH_MODE=token 에서 집행, public 에서 휴면(현 동작 보존, 무파손).
 # GET(조회)은 관측 목적상 optional 인증 유지(별도 변경 없음).
 
@@ -225,7 +226,7 @@ async def get_system_event(event_id: int, db: AsyncSession = Depends(get_async_d
 # ==============================================================================
 
 @router.post("", status_code=201,
-             dependencies=[Depends(require_perm_optional_async("servers", "edit"))])
+             dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def create_system_event(event_data: SystemEventCreate, db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 생성
@@ -274,7 +275,7 @@ async def create_system_event(event_data: SystemEventCreate, db: AsyncSession = 
 
 
 @router.post("/{event_id}/acknowledge",
-             dependencies=[Depends(require_perm_optional_async("servers", "control"))])
+             dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def acknowledge_system_event(
     event_id: int,
     ack_data: SystemEventAcknowledge,
@@ -319,7 +320,7 @@ async def acknowledge_system_event(
 # ==============================================================================
 
 @router.patch("/{event_id}",
-              dependencies=[Depends(require_perm_optional_async("servers", "edit"))])
+              dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def update_system_event(
     event_id: int,
     update_data: SystemEventUpdate,
@@ -360,7 +361,7 @@ async def update_system_event(
 # ==============================================================================
 
 @router.delete("/{event_id}",
-               dependencies=[Depends(require_perm_optional_async("servers", "delete"))])
+               dependencies=[Depends(require_perm_optional_async("events", "delete"))])
 async def delete_system_event(event_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 삭제

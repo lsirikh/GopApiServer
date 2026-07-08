@@ -4,6 +4,30 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-security_hardening — 로그 보안(무인증/평문) + 이미지 secret + 예외 노출 3건 (2026-07-09)
+
+> 외부 LLM 전체 리뷰(`docs/Analysis/API_Server_Overall_Review_20260708.md`)의 검증된 지적 중
+> P0/저위험 보안 3건을 코드 교차검증 후 수정. (SEC-02 고정계정·SEC-05 10년JWT 는 사용자 지시로 보류.)
+
+**SEC-01 — API 로그 무인증 공개 + 민감 요청 본문 평문 저장 (P0)**
+- `app/routers/logs.py`: `GET /api/logs`·`/api/logs/viewer` 에 `require_perm_async("audit_logs","view")` 부착
+  — 무인증 조회 차단(ADMIN bypass 또는 `audit_logs:view`). 이전엔 인증 dependency 0.
+- `app/middleware/logging.py`: `redact_request_body()` 신설 — 요청 body(JSON)의 민감 키
+  (`password/current_password/new_password/user_password/access_token/refresh_token/token/secret/authorization`)
+  를 재귀 마스킹(`***REDACTED***`). JSON 아니면(폼/멀티파트) 원문 미저장(보수적). 응답 body 추출 지역변수
+  분리(`resp_body`)로 마스킹된 요청 body 를 덮어쓰던 잠복 결함도 제거.
+- `app/migrations/v63_redact_sensitive_api_log_bodies.sql`: 과거 평문 body 정리(멱등, startup 자동적용).
+- 실측: 민감 body **521 → 0**, 무인증 `/api/logs`·`/viewer` **401**, ADMIN **200**, 신규 login/reset-pw body `***REDACTED***`.
+- 단위: `tests/test_log_body_redaction.py` 6 passed.
+
+**SEC-03 — 이미지 레이어 secret 유출 (`.dockerignore`)**
+- `COPY . .` 가 `.env`(존재) + `certs/server.key`(private key) 를 이미지 레이어에 굽던 문제.
+- `.dockerignore` 에 `.env`·`.env.*`·`certs/*.key|crt|pem`·`certs/rootCA*` 추가. 인증서는 런타임 바인드 마운트라 이미지 불필요.
+
+**SEC-04 — 500 응답에 내부 예외 문자열 노출**
+- `app/main.py` 전역 500 핸들러가 `f"Internal server error: {str(exc)}"` 로 SQL·경로·드라이버 메시지 노출.
+- 클라에는 고정 메시지 `"Internal server error"` + `request_id`(meta) 만 반환, 전체 스택트레이스는 `logging` 으로 서버 로그에만 기록.
+
 ### v6.0-rbac_matrix_gate — 계정/그룹/세션 관리 require_admin → 매트릭스 전환 (2026-07-07)
 
 > 사용자 검토: monitor1(다른 사이트)에 한시 "ADMIN 그룹" grant 를 줬는데 안 먹힘.

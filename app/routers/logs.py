@@ -13,11 +13,15 @@ from app.dependencies import get_async_db
 from app.models.log import ApiLog
 from app.schemas.log import ApiLogResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.routers.auth import require_perm_async
 
 router = APIRouter(tags=[])
 
 
-@router.get("", response_model=ApiResponse[list[ApiLogResponse]])
+# SEC-01: API 로그는 민감 요청/응답 감사 데이터 → audit_logs:view 이상만 접근
+# (ADMIN bypass 또는 매트릭스 audit_logs:view). 무인증 공개를 차단한다.
+@router.get("", response_model=ApiResponse[list[ApiLogResponse]],
+            dependencies=[Depends(require_perm_async("audit_logs", "view"))])
 async def get_logs(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
@@ -100,7 +104,8 @@ async def get_logs(
     )
 
 
-@router.get("/viewer", response_class=HTMLResponse)
+@router.get("/viewer", response_class=HTMLResponse,
+            dependencies=[Depends(require_perm_async("audit_logs", "view"))])
 async def log_viewer():
     """
     로그 뷰어 웹 페이지

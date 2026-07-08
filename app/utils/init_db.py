@@ -36,6 +36,7 @@ def create_tables():
 IDEMPOTENT_MIGRATIONS = [
     "v61_report_generation_progress.sql",   # progress_pct/stage/updated_at (ADD COLUMN IF NOT EXISTS)
     "v62_role_normalize.sql",               # account_users.role 옛값(OPERATOR 등) → USER 정규화
+    "v63_redact_sensitive_api_log_bodies.sql",  # SEC-01: 과거 api_logs.body 평문 비밀번호/토큰 정리
 ]
 
 

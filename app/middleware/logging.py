@@ -55,6 +55,41 @@ _consumer_task: Optional[asyncio.Task[None]] = None
 _dropped_count: int = 0
 
 
+# ─── SEC-01: 민감 요청 본문 마스킹 ──────────────────────────────
+# api_logs.body 에 로그인 비밀번호·토큰이 평문 저장되던 문제 차단.
+# 요청 body(JSON)에서 민감 키 값을 재귀 마스킹한다. JSON 이 아니면(폼/멀티파트/평문)
+# 민감정보 포함 여부를 알 수 없으므로 원문을 저장하지 않는다(보수적 default-deny).
+_SENSITIVE_BODY_KEYS = frozenset({
+    "password", "current_password", "new_password", "user_password",
+    "access_token", "refresh_token", "token", "secret", "authorization",
+})
+_REDACTED = "***REDACTED***"
+
+
+def _redact_obj(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {
+            k: (_REDACTED if isinstance(k, str) and k.lower() in _SENSITIVE_BODY_KEYS
+                else _redact_obj(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_redact_obj(x) for x in obj]
+    return obj
+
+
+def redact_request_body(raw: Optional[str]) -> Optional[str]:
+    """요청 body 문자열의 민감 키 값을 마스킹한 JSON 문자열을 반환한다.
+    JSON 파싱 불가(폼/멀티파트/평문)면 원문 저장을 막기 위해 None 을 반환한다."""
+    if not raw:
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return json.dumps(_redact_obj(parsed), ensure_ascii=False)
+
+
 def _persist_api_log_sync(
     *, resource, method, client_uuid, request_id,
     description, status_code, body, param, error_message,
@@ -279,9 +314,10 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
             try:
                 body_bytes = await request.body()
                 if body_bytes:
-                    body = body_bytes.decode('utf-8')
-                    # Limit body length to prevent database overflow
-                    if len(body) > 2000:
+                    # SEC-01: 원문 전체를 먼저 마스킹한 뒤 길이 제한
+                    # (truncate 후 JSON 파싱 실패로 마스킹이 무력화되는 것 방지)
+                    body = redact_request_body(body_bytes.decode('utf-8', errors='replace'))
+                    if body and len(body) > 2000:
                         body = body[:1997] + "..."
                 # Re-create request with body (since body() consumes the stream)
                 async def receive():
@@ -298,10 +334,11 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
         if response.status_code >= 400:
             try:
                 # For responses with body, try to extract error message
+                # (SEC-01: 별도 지역변수 사용 — 마스킹된 요청 body 를 덮어쓰지 않도록)
                 if hasattr(response, 'body'):
-                    body = response.body
-                    if body:
-                        response_data = json.loads(body.decode('utf-8'))
+                    resp_body = response.body
+                    if resp_body:
+                        response_data = json.loads(resp_body.decode('utf-8'))
                         error_message = response_data.get('message') or response_data.get('detail')
                         # Limit error message length
                         if error_message and len(error_message) > 1000:

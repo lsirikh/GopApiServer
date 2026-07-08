@@ -21,6 +21,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
+import logging
 
 # Patch FastAPI's datetime encoder to output ISO 8601 with +09:00 (KST)
 # Covers plain-dict responses that bypass Pydantic model serialization
@@ -693,13 +694,20 @@ async def general_exception_handler(request: Request, exc: Exception):
 
     PRD: PRD_API_Spec_Compliance.md - SPEC-001
     """
+    # SEC-04: 내부 예외 문자열(SQL·파일경로·DB 드라이버 메시지)을 클라이언트에 노출하지 않는다.
+    # 전체 스택트레이스는 서버 로그에만 기록하고, 클라에는 고정 메시지 + request_id(meta) 만 반환.
+    request_id = getattr(request.state, "request_id", None)
+    logging.getLogger("app.main").exception(
+        "Unhandled exception (request_id=%s, method=%s, path=%s): %s",
+        request_id, request.method, request.url.path, exc,
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
             "error": {
                 "code": "INTERNAL_ERROR",
-                "message": f"Internal server error: {str(exc)}",
+                "message": "Internal server error",
                 "details": None
             },
             "meta": create_error_meta(request)

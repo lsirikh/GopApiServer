@@ -2,10 +2,16 @@
 PostgreSQL pg_notify triggers for GOP master data sync.
 PRD: PRD_DB_Change_Monitor.md Section 4
 
-Fix: Triggers are placed on the `devices` base table (not sub-type tables)
-to handle SQLAlchemy Joined Table Inheritance correctly.
-When PATCH updates base Device fields (name_device, status, etc.),
-only the `devices` table is updated — sub-type triggers would never fire.
+Fix: INSERT/UPDATE/DELETE of base Device fields fire the `devices` base-table
+trigger (handles SQLAlchemy Joined Table Inheritance — PATCH of base fields only
+updates `devices`).
+
+MSG-01 (2026-07-09): subtype 전용 컬럼(예: cameras.mode)만 UPDATE 하면 `devices` 는
+변경되지 않아 base 트리거가 발화하지 않는다. 이를 보완하기 위해 6개 subtype 테이블
+(controllers/sensors/cameras/speakers/enclosures/lamps)에 **AFTER UPDATE** 트리거를 두어
+동일한 SYNC_DEVICE payload 를 발행한다. 부모+자식이 같은 트랜잭션에서 함께 UPDATE 돼도
+PostgreSQL 이 동일 (채널,payload) NOTIFY 를 1건으로 합쳐 전달하므로 중복이 자동 억제된다.
+(INSERT/DELETE 는 조인상속상 `devices` 도 함께 바뀌어 base 트리거가 담당 → subtype 은 UPDATE 만.)
 """
 from sqlalchemy import text
 
@@ -45,6 +51,27 @@ BEGIN
             'action', action_type,
             'type_device', INITCAP(LOWER(category)),
             'resource_id', resource_id
+        );
+    ELSIF TG_TABLE_NAME IN ('controllers','sensors','cameras','speakers','enclosures','lamps') THEN
+        -- MSG-01: subtype 전용 컬럼(camera.mode 등)만 UPDATE 되면 devices 는 미변경 →
+        --   devices 트리거가 발화하지 않아 SYNC_DEVICE 누락. 여기서 보완 발행한다.
+        --   ★ devices 트리거의 UPDATE payload 와 '완전히 동일'하게 만든다:
+        --     같은 트랜잭션에서 부모(devices)+자식(cameras)이 함께 UPDATE 돼도
+        --     PostgreSQL 은 동일 (채널,payload) NOTIFY 를 트랜잭션 내 1건으로 합쳐 전달한다
+        --     → 중복 억제가 자동. (subtype 은 UPDATE 만 트리거 — INSERT/DELETE 는 조인상속상
+        --      devices 도 함께 변경되어 devices 트리거가 담당.)
+        payload := jsonb_build_object(
+            'cmd', 'SYNC_DEVICE',
+            'action', 'UPDATED',
+            'type_device', CASE TG_TABLE_NAME
+                WHEN 'controllers' THEN 'Controller'
+                WHEN 'sensors'     THEN 'Sensor'
+                WHEN 'cameras'     THEN 'Camera'
+                WHEN 'speakers'    THEN 'Speaker'
+                WHEN 'enclosures'  THEN 'Enclosure'
+                WHEN 'lamps'       THEN 'Lamp'
+            END,
+            'resource_id', NEW.id
         );
     ELSIF TG_TABLE_NAME = 'servers' THEN
         payload := jsonb_build_object(
@@ -132,7 +159,10 @@ $$ LANGUAGE plpgsql;
 """
 
 GET_TRIGGER_SQLS = [
-    # Migration: remove old sub-type triggers (if they exist from previous deployment)
+    # MSG-01: subtype 테이블 AFTER UPDATE 트리거 — 전용 컬럼 변경 시 SYNC_DEVICE 보완 발행.
+    #   (기존엔 이 트리거들을 DROP 만 했음 → subtype-only UPDATE 가 NATS 미발행되던 결함.)
+    #   INSERT/DELETE 는 devices 트리거가 담당하므로 여기선 UPDATE 만.
+    #   부모+자식 동시 UPDATE 는 devices 트리거와 동일 payload → NOTIFY 자동 중복제거로 1건.
     """
     DROP TRIGGER IF EXISTS trg_sync_controllers ON controllers;
     DROP TRIGGER IF EXISTS trg_sync_sensors ON sensors;
@@ -140,6 +170,19 @@ GET_TRIGGER_SQLS = [
     DROP TRIGGER IF EXISTS trg_sync_speakers ON speakers;
     DROP TRIGGER IF EXISTS trg_sync_enclosures ON enclosures;
     DROP TRIGGER IF EXISTS trg_sync_lamps ON lamps;
+
+    CREATE TRIGGER trg_sync_controllers AFTER UPDATE ON controllers
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    CREATE TRIGGER trg_sync_sensors AFTER UPDATE ON sensors
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    CREATE TRIGGER trg_sync_cameras AFTER UPDATE ON cameras
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    CREATE TRIGGER trg_sync_speakers AFTER UPDATE ON speakers
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    CREATE TRIGGER trg_sync_enclosures AFTER UPDATE ON enclosures
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
+    CREATE TRIGGER trg_sync_lamps AFTER UPDATE ON lamps
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_gop_sync();
     """,
     # Device: trigger on devices base table (covers ALL PATCH/PUT/POST/DELETE)
     # SQLAlchemy Joined Table Inheritance always updates devices table regardless

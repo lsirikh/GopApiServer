@@ -240,6 +240,16 @@ async def lifespan(app: FastAPI):
     # progress_pct 등 누락 → 500. 여기서 IF NOT EXISTS 마이그레이션을 실행해 스키마를 보정한다.
     await _asyncio.to_thread(apply_idempotent_migrations, engine)
 
+    # DB-02 (2026-07-09): api_logs 월별 파티션 사전 보장 (당월+6개월).
+    # v60 파티셔닝은 2026-10 까지만 생성 → 경계 초과 시 INSERT 실패. 여기서 멱등 확장.
+    # 방어적: 실패해도 당월 파티션은 이미 있어 기동 계속 (스케줄러가 재보장).
+    try:
+        from app.services.api_logs_partition_service import ensure_api_log_partitions
+        _ensured = await ensure_api_log_partitions()
+        print(f"api_logs partitions ensured: {_ensured[0]}..{_ensured[-1]}")
+    except Exception as e:
+        print(f"[WARN] api_logs partition ensure failed: {e}")
+
     # v6.0-default_profile_image (2026-07-07): 사진 없는 계정용 default 이미지 보장.
     # data/profiles/default.png 는 gitignore 라 clone 배포엔 없음 → 없으면 Pillow 로 자동 생성.
     from app.utils.default_profile import ensure_default_profile_image
@@ -291,6 +301,7 @@ async def lifespan(app: FastAPI):
         from app.services.grant_service import run_grant_sweep
         from app.services.session_sweep_service import run_session_sweep
         from app.services.api_logs_sweep_service import run_api_logs_sweep
+        from app.services.api_logs_partition_service import ensure_api_log_partitions
 
         scheduler = AsyncIOScheduler(timezone=settings.tz)
         scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
@@ -300,10 +311,14 @@ async def lifespan(app: FastAPI):
         # v5.4 후속 (문서 A-7 #6): api_logs 무제한 성장 방지 — 일 1회(정오) 30일 이상 삭제
         scheduler.add_job(run_api_logs_sweep, "cron", hour=12, minute=0, id="api_logs_sweep",
                           coalesce=True, max_instances=1)
+        # DB-02: api_logs 미래 파티션 사전 보장 — 일 1회(00:05) 당월+6개월 멱등 생성.
+        scheduler.add_job(ensure_api_log_partitions, "cron", hour=0, minute=5, id="api_logs_partition",
+                          coalesce=True, max_instances=1)
         scheduler.start()
         print("Grant sweep scheduler started (interval 10m)")
         print("Session sweep scheduler started (interval 5m)")
         print("API logs sweep scheduler started (cron 12:00 daily, retention 30d)")
+        print("API logs partition scheduler started (cron 00:05 daily, +6 months)")
     except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
         print(f"[WARN] sweep schedulers not started: {e}")
 

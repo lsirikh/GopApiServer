@@ -4,6 +4,24 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-review_reliability — 외부 리뷰 후속: api_logs 파티션 자동생성(DB-02) + subtype SYNC 트리거(MSG-01) (2026-07-09)
+
+> `docs/Analysis/API_Server_Overall_Review_20260708.md` 의 검증된 P1 신뢰성 2건.
+
+**DB-02 — `api_logs` 파티션 만료 (2026-11 이후 INSERT 실패 위험)**
+- v60 월별 파티셔닝이 2026-10 까지만 생성 + 자동확장/기본파티션 부재 → 경계 초과 시 INSERT 실패.
+- `app/services/api_logs_partition_service.py` `ensure_api_log_partitions()` 신설 — 당월+6개월 파티션을
+  `CREATE TABLE IF NOT EXISTS ... PARTITION OF`(멱등, PG11+) 로 생성. startup 1회 + 스케줄러(cron 00:05 일1회) 재보장.
+- 실측: 파티션 2026-10 → **2027-01** 확장, 2026-12 경계 INSERT 성공.
+
+**MSG-01 — subtype 전용 컬럼 UPDATE 시 NATS SYNC 미발행**
+- `devices` 부모 트리거만 존재 → `cameras.mode` 등 subtype 전용 UPDATE 는 `devices` 미변경이라 미발화(실측 0건).
+- `app/db_triggers.py`: 6개 subtype 테이블(controllers/sensors/cameras/speakers/enclosures/lamps)에
+  **AFTER UPDATE** 트리거 추가, `devices` 트리거와 **byte-identical** SYNC_DEVICE payload 발행.
+  부모+자식 동시 UPDATE 는 PostgreSQL NOTIFY 동일 (채널,payload) **자동 중복제거**로 1건만 전달
+  (INSERT/DELETE 는 조인상속상 devices 도 함께 바뀌어 base 트리거가 담당 → subtype 은 UPDATE 만).
+- 실측 3/3: subtype-only UPDATE **1건**(이전 0), 부모+자식 동일tx **1건**(dedup), base-only **1건**(회귀).
+
 ### v6.0-security_hardening — 로그 보안(무인증/평문) + 이미지 secret + 예외 노출 3건 (2026-07-09)
 
 > 외부 LLM 전체 리뷰(`docs/Analysis/API_Server_Overall_Review_20260708.md`)의 검증된 지적 중

@@ -94,6 +94,14 @@ services:
       - default
       - nats_external
     logging: *default-logging
+    # MSG-02: 하트비트 파일 신선도(<60s)로 health 판정 → autoheal(label=all)이 감시·재기동.
+    # 재연결 백오프 상한 30s 를 고려해 60s window (일시 재연결은 unhealthy 오판 방지).
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import time,sys; sys.exit(0 if time.time()-int(open('/tmp/db_monitor_heartbeat').read())<60 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   gis-ingest:
     # 추적 이력 인제스트 워커: NATS sensorway.*.gis.tracking-status 구독 → track_points INSERT

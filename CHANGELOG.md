@@ -4,9 +4,18 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
-### v6.0-review_reliability — 외부 리뷰 후속: api_logs 파티션 자동생성(DB-02) + subtype SYNC 트리거(MSG-01) (2026-07-09)
+### v6.0-review_reliability — 외부 리뷰 후속: api_logs 파티션 자동생성(DB-02) + subtype SYNC 트리거(MSG-01) + db-monitor 재연결(MSG-02) (2026-07-09)
 
-> `docs/Analysis/API_Server_Overall_Review_20260708.md` 의 검증된 P1 신뢰성 2건.
+> `docs/Analysis/API_Server_Overall_Review_20260708.md` 의 검증된 P1 신뢰성 3건.
+
+**MSG-02 — db-monitor PostgreSQL 재연결 부재 (장애 후 조용한 SYNC 중단)**
+- 기존: 1회 연결 후 `while True: sleep(1)` → PostgreSQL 재시작 시 LISTEN 유실되어도 컨테이너는 Up, SYNC 영구 중단.
+- `db_monitor/main.py`: `run_supervised()` 감독 루프 신설 — liveness 프로브(`SELECT 1`)로 단절 감지 →
+  지수 백오프+지터(상한 30s) 무한 재연결. NATS 는 클라 자체 무한 재연결(`max_reconnect_attempts=-1`).
+  하트비트 파일(`/tmp/db_monitor_heartbeat`) 주기 기록.
+- `docker-compose.yml`: db-monitor healthcheck 추가(하트비트 <60s 신선도) → autoheal(label=all)이 감시·재기동.
+- 실측: 백엔드 강제 종료(`pg_terminate_backend`) → `session ended` 감지 → 1s 후 재연결(새 PID)·재-LISTEN,
+  이후 camera UPDATE SYNC 정상 발행. healthcheck fresh→exit0, stale→exit1(autoheal 트리거) 검증.
 
 **DB-02 — `api_logs` 파티션 만료 (2026-11 이후 INSERT 실패 위험)**
 - v60 월별 파티셔닝이 2026-10 까지만 생성 + 자동확장/기본파티션 부재 → 경계 초과 시 INSERT 실패.

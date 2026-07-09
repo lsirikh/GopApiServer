@@ -176,3 +176,14 @@ async def cleanup_expired_async(db: AsyncSession) -> int:
     result = await db.execute(stmt)
     await db.commit()
     return result.rowcount or 0
+
+
+async def run_blacklist_cleanup() -> int:
+    """ACC-P1-05 (2026-07-09): 스케줄러 zero-arg 진입점.
+
+    기존엔 cleanup_expired_async 가 존재하나 스케줄러에 미등록이라 만료 row 가 계속 누적됐다
+    (실측 388행 중 357행 만료 잔존). 자체 AsyncSession 을 열어 정리한다(다른 sweep 패턴과 동일).
+    """
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        return await cleanup_expired_async(db)

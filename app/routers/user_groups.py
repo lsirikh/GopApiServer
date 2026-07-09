@@ -11,7 +11,10 @@ from app.dependencies import get_async_db
 from app.models.user import UserGroup, AccountUser
 from app.schemas.user import UserGroupResponse, UserGroupCreate, UserGroupUpdate, AccountUserResponse
 from app.routers.auth import get_current_account_user_async, require_admin_async, require_perm_async
-from app.services.audit_service import log_action, get_changes
+# ACC-P1-04 (2026-07-09): AsyncSession 컨텍스트에서는 log_action_async 를 써야 한다.
+# 기존 sync log_action 은 내부 db.commit()/db.refresh() 가 AsyncSession 에서 미await coroutine →
+# 감사 row 가 커밋되지 않아 그룹 CRUD 감사가 유실될 수 있었다.
+from app.services.audit_service import log_action_async, get_changes
 from app.schemas.user import PermissionsSchema
 
 router = APIRouter()
@@ -149,7 +152,7 @@ async def create_user_group(
         )
 
     # 감사 로그 기록: GROUP_CREATED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="GROUP_CREATED",
         resource_type="USER_GROUP",
@@ -259,7 +262,7 @@ async def update_user_group(
     changes = get_changes(before_state, after_state)
 
     # 감사 로그 기록: GROUP_UPDATED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="GROUP_UPDATED",
         resource_type="USER_GROUP",
@@ -332,7 +335,7 @@ async def update_user_group_permissions(
     )
 
     # 감사 로그 기록: PERMISSION_CHANGED (append-only)
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="PERMISSION_CHANGED",
         resource_type="USER_GROUP",
@@ -394,7 +397,7 @@ async def delete_user_group(
     await db.commit()
 
     # 감사 로그 기록: GROUP_DELETED
-    await log_action(
+    await log_action_async(
         db=db,
         action_type="GROUP_DELETED",
         resource_type="USER_GROUP",

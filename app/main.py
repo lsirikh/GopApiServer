@@ -302,6 +302,7 @@ async def lifespan(app: FastAPI):
         from app.services.session_sweep_service import run_session_sweep
         from app.services.api_logs_sweep_service import run_api_logs_sweep
         from app.services.api_logs_partition_service import ensure_api_log_partitions
+        from app.services.token_blacklist_service import run_blacklist_cleanup
 
         scheduler = AsyncIOScheduler(timezone=settings.tz)
         scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
@@ -314,11 +315,15 @@ async def lifespan(app: FastAPI):
         # DB-02: api_logs 미래 파티션 사전 보장 — 일 1회(00:05) 당월+6개월 멱등 생성.
         scheduler.add_job(ensure_api_log_partitions, "cron", hour=0, minute=5, id="api_logs_partition",
                           coalesce=True, max_instances=1)
+        # ACC-P1-05: token_blacklist 만료 row 정리 — 1시간 주기(주석에 명시됐으나 미등록이던 것 연결).
+        scheduler.add_job(run_blacklist_cleanup, "interval", hours=1, id="blacklist_cleanup",
+                          coalesce=True, max_instances=1)
         scheduler.start()
         print("Grant sweep scheduler started (interval 10m)")
         print("Session sweep scheduler started (interval 5m)")
         print("API logs sweep scheduler started (cron 12:00 daily, retention 30d)")
         print("API logs partition scheduler started (cron 00:05 daily, +6 months)")
+        print("Token blacklist cleanup scheduler started (interval 1h)")
     except Exception as e:  # 미설치/시작실패 → 휴면 표시만, 인가는 요청시점 계산이 담당
         print(f"[WARN] sweep schedulers not started: {e}")
 

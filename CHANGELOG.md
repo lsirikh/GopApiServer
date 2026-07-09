@@ -4,6 +4,20 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-account_lowrisk — Account 분석 저위험 3건: 감사 async 교정(P1-04) + blacklist 정리 스케줄러(P1-05) + lock ADMIN 가드(P1-08) (2026-07-09)
+
+> `docs/Analysis/Account_Auth_Session_Analysis_20260708.md` 의 검증된 저위험 항목. 코어(P0 세션권위)는 별도.
+
+- **ACC-P1-04 — UserGroup 감사 유실**: `user_groups.py` 가 `AsyncSession` 인데 sync `log_action` 을 `await` →
+  내부 `db.commit()/refresh()` 가 미await coroutine 이라 감사 row 가 커밋되지 않던 문제.
+  `log_action_async` 로 교체(생성/수정/permissions/삭제 4경로).
+- **ACC-P1-05 — token_blacklist 정리 미동작**: `cleanup_expired_async` 는 있으나 스케줄러 미등록이라
+  만료 row 누적(실측 388행 중 357 만료). `run_blacklist_cleanup()` zero-arg 진입점 신설 +
+  스케줄러 등록(interval 1h). 주석에 명시됐던 "1시간 cleanup" 을 실제 연결.
+- **ACC-P1-08 — 마지막 ADMIN lockout 방지**: `lock_user` 에 삭제/강등과 동일한 가드 추가 —
+  대상이 마지막 active·unlocked ADMIN 이면 잠금 거부(409). FOR UPDATE 로 TOCTOU 차단.
+- `tests/test_account_lowrisk_fixes.py`: 3건 소스 계약 검증.
+
 ### v6.0-authz_map_contract — permission_map stale 정리 + system-events 모듈 정합 + contract 테스트 (2026-07-09)
 
 > 외부 리뷰 AUTH-01 후속(stale map 정리 + map↔OpenAPI 자동비교). `enforce_matrix` 는 전역 dependency 로 활성.

@@ -777,8 +777,10 @@ async def lock_user(
     **Error**:
     - 404: 사용자를 찾을 수 없음
     """
+    # ACC-P1-08: 마지막 활성 ADMIN lockout 방지 — 잠금은 계정을 사용 불가로 만드므로
+    # 삭제/강등과 동일하게 마지막 ADMIN 보존이 필요. FOR UPDATE 로 TOCTOU 차단.
     user = (await db.execute(
-        select(AccountUser).where(AccountUser.id == user_id)
+        select(AccountUser).where(AccountUser.id == user_id).with_for_update()
     )).scalars().first()
 
     if not user:
@@ -789,6 +791,21 @@ async def lock_user(
 
     # v6.x 가드: 비-ADMIN 은 ADMIN 대상 잠금 불가
     _assert_can_modify_admin_target(current_user, user)
+
+    # ACC-P1-08: 대상이 현재 사용 가능한(active·unlocked) ADMIN 이면, 잠금 후 잔여 사용가능 ADMIN >=1 보장.
+    if user.role == "ADMIN" and user.is_active and not user.is_locked:
+        usable_admins = (await db.execute(
+            select(AccountUser).where(
+                AccountUser.role == "ADMIN",
+                AccountUser.is_active == True,   # noqa: E712
+                AccountUser.is_locked == False,  # noqa: E712
+            ).with_for_update()
+        )).scalars().all()
+        if len(usable_admins) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot lock the last usable ADMIN user (at least one active, unlocked ADMIN must remain)"
+            )
 
     user.is_locked = True
 

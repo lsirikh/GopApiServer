@@ -62,6 +62,22 @@ def _assert_can_define_permissions(
         )
 
 
+async def _revoke_all_user_sessions(
+    db: AsyncSession, user_id: int, reason: str, actor_id: int | None = None
+) -> None:
+    """FR-05 (Session Authority): 대상 사용자의 모든 활성 세션을 공통 폐기 서비스로 종료.
+    access+refresh JTI 를 각 실제 exp 로 블랙리스트 + 세션 마킹. lock/reset-password 공용."""
+    from app.services.session_revoke_service import revoke_session_family_async
+    sessions = (await db.execute(
+        select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.is_active == True,  # noqa: E712
+        )
+    )).scalars().all()
+    for s in sessions:
+        await revoke_session_family_async(db, s, reason=reason, actor_id=actor_id)
+
+
 @router.get("", dependencies=[Depends(require_perm_async("users", "view"))])
 async def get_users(
     page: int = Query(1, ge=1, description="페이지 번호"),
@@ -809,13 +825,9 @@ async def lock_user(
 
     user.is_locked = True
 
-    # Terminate all active sessions for the user (bulk update — async construct)
-    await db.execute(
-        update(UserSession).where(
-            UserSession.user_id == user_id,
-            UserSession.is_active == True
-        ).values(is_active=False)
-    )
+    # FR-05 (Session Authority): 활성 세션의 token family(access+refresh) 를 공통 서비스로 폐기.
+    # 기존엔 is_active=false 만 했음 → refresh 토큰이 살아 있어 unlock 후 부활 가능했음.
+    await _revoke_all_user_sessions(db, user_id, reason="ACCOUNT_LOCKED", actor_id=current_user.id)
 
     # Create system event for user lock (SECURITY_ALERT: USER_* moved to UserLoginLog per PRD_SystemEvent_Sync.md)
     system_event = SystemEvent(
@@ -947,6 +959,10 @@ async def reset_user_password(
 
     # P4: bcrypt threadpool async
     user.password_hash = await hash_password_async(password_data.new_password)
+
+    # FR-05 (Session Authority): 관리자 비밀번호 초기화 시 대상의 모든 활성 세션 token family 폐기.
+    # 기존엔 세션을 안 건드려 초기화 후에도 이전 토큰이 유효했음(A07).
+    await _revoke_all_user_sessions(db, user.id, reason="PASSWORD_RESET", actor_id=current_user.id)
     await db.commit()
 
     # Audit log: PASSWORD_RESET

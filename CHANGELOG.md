@@ -4,6 +4,35 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-session_authority — 세션 권위 모델 통합: strict 상태검사 + refresh 세션검증 + 공통 폐기 서비스 (P0-02/03/04) (2026-07-09)
+
+> PRD `docs/prds/account-session-authority-prd.md` (Approved). 분석 §12 처방. **auth 코어 변경** — 롤백태그+A01~A18 게이트로 진행.
+> "JWT 유효한가"만 보던 인증을 사용자상태·세션상태·token family가 하나의 권위로 움직이도록 통합.
+
+**FR-01 — 공통 `revoke_session_family` 서비스 (`app/services/session_revoke_service.py` 신설)**
+- access+refresh JTI 를 **각 JWT 실제 exp**로 blacklist + 세션 inactive/logged_out/reason 마킹, 원자적.
+- TTL 설정값 추정(24h/7d) 제거 → exp claim 사용(ACC-P1-02 동반). 만료 토큰도 폐기 위해 decode 시 exp 검증 off.
+- dual-stack(sync/async) — login/refresh/logout=sync, users.py=async.
+
+**FR-02 — strict 인증 상태 검사 (ACC-P0-02)**
+- `get_current_account_user`(sync)·`get_current_account_user_async` 둘 다 `is_active==True AND is_locked==False` 검사, 위반 401.
+- 기존엔 서명/exp/blacklist/존재만 검사 → 잠긴/비활성 계정 토큰이 blacklist 안 됐으면 통과하던 결함. optional 버전과 정합.
+
+**FR-03 — refresh 발급 전 검증 (ACC-P0-03)**
+- user active/unlocked + **sid 필수** + sid 세션 존재+`is_active` 확인을 **토큰 발급 전**에 수행, 실패 401.
+- ※ `session.expires_at`(=access 만료)로 판정 금지(V-02) — 정상 refresh 오거부. 세션은 `is_active` 기준, 시간만료는 refresh JWT exp 담당.
+
+**FR-04 — 중복 로그인 refresh 폐기 (ACC-P0-04)**
+- 이전 세션을 `revoke_session_family`로 폐기 → access **+refresh 둘 다** blacklist. 기존 access-only 로 이전 기기 refresh 부활하던 것 차단.
+
+**FR-05 — lock/reset-password token family 폐기**
+- `_revoke_all_user_sessions` 헬퍼 — lock(기존 is_active=false만 → token blacklist까지), admin reset-password(기존 세션 무처치 → 폐기, A07).
+
+**검증 (Live E2E A01~A18 핵심 10/10)**: A01 잠금→401, A02 비활성→401, A03 잠금 refresh→401, A04 종료세션 refresh→401,
+A05 중복로그인 access+refresh→401, A07 reset 후 access+refresh→401, A16 정상 refresh 무회귀 200. 기존 단위 20 passed.
+
+**Out of Scope(후속)**: 매 요청 세션 DB검사, refresh race CAS(P1-07), token 원문→hash(P1-10), 실패로그인 rate limit(P1-09), auth 완전 async화.
+
 ### v6.0-account_lowrisk — Account 분석 저위험 3건: 감사 async 교정(P1-04) + blacklist 정리 스케줄러(P1-05) + lock ADMIN 가드(P1-08) (2026-07-09)
 
 > `docs/Analysis/Account_Auth_Session_Analysis_20260708.md` 의 검증된 저위험 항목. 코어(P0 세션권위)는 별도.

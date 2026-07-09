@@ -75,6 +75,12 @@ async def get_current_account_user(
     if user is None:
         raise credentials_exception
 
+    # FR-02 (Session Authority): 잠긴/비활성 계정의 기존 토큰 차단.
+    # 기존엔 서명/exp/blacklist/존재만 검사 → lock/deactivate 후 blacklist 안 됐으면 통과했음.
+    # optional 인증 함수는 이미 이 검사를 수행 → strict 를 그에 정합.
+    if not user.is_active or user.is_locked:
+        raise credentials_exception
+
     return user
 
 
@@ -428,33 +434,20 @@ async def login(
     # 3) NATS auth.revoke 발행 (best-effort, 게이트 off 시 무동작)
     #
     # 이렇게 하지 않으면 로그인마다 user_sessions 누적 + 이전 토큰 계속 유효(취약).
-    from app.services.token_blacklist_service import add_to_blacklist as _add_to_blacklist
     from app.services.nats_revoke_publisher import publish_session_revoke as _publish_revoke
     from app.utils.enums import EnumLogoutReason as _EnumLogoutReason
+    from app.services.session_revoke_service import revoke_session_family as _revoke_family
     _superseded_sessions = db.query(UserSession).filter(
         UserSession.user_id == user.id,
         UserSession.is_active == True,
     ).all()
-    _revoke_targets = []  # (session_id, jti) — commit 후 NATS 발행용
-    _now_naive = datetime.now(settings.tz).replace(tzinfo=None)
+    _revoke_targets = []  # (session_id, access_jti) — commit 후 NATS 발행용
+    # FR-04 (Session Authority): 공통 폐기 서비스로 access+refresh **둘 다** 실제 exp 로 블랙리스트.
+    # (기존엔 access JTI 만 폐기 → 이전 기기 refresh 로 부활 가능하던 ACC-P0-04 결함.)
     for _old in _superseded_sessions:
-        _old.is_active = False
-        _old.logout_reason = _EnumLogoutReason.DUPLICATE.value  # SUPERSEDED == DUPLICATE
-        _old.logged_out_at = _now_naive
-        # jti 추출 → 블랙리스트 (revoke 발효는 jti 블랙리스트 hit로 즉시)
-        try:
-            _td = decode_token(_old.token)
-            if _td.jti:
-                _add_to_blacklist(
-                    db, jti=_td.jti,
-                    expires_at=_old.expires_at,
-                    reason="DUPLICATE",
-                    user_id=user.id,
-                    token_type="access",
-                )
-                _revoke_targets.append((_old.id, _td.jti))
-        except Exception:
-            _revoke_targets.append((_old.id, None))  # jti 파싱 실패해도 세션 자체는 마킹됨
+        _revoke_targets.extend(
+            _revoke_family(db, _old, reason=_EnumLogoutReason.DUPLICATE.value, actor_id=user.id)
+        )
 
     # FR-SVF-01/02: 세션 행을 먼저 flush 하여 id(= session_id)를 확보한 뒤,
     # 그 id를 sid 클레임으로 박은 access+refresh 토큰을 발급한다(refresh로 회전하지 않는 식별자).
@@ -693,8 +686,30 @@ async def refresh(
             detail="User not found",
         )
 
-    # PRD v4.9 Phase 2-A4: rotation — 옛 refresh jti 블랙리스트 등록 (replay 차단)
-    # v6.0-blacklist_ttl_dynamic (2026-07-07): TTL을 런타임 refresh_expiration_days 에서 읽음.
+    # FR-03 (Session Authority): 발급 **전** 사용자·세션 상태 검증.
+    # (기존엔 존재만 보고 무조건 발급 → 잠긴/비활성 계정, 종료·폐기 세션이 refresh 로 부활하던 ACC-P0-03.)
+    _refresh_401 = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Refresh not allowed",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    # ① 사용자 active/unlocked 필수
+    if not user.is_active or user.is_locked:
+        raise _refresh_401
+    # ② sid 필수 (sid 없는 레거시 토큰은 재로그인 유도 — sid 는 FR-SVF-02 이후 상시 발급)
+    sid = token_data.sid
+    if not sid:
+        raise _refresh_401
+    # ③ sid 가 가리키는 세션이 존재 + 활성(종료/폐기 아님)이어야 함.
+    #    ※ V-02: session.expires_at(=access 만료)로 판정 금지 — 정상 refresh 오거부. is_active 기준.
+    try:
+        session = db.query(UserSession).filter(UserSession.id == int(sid)).first()
+    except (TypeError, ValueError):
+        session = None
+    if session is None or not session.is_active:
+        raise _refresh_401
+
+    # 검증 통과 → 이제 rotation. 옛 refresh jti 블랙리스트(replay 차단).
     from app.services import settings_service as _ss
     from app.services.settings_service import SettingKey as _SK
     if token_data.jti:
@@ -708,34 +723,20 @@ async def refresh(
             token_type="refresh",
         )
 
-    # FR-SVF-01/02: sid(세션 식별자)는 refresh로 회전하지 않는다 — 옛 토큰의 sid를 그대로 승계.
-    sid = token_data.sid
-    token_payload = {"sub": user.login_id}
-    if sid:
-        token_payload["sid"] = sid
+    # FR-SVF-01/02: sid 는 refresh 로 회전하지 않고 승계.
+    token_payload = {"sub": user.login_id, "sid": sid}
 
     # Create new tokens (sid 승계, jti만 회전). FR-SVS-05: 만료는 런타임 설정 적용.
-    # v6.0-session_enabled: session_enabled=False 면 10년(무기한) — login 과 동일 정책.
     from app.services import settings_service
     from app.services.settings_service import SettingKey
     _timeout_hours, _refresh_days = settings_service.resolve_session_expiry(db)
     access_token = create_access_token(data=token_payload, expires_delta=timedelta(hours=_timeout_hours))
     new_refresh_token = create_refresh_token(data=token_payload, expires_delta=timedelta(days=_refresh_days))
 
-    # FR-SVF-01: 세션 행을 새 토큰 쌍으로 재바인딩(orphan 방지) — force_logout이 현재 토큰의
-    # jti를 무효화하도록. sid 없는 레거시 토큰은 건너뜀(점진 롤아웃 호환).
-    if sid:
-        try:
-            session = db.query(UserSession).filter(
-                UserSession.id == int(sid),
-                UserSession.is_active == True,
-            ).first()
-        except (TypeError, ValueError):
-            session = None
-        if session:
-            session.token = access_token
-            session.refresh_token = new_refresh_token
-            db.commit()
+    # 세션 행을 새 토큰 쌍으로 재바인딩(orphan 방지) — 위에서 존재+활성 보장됨.
+    session.token = access_token
+    session.refresh_token = new_refresh_token
+    db.commit()
 
     return {
         "success": True,
@@ -907,6 +908,10 @@ async def get_current_account_user_async(
     user = result.scalars().first()
 
     if user is None:
+        raise credentials_exception
+
+    # FR-02 (Session Authority): 잠긴/비활성 계정의 기존 토큰 차단 (optional 버전과 정합).
+    if not user.is_active or user.is_locked:
         raise credentials_exception
 
     return user

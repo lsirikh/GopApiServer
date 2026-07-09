@@ -327,6 +327,8 @@ async def change_my_password(
         )
 
     current_user.password_hash = await hash_password_async(password_data.new_password)
+    # P2-02: 비밀번호 변경 시각 기록(미갱신 필드 활성화 — 만료정책/감사 기반).
+    current_user.password_changed_at = datetime.now(settings.tz).replace(tzinfo=None)
 
     # FR-SV-10: 비번 변경 후 본인 다른 활성 세션 무효화(타 기기 강제 재로그인). 현재 세션은 보존.
     await _invalidate_other_sessions_on_password_change(
@@ -824,6 +826,9 @@ async def lock_user(
             )
 
     user.is_locked = True
+    # P2-02: 잠금 수행자 기록(누가 잠갔는지 감사).
+    user.locked_by = current_user.id
+    user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
 
     # FR-05 (Session Authority): 활성 세션의 token family(access+refresh) 를 공통 서비스로 폐기.
     # 기존엔 is_active=false 만 했음 → refresh 토큰이 살아 있어 unlock 후 부활 가능했음.
@@ -959,6 +964,8 @@ async def reset_user_password(
 
     # P4: bcrypt threadpool async
     user.password_hash = await hash_password_async(password_data.new_password)
+    # P2-02: 비밀번호 변경 시각 기록.
+    user.password_changed_at = datetime.now(settings.tz).replace(tzinfo=None)
 
     # FR-05 (Session Authority): 관리자 비밀번호 초기화 시 대상의 모든 활성 세션 token family 폐기.
     # 기존엔 세션을 안 건드려 초기화 후에도 이전 토큰이 유효했음(A07).

@@ -4,6 +4,16 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-meta_hygiene — 계정 메타 위생 + 비밀번호 최소길이 상향 (P2-01/P2-02) (2026-07-10)
+
+> Account 분석 §4.1/§P2. 존재하나 미갱신이던 메타 필드 활성화 + 비번 정책 강화.
+
+- **P2-02 메타 갱신**: `password_changed_at`(self change·admin reset 시 기록), `locked_by`+`locked_at`(admin lock 시 수행자·시각 기록).
+  기존엔 필드만 있고 항상 NULL이라 만료정책/감사에 못 쓰던 것 활성화.
+- **P2-01 비번 정책**: 신규/변경/초기화 비밀번호 **min_length 6 → 8**(AccountUserCreate·PasswordReset·PasswordChange).
+- 실측: 7자 생성 422/8자 201, reset 후 password_changed_at 기록, lock 후 locked_by=수행자 id.
+- **Out of Scope**: 유출/공통 비밀번호 차단(wordlist/API 필요), 비번 만료 강제(password_expires_at 게이트).
+
 ### v6.0-refresh_cas — refresh rotation race 방지 (P1-07) (2026-07-10)
 
 > Account 분석 §5.6. 동일 refresh 토큰 동시 요청 시 둘 다 회전해 orphan(무효화 안 된) 토큰이 생기던 동시성 취약점.

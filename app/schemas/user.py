@@ -129,8 +129,8 @@ class AccountUserCreate(BaseModel):
         json_schema_extra={"example": "operator01"}
     )
     password: str = Field(
-        ..., min_length=6,
-        description="비밀번호",
+        ..., min_length=8,
+        description="비밀번호 (P2-01: 최소 8자)",
         json_schema_extra={"example": "SecureP@ss123!"}
     )
     name: str = Field(
@@ -433,8 +433,8 @@ class RefreshTokenRequest(BaseModel):
 class PasswordResetRequest(BaseModel):
     """Schema for admin password reset request"""
     new_password: str = Field(
-        ..., min_length=6, max_length=100,
-        description="새 비밀번호",
+        ..., min_length=8, max_length=100,
+        description="새 비밀번호 (P2-01: 최소 8자)",
         json_schema_extra={"example": "NewSecureP@ss123!"}
     )
 
@@ -447,7 +447,7 @@ class PasswordChangeRequest(BaseModel):
         json_schema_extra={"example": "OldP@ss123!"}
     )
     new_password: str = Field(
-        ..., min_length=6, max_length=100,
-        description="새 비밀번호",
+        ..., min_length=8, max_length=100,
+        description="새 비밀번호 (P2-01: 최소 8자)",
         json_schema_extra={"example": "NewSecureP@ss123!"}
     )

@@ -31,6 +31,7 @@
 | [PRD_GOP_Server_Force_Logout.md](prds/PRD_GOP_Server_Force_Logout.md) | 강제 로그아웃 (sid 클레임 / per-session NATS / HMAC) | Draft | 2026-06-29 |
 | [PRD_GOP_Server_Session_Settings.md](prds/PRD_GOP_Server_Session_Settings.md) | 세션 설정 계약 | Draft | 2026-06-29 |
 | [PRD_GOP_Server_RBAC_Enforcement.md](prds/PRD_GOP_Server_RBAC_Enforcement.md) | RBAC 강제 (~99 endpoint 매트릭스) | Draft | 2026-06-29 |
+| [account-session-authority-prd.md](prds/account-session-authority-prd.md) | 세션 권위 모델 통합 (ACC-P0-02/03/04 + 공통 revoke) | Draft | 2026-07-09 |
 
 ---
 

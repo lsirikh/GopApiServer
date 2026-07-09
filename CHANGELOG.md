@@ -4,6 +4,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-inactive_group_enforce — 비활성 그룹 권한 미집행 수정 (P1-03) (2026-07-10)
+
+> Account 분석 §6.2. `UserGroup.is_active=false` 가 권한 계산에서 무시되던 문제 — 관리자가 그룹을
+> 비활성화 = 긴급 권한 차단 의도인데 권한이 그대로 유지되던 위험.
+
+- **집행**: `_role_group_allows`(auth.py, 배정그룹·grant그룹·sync/async 공유 판정)에 `is_active` 가드 추가 →
+  비활성 그룹은 권한 원천 불인정. enforce_matrix / require_perm 전 경로 일관 적용.
+- **payload 정합**: `effective_permissions_payload`(sync+async) 병합부에서 비활성 그룹 제외 →
+  클라 노출 스냅샷도 집행과 동일(비활성 그룹 권한 미표시).
+- **문서화(§6.3/§6.4)**: `PermissionsSchema.device_groups`·`time_restriction` 은 **서버 미집행(UI 메타데이터)** 임을
+  Field description 에 명시 — dead config 가 보안 기능으로 오인되던 문제 차단. (집행은 별도 PRD.)
+- 실측: 활성 그룹 reports:view → 200 + payload True / 비활성화(같은 토큰, 요청시점) → **403 + payload None**. 단위 14 passed.
+
 ### v6.0-session_authority — 세션 권위 모델 통합: strict 상태검사 + refresh 세션검증 + 공통 폐기 서비스 (P0-02/03/04) (2026-07-09)
 
 > PRD `docs/prds/account-session-authority-prd.md` (Approved). 분석 §12 처방. **auth 코어 변경** — 롤백태그+A01~A18 게이트로 진행.

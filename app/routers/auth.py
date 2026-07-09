@@ -116,8 +116,15 @@ def _resolve_role_group(db: Session, user: AccountUser) -> UserGroup | None:
 
 
 def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
-    """등급 그룹 permissions 매트릭스에서 modules[module][verb] 가 True 인지."""
-    perms = (group.permissions or {}) if group else {}
+    """등급 그룹 permissions 매트릭스에서 modules[module][verb] 가 True 인지.
+
+    P1-03 (2026-07-09): 비활성 그룹(is_active=False)은 권한 원천으로 인정하지 않는다.
+    관리자가 그룹을 비활성화 = 긴급 권한 차단 의도. 배정 그룹·grant 그룹 모두 이 판정을 경유하므로
+    여기 한 곳에서 차단하면 enforce_matrix / require_perm 전 경로에 일관 적용된다.
+    """
+    if group is None or not getattr(group, "is_active", True):
+        return False
+    perms = group.permissions or {}
     modules_perms = perms.get("modules", {}) if isinstance(perms, dict) else {}
     verbs_perms = modules_perms.get(module, {}) if isinstance(modules_perms, dict) else {}
     return isinstance(verbs_perms, dict) and bool(verbs_perms.get(verb))
@@ -186,15 +193,16 @@ def effective_permissions_payload(db: Session, user: AccountUser, now=None) -> d
                 if dg not in merged["device_groups"]:
                     merged["device_groups"].append(dg)
 
+    # P1-03: 비활성 그룹은 payload 에서도 제외 — 집행(_role_group_allows)과 클라 스냅샷 정합.
     role_group = _resolve_role_group(db, user)
-    if role_group and isinstance(role_group.permissions, dict):
+    if role_group and role_group.is_active and isinstance(role_group.permissions, dict):
         _merge_modules(merged, role_group.permissions)
         _add_device_groups(role_group.permissions)
 
     earliest_until = None
     for grant in _active_grants(db, user, now):
         grp = grant.group
-        if grp and isinstance(grp.permissions, dict):
+        if grp and grp.is_active and isinstance(grp.permissions, dict):
             _merge_modules(merged, grp.permissions)
             _add_device_groups(grp.permissions)
         if grant.valid_until is not None and (earliest_until is None or grant.valid_until < earliest_until):
@@ -831,8 +839,9 @@ async def effective_permissions_payload_async(db: AsyncSession, user: AccountUse
                 if dg not in merged["device_groups"]:
                     merged["device_groups"].append(dg)
 
+    # P1-03: 비활성 그룹 제외 (집행과 정합).
     role_group = await _resolve_role_group_async(db, user)
-    if role_group and isinstance(role_group.permissions, dict):
+    if role_group and role_group.is_active and isinstance(role_group.permissions, dict):
         _merge_modules(merged, role_group.permissions)
         _add_device_groups(role_group.permissions)
 
@@ -840,7 +849,7 @@ async def effective_permissions_payload_async(db: AsyncSession, user: AccountUse
     grants = await _active_grants_async(db, user, now)
     for grant in grants:
         grp = grant.group
-        if grp and isinstance(grp.permissions, dict):
+        if grp and grp.is_active and isinstance(grp.permissions, dict):
             _merge_modules(merged, grp.permissions)
             _add_device_groups(grp.permissions)
         if grant.valid_until is not None and (earliest_until is None or grant.valid_until < earliest_until):

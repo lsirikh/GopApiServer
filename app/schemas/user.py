@@ -49,8 +49,11 @@ class PermissionsSchema(BaseModel):
     modules: Optional[Dict[EnumPermissionModule, ModulePermission]] = Field(
         None, description="모듈별 권한 (devices/events/reports/cameras/users/user_groups/audit_logs/servers)"
     )
-    device_groups: Optional[List[int]] = Field(None, description="접근 가능한 디바이스 그룹 ID 목록")
-    time_restriction: Optional[Dict[str, Any]] = Field(None, description="시간대 제한 (v5.0)")
+    # P1-03 (2026-07-09): 아래 두 필드는 **서버측 미집행(UI 메타데이터)**. 저장/노출만 되고
+    # 실제 인가(row-level scope / 시간대 차단)에는 반영되지 않는다. 보안 기능으로 오인 금지.
+    # (집행 구현은 별도 PRD — 매 요청 device scope 필터 / time_restriction 게이트.)
+    device_groups: Optional[List[int]] = Field(None, description="접근 가능한 디바이스 그룹 ID 목록 (⚠ 서버 미집행 — UI 메타데이터)")
+    time_restriction: Optional[Dict[str, Any]] = Field(None, description="시간대 제한 (v5.0) (⚠ 서버 미집행 — UI 메타데이터)")
 
 
 class UserGroupCreate(BaseModel):

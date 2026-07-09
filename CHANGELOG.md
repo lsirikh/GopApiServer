@@ -4,6 +4,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-login_hygiene — 실패 로그인 감사 기록 + 성공 위생 (P1-09 일부, §5.1) (2026-07-10)
+
+> Account 분석 §7.2/§5.1. 실패 로그인이 UserLoginLog 에 안 남고, 성공 시 failed_count 미리셋·last_login 미갱신.
+
+- **실패 로그인 감사(ACC-P1-09)**: `_record_login_failure` 헬퍼 신설 — 없는 계정/틀린 비번/비활성/잠김 4경로 모두
+  UserLoginLog FAILURE 기록(login_id·failure_reason·**IP·User-Agent·시각**, 없는 계정은 user_id=NULL). 독립 commit·예외 삼킴(로그인 방해 금지).
+  응답 문자열은 동일 유지(계정 존재 여부 비노출) — 감사만 상세.
+- **성공 위생(§5.1/P2-02)**: 로그인 성공 시 `failed_login_count=0` 리셋 + `last_login_at`·`last_login_ip` 갱신.
+  기존엔 성공해도 실패 카운트가 누적돼 오래된 실패로 잠금 오작동 소지가 있었음.
+- 실측: 틀린비번/없는계정 → 401 + FAILURE 로그(reason INVALID_CREDENTIALS, IP 기록, 없는계정 user_id=NULL),
+  성공 시 failed_count 3→0 + last_login 기록.
+- **Out of Scope(후속)**: IP/계정 기반 rate limit·exponential delay(상태저장소 설계 필요).
+
 ### v6.0-inactive_group_enforce — 비활성 그룹 권한 미집행 수정 (P1-03) (2026-07-10)
 
 > Account 분석 §6.2. `UserGroup.is_active=false` 가 권한 계산에서 무시되던 문제 — 관리자가 그룹을

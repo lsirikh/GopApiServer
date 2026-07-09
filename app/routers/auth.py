@@ -358,6 +358,29 @@ async def get_current_account_user_optional(
         return None
 
 
+def _record_login_failure(db, *, login_id, reason, ip_address, user_agent, user_id=None):
+    """ACC-P1-09: 실패 로그인을 UserLoginLog 에 기록(감사/포렌식 — IP/UA/시간/사유).
+    존재하지 않는 계정이면 user_id=None. 실패는 독립 트랜잭션으로 즉시 commit.
+    기록 실패가 로그인 응답을 막지 않도록 예외를 삼킨다."""
+    from app.utils.enums import EnumLoginAction, EnumLoginResult
+    try:
+        db.add(UserLoginLog(
+            user_id=user_id,
+            login_id=login_id,
+            action=EnumLoginAction.LOGIN.value,
+            result=EnumLoginResult.FAILURE.value,
+            failure_reason=reason,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        ))
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 @router.post("/login")
 async def login(
     login_data: AccountLoginRequest,
@@ -382,10 +405,17 @@ async def login(
     # Import settings for timezone
     from app.config import settings
 
+    # ACC-P1-09: 실패 로그에 필요한 클라 정보를 상단에서 확보(실패 경로에서도 IP/UA 기록).
+    _ip = request.client.host if request.client else None
+    _ua = request.headers.get("User-Agent")
+
     # Account-based login with JSON body
     user = db.query(AccountUser).filter(AccountUser.login_id == login_data.login_id).first()
 
     if not user:
+        # 존재하지 않는 계정 — 응답은 동일 문자열(계정 존재 여부 노출 금지), 감사는 기록.
+        _record_login_failure(db, login_id=login_data.login_id, reason="INVALID_CREDENTIALS",
+                              ip_address=_ip, user_agent=_ua, user_id=None)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect login_id or password",
@@ -393,6 +423,8 @@ async def login(
 
     # Check if account is active
     if not user.is_active:
+        _record_login_failure(db, login_id=user.login_id, reason="ACCOUNT_INACTIVE",
+                              ip_address=_ip, user_agent=_ua, user_id=user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
@@ -400,6 +432,8 @@ async def login(
 
     # Check if account is locked
     if user.is_locked:
+        _record_login_failure(db, login_id=user.login_id, reason="ACCOUNT_LOCKED",
+                              ip_address=_ip, user_agent=_ua, user_id=user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is locked",
@@ -414,12 +448,18 @@ async def login(
         from app.services import settings_service
         from app.services.settings_service import SettingKey
         _lockout_threshold = settings_service.get(db, SettingKey.LOCKOUT_THRESHOLD)
+        _reason = "INVALID_CREDENTIALS"
         if _lockout_threshold and user.failed_login_count >= _lockout_threshold:
             user.is_locked = True
             user.lock_reason = "Too many failed login attempts"
             user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
+            _reason = "ACCOUNT_LOCKED"  # 이번 실패로 잠금 임계 도달
 
         db.commit()
+
+        # ACC-P1-09: 비밀번호 불일치 감사 기록(위 commit 로 failed_count/lock 반영 후).
+        _record_login_failure(db, login_id=user.login_id, reason=_reason,
+                              ip_address=_ip, user_agent=_ua, user_id=user.id)
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -483,6 +523,12 @@ async def login(
     # 실제 발급 토큰으로 placeholder 교체
     session.token = access_token
     session.refresh_token = refresh_token
+
+    # ACC-P1-09/P2-02: 성공 로그인 위생 — 실패 카운트 리셋 + 마지막 로그인 시각/IP 기록.
+    # 기존엔 failed_login_count 가 성공해도 리셋 안 되어 누적 → 오래된 실패로 잠금 오작동 소지.
+    user.failed_login_count = 0
+    user.last_login_at = datetime.now(settings.tz).replace(tzinfo=None)
+    user.last_login_ip = client_ip
 
     # Create UserLoginLog record
     login_log = UserLoginLog(

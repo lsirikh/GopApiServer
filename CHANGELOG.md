@@ -4,6 +4,15 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-refresh_cas — refresh rotation race 방지 (P1-07) (2026-07-10)
+
+> Account 분석 §5.6. 동일 refresh 토큰 동시 요청 시 둘 다 회전해 orphan(무효화 안 된) 토큰이 생기던 동시성 취약점.
+
+- `app/routers/auth.py` refresh 핸들러: 세션 조회에 **`with_for_update()`** 추가 → 동시 refresh 직렬화.
+- **CAS**: 들어온 refresh 토큰이 세션의 **현재** `refresh_token` 과 일치할 때만 회전 허용.
+  먼저 잠금 얻은 요청이 회전하면 session.refresh_token 갱신 → 뒤늦은(같은 옛 토큰) 요청은 불일치 → 401. orphan 토큰 방지.
+- 실측: 정상 refresh 200, 회전된 OLD 토큰 재사용 401(새 토큰 200), 동시 2병렬 → 정확히 200+401.
+
 ### v6.0-login_hygiene — 실패 로그인 감사 기록 + 성공 위생 (P1-09 일부, §5.1) (2026-07-10)
 
 > Account 분석 §7.2/§5.1. 실패 로그인이 UserLoginLog 에 안 남고, 성공 시 failed_count 미리셋·last_login 미갱신.

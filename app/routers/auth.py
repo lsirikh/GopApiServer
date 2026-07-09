@@ -756,11 +756,19 @@ async def refresh(
         raise _refresh_401
     # ③ sid 가 가리키는 세션이 존재 + 활성(종료/폐기 아님)이어야 함.
     #    ※ V-02: session.expires_at(=access 만료)로 판정 금지 — 정상 refresh 오거부. is_active 기준.
+    #    P1-07: FOR UPDATE 로 세션 행을 잠가 동시 refresh 를 직렬화(회전 경쟁 차단).
     try:
-        session = db.query(UserSession).filter(UserSession.id == int(sid)).first()
+        session = db.query(UserSession).filter(
+            UserSession.id == int(sid)
+        ).with_for_update().first()
     except (TypeError, ValueError):
         session = None
     if session is None or not session.is_active:
+        raise _refresh_401
+    # P1-07 (refresh rotation race — CAS): 들어온 refresh 토큰이 세션의 **현재** refresh_token 과
+    #   일치해야만 회전 허용. 동시 요청 중 먼저 잠금을 얻은 요청이 회전하면 session.refresh_token 이
+    #   갱신되므로, 뒤늦게 잠금을 얻은(같은 옛 토큰) 요청은 불일치 → 401(재사용/stale). orphan 토큰 방지.
+    if session.refresh_token != refresh_data.refresh_token:
         raise _refresh_401
 
     # 검증 통과 → 이제 rotation. 옛 refresh jti 블랙리스트(replay 차단).

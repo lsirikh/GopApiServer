@@ -42,43 +42,76 @@ IDEMPOTENT_MIGRATIONS = [
 
 
 def apply_idempotent_migrations(engine_) -> None:
-    """화이트리스트 idempotent 마이그레이션을 실행 (PostgreSQL only, SQLite skip).
+    """화이트리스트 idempotent 마이그레이션을 **추적 + fail-fast** 로 실행 (PostgreSQL only).
 
-    각 파일은 `BEGIN;/COMMIT;` 을 포함한 multi-statement 다. raw cursor 로 통째 실행하면
-    psycopg2 의 자동 트랜잭션 관리와 명시적 BEGIN/COMMIT 이 충돌해 조용히 no-op 이 될 수 있다.
-    → BEGIN/COMMIT 라인을 제거하고 SQLAlchemy `engine.begin()`(트랜잭션 관리) +
-      `exec_driver_sql`(psycopg2 multi-statement 직접 전달) 로 실행한다.
-    실패해도 앱 기동은 계속 (해당 API 만 영향, 로그로 감지).
+    DB-01 (2026-07-10, 최소 마이그레이션 체계):
+    - `schema_migrations` 추적 테이블에 적용 이력(filename·checksum·applied_at) 기록 → 적용 상태 감사 가능.
+    - checksum 일치 시 skip(재실행 비용 절감), 파일 변경(checksum 상이) 시 재적용.
+    - **fail-fast**: 마이그레이션 실패를 무시하지 않고 예외 전파 → 스키마 드리프트로 조용히 기동하지 않음.
+      (본 화이트리스트는 전부 idempotent — IF NOT EXISTS / WHERE 조건부 → 재실행 안전, 실패는 실제 문제.)
+
+    각 파일의 `BEGIN;/COMMIT;` 단독 라인은 psycopg2 자동 트랜잭션과 충돌하므로 제거 후 실행.
     """
     if engine_.dialect.name != "postgresql":
         return
     import os
     import re
+    import hashlib
     migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
+
+    # 1) 추적 테이블 보장 + 기적용 목록 로드
+    raw = engine_.raw_connection()
+    try:
+        cur = raw.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            "  filename VARCHAR(255) PRIMARY KEY,"
+            "  checksum VARCHAR(64) NOT NULL,"
+            "  applied_at TIMESTAMP NOT NULL DEFAULT now())"
+        )
+        raw.commit()
+        cur.execute("SELECT filename, checksum FROM schema_migrations")
+        applied = {row[0]: row[1] for row in cur.fetchall()}
+        cur.close()
+    finally:
+        raw.close()
+
     for fname in IDEMPOTENT_MIGRATIONS:
         path = os.path.join(migrations_dir, fname)
         if not os.path.exists(path):
             print(f"[WARN] idempotent migration 파일 없음: {fname}")
             continue
         with open(path, "r", encoding="utf-8") as f:
-            sql = f.read()
-        # BEGIN;/COMMIT; 단독 라인 제거 — psycopg2 자동 트랜잭션 + raw.commit() 이 관리.
-        # (명시적 BEGIN/COMMIT 이 있으면 psycopg2 트랜잭션과 충돌해 ALTER 가 커밋 안 됨)
-        sql = re.sub(r"(?im)^\s*(BEGIN|COMMIT)\s*;\s*$", "", sql)
+            sql_raw = f.read()
+        checksum = hashlib.sha256(sql_raw.encode("utf-8")).hexdigest()
+        if applied.get(fname) == checksum:
+            print(f"[skip] migration already applied: {fname}")
+            continue
+        sql = re.sub(r"(?im)^\s*(BEGIN|COMMIT)\s*;\s*$", "", sql_raw)
         if not sql.strip():
             continue
         raw = engine_.raw_connection()
         try:
             cur = raw.cursor()
-            cur.execute(sql)     # psycopg2 multi-statement, ADD COLUMN IF NOT EXISTS
+            cur.execute(sql)  # psycopg2 multi-statement (ADD COLUMN IF NOT EXISTS 등)
+            cur.execute(
+                "INSERT INTO schema_migrations (filename, checksum) VALUES (%s, %s) "
+                "ON CONFLICT (filename) DO UPDATE SET checksum=EXCLUDED.checksum, applied_at=now()",
+                (fname, checksum),
+            )
             raw.commit()
             cur.close()
-            print(f"[OK] idempotent migration applied: {fname}")
+            print(f"[OK] migration applied+recorded: {fname}")
         except Exception as e:
             raw.rollback()
-            print(f"[WARN] idempotent migration {fname} 실패(무시): {e}")
-        finally:
             raw.close()
+            # DB-01 fail-fast: 조용히 무시하지 않고 기동 중단(스키마 드리프트 방지).
+            raise RuntimeError(f"[FATAL] 필수 마이그레이션 실패: {fname}: {e}") from e
+        finally:
+            try:
+                raw.close()
+            except Exception:
+                pass
 
 
 # v6.2 (2026-07-05): 기본 관리자 계정 Static seed 정책 승격

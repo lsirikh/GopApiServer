@@ -4,6 +4,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-migration_tracking — 마이그레이션 체계화 최소판: 추적 테이블 + fail-fast (E3/DB-01) (2026-07-10)
+
+> 필수 4건 Stage 3/4. DB-01. 전체 Alembic(2~4주) 아닌 **최소판** — create_all+수동SQL 혼재로 배포별
+> 스키마 편차 + 적용상태 미추적 + 실패 무시(silent drift) 위험 해소.
+
+- **schema_migrations 추적 테이블**: `apply_idempotent_migrations` 가 적용 이력(filename·checksum·applied_at) 기록 →
+  어떤 DB에 무엇이 적용됐는지 감사 가능(기존엔 매 기동 재실행만, 기록 없음).
+- **checksum skip**: 동일 checksum 은 skip(재실행 비용 절감), 파일 변경 시 재적용.
+- **fail-fast**: 마이그레이션 실패를 무시("실패(무시)")하던 것 → **예외 전파로 기동 중단**. 스키마 드리프트로 조용히 진행 방지.
+  (화이트리스트는 전부 idempotent — 재실행 안전, 실패는 실제 문제.)
+- 실측: v61~v64 기록, 재시작 시 [skip] already applied, 기동 healthy.
+- **Out of Scope(follow-up)**: 전체 Alembic 도입(base→head 순차 마이그레이션, downgrade, autogenerate) — 대규모 별도 차수.
+
 ### v6.0-test_reproducibility — 테스트 재현성 복원 + 운영 DB 보호 (E2/TEST-01) (2026-07-10)
 
 > 필수 4건 Stage 2/4. 두 분석 공통 "위험" 지적 — tests git 미추적(clone/CI 재현 불가) + 운영 DB 오염 소지.

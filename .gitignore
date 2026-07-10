@@ -34,8 +34,8 @@ venv/
 ENV/
 env/
 
-# Test 파일 제거
-tests/
+# TEST-01 (2026-07-10): tests/ 재추적 — clone/CI 재현성 확보(기존 미추적 = 재현 불가 위험).
+#   __pycache__ 만 계속 제외(아래 규칙). 운영 DB 보호는 conftest pytest_configure 가드.
 
 # IDE
 .idea/

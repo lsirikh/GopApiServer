@@ -1,0 +1,29 @@
+{
+  "number_device": 9999,
+  "group_device": 1,
+  "name_device": "Test Extended Camera",
+  "type_device": "IpCamera",
+  "version": "1.0.0",
+  "status": "ACTIVATED",
+  "ip_address": "192.168.1.200",
+  "ip_port": 80,
+  "user_name": "admin",
+  "user_password": "password123",
+  "rtsp_uri": "/stream1",
+  "rtsp_port": 554,
+  "mode": "ONVIF",
+  "category": "PTZ",
+  "is_record": true,
+  "hardware_spec": {
+    "name": "Axis P3245-V",
+    "manufacturer": "Axis Communications",
+    "model": "P3245-V",
+    "firmware": "10.12.114",
+    "mac_address": "AC:CC:8E:12:34:56"
+  },
+  "geolocation": {
+    "latitude": 37.5665,
+    "longitude": 126.9780,
+    "altitude": 50.0
+  }
+}

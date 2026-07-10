@@ -4,6 +4,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-test_reproducibility — 테스트 재현성 복원 + 운영 DB 보호 (E2/TEST-01) (2026-07-10)
+
+> 필수 4건 Stage 2/4. 두 분석 공통 "위험" 지적 — tests git 미추적(clone/CI 재현 불가) + 운영 DB 오염 소지.
+
+- **tests git 추적 복원**: `.gitignore` 에서 `tests/` 제외 해제(→ 188 test 파일 추적). `__pycache__` 만 계속 제외.
+  clone/CI 에 테스트가 함께 이동 → 재현 가능. (기존 0 추적 = "위험" 해소.)
+- **운영 DB 보호 가드(핵심)**: `conftest.pytest_configure` — DATABASE_URL 이 sqlite 가 아니면(=실 DB)
+  `ALLOW_DB_TESTS=1` 명시 없이는 **pytest 즉시 중단**. 통합 테스트가 실수로 운영 데이터 파괴하는 사고 구조적 차단.
+  실측: opt-in 없이 거부, `ALLOW_DB_TESTS=1` 로 15 passed.
+- **테스트 의존성 분리**: `requirements-test.txt`(pytest/pytest-asyncio/aiosqlite/httpx/pytest-cov).
+- **Out of Scope(follow-up)**: 전체 async 라우터 통합 테스트를 격리 async-sqlite 로 돌리는 fixture 오버홀 —
+  현재 async fixture 는 실 Postgres 사용(가드로 opt-in 강제). 대규모라 별도 차수(전용 test DB + get_async_db override).
+
 ### v6.0-session_token_jti — 세션 토큰 원문 저장 제거 (E1/P1-10) (2026-07-10)
 
 > 필수 4건 Stage 1/4. PRD `docs/prds/e1-session-token-hash-prd.md`. Account 분석 §4.2.

@@ -182,39 +182,21 @@ async def force_logout_all_user_sessions(
         session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
 
         _sess_id = session.id
-        _sess_access_jti = None
-        # access jti 블랙리스트 — v5.2 hotfix: expires_in(부재) → expires_at(시그니처 일치)
-        # 단건 핸들러(L362) 패턴과 동일하게 settings TTL 사용.
+        # E1/P1-10: session.token/refresh_token 은 이제 jti → decode 불필요, 직접 블랙리스트.
+        #   만료는 stored expires_at/refresh_expires_at(없으면 방어적 fallback).
+        _sess_access_jti = session.token
         if session.token:
-            try:
-                td = _decode(session.token)
-                if td.jti:
-                    _sess_access_jti = td.jti
-                    await add_to_blacklist_async(
-                        db=db,
-                        jti=td.jti,
-                        expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
-                        reason="FORCE_LOGOUT_BULK",
-                        user_id=user_id,
-                        token_type="access",
-                    )
-            except JWTError:
-                pass
-        # refresh jti 블랙리스트 — refresh는 expected_type 명시
+            await add_to_blacklist_async(
+                db=db, jti=session.token,
+                expires_at=session.expires_at or (datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
+                reason="FORCE_LOGOUT_BULK", user_id=user_id, token_type="access",
+            )
         if session.refresh_token:
-            try:
-                td = _decode(session.refresh_token, expected_type="refresh")
-                if td.jti:
-                    await add_to_blacklist_async(
-                        db=db,
-                        jti=td.jti,
-                        expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
-                        reason="FORCE_LOGOUT_BULK",
-                        user_id=user_id,
-                        token_type="refresh",
-                    )
-            except JWTError:
-                pass
+            await add_to_blacklist_async(
+                db=db, jti=session.refresh_token,
+                expires_at=session.refresh_expires_at or (datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)),
+                reason="FORCE_LOGOUT_BULK", user_id=user_id, token_type="refresh",
+            )
 
         # Create a login log entry for each force logout
         log_entry = UserLoginLog(
@@ -451,28 +433,18 @@ async def force_logout_session(
     from app.services.token_blacklist_service import add_to_blacklist_async
     from datetime import timedelta as _td
     _target_user_id = session.user_id  # commit 후 expiry 대비 캡처 (NATS 발행에 사용)
-    _access_jti = None
+    # E1/P1-10: session.token/refresh_token 은 이제 jti → decode 불필요, 직접 블랙리스트.
+    _access_jti = session.token
     if session.token:
-        try:
-            _at = _decode(session.token)
-            if _at.jti:
-                _access_jti = _at.jti
-                await add_to_blacklist_async(
-                    db=db, jti=_at.jti,
-                    expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
-                    reason="FORCED", user_id=session.user_id, token_type="access")
-        except JWTError:
-            pass
+        await add_to_blacklist_async(
+            db=db, jti=session.token,
+            expires_at=session.expires_at or (datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
+            reason="FORCED", user_id=session.user_id, token_type="access")
     if session.refresh_token:
-        try:
-            _rt = _decode(session.refresh_token, expected_type="refresh")
-            if _rt.jti:
-                await add_to_blacklist_async(
-                    db=db, jti=_rt.jti,
-                    expires_at=datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
-                    reason="FORCED", user_id=session.user_id, token_type="refresh")
-        except JWTError:
-            pass
+        await add_to_blacklist_async(
+            db=db, jti=session.refresh_token,
+            expires_at=session.refresh_expires_at or (datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)),
+            reason="FORCED", user_id=session.user_id, token_type="refresh")
 
     # Create a login log entry for the force logout
     log_entry = UserLoginLog(

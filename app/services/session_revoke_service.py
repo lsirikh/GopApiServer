@@ -53,6 +53,16 @@ def _iter_session_tokens(session: UserSession):
     yield session.refresh_token, "refresh"
 
 
+def _blacklist_pairs(session: UserSession):
+    """(jti, expires_at, token_type) — E1: session.token/refresh_token 은 이미 jti,
+    만료는 stored expires_at/refresh_expires_at 사용(decode 불필요). 원문 미저장."""
+    fb = datetime.utcnow() + _FALLBACK_TTL
+    if session.token:
+        yield session.token, (session.expires_at or fb), "access"
+    if session.refresh_token:
+        yield session.refresh_token, (session.refresh_expires_at or fb), "refresh"
+
+
 def revoke_session_family(
     db: Session,
     session: UserSession,
@@ -60,28 +70,20 @@ def revoke_session_family(
     actor_id: Optional[int] = None,  # noqa: ARG001 (감사 확장 여지)
     commit: bool = False,
 ) -> list[tuple[int, Optional[str]]]:
-    """세션의 access+refresh JTI 를 실제 exp 로 블랙리스트 + 세션 폐기 마킹 (sync).
+    """세션의 access+refresh jti 를 stored 만료로 블랙리스트 + 세션 폐기 마킹 (sync).
 
-    Returns: [(session_id, access_jti)] — caller 의 NATS 통지용. commit=True 면 즉시 커밋.
+    E1/P1-10: session.token=access jti, refresh_token=refresh jti → decode 없이 직접 블랙리스트.
+    Returns: [(session_id, access_jti)] — caller NATS 통지용. commit=True 면 즉시 커밋.
     """
-    access_jti: Optional[str] = None
-    for tok, ttype in _iter_session_tokens(session):
-        jti, exp_dt = _extract_jti_exp(tok)
-        if not jti:
-            continue
-        if ttype == "access":
-            access_jti = jti
-        add_to_blacklist(
-            db, jti=jti,
-            expires_at=exp_dt or (datetime.utcnow() + _FALLBACK_TTL),
-            reason=reason, user_id=session.user_id, token_type=ttype,
-        )
+    for jti, exp_dt, ttype in _blacklist_pairs(session):
+        add_to_blacklist(db, jti=jti, expires_at=exp_dt, reason=reason,
+                         user_id=session.user_id, token_type=ttype)
     session.is_active = False
     session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
     session.logout_reason = reason
     if commit:
         db.commit()
-    return [(session.id, access_jti)]
+    return [(session.id, session.token)]
 
 
 async def revoke_session_family_async(
@@ -92,21 +94,12 @@ async def revoke_session_family_async(
     commit: bool = False,
 ) -> list[tuple[int, Optional[str]]]:
     """revoke_session_family 의 async 버전 — users.py(lock/deactivate/reset) 용."""
-    access_jti: Optional[str] = None
-    for tok, ttype in _iter_session_tokens(session):
-        jti, exp_dt = _extract_jti_exp(tok)
-        if not jti:
-            continue
-        if ttype == "access":
-            access_jti = jti
-        await add_to_blacklist_async(
-            db, jti=jti,
-            expires_at=exp_dt or (datetime.utcnow() + _FALLBACK_TTL),
-            reason=reason, user_id=session.user_id, token_type=ttype,
-        )
+    for jti, exp_dt, ttype in _blacklist_pairs(session):
+        await add_to_blacklist_async(db, jti=jti, expires_at=exp_dt, reason=reason,
+                                     user_id=session.user_id, token_type=ttype)
     session.is_active = False
     session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
     session.logout_reason = reason
     if commit:
         await db.commit()
-    return [(session.id, access_jti)]
+    return [(session.id, session.token)]

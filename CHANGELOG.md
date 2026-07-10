@@ -4,6 +4,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-session_token_jti — 세션 토큰 원문 저장 제거 (E1/P1-10) (2026-07-10)
+
+> 필수 4건 Stage 1/4. PRD `docs/prds/e1-session-token-hash-prd.md`. Account 분석 §4.2.
+> UserSession 에 access/refresh JWT **원문**(크리덴셜)이 저장돼 DB/로그 유출 시 토큰 탈취 가능하던 노출 제거.
+
+- **jti 저장(원문 아님)**: `UserSession.token`/`refresh_token` 에 원문 대신 **jti**(서명 없는 비-크리덴셜 식별자) 저장.
+  jti 만으로는 위조·인증 불가 → DB 열람으로 토큰 탈취 불가. `refresh_expires_at` 컬럼 신설(블랙리스트 TTL 원천).
+- **decode 제거**: revoke_session_family / logout / force_logout(단건·벌크) 이 stored jti 를 직접 블랙리스트
+  (원문 decode 불필요). 만료는 stored `expires_at`/`refresh_expires_at`.
+- **CAS(P1-07) 정합**: refresh CAS 를 jti 비교로(`session.refresh_token == token_data.jti`). logout 조회도 jti 로.
+- **migration v64**(멱등): `refresh_expires_at` 추가 + 기존 원문토큰 활성 세션 무효화(재로그인).
+- 실측: 신규 세션 token=jti(uuid), 원문(eyJ) 세션 0, A01~A18 E2E 10/10(폐기 전 경로 무회귀).
+
 ### v6.0-meta_hygiene — 계정 메타 위생 + 비밀번호 최소길이 상향 (P2-01/P2-02) (2026-07-10)
 
 > Account 분석 §4.1/§P2. 존재하나 미갱신이던 메타 필드 활성화 + 비번 정책 강화.

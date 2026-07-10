@@ -520,9 +520,11 @@ async def login(
     refresh_token = create_refresh_token(
         data={"sub": user.login_id, "sid": str(session.id)}, expires_delta=timedelta(days=_refresh_days))
 
-    # 실제 발급 토큰으로 placeholder 교체
-    session.token = access_token
-    session.refresh_token = refresh_token
+    # E1/P1-10: 원문 대신 **jti** 저장(원문 노출 제거). fresh 토큰이라 decode 정상.
+    #   revoke/force_logout 은 이 jti 를 직접 블랙리스트. refresh_expires_at = 블랙리스트 TTL 원천.
+    session.token = decode_token(access_token).jti
+    session.refresh_token = decode_token(refresh_token, expected_type="refresh").jti
+    session.refresh_expires_at = datetime.now(settings.tz).replace(tzinfo=None) + timedelta(days=_refresh_days)
 
     # ACC-P1-09/P2-02: 성공 로그인 위생 — 실패 카운트 리셋 + 마지막 로그인 시각/IP 기록.
     # 기존엔 failed_login_count 가 성공해도 리셋 안 되어 누적 → 오래된 실패로 잠금 오작동 소지.
@@ -624,9 +626,9 @@ async def logout(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Find and deactivate the session
+    # Find and deactivate the session. E1/P1-10: token 컬럼은 이제 jti → jti 로 조회.
     session = db.query(UserSession).filter(
-        UserSession.token == token,
+        UserSession.token == token_data.jti,
         UserSession.is_active == True
     ).first()
 
@@ -665,27 +667,19 @@ async def logout(
     # access만 등재하면 셀프 로그아웃 후 저장된 refresh_token으로 /refresh 호출 시
     # 새 토큰을 발급받아 세션이 부활함. force_logout_session(user_sessions.py:368-376) 동일 패턴.
     if session and session.refresh_token:
+        # E1/P1-10: session.refresh_token 은 이제 refresh jti → decode 불필요, 직접 블랙리스트.
+        #   만료는 stored refresh_expires_at(없으면 방어적 fallback).
         from app.services.token_blacklist_service import add_to_blacklist
-        from app.services import settings_service as _ss
-        from app.services.settings_service import SettingKey as _SK
         from datetime import timedelta as _td
-        # v6.0-blacklist_ttl_dynamic (2026-07-07): 블랙리스트 TTL을 런타임 refresh_expiration_days 에서 읽음.
-        # 정적 env(JWT_REFRESH_EXPIRATION_DAYS)를 쓰면 설정으로 refresh 만료를 늘려도 블랙리스트가 먼저
-        # 만료되어 폐기된 refresh 가 부활하는 틈이 생김.
-        _refresh_days = _ss.get(db, _SK.REFRESH_EXPIRATION_DAYS)
-        try:
-            refresh_data = decode_token(session.refresh_token, expected_type="refresh")
-            if refresh_data.jti:
-                add_to_blacklist(
-                    db=db,
-                    jti=refresh_data.jti,
-                    expires_at=datetime.utcnow() + _td(days=_refresh_days),
-                    reason="LOGOUT",
-                    user_id=session.user_id,
-                    token_type="refresh",
-                )
-        except JWTError:
-            pass
+        _rexp = session.refresh_expires_at or (datetime.utcnow() + _td(days=30))
+        add_to_blacklist(
+            db=db,
+            jti=session.refresh_token,
+            expires_at=_rexp,
+            reason="LOGOUT",
+            user_id=session.user_id,
+            token_type="refresh",
+        )
 
     return {"success": True}
 
@@ -765,10 +759,11 @@ async def refresh(
         session = None
     if session is None or not session.is_active:
         raise _refresh_401
-    # P1-07 (refresh rotation race — CAS): 들어온 refresh 토큰이 세션의 **현재** refresh_token 과
-    #   일치해야만 회전 허용. 동시 요청 중 먼저 잠금을 얻은 요청이 회전하면 session.refresh_token 이
-    #   갱신되므로, 뒤늦게 잠금을 얻은(같은 옛 토큰) 요청은 불일치 → 401(재사용/stale). orphan 토큰 방지.
-    if session.refresh_token != refresh_data.refresh_token:
+    # P1-07 (refresh rotation race — CAS): 들어온 refresh 의 jti 가 세션의 **현재** refresh jti 와
+    #   일치해야만 회전 허용. 동시 요청 중 먼저 잠금을 얻은 요청이 회전하면 session.refresh_token(jti) 이
+    #   갱신되므로, 뒤늦게 잠금을 얻은(같은 옛 jti) 요청은 불일치 → 401(재사용/stale). orphan 방지.
+    #   E1/P1-10: session.refresh_token 은 이제 jti → 원문이 아닌 jti 비교.
+    if session.refresh_token != token_data.jti:
         raise _refresh_401
 
     # 검증 통과 → 이제 rotation. 옛 refresh jti 블랙리스트(replay 차단).
@@ -795,9 +790,12 @@ async def refresh(
     access_token = create_access_token(data=token_payload, expires_delta=timedelta(hours=_timeout_hours))
     new_refresh_token = create_refresh_token(data=token_payload, expires_delta=timedelta(days=_refresh_days))
 
-    # 세션 행을 새 토큰 쌍으로 재바인딩(orphan 방지) — 위에서 존재+활성 보장됨.
-    session.token = access_token
-    session.refresh_token = new_refresh_token
+    # 세션 행을 새 토큰 쌍의 **jti** 로 재바인딩(orphan 방지) — 위에서 존재+활성 보장됨.
+    # E1/P1-10: 원문 대신 jti 저장 + refresh 만료 갱신(블랙리스트 TTL 원천).
+    session.token = decode_token(access_token).jti
+    session.refresh_token = decode_token(new_refresh_token, expected_type="refresh").jti
+    session.expires_at = datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=_timeout_hours)
+    session.refresh_expires_at = datetime.now(settings.tz).replace(tzinfo=None) + timedelta(days=_refresh_days)
     db.commit()
 
     return {

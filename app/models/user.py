@@ -155,16 +155,19 @@ class UserSession(Base):
     # User FK (CASCADE delete)
     user_id = Column(Integer, ForeignKey("account_users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Token fields
-    token = Column(String(500), unique=True, nullable=False, index=True)
-    refresh_token = Column(String(500), unique=True, nullable=True)
+    # Token fields (E1/P1-10, 2026-07-10): 원문 JWT 대신 **jti**(식별자) 저장.
+    # jti 는 서명 없는 비-크리덴셜이라 DB 열람만으로 토큰 위조 불가 → 원문 노출 제거.
+    # token=access jti, refresh_token=refresh jti. revoke/force_logout 은 이 값을 직접 블랙리스트.
+    token = Column(String(500), unique=True, nullable=False, index=True)          # access jti
+    refresh_token = Column(String(500), unique=True, nullable=True)               # refresh jti
 
     # Connection info
     ip_address = Column(String(45), nullable=True)  # IPv6 length
     user_agent = Column(String(500), nullable=True)
 
     # Time fields
-    expires_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False)                    # access token 만료(블랙리스트 TTL 원천)
+    refresh_expires_at = Column(DateTime, nullable=True)             # E1: refresh 만료(블랙리스트 TTL)
     logged_out_at = Column(DateTime, nullable=True)
 
     # Standard timestamps (PRD_UserSession_Improvement.md v1.2)

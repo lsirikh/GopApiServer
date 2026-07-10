@@ -12,6 +12,8 @@ from datetime import datetime
 from collections import defaultdict
 
 from app.dependencies import get_async_db
+# P0-01 (2026-07-10): 이벤트 통계(감시장비/이벤트 집계) 무인증 노출 차단 — token 모드 events:view 강제.
+from app.routers.auth import require_perm_optional_async
 from app.models.event import Event, DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
 from app.models.device import Device, Sensor, Controller, Camera
 from app.utils.enums import EnumDeviceCategory, EnumEventCategory
@@ -62,6 +64,7 @@ async def _count_detections_by_device_category(db: AsyncSession, category: EnumD
 
 @router.get(
     "/summary",
+    dependencies=[Depends(require_perm_optional_async("events", "view"))],
     response_model=ApiSingleResponse[EventSummaryResponse],
     summary="이벤트 타입별 건수 요약 (원형 그래프 + 요약 카드)",
 )
@@ -278,6 +281,7 @@ async def _build_trend_series(db: AsyncSession, start_date, end_date, interval: 
 
 @router.get(
     "/by-device",
+    dependencies=[Depends(require_perm_optional_async("events", "view"))],
     response_model=ApiSingleResponse[EventByDeviceResponse],
     summary="제어기별/카메라별 이벤트 건수 (막대 그래프)",
 )
@@ -385,6 +389,7 @@ async def get_event_by_device(
 
 @router.get(
     "/trend",
+    dependencies=[Depends(require_perm_optional_async("events", "view"))],
     response_model=ApiSingleResponse[EventTrendResponse],
     summary="이벤트 시간대별 건수 추이 (라인 차트)",
 )
@@ -410,6 +415,7 @@ async def get_event_trend(
 
 @router.get(
     "/dashboard",
+    dependencies=[Depends(require_perm_optional_async("events", "view"))],
     response_model=ApiSingleResponse[EventDashboardResponse],
     summary="대시보드 통합 통계 (summary + trend + by-device)",
 )

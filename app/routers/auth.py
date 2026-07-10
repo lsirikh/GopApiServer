@@ -794,6 +794,18 @@ async def refresh(
             user_id=user.id,
             token_type="refresh",
         )
+    # P0-02 (2026-07-10): **옛 access jti** 도 블랙리스트 — refresh 후 이전 access token 이 exp 까지
+    #   살아남는 orphan 방지(session_enabled=false 장기 토큰에서 치명). session.token = 현재(옛) access jti,
+    #   만료는 stored expires_at(없으면 방어적 fallback). 아래에서 session.token 을 새 jti 로 덮기 前 시점.
+    if session.token:
+        add_to_blacklist(
+            db=db,
+            jti=session.token,
+            expires_at=session.expires_at or (datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
+            reason="REFRESH_ROTATION",
+            user_id=user.id,
+            token_type="access",
+        )
 
     # FR-SVF-01/02: sid 는 refresh 로 회전하지 않고 승계.
     token_payload = {"sub": user.login_id, "sid": sid}

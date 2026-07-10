@@ -69,7 +69,7 @@ def _system_event_to_response(event: SystemEvent) -> dict:
 # GET Endpoints
 # ==============================================================================
 
-@router.get("/summary")
+@router.get("/summary", dependencies=[Depends(require_perm_optional_async("events", "view"))])
 async def get_system_events_summary(db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 요약 통계 조회
@@ -129,7 +129,7 @@ async def get_system_events_summary(db: AsyncSession = Depends(get_async_db)):
     )
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_perm_optional_async("events", "view"))])
 async def get_system_events(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
@@ -198,7 +198,7 @@ async def get_system_events(
     )
 
 
-@router.get("/{event_id}")
+@router.get("/{event_id}", dependencies=[Depends(require_perm_optional_async("events", "view"))])
 async def get_system_event(event_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     시스템 이벤트 단건 조회

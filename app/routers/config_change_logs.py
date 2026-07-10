@@ -28,6 +28,8 @@ from app.models.config_change_log import ConfigChangeLog
 from app.schemas.config_change_log import ConfigChangeLogResponse
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+# P0-01 (2026-07-10): 설정변경 감사(actor/resource/before-after) 무인증 노출 차단 — audit_logs:view 강제.
+from app.routers.auth import require_perm_async
 
 router = APIRouter()
 
@@ -58,7 +60,8 @@ def _config_change_log_to_response(log: ConfigChangeLog) -> ConfigChangeLogRespo
 # GET Endpoints
 # ==============================================================================
 
-@router.get("", response_model=ApiResponse[list[ConfigChangeLogResponse]])
+@router.get("", response_model=ApiResponse[list[ConfigChangeLogResponse]],
+            dependencies=[Depends(require_perm_async("audit_logs", "view"))])
 async def get_config_change_logs(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
@@ -195,7 +198,8 @@ async def get_config_change_logs(
     )
 
 
-@router.get("/{log_id}", response_model=ApiSingleResponse[ConfigChangeLogResponse])
+@router.get("/{log_id}", response_model=ApiSingleResponse[ConfigChangeLogResponse],
+            dependencies=[Depends(require_perm_async("audit_logs", "view"))])
 async def get_config_change_log(log_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     설정 변경 로그 단건 조회

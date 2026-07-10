@@ -4,6 +4,23 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-review0710_p0 — 재감사 P0 2건: 민감 GET 무인증 + refresh access orphan (2026-07-10)
+
+> 재감사 `docs/Analysis/API_Server_Overall_Review_20260710.md` P0-01/P0-02. 실측 확인 후 수정.
+
+**P0-01 — AUTH_MODE=token 에서도 민감 GET 무인증 노출**
+- 실측: `config-change-logs`·`system-events`(+summary/detail)·`events/statistics/*` GET 이 무토큰 200(감사·장애·통계 데이터 노출).
+  원인: matrix_enforcer default-allow + 해당 GET 라우터 가드 부재(system-events 는 mutation 만 가드했었음).
+- `config_change_logs.py` GET 2종 → `require_perm_async("audit_logs","view")`(strict, 감사데이터).
+- `system_events.py` GET 3종 + `event_statistics.py` GET 4종 → `require_perm_optional_async("events","view")`(token 집행).
+- 실측: 무토큰 200→**401**, ADMIN bypass 200.
+
+**P0-02 — refresh 후 이전 access token orphan**
+- 실측: refresh 가 옛 refresh jti 만 블랙리스트, 옛 access jti(session.token)는 미폐기 → 이전 access 가 exp 까지 생존
+  (session_enabled=false 10년 토큰에서 치명).
+- refresh rotation 시 **옛 access jti(session.token)도 블랙리스트**(만료=stored expires_at) — 덮어쓰기 前 시점.
+- 실측: refresh 전 옛 access 200 → refresh 후 **401**. A01~A18 E2E 10/10 무회귀.
+
 ### v6.0-login_rate_limit — 로그인 무차별 대입 방어 (E4/P1-09 완결) (2026-07-10)
 
 > 필수 4건 Stage 4/4. Account 분석 §5.1/P1-09. 무차별 대입 + 계정잠금 DoS 완화.

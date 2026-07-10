@@ -4,6 +4,16 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.0-login_rate_limit — 로그인 무차별 대입 방어 (E4/P1-09 완결) (2026-07-10)
+
+> 필수 4건 Stage 4/4. Account 분석 §5.1/P1-09. 무차별 대입 + 계정잠금 DoS 완화.
+
+- `app/services/login_rate_limit.py`: IP 기준 슬라이딩 윈도우(창 5분/IP당 실패 10회). 초과 시 로그인 **429 + Retry-After**.
+  패스워드 검증 **이전**에 차단 → 공격자가 계정을 잠그기 전에 IP throttle(계정잠금 DoS 완화).
+- 실패(4경로 공통 `_record_login_failure` 훅)마다 카운트, **성공 시 해당 IP 리셋**(정상 사용자 영향 최소).
+- 실측: 정상 200 → 실패 10회 후 429(Retry-After 299s) → 같은 IP 정상계정도 throttle → 재시작 후 복구.
+- **Out of Scope(follow-up)**: 멀티 인스턴스 공유 카운터(Redis), X-Forwarded-For 파싱(프록시 뒤 실제 클라 IP), exponential delay.
+
 ### v6.0-migration_tracking — 마이그레이션 체계화 최소판: 추적 테이블 + fail-fast (E3/DB-01) (2026-07-10)
 
 > 필수 4건 Stage 3/4. DB-01. 전체 Alembic(2~4주) 아닌 **최소판** — create_all+수동SQL 혼재로 배포별

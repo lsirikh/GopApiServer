@@ -363,6 +363,9 @@ def _record_login_failure(db, *, login_id, reason, ip_address, user_agent, user_
     존재하지 않는 계정이면 user_id=None. 실패는 독립 트랜잭션으로 즉시 commit.
     기록 실패가 로그인 응답을 막지 않도록 예외를 삼킨다."""
     from app.utils.enums import EnumLoginAction, EnumLoginResult
+    # P1-09: rate limit 카운터에도 실패 기록(4 실패경로 공통 훅).
+    from app.services import login_rate_limit
+    login_rate_limit.record_failure(ip_address)
     try:
         db.add(UserLoginLog(
             user_id=user_id,
@@ -408,6 +411,16 @@ async def login(
     # ACC-P1-09: 실패 로그에 필요한 클라 정보를 상단에서 확보(실패 경로에서도 IP/UA 기록).
     _ip = request.client.host if request.client else None
     _ua = request.headers.get("User-Agent")
+
+    # P1-09: IP 기준 rate limit — 무차별 대입/계정잠금 DoS 완화. 임계 초과 시 429(Retry-After).
+    #   패스워드 검증 이전에 차단 → 공격자가 계정을 잠그기 전에 IP throttle.
+    from app.services import login_rate_limit
+    if login_rate_limit.is_rate_limited(_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Try again later.",
+            headers={"Retry-After": str(login_rate_limit.retry_after_seconds(_ip))},
+        )
 
     # Account-based login with JSON body
     user = db.query(AccountUser).filter(AccountUser.login_id == login_data.login_id).first()
@@ -531,6 +544,8 @@ async def login(
     user.failed_login_count = 0
     user.last_login_at = datetime.now(settings.tz).replace(tzinfo=None)
     user.last_login_ip = client_ip
+    # P1-09: 성공 시 해당 IP rate-limit 카운터 클리어(정상 사용자 영향 최소).
+    login_rate_limit.reset(_ip)
 
     # Create UserLoginLog record
     login_log = UserLoginLog(

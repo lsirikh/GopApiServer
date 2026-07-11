@@ -60,10 +60,18 @@ services:
       - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT:-8000}
       - TZ=Asia/Seoul
+      # P1-02 (review0710): 세션 강제폐기/권한변경 NATS 통지 배선. 게이트(NATS_REVOKE_ENABLED)
+      #   기본 false → 기능 dormant(현행 동작 불변). true 로 켜야 api-server 가 nats_external 로 발행.
+      #   env 만 있고 네트워크 미연결이면 켰을 때 publish 가 조용히 실패하므로 배선을 함께 둔다.
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
+      - NATS_REVOKE_ENABLED=${NATS_REVOKE_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - default
+      - nats_external
     healthcheck:
       # v5.2 stability hotfix: 경량 health endpoint로 전환
       # 이전 /docs (3.6KB HTML) → /api/tracking/health (무인증, JSON 30B)

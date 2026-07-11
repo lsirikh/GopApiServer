@@ -1,7 +1,7 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-07-09  
+**최종 수정일**: 2026-07-12  
 **버전**: v6.0 (Swagger `6.0.0` 정합)  **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -594,19 +594,18 @@ class EnumServerStatus(str, Enum):
 > **v3.0 신규**: PRD_Account_Design.md 참조
 > 사용자 인증, 세션, 로그인 로그 관련 Enum
 
-#### EnumUserRole (사용자 등급 - 5종)
+#### EnumUserRole (사용자 등급 - 2종, v5.3 축소)
 ```python
 # Python 정의 - app/utils/enums.py
 class EnumUserRole(str, Enum):
-    ADMIN = "ADMIN"           # 관리자 - 시스템 전체 관리
-    MAINTAINER = "MAINTAINER" # 유지보수자 - 장비/시스템 관리
-    OPERATOR = "OPERATOR"     # 운영자 - 일반 운영
-    VIEWER = "VIEWER"         # 조회자 - 조회 전용
-    GUEST = "GUEST"           # 게스트 - 제한된 접근
+    ADMIN = "ADMIN"   # 관리자 - require_admin/require_perm bypass (그룹 매트릭스 무관 전권)
+    USER  = "USER"    # 일반 사용자 - 권한 = 배정 group_id 매트릭스 ∪ 유효 grant 합집합
 ```
 
+> **v5.3(2026-07-02) 역할 축소**: 이전 5종(MAINTAINER/OPERATOR/VIEWER/GUEST)은 **USER 로 통합**됨(startup 자동 마이그레이션 v62). 실 기능권한은 role 라벨이 아니라 배정 그룹(`group_id`) 매트릭스로 결정된다(ADR_Permission_Model_v5.2).
+
 **사용처**:
-- `AccountUser.role`: 사용자 권한 등급
+- `AccountUser.role`: 사용자 권한 등급(ADMIN 특권 라벨 / USER 일반)
 
 #### EnumLogoutReason (로그아웃 사유 - 6종)
 ```python
@@ -14138,7 +14137,7 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
       "name": "홍길동",
       "email": "operator01@gop.mil.kr",
       "department": "경계부대 1중대",
-      "role": "OPERATOR",
+      "role": "USER",
       "group_id": 1,
       "permissions": {
         "modules": {"events": {"view": true, "edit": true}},
@@ -14224,7 +14223,7 @@ Authorization: Bearer {access_token}
   "position": "상병",
   "employee_number": "21-12345678",
   "phone": "010-1234-5678",
-  "role": "OPERATOR",
+  "role": "USER",
   "group_id": 1,
   "is_active": true,
   "is_locked": false,
@@ -14298,7 +14297,7 @@ Authorization: Bearer {access_token}
 |----------|------|------|------|
 | page | int | 아니오 | 페이지 번호 (기본값: 1) |
 | limit | int | 아니오 | 페이지당 항목 수 (기본값: 100, 최대: 100) |
-| role | string | 아니오 | 역할 필터 (ADMIN, MAINTAINER, OPERATOR, VIEWER, GUEST) |
+| role | string | 아니오 | 역할 필터 (ADMIN, USER) |
 | group_id | int | 아니오 | 그룹 ID 필터 |
 | department | string | 아니오 | 부서 필터 |
 
@@ -14317,7 +14316,7 @@ Authorization: Bearer {access_token}
       "employee_number": "21-12345678",
       "photo_url": null,
       "phone": "010-1234-5678",
-      "role": "OPERATOR",
+      "role": "USER",
       "group_id": 1,
       "is_active": true,
       "is_locked": false,
@@ -14346,7 +14345,7 @@ Authorization: Bearer {access_token}
   "employee_number": "21-12345678",
   "photo_url": null,
   "phone": "010-1234-5678",
-  "role": "OPERATOR",
+  "role": "USER",
   "group_id": 1
 }
 ```
@@ -14365,7 +14364,7 @@ Authorization: Bearer {access_token}
     "employee_number": "21-12345678",
     "photo_url": null,
     "phone": "010-1234-5678",
-    "role": "OPERATOR",
+    "role": "USER",
     "group_id": 1,
     "is_active": true,
     "is_locked": false,
@@ -14603,8 +14602,8 @@ Authorization: Bearer {access_token}
 
 | Method | Endpoint | 설명 | 권한 |
 |--------|----------|------|------|
-| GET | `/api/audit-logs` | 감사 로그 목록 조회 | ADMIN, MAINTAINER |
-| GET | `/api/audit-logs/{id}` | 감사 로그 상세 조회 | ADMIN, MAINTAINER |
+| GET | `/api/audit-logs` | 감사 로그 목록 조회 | 인증 필요 (전 인증 사용자) |
+| GET | `/api/audit-logs/{id}` | 감사 로그 상세 조회 | 인증 필요 (전 인증 사용자) |
 
 > **참고**: 감사 로그는 보안 목적으로 **생성/수정/삭제 API를 제공하지 않음**. 시스템 내부에서만 자동 생성됩니다.
 
@@ -14652,7 +14651,7 @@ Accept: application/json
         "after": {
           "login_id": "operator01",
           "name": "홍길동",
-          "role": "OPERATOR"
+          "role": "USER"
         }
       },
       "description": "사용자 생성: operator01",
@@ -14706,10 +14705,10 @@ Accept: application/json
     "actor_name": "관리자",
     "actor_role": "ADMIN",
     "changes": {
-      "before": {"role": "VIEWER"},
-      "after": {"role": "OPERATOR"}
+      "before": {"role": "USER"},
+      "after": {"role": "ADMIN"}
     },
-    "description": "역할 변경: VIEWER → OPERATOR",
+    "description": "역할 변경: USER → ADMIN",
     "ip_address": "192.168.1.100",
     "user_agent": "Mozilla/5.0...",
     "error_message": null,
@@ -14764,8 +14763,8 @@ Accept: application/json
 
 | Method | Endpoint | 설명 | 권한 |
 |--------|----------|------|------|
-| GET | `/api/config-change-logs` | 설정 변경 로그 목록 조회 | ADMIN, MAINTAINER |
-| GET | `/api/config-change-logs/{id}` | 설정 변경 로그 상세 조회 | ADMIN, MAINTAINER |
+| GET | `/api/config-change-logs` | 설정 변경 로그 목록 조회 | ADMIN 또는 `audit_logs:view` |
+| GET | `/api/config-change-logs/{id}` | 설정 변경 로그 상세 조회 | ADMIN 또는 `audit_logs:view` |
 
 > **참고**: 설정 변경 로그는 **생성/수정/삭제 API를 제공하지 않음**. 시스템 내부에서만 자동 생성됩니다.
 
@@ -16336,7 +16335,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
-| v6.0 후속 | 2026-07-04~07 | **clone 배포·운영 안정화 — `release/v6.0` 위 소분 태그(`v6.0-{topic}`) 누적**<br><br>**[리포트]** `report_fixes`(그리드 컬럼 확장·JSON preview↔HTML/PDF 필터 통일·라벨 통일·N+1 제거) / `report_lifecycle_persistence`(startup 재조정 PENDING·GENERATING→FAILED, PDF named volume 영속화, 파일 소실 시 **HTTP 410 `PDF_FILE_MISSING`**) / `report_progress_perf`(응답 `progress_pct`·`progress_stage`·`progress_updated_at` 3필드 + stall 워치도그(60s no-progress→FAILED) + SQL 집계 이관 + `GET /generations/{id}/detail.csv?type=…` 8 grid 신설) / `report_date_range`(`POST /generate`에 `start_date`·`end_date` Optional 커스텀 범위, `period_type="custom"`, 366일 상한).<br><br>**[인증·계정]** `auth_mode_secure_default`(docker-compose `AUTH_MODE` 기본 public→**token**, public 시 부팅 WARN + staging/prod 거부) / `account_rbac`·`account_managers_expand`(ADMIN Static seed 9종: admin/m_manager/vms_manager/popup_manager/CameraManager/BroadcastingManager/QLiteLampManager/NVRManager/EnclosureManager, pw sensorway1) / `role_seed_normalize`(role 규칙 v5.3 2종(ADMIN/USER) 시드·기존 데이터 재적용 — 모델 default VIEWER→USER + **startup 자동 마이그레이션 v62**로 옛 OPERATOR/VIEWER/MAINTAINER → USER) / `rbac_matrix_gate`(계정/그룹/세션/grant조회/세션설정 **`require_admin`→`require_perm` 매트릭스 전환** — `role=ADMIN` 만 bypass, USER 는 등급∪grant 매트릭스로 동작·만료 시 복귀. 상승 가드로 `role`/`group_id` 변경·grant 부여/회수·그룹 permissions 편집·`role=ADMIN` 대상 변경은 base-ADMIN 전용 잠금. §9 RBAC 노트 갱신, Live E2E 10/10 + `test_users_escalation_guards` 7 passed).<br><br>**[API 계약 — 응답 스키마 완화]** `servers_port_response_relax`(`ServerResponse.port` `ge=1`→`ge=0` + 목록 fault tolerance) / `users_role_response_relax`(`AccountUserResponse.role` Enum→str) / `response_schema_audit`(**전 `*Response` 스키마 Enum 지뢰 21건 전수 완화** — String 컬럼 + strict Enum 응답이 옛/임의 값에서 목록 500 나던 것 원천 차단. `report_type`·`period_type`·`status`·`type_event`·`result`·`reason`·`action`·`failure_reason`·`logout_reason`·`action_status`·`actor_role` 등 응답 필드 Enum→str, 요청 스키마는 strict 유지). **클라 영향 없음**(응답 JSON 값 동일, Swagger enum 표시만 사라짐).<br><br>**[안정성 버그]** `clone_deploy_bugfix`(신규 PC 6버그: **startup 자동 마이그레이션**(create_all이 기존 테이블에 컬럼 추가 못하는 문제 — `progress_pct` 등), connections `selectinload(DeviceGroupMapping.group)`(greenlet_spawn), event_statistics 4 endpoint tz-aware→naive KST 정규화, audit_role 완화) / `force_logout_tz_fix`(**세션 강제 로그아웃 500 수정** — `user_sessions.logged_out_at` tz-aware(Asia/Seoul)를 naive DateTime 컬럼에 넣어 asyncpg DataError → `DELETE /api/user-sessions/{id}` 전체 500 + 롤백으로 토큰도 안 막히던 이중 실패. `.replace(tzinfo=None)` 정합. 검증: 강제로그아웃 200 + 이후 토큰 401).<br><br>**[배포·인프라]** `rename_pids`(컨테이너/이미지 `api-test-*`→**`pids-api-*`**, 볼륨·데이터 보전) / `cert_installer_fix`(HTTPS 인증서 인스톨러 6버그, Dockerfile CMD 인증서 없으면 **fail-fast** + `ALLOW_HTTP_FALLBACK` opt-in) / `installer_ps2exe_path_fix`(PS2EXE EXE에서 `$PSScriptRoot` 빈 문자열 → `MainModule.FileName`로 근본 수정) / `bootstrap_automation`(신규 PC **1-Click** `bootstrap.ps1`: UAC 상승+인증서 발급+docker up+healthy 대기).<br><br>**[통지 문서]** `docs/GOP_Server_API_*_REPLY.md` 6건(servers_port0 / users_role / clone_deploy_bugfix / installer_ps2exe / response_schema_audit + report_updates_NOTIFY).<br><br>**원칙**: Swagger `info.version`은 `6.0.0` 유지(release/v6.0 브랜치). 후속은 **minor 승격 없이 `v6.0-{topic}` 태그로 누적**(브랜치-태그 명명 규칙). |
+| v6.0 후속 | 2026-07-04~12 | **clone 배포·운영 안정화 — `release/v6.0` 위 소분 태그(`v6.0-{topic}`) 누적**<br><br>**[리포트]** `report_fixes`(그리드 컬럼 확장·JSON preview↔HTML/PDF 필터 통일·라벨 통일·N+1 제거) / `report_lifecycle_persistence`(startup 재조정 PENDING·GENERATING→FAILED, PDF named volume 영속화, 파일 소실 시 **HTTP 410 `PDF_FILE_MISSING`**) / `report_progress_perf`(응답 `progress_pct`·`progress_stage`·`progress_updated_at` 3필드 + stall 워치도그(60s no-progress→FAILED) + SQL 집계 이관 + `GET /generations/{id}/detail.csv?type=…` 8 grid 신설) / `report_date_range`(`POST /generate`에 `start_date`·`end_date` Optional 커스텀 범위, `period_type="custom"`, 366일 상한).<br><br>**[인증·계정]** `auth_mode_secure_default`(docker-compose `AUTH_MODE` 기본 public→**token**, public 시 부팅 WARN + staging/prod 거부) / `account_rbac`·`account_managers_expand`(ADMIN Static seed 9종: admin/m_manager/vms_manager/popup_manager/CameraManager/BroadcastingManager/QLiteLampManager/NVRManager/EnclosureManager, pw sensorway1) / `role_seed_normalize`(role 규칙 v5.3 2종(ADMIN/USER) 시드·기존 데이터 재적용 — 모델 default VIEWER→USER + **startup 자동 마이그레이션 v62**로 옛 OPERATOR/VIEWER/MAINTAINER → USER) / `rbac_matrix_gate`(계정/그룹/세션/grant조회/세션설정 **`require_admin`→`require_perm` 매트릭스 전환** — `role=ADMIN` 만 bypass, USER 는 등급∪grant 매트릭스로 동작·만료 시 복귀. 상승 가드로 `role`/`group_id` 변경·grant 부여/회수·그룹 permissions 편집·`role=ADMIN` 대상 변경은 base-ADMIN 전용 잠금. §9 RBAC 노트 갱신, Live E2E 10/10 + `test_users_escalation_guards` 7 passed).<br><br>**[API 계약 — 응답 스키마 완화]** `servers_port_response_relax`(`ServerResponse.port` `ge=1`→`ge=0` + 목록 fault tolerance) / `users_role_response_relax`(`AccountUserResponse.role` Enum→str) / `response_schema_audit`(**전 `*Response` 스키마 Enum 지뢰 21건 전수 완화** — String 컬럼 + strict Enum 응답이 옛/임의 값에서 목록 500 나던 것 원천 차단. `report_type`·`period_type`·`status`·`type_event`·`result`·`reason`·`action`·`failure_reason`·`logout_reason`·`action_status`·`actor_role` 등 응답 필드 Enum→str, 요청 스키마는 strict 유지). **클라 영향 없음**(응답 JSON 값 동일, Swagger enum 표시만 사라짐).<br><br>**[안정성 버그]** `clone_deploy_bugfix`(신규 PC 6버그: **startup 자동 마이그레이션**(create_all이 기존 테이블에 컬럼 추가 못하는 문제 — `progress_pct` 등), connections `selectinload(DeviceGroupMapping.group)`(greenlet_spawn), event_statistics 4 endpoint tz-aware→naive KST 정규화, audit_role 완화) / `force_logout_tz_fix`(**세션 강제 로그아웃 500 수정** — `user_sessions.logged_out_at` tz-aware(Asia/Seoul)를 naive DateTime 컬럼에 넣어 asyncpg DataError → `DELETE /api/user-sessions/{id}` 전체 500 + 롤백으로 토큰도 안 막히던 이중 실패. `.replace(tzinfo=None)` 정합. 검증: 강제로그아웃 200 + 이후 토큰 401).<br><br>**[배포·인프라]** `rename_pids`(컨테이너/이미지 `api-test-*`→**`pids-api-*`**, 볼륨·데이터 보전) / `cert_installer_fix`(HTTPS 인증서 인스톨러 6버그, Dockerfile CMD 인증서 없으면 **fail-fast** + `ALLOW_HTTP_FALLBACK` opt-in) / `installer_ps2exe_path_fix`(PS2EXE EXE에서 `$PSScriptRoot` 빈 문자열 → `MainModule.FileName`로 근본 수정) / `bootstrap_automation`(신규 PC **1-Click** `bootstrap.ps1`: UAC 상승+인증서 발급+docker up+healthy 대기).<br><br>**[통지 문서]** `docs/GOP_Server_API_*_REPLY.md` 6건(servers_port0 / users_role / clone_deploy_bugfix / installer_ps2exe / response_schema_audit + report_updates_NOTIFY).<br><br>**[보안 하드닝 (2026-07-08~12)]** `session_token_jti`(E1/P1-10: `user_sessions.token`/`refresh_token` 원문 JWT→**jti 만 저장** + `refresh_expires_at` 컬럼, 원문 유출 표면 제거 + decode 없는 폐기, 마이그레이션 v64) / `migration_tracking`(DB-01/E3: `schema_migrations` 추적 테이블+checksum + **fail-fast** — 조용한 스키마 드리프트 기동 차단) / `login_rate_limit`(E4/P1-09: 로그인 IP 슬라이딩윈도우 300s/10회 초과 **429**, 무차별 대입 방어) / `test_reproducibility`(E2: `tests/` un-gitignore + conftest 운영DB 가드(비-sqlite `DATABASE_URL` 은 `ALLOW_DB_TESTS=1` opt-in 요구) + `requirements-test.txt`) / `review0710_p0`(**민감 GET 무인증 노출 차단** — `config-change-logs`/`system-events`/`event-statistics` GET 이 permission_map 미등록으로 `enforce_matrix` default-allow 를 타 무토큰 200 이던 것에 route-level 가드 부착(config-change=`require_perm(audit_logs,view)` strict, system-events·event-statistics=`require_perm_optional(events,view)`) + refresh 회전 시 **옛 access jti 도 블랙리스트**(orphan 토큰 제거)) / `review0710_p1`(logout 폐기를 `revoke_session_family` 로 통일(access static TTL→stored exp, logout·refresh·revoke·force_logout 동일 원천) + api-server `nats_external` 배선·`NATS_REVOKE_ENABLED` 게이트(기본 false, dormant) + **public GET allowlist 계약 테스트**(`tests/test_public_get_contract.py` — 무토큰 2xx 미노출 못박음, 실측 105 GET 중 공개 4건)).<br><br>**[역할 표기 정합 (2026-07-12)]** §4.5 `EnumUserRole` **5종→2종(ADMIN/USER)** 정정(v5.3 코드-명세 정합 지연분) + 잔존 폐기역할(MAINTAINER/OPERATOR/VIEWER/GUEST) 현행화: 사용자 역할 필터·감사/설정 로그 예시 payload → ADMIN/USER, 권한 컬럼 audit-logs=`전 인증 사용자`(get_current_account_user_optional)·config-change-logs=`ADMIN∨audit_logs:view`.<br><br>**원칙**: Swagger `info.version`은 `6.0.0` 유지(release/v6.0 브랜치). 후속은 **minor 승격 없이 `v6.0-{topic}` 태그로 누적**(브랜치-태그 명명 규칙). |
 | v6.0 | 2026-07-03 | **Async 대전환 — SQLAlchemy 2.x + asyncpg + AsyncSession 도입 (문서 A-7 근본 해결책 2)**<br><br>**[스코프]** 41 라우터 × 397 db.query() 호출 → `await db.execute(select())` 전환. Dual-stack 원칙(sync 병존) → 라우터별 점진 마이그레이션 안전 롤아웃. 총 12 Phase (P0~P11).<br><br>**[P0 Foundation]** asyncpg 드라이버(기존 requirements) + `create_async_engine` + `AsyncSessionLocal` + `get_async_db` 병존 도입. `_to_async_url()` postgresql:// → postgresql+asyncpg:// 자동 변환. sync engine 병존 유지 (라우터 마이그레이션 완료까지).<br><br>**[P1 Relationships]** 22 lazy='dynamic' hazards 사전 제거 (Tidy First, sync 상태). 6 라우터 × 28 changes.<br><br>**[P2 Middleware]** v5.4 to_thread + fire-and-forget 유지 결정 (batch queue v6.1 이월).<br><br>**[P3 Services dual-stack]** audit_service.log_action_async, grant_service.run_grant_sweep 내부 async, session_sweep_service.find_expired_sessions_async, api_logs_sweep_service 내부 async, token_blacklist_service.is_blacklisted_async/add_to_blacklist_async 병존. 스케줄러 3종 async 전환.<br><br>**[P4 Auth/Security Critical]** `get_current_account_user_async`, `_optional_async`, `require_role/admin/perm/perm_optional_async`, `_effective_allows_async`, `_active_grants_async`, `effective_permissions_payload_async` 11종 신설. matrix_enforcer.enforce_matrix 내부 async + `_resolve_user_from_request_async`. bcrypt CPU-bound → `hash_password_async`/`verify_password_async` (asyncio.to_thread 래퍼).<br><br>**[P5~P8 라우터 전환]** 39 라우터 (100% 커버 — __init__.py 제외):<br>&nbsp;&nbsp;• **P5 Simple (5)**: audit_logs, config_change_logs, event_mappings, tracking, logs<br>&nbsp;&nbsp;• **P6 Medium (15)**: camera_presets/settings, enclosures, file_groups, grants, lamps, proxy_settings, server_categories, server_metrics, settings, user_groups + enclosure_metrics, servers, system_events, thumbnails. settings_service/config_log_service dual-stack 추가.<br>&nbsp;&nbsp;• **P7 Device Polymorphic (4)**: controllers, sensors, speakers, cameras (selectinload preload).<br>&nbsp;&nbsp;• **P8 VeryComplex (15)**: detections, detection_logs, malfunctions, connections, actions (**selectin_polymorphic**(Event, [Detection/Malfunction/Connection]) + selectinload(Event.device).**selectin_polymorphic**([Sensor/Camera/Controller/Speaker/Enclosure/Lamp])), event_mapping_cameras/lamps/speakers (bulk flush), device_groups (**selectin_polymorphic**(Device)), rois, xypoints, users (bcrypt async), user_sessions, reports (report_service sync 병존 — v6.1 이월), event_statistics.<br><br>**[P9 init/main/Scheduler]** `app/main.py` lifespan startup에서 `initialize_database()` + `apply_triggers(engine)`를 `asyncio.to_thread`로 래핑 → 이벤트루프 자유. 스케줄러 3종 (Grant/Session/API logs sweep) P3 async 완료. init_*.py 내부 async 완전 전환은 v6.1 이월.<br><br>**[P10 통합 검증]** 50 GET no-param endpoints admin 토큰 스캔 → **500-FAIL 0** / success 46 / 422(필수 param) 4 / timeout 0. 전건 무결.<br><br>**[P11 5중 싱크]** 코드 async 완결 + Swagger `info.version` 5.4.0 → **6.0.0** + 명세서 v6.0 표(본 행) + CHANGELOG [v6.0] + Docker image 재빌드 + Container healthy + 태그 v6.0.<br><br>**[성능/안정성]** 이벤트루프 블로킹 원인 ② 제거 (문서 A-7). 매 요청 sync 커넥션 획득 절감. MissingGreenlet 회피 (polymorphic eager load 강제). postgres 커넥션 active=1 idle=4 안정.<br><br>**[v6.1 이월]** report_service.py 내부 async + report_master_builder + report_html_renderer 완전 async, init_*.py 5개 내부 async, APILoggingMiddleware batch INSERT queue, pytest 스위트 async fixture 복구, token_blacklist TTL 캐시 → Redis 분산 캐시.<br><br>**[하위 호환]** Dual-stack 유지 — 기존 sync 시그니처 전건 유지. 신규 라우터 작성 시 async 버전 사용 권장. |
 | v5.4 | 2026-07-03 | **하루 1버전 통합: ① GET /api/grants 신설(클라 REQ) + ② P0 hotfix 6건(Workflow 393 시나리오) + ③ 클라 결함 5건 대응 + ④ AUTH_MODE public → token (User/Admin 2계층 인가 강화 발효)**<br><br>**[① 신설 — GET /api/grants]** 클라(.NET GIS) 요청서 `docs/REQ_Server_Grants_ListAll.md` 대응. `Depends(require_admin)` + 쿼리 6종(page/size/user_id/group_id/status/active_only). GrantResponse에 `user_login_id`+`user_name` 필드 추가(비정규화, UserLabel 태깅 로직 제거 가능). Swagger 5.3.5 → **5.4.0**. 12/12 PASS.<br><br>**[② P0 hotfix 6건]** Workflow 393 시나리오(30 fail) 결과 발견 회귀 봉합:<br>&nbsp;&nbsp;• **P0-1** `/reports/preview/{id}` **무인증 PII 창구 삭제** — `@app.get` 우회 + `include_in_schema=False` + logging 제외 3중 은폐 해체. `/api/reports/preview/{id}` 라우터로 이관(인증 강제).<br>&nbsp;&nbsp;• **P0-2** `AccountUserCreate/Update.role` `str` → **`EnumUserRole`** — v5.3 Phase 2 회귀 봉합. OPERATOR 등 삭제 role 422 차단, DB 오염 재발 차단.<br>&nbsp;&nbsp;• **P0-3** `DetectionEventCreate.type_event` `str` → **`EnumEventType`** — 'Bogus' 등 임의값 422 차단.<br>&nbsp;&nbsp;• **P0-4** Event Update 3종 `model_config = ConfigDict(extra='forbid')` — v4.8 Phase 12 docstring 의도 → 실제 코드화. PATCH 표면 방어 완성.<br>&nbsp;&nbsp;• **P0-5** `POST /api/reports/generate` template_id FK **raw 500 → 404 명시 매핑**. psycopg2 스택트레이스 노출 차단.<br>&nbsp;&nbsp;• **P0-6** `Server.port` `Field(ge=1, le=65535)` 검증.<br><br>**[③ 클라 결함 지적 5건 대응]** ① preview PII(P0-1로 해결), ② **reports verb RBAC 서버 집행** — `app/security/permission_map.py`에 reports view/edit/delete 매트릭스 등록, ③ **DELETE /api/reports/generations/{id}** 신설(PDF best-effort 삭제 + DB row 삭제), ④ **작성자 스냅샷** — POST /generate에서 `generator_id/name/department` 실적용, ⑤ **severity_filter 실동작** — `build_master_data`에 인자 추가, system_events 4개 쿼리에 `severity::text IN (...)` 화이트리스트 필터 적용.<br><br>**[④ AUTH_MODE 전환]** `.env` `AUTH_MODE=public` → **`token`**. matrix_enforcer 활성. Bearer 토큰 필수화. **User/Admin 2계층 인가 강화**: ADMIN=SuperUser(모든 경로 통과), USER=UserGroupGrant → UserGroup.permissions 매트릭스 게이팅. 미인증 요청 401 통일.<br><br>**[실측 검증]** 무인증 `/api/users`·`/api/reports/preview/7` → **401** / 이전 `/reports/preview/7` → **404** (엔드포인트 삭제) / admin 토큰 → 200 / `role=OPERATOR` 계정 생성 → **422** / `type_event=Bogus` → **422** / `template_id=99999` → **404** / `port=70000` → **422** / PATCH detection `device_id=99999` → **422** / DELETE unknown generation → **404**.<br><br>**[Notify 클라]** .NET 3종(GIS/Ironwall/RtspViewer)이 이미 Bearer 부착 완료된 상태여야 함(AUTH_MODE=token 전환됨). LoadAllGrantsAsync 계정 순회 → 단일 `GET /api/grants` 호출로 교체. UserLabel 태깅 로직 제거. 클라 UI 결함 대응 주석/우회 로직 5개 제거 가능.<br><br>**[v5.4 후속 — 클라 지적 계정 항목 4건 (같은 날 통합)]** v5.4 태그 직후 클라팀 지적 대응:<br>&nbsp;&nbsp;• **P0-B** `PUT /api/users/{id}` group_id=null 해제 지원 — `is not None` → `model_fields_set` 판정으로 변경. 요청 body에 명시적 null 포함 시 구성원 해제 실동작.<br>&nbsp;&nbsp;• **P1-A** UserSession sweep 스케줄러 신설 (`app/services/session_sweep_service.py`, 5분 간격) — `expires_at < now AND is_active=true` 세션에 `is_active=false + logout_reason=EXPIRED` 마킹.<br>&nbsp;&nbsp;• **P1-B** SUPERSEDED 핸들러 — `POST /api/auth/login`에서 동일 계정 활성 세션 자동 evict: (1) `is_active=false + logout_reason=DUPLICATE + logged_out_at`, (2) 각 access jti → `token_blacklist` 등재, (3) `publish_session_revoke()` NATS 발행(best-effort). 결과: 이전 로그인 토큰 즉시 401.<br>&nbsp;&nbsp;• **P0-A** `GET /api/audit-logs?action_status=…` 500 재확인 — v5.4 AUTH_MODE=token 이후 정상(200). 클라 콘솔 500은 AUTH_MODE 이전 상태 산물로 판단.<br><br>**[v5.4 후속 — GOPDB 통합 원인분석 대응 (문서 A-7 조치 부분 반영)]**<br>&nbsp;&nbsp;• `/health` 강화 — DB `SELECT 1` 실행 + 실패 시 503 반환 (silent failure 감지, Docker healthcheck unhealthy 발효).<br>&nbsp;&nbsp;• **APILoggingMiddleware 이벤트루프 블로킹 해소** — 요청당 sync `SessionLocal()` + `commit()` → `asyncio.to_thread`로 threadpool 이관. 이벤트루프 정지 방지(문서 A-7 #1).<br>&nbsp;&nbsp;• **카메라 N+1 폭발 해소** — `GET /api/devices/cameras` 목록 응답에서 `_get_device_groups_nested`를 카메라마다 호출하던 것을 배치 조회로 대체(전체 매핑 1회 조회 → in-memory dict). 문서 A-7 #3.<br>&nbsp;&nbsp;• **api_logs TTL sweep** — 일 1회(정오) 30일 초과 row 삭제 스케줄러 추가. 문서 A-7 #6.<br>&nbsp;&nbsp;• **async def → def 전환 / async 세션** — 오늘 스코프 외. **v6.0 별도 차수**로 이월(라우터 39개 × 쿼리 406곳 규모, 4~5일 소요).<br><br>**[v5.4 후속 (2) — 클라 REQ Reports verb-RBAC 서버 집행]** 요청서 `docs/REQUEST_Reports_Verb_RBAC_Enforcement.md` 대응. v5.4 P2-2에서 `PERMISSION_MAP`에 reports 10경로 등록했으나 중앙 `enforce_matrix`가 실제 게이팅 못함(perm=None default-allow) → 무권한 USER가 보고서 생성/삭제/PII 조회 가능. **A안 채택 (controllers.py 검증된 패턴 재사용)**: `app/routers/reports.py` 15개 endpoint 전건에 `dependencies=[Depends(require_perm_optional("reports", verb))]` 부착.<br>&nbsp;&nbsp;• **§4.2 필수 (9개)**: edit 3(POST /templates, PATCH /templates/{id}, POST /generate), delete 2(DELETE /templates/{id}, DELETE /generations/{id}), view 4(GET /preview/{id}, /generations/{id}/download, /generations/{id}/preview, /generations/{id}/preview-page). 요청서 §4.2의 PUT /templates/{id}는 코드 미존재 → 9개.<br>&nbsp;&nbsp;• **§4.3 선택·권장 (6개 view)**: /components, /status, /templates, /templates/{id}, /generations, /generations/{id} — 클라 UI 게이팅과 일관성 완결.<br>&nbsp;&nbsp;• **총 15개 endpoint**: edit 3 + delete 2 + view 10. `require_perm_optional`이 ADMIN bypass + jti 블랙리스트 + 403 응답 처리.<br>&nbsp;&nbsp;• **실측 (요청서 §6 완료 기준 준수)**: 무권한 USER(group_id=null) 토큰 → 15개 endpoint 전건 **403**. ADMIN → 통과(bypass). |
 | v5.3 | 2026-07-02 | **하루 일괄 — Legacy User 모델 완전 삭제 + AccountUser 통일 (GIS 팀 요청 대응, 14/14 PASS)**<br><br>**[배경]** GIS 팀 요청 — User와 AccountUser 혼용 정리. Legacy users 테이블 admin 1건 + FK 참조 0건 확인. v5.1 FR-SV-08 잔존 소진.<br><br>**[Phase 2 라우터 sweep]** 30 파일에서 `get_current_user_optional` → `get_current_account_user_optional` (Device CRUD 7 + Event 4 + EventMapping 4 + Server 4 + DeviceGroup 3 + CameraPreset 3 + Log 3 + tracking/grants/settings 3).<br><br>**[Phase 3 Dead code 삭제]** auth.py Legacy 함수 3건(get_current_user + get_current_user_optional + login_oauth2) + models/user.py `class User` + schemas/user.py UserCreate/UserResponse + init_db.py create_admin_user() + tests/conftest.py User import.<br><br>**[Phase 4 DB]** `v56_drop_users_table.sql` 신설 + FK 파괴 0 확인 DO block + DROP TABLE users CASCADE. reverse migration 사전 작성.<br><br>**[Phase 5 실측 14/14 PASS]** admin login + /me + tracking(2) + users + user-groups + audit-logs + reports + servers + user-sessions + cameras + actions + detections + controllers + sensors 모두 200. Swagger UserResponse/UserCreate/oauth2 endpoint 제거 확정. AccountUserResponse 유지.<br><br>**[Phase 6 5-sync]** Image rebuild + Swagger version 5.2.0 → **5.3.0** + API Version 5.3 + Container Up healthy.<br><br>**[안전점/롤백]**: `pre-legacy-user-removal` (v5.2 마감 시점). 롤백 = `git reset --hard pre-legacy-user-removal` + `psql < v56_reverse.sql`.<br><br>**[Phase 2] Role 축소 (5→2) + 등급 그룹 → Preset Group 정리 (하루 1차수 묶음 원칙 준수, 같은 날 통합)**<br>차장님 지시 대응 — Admin과 User로만 남기고 기존 등급은 Preset 권한 그룹으로. v5.2 R10① 정신(role은 특권 라벨, 실 권한은 group_id) 스키마 완성.<br>**[Enum 축소]** `EnumUserRole` 5종 → 2종(ADMIN/USER). Legacy 4종(MAINTAINER/OPERATOR/VIEWER/GUEST)은 Preset 권한 그룹으로 이관.<br>**[DB 마이그레이션 v57]** account_users.role 값 UPDATE(admin 외 → USER, 7건), user_groups id=11/12/13 rename(→Preset-유지보수자/운영자/조회자), id=10 ADMIN 그룹 + id=14 GUEST 그룹 삭제(사용자 0명 검증), admin.group_id=NULL.<br>**[코드]** enums.py + init_db.py `ensure_role_permission_groups()` → Preset 3건 시드 + init_sample_data.py role="USER" 통일. Swagger version 5.3.0 → **5.3.5**.<br>**[실측 6/6 PASS]** admin login 200 + role=ADMIN, gop_maint/op/viewer/op_tester/monitor2 각 login 200 + role=USER + 각자 group_id 배정 매트릭스 유지(gop_maint: Preset-유지보수자 10 modules 매트릭스 유지, monitor2: 관제팀 8 modules 매트릭스 유지). Swagger EnumUserRole.enum=["ADMIN","USER"] 확정. 14 endpoint 응답 코드 유지.<br>**[클라 안내]** `docs/GOP_Server_API_v5.3_Phase2_Role_Simplification_NOTIFY.md` — Enum 축소 매트릭스 + 그룹 rename + role 조건 코드 조사 요청 + JWT payload Before/After + FAQ + 롤백 절차.<br>**[안전점]** `pre-role-simplification` @ (Phase 2 진입 직전). 롤백 `git reset --hard pre-role-simplification` + `psql < v57_reverse.sql`. |

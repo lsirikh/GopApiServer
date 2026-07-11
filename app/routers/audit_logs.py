@@ -13,7 +13,7 @@ import math
 logger = logging.getLogger(__name__)
 
 from app.dependencies import get_async_db
-from app.routers.auth import get_current_account_user_optional_async
+from app.routers.auth import require_perm_async
 from app.models.audit_log import AuditLog
 from app.schemas.audit_log import (
     AuditLogResponse,
@@ -73,7 +73,8 @@ router = APIRouter()
             "model": ValidationErrorResponse,
             "description": "Validation Error - 잘못된 쿼리 파라미터"
         }
-    }
+    },
+    dependencies=[Depends(require_perm_async("audit_logs", "view"))],
 )
 async def get_audit_logs(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
@@ -85,7 +86,6 @@ async def get_audit_logs(
     action_status: Optional[str] = Query(None, description="행위 결과 필터 (SUCCESS, FAILURE)"),
     start_date: Optional[datetime] = Query(None, description="시작 날짜 필터"),
     end_date: Optional[datetime] = Query(None, description="종료 날짜 필터"),
-    current_user=Depends(get_current_account_user_optional_async),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -217,11 +217,11 @@ async def get_audit_logs(
                 }
             }
         }
-    }
+    },
+    dependencies=[Depends(require_perm_async("audit_logs", "view"))],
 )
 async def get_audit_log_detail(
     audit_log_id: int,
-    current_user=Depends(get_current_account_user_optional_async),
     db: AsyncSession = Depends(get_async_db)
 ):
     """

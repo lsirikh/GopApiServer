@@ -648,11 +648,7 @@ async def logout(
     ).first()
 
     if session:
-        session.is_active = False
-        session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
-        session.logout_reason = "USER_LOGOUT"
-
-        # Create UserLoginLog record
+        # Create UserLoginLog record (감사)
         logout_log = UserLoginLog(
             user_id=session.user_id,
             login_id=login_id,
@@ -660,41 +656,29 @@ async def logout(
             result="SUCCESS"
         )
         db.add(logout_log)
-        db.commit()
 
-    # PRD v4.9 Phase 2-A4: jti 블랙리스트 등록 — logout 후 access_token 즉시 무효화
-    if token_data.jti:
-        from app.services.token_blacklist_service import add_to_blacklist
-        from datetime import timedelta as _td
-        # access_token TTL = JWT_EXPIRATION_HOURS (block 기간은 토큰 원래 exp까지)
-        expires_at = datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)
-        user_id = session.user_id if session else None
-        add_to_blacklist(
-            db=db,
-            jti=token_data.jti,
-            expires_at=expires_at,
-            reason="LOGOUT",
-            user_id=user_id,
-            token_type="access",
-        )
-
-    # FR-SVF-03: 토큰 패밀리 무효화 — paired refresh jti도 블랙리스트 등록.
-    # access만 등재하면 셀프 로그아웃 후 저장된 refresh_token으로 /refresh 호출 시
-    # 새 토큰을 발급받아 세션이 부활함. force_logout_session(user_sessions.py:368-376) 동일 패턴.
-    if session and session.refresh_token:
-        # E1/P1-10: session.refresh_token 은 이제 refresh jti → decode 불필요, 직접 블랙리스트.
-        #   만료는 stored refresh_expires_at(없으면 방어적 fallback).
-        from app.services.token_blacklist_service import add_to_blacklist
-        from datetime import timedelta as _td
-        _rexp = session.refresh_expires_at or (datetime.utcnow() + _td(days=30))
-        add_to_blacklist(
-            db=db,
-            jti=session.refresh_token,
-            expires_at=_rexp,
-            reason="LOGOUT",
-            user_id=session.user_id,
-            token_type="refresh",
-        )
+        # P1-01 (review0710): 폐기 경로 단일화. 기존엔 access=static(now+JWT_EXPIRATION_HOURS),
+        #   refresh=stored 로 TTL 원천이 갈렸고 세션 마킹/블랙리스트가 분산돼 있었다.
+        #   이제 access+refresh 를 각 토큰의 stored exp 로 블랙리스트 + 세션 마킹(is_active/
+        #   logged_out_at/logout_reason)까지 revoke_session_family 로 통일 →
+        #   logout·refresh·revoke·force_logout 모두 동일 TTL 원천(토큰 실제 exp)을 사용한다.
+        #   (FR-SVF-03: refresh 도 함께 폐기하므로 저장된 refresh 로 /refresh 재부활 불가.)
+        from app.services.session_revoke_service import revoke_session_family
+        revoke_session_family(db, session, reason="USER_LOGOUT", commit=True)
+    else:
+        # 세션이 이미 폐기된 orphan(대개 이미 블랙리스트됨) — 방어적으로 이 access jti 만 등재.
+        #   세션이 없어 stored exp 를 알 수 없으므로 보수적 static TTL fallback.
+        if token_data.jti:
+            from app.services.token_blacklist_service import add_to_blacklist
+            from datetime import timedelta as _td
+            add_to_blacklist(
+                db=db,
+                jti=token_data.jti,
+                expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
+                reason="LOGOUT",
+                user_id=None,
+                token_type="access",
+            )
 
     return {"success": True}
 

@@ -1,5 +1,9 @@
 """
-Test: 인증 API 엔드포인트 검증
+Test: 인증 API 엔드포인트 검증 (AccountUser 기반)
+
+Phase 1 Auth Migration: OAuth2PasswordBearer → HTTPBearer
+- POST /api/auth/login: JSON body (login_id, password) for AccountUser
+- POST /api/auth/login/oauth2: [DEPRECATED] Form data for legacy User model
 """
 from fastapi.testclient import TestClient
 
@@ -15,28 +19,32 @@ def test_login_endpoint_exists():
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
-    response = client.post("/api/auth/login")
+    # New login endpoint expects JSON, not form data
+    response = client.post("/api/auth/login", json={})
 
-    # Should not return 404 (endpoint exists)
+    # Should not return 404 (endpoint exists) - will return 422 for missing fields
     assert response.status_code != 404
 
 
 def test_login_with_valid_credentials_returns_token(test_db):
-    """Test that valid credentials return a token"""
+    """Test that valid credentials return a token (AccountUser model)"""
     from fastapi import FastAPI
     from app.routers.auth import router as auth_router
     from app.dependencies import get_db
-    from app.models.user import User
+    from app.models.user import AccountUser
     from app.utils.auth import hash_password
 
-    # Create a test user
-    test_user = User(
-        username="testuser",
-        hashed_password=hash_password("testpass123"),
-        role="user"
+    # Create a test AccountUser
+    test_user = AccountUser(
+        login_id="testuser",
+        password_hash=hash_password("testpass123"),
+        name="Test User",
+        role="OPERATOR",
+        is_active=True,
+        is_locked=False
     )
     test_db.add(test_user)
     test_db.commit()
@@ -49,18 +57,19 @@ def test_login_with_valid_credentials_returns_token(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
     response = client.post(
         "/api/auth/login",
-        data={"username": "testuser", "password": "testpass123"}
+        json={"login_id": "testuser", "password": "testpass123"}
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert "access_token" in data
-    assert "token_type" in data
+    assert data["success"] is True
+    assert "access_token" in data["data"]
+    assert "token_type" in data["data"]
 
 
 def test_login_with_invalid_credentials_returns_401(test_db):
@@ -77,30 +86,33 @@ def test_login_with_invalid_credentials_returns_401(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
     response = client.post(
         "/api/auth/login",
-        data={"username": "nonexistent", "password": "wrongpass"}
+        json={"login_id": "nonexistent", "password": "wrongpass"}
     )
 
     assert response.status_code == 401
 
 
 def test_login_response_format(test_db):
-    """Test that login response has correct format {access_token, token_type}"""
+    """Test that login response has correct format (AccountUser model)"""
     from fastapi import FastAPI
     from app.routers.auth import router as auth_router
     from app.dependencies import get_db
-    from app.models.user import User
+    from app.models.user import AccountUser
     from app.utils.auth import hash_password
 
-    # Create a test user
-    test_user = User(
-        username="testuser2",
-        hashed_password=hash_password("testpass123"),
-        role="user"
+    # Create a test AccountUser
+    test_user = AccountUser(
+        login_id="testuser2",
+        password_hash=hash_password("testpass123"),
+        name="Test User 2",
+        role="OPERATOR",
+        is_active=True,
+        is_locked=False
     )
     test_db.add(test_user)
     test_db.commit()
@@ -113,37 +125,39 @@ def test_login_response_format(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
     response = client.post(
         "/api/auth/login",
-        data={"username": "testuser2", "password": "testpass123"}
+        json={"login_id": "testuser2", "password": "testpass123"}
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data["access_token"], str)
-    assert data["token_type"] == "bearer"
+    assert data["success"] is True
+    assert isinstance(data["data"]["access_token"], str)
+    assert data["data"]["token_type"] == "bearer"
 
 
 def test_me_endpoint_with_valid_token(test_db):
     """
-    Test: GET /api/auth/me returns authenticated user info with valid token
-
-    Expected to fail initially (Red phase).
+    Test: GET /api/auth/me returns authenticated AccountUser info with valid token
     """
     from fastapi import FastAPI
     from app.routers.auth import router as auth_router
     from app.dependencies import get_db
-    from app.models.user import User
+    from app.models.user import AccountUser
     from app.utils.auth import hash_password, create_access_token
 
-    # Create a test user
-    test_user = User(
-        username="metest",
-        hashed_password=hash_password("password123"),
-        role="admin"
+    # Create a test AccountUser
+    test_user = AccountUser(
+        login_id="metest",
+        password_hash=hash_password("password123"),
+        name="Me Test User",
+        role="ADMIN",
+        is_active=True,
+        is_locked=False
     )
     test_db.add(test_user)
     test_db.commit()
@@ -160,7 +174,7 @@ def test_me_endpoint_with_valid_token(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
     response = client.get(
@@ -170,16 +184,14 @@ def test_me_endpoint_with_valid_token(test_db):
 
     assert response.status_code == 200, f"Expected 200, got {response.status_code}"
     data = response.json()
-    assert data["username"] == "metest"
-    assert data["role"] == "admin"
-    assert "hashed_password" not in data, "Password should not be in response"
+    assert data["login_id"] == "metest"
+    assert data["role"] == "ADMIN"
+    assert "password_hash" not in data, "Password should not be in response"
 
 
 def test_me_endpoint_without_token_returns_401(test_db):
     """
     Test: GET /api/auth/me without token returns 401
-
-    Expected to fail initially (Red phase).
     """
     from fastapi import FastAPI
     from app.routers.auth import router as auth_router
@@ -193,7 +205,7 @@ def test_me_endpoint_without_token_returns_401(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
     response = client.get("/api/auth/me")
@@ -204,8 +216,6 @@ def test_me_endpoint_without_token_returns_401(test_db):
 def test_me_endpoint_with_invalid_token_returns_401(test_db):
     """
     Test: GET /api/auth/me with invalid token returns 401
-
-    Expected to fail initially (Red phase).
     """
     from fastapi import FastAPI
     from app.routers.auth import router as auth_router
@@ -219,7 +229,7 @@ def test_me_endpoint_with_invalid_token_returns_401(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/auth")
 
     client = TestClient(app)
     response = client.get(

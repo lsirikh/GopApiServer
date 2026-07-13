@@ -1,101 +1,276 @@
 """
 Detection Event API endpoints
+
+PRD: PRD_Event_ActionEvent_Refactoring.md v2.1
+- device_id: Device FK (기존 controller, sensor, type_device 대체)
+- device_description: Device 정보 스냅샷 (자동 생성)
+- Response에 device nested 객체 포함 (Optional, Device 삭제 시 null)
+- group_event 필드 제거됨
+
+v6.0 P8: async 라우터 전환 (AsyncSession + get_async_db)
+- Dependency: get_current_account_user_optional_async / require_perm_optional_async
+- log_config_change_async 사용
+- Query 패턴: select() + await db.execute()
+- 응답 스키마 완전 유지 (Polymorphic Nested Response 포함)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, selectin_polymorphic
+from app.models.device import Sensor, Camera, Controller, Speaker, Enclosure, Lamp
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
-from app.models.event import DetectionEvent, EnumTrueFalse, EnumDetectionType
-from app.schemas.event import DetectionEventCreate, DetectionEventResponse, DetectionEventUpdate
-from app.schemas.common import ApiResponse, PaginationMeta
-from app.utils.enums import EnumDeviceType
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async, require_perm_optional_async
+from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
+from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
+from app.models.device_group import DeviceGroupMapping
+from app.schemas.event import DetectionEventCreate, DetectionEventReplace, DetectionEventResponse, DetectionEventUpdate, ActionEventResponse
+from app.schemas.device import (
+    DeviceGroupNestedResponse,
+    DeviceNestedResponse,
+    SensorNestedResponse,
+    ControllerNestedResponse,
+    CameraNestedResponse,
+    SpeakerNestedResponse,
+    LampNestedResponse,
+)
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
+from typing import Union
+from app.utils.enums import EnumDeviceStatus, EnumConfigResourceType, EnumConfigActionType
+from app.services.config_log_service import log_config_change_async, get_changed_fields, model_to_dict
 
 router = APIRouter(tags=[])
 
 
+def _generate_device_description(device: Device) -> str:
+    """
+    Device 정보 스냅샷 문자열 생성
+
+    PRD v1.1: device_description 자동 생성
+    형식: "[{type_device}] {name_device} (number: {number_device}, id: {device_id})"
+    """
+    return f"[{device.type_device.value}] {device.name_device} (number: {device.number_device}, id: {device.id})"
+
+
+async def _build_device_nested_response(device: Optional[Device], db: AsyncSession) -> Optional[Union[SensorNestedResponse, ControllerNestedResponse, CameraNestedResponse, SpeakerNestedResponse, LampNestedResponse, DeviceNestedResponse]]:
+    """
+    Device 객체를 타입에 맞는 Nested Response로 변환 (Polymorphic)
+
+    PRD v1.1: Device 삭제 시 None 반환
+    PRD v1.2: device_groups 필드 추가 (EventMapping 연동 필수)
+    PRD v2.7: Device 타입별 Polymorphic Response 반환
+    - Sensor → SensorNestedResponse
+    - Controller → ControllerNestedResponse
+    - Camera → CameraNestedResponse
+    - Speaker → SpeakerNestedResponse
+    - Enclosure → DeviceNestedResponse (전용 NestedResponse 없음)
+    - Lamp → LampNestedResponse
+
+    v6.0 P8: async 전환 — group_mappings 명시 쿼리 유지
+    """
+    if device is None:
+        return None
+
+    # PRD v1.2: Build device_groups from group_mappings (v6.0 P1: explicit query for async safety)
+    device_groups = []
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device.id
+        ).options(selectinload(DeviceGroupMapping.group))
+    )).scalars().all()
+    for mapping in mappings:
+        if mapping.group:
+            device_groups.append(DeviceGroupNestedResponse(
+                id=mapping.group.id,
+                name=mapping.group.name
+            ))
+
+    # PRD v2.7: Polymorphic Response - Device 타입에 따라 적절한 스키마 반환
+    if isinstance(device, Sensor):
+        return SensorNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            controller_id=device.controller_id,
+            device_groups=device_groups
+        )
+    elif isinstance(device, Camera):
+        # PRD_Camera_Urls_JsonB.md: urls JSONB 통합 (rtsp_uri/rtsp_port 제거)
+        from app.schemas.device import CameraUrls
+        urls_data = None
+        if device.urls:
+            urls_data = CameraUrls.model_validate(device.urls) if isinstance(device.urls, dict) else device.urls
+        return CameraNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            mode=device.mode.value if device.mode else "NONE",
+            category=device.category.value if device.category else "NONE",
+            is_record=device.is_record,
+            urls=urls_data,
+            device_groups=device_groups
+        )
+    elif isinstance(device, Controller):
+        return ControllerNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            device_groups=device_groups
+        )
+    elif isinstance(device, Speaker):
+        return SpeakerNestedResponse(
+            id=device.id,
+            category_device=device.category_device.value,
+            number_device=device.number_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            speaker_type=device.speaker_type.value if device.speaker_type else "NORMAL",
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Lamp):
+        return LampNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            version=device.version,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            ip_address=device.ip_address,
+            ip_port=device.ip_port,
+            user_name=device.user_name,
+            description=device.description,
+            geolocation=device.geolocation,
+        )
+    elif isinstance(device, Enclosure):
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
+            device_groups=device_groups
+        )
+    else:
+        # Fallback: 알 수 없는 Device 타입
+        return DeviceNestedResponse(
+            id=device.id,
+            number_device=device.number_device,
+            group_device=device.group_device,
+            name_device=device.name_device,
+            type_device=device.type_device.value,
+            status=device.status.value,
+            is_enable=device.is_enable,
+            version=device.version,
+            device_groups=device_groups
+        )
+
+
 @router.get("", response_model=ApiResponse[list[DetectionEventResponse]])
 async def get_detection_events(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    controller: Optional[int] = Query(None, description="Filter by controller"),
-    sensor: Optional[int] = Query(None, description="Filter by sensor"),
-    type_device: Optional[str] = Query(None, description="Filter by device type"),
-    group_event: Optional[str] = Query(None, description="Filter by group_event"),
-    action_reported: Optional[str] = Query(None, description="Filter by action_reported"),
-    result: Optional[str] = Query(None, description="Filter by result type"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    device_id: Optional[int] = Query(None, description="장치 ID로 필터링"),
+    action_reported: Optional[str] = Query(None, description="조치보고 여부로 필터링"),
+    result: Optional[str] = Query(None, description="결과 유형으로 필터링"),
+    start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (이벤트 생성일 >= start_date)"),
+    end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (이벤트 생성일 <= end_date)"),
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Get list of detection events with pagination and filters
+    탐지 이벤트 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        controller: Filter by controller number
-        sensor: Filter by sensor number
-        type_device: Filter by device type
-        group_event: Filter by group_event
-        action_reported: Filter by action_reported
-        result: Filter by result type
-        start_date: Filter by start date (event datetime >= start_date)
-        end_date: Filter by end date (event datetime <= end_date)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    PRD v2.1: group_event, controller, sensor, type_device 필드 제거됨
 
-    Returns:
-        ApiResponse with list of detection events and pagination metadata
+    탐지 이벤트 목록을 페이지네이션하여 조회합니다.
+
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **device_id**: 장치 ID로 필터링
+    - **action_reported**: 조치보고 여부로 필터링
+    - **result**: 결과 유형으로 필터링
+    - **start_date**: 시작 날짜로 필터링
+    - **end_date**: 종료 날짜로 필터링
+
+    **Response**: 탐지 이벤트 목록 및 페이지네이션 정보
     """
-    # Build query
-    query = db.query(DetectionEvent)
+    # Build base statements with device eager loading (PRD v2.1)
+    stmt = select(DetectionEvent).options(selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+    count_stmt = select(func.count()).select_from(DetectionEvent)
 
-    # Apply filters
-    if controller is not None:
-        query = query.filter(DetectionEvent.controller == controller)
-    if sensor is not None:
-        query = query.filter(DetectionEvent.sensor == sensor)
-    if type_device is not None:
-        query = query.filter(DetectionEvent.type_device == type_device)
-    if group_event is not None:
-        query = query.filter(DetectionEvent.group_event == group_event)
+    # Apply filters (PRD v2.1: device_id 기반 필터링)
+    if device_id is not None:
+        stmt = stmt.where(DetectionEvent.device_id == device_id)
+        count_stmt = count_stmt.where(DetectionEvent.device_id == device_id)
     if action_reported is not None:
-        query = query.filter(DetectionEvent.action_reported == action_reported)
+        stmt = stmt.where(DetectionEvent.action_reported == action_reported)
+        count_stmt = count_stmt.where(DetectionEvent.action_reported == action_reported)
     if result is not None:
-        query = query.filter(DetectionEvent.result == result)
+        stmt = stmt.where(DetectionEvent.result == result)
+        count_stmt = count_stmt.where(DetectionEvent.result == result)
     if start_date is not None:
-        query = query.filter(DetectionEvent.datetime >= start_date)
+        stmt = stmt.where(DetectionEvent.created_at >= start_date)
+        count_stmt = count_stmt.where(DetectionEvent.created_at >= start_date)
     if end_date is not None:
-        query = query.filter(DetectionEvent.datetime <= end_date)
+        stmt = stmt.where(DetectionEvent.created_at <= end_date)
+        count_stmt = count_stmt.where(DetectionEvent.created_at <= end_date)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results (order by datetime desc)
-    events = query.order_by(DetectionEvent.datetime.desc()).offset(skip).limit(limit).all()
+    # Get paginated results (order by created_at desc)
+    events = (await db.execute(
+        stmt.order_by(DetectionEvent.created_at.desc(), DetectionEvent.id.desc())
+            .offset(skip)
+            .limit(limit)
+    )).scalars().all()
 
-    # Convert to response format
+    # Convert to response format (PRD v2.1: group_event 제거됨, device nested and device_description 포함)
+    # PRD v1.3: device_id, sequence 필드 제거 (device.id에 포함, sequence는 Request 전용)
+    # PRD v1.4: category_event 필드 제거 (polymorphic 내부용)
     event_responses = [
         DetectionEventResponse(
             id=e.id,
-            group_event=e.group_event,
             type_event=e.type_event,
-            controller=e.controller,
-            sensor=e.sensor,
-            type_device=e.type_device.value,
-            sequence=e.sequence,
-            action_reported=e.action_reported.value,
+            action_reported=e.action_reported.value if hasattr(e.action_reported, 'value') else e.action_reported,
             result=e.result.value,
-            datetime=e.datetime,
+            device=await _build_device_nested_response(e.device, db),
+            device_description=e.device_description,
+            detail=e.detail,
             created_at=e.created_at,
             updated_at=e.updated_at
         )
@@ -117,27 +292,31 @@ async def get_detection_events(
     )
 
 
-@router.get("/{event_id}", response_model=ApiResponse[DetectionEventResponse])
+@router.get("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse])
 async def get_detection_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Get a single detection event by ID
+    탐지 이벤트 단건 조회
 
-    Args:
-        event_id: Detection event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 탐지 이벤트의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with detection event data
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If detection event not found
+    **Response**: 탐지 이벤트 상세 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
     """
-    event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
+    # PRD v1.1: Eager load device relationship
+    event = (await db.execute(
+        select(DetectionEvent)
+        .options(selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(DetectionEvent.id == event_id)
+    )).scalars().first()
 
     if not event:
         raise HTTPException(
@@ -145,122 +324,168 @@ async def get_detection_event(
             detail=f"Detection event with id {event_id} not found"
         )
 
+    # PRD v2.1: Include device nested and device_description (group_event 제거됨)
+    # PRD v1.3: device_id, sequence 필드 제거
+    # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Detail_JsonB.md v1.0: detail JSONB 필드 추가
     event_response = DetectionEventResponse(
         id=event.id,
-        group_event=event.group_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
-        sequence=event.sequence,
-        action_reported=event.action_reported.value,
+        action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        datetime=event.datetime,
+        device=await _build_device_nested_response(event.device, db),
+        device_description=event.device_description,
+        detail=event.detail,  # PRD_Event_Detail_JsonB.md v1.0
         created_at=event.created_at,
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event retrieved successfully",
         data=event_response
     )
 
 
-@router.post("", response_model=ApiResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[DetectionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def create_detection_event(
     event_data: DetectionEventCreate,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Create a new detection event
+    탐지 이벤트 생성
 
-    Args:
-        event_data: Detection event creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    새로운 탐지 이벤트를 생성합니다.
 
-    Returns:
-        ApiResponse with created detection event data
+    **Request Body** (PRD v2.8):
+    - **type_event**: 이벤트 유형 (필수)
+    - **device_id**: 장치 ID (필수) - Device FK
+    - **result**: 결과 유형 (필수)
 
-    Raises:
-        HTTPException 422: If invalid enum value provided
+    **자동 설정 (PRD v2.8)**:
+    - **action_reported**: 항상 "False"로 시작 (ActionEvent 생성/삭제 시 시스템 자동 관리)
+
+    **Response**: 생성된 탐지 이벤트 정보 (device nested 포함)
+
+    **Error**:
+    - 400: 존재하지 않는 device_id
+    - 422: 유효하지 않은 enum 값
     """
+    # PRD v1.1: Validate device_id exists
+    # v6.0 P8 hotfix: selectin_polymorphic 으로 서브타입 필드 미리 로드 (create 응답 조립 시 lazy load 회피)
+    device = (await db.execute(
+        select(Device)
+        .options(selectin_polymorphic(Device, [Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(Device.id == event_data.device_id)
+    )).scalars().first()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device with id {event_data.device_id} not found"
+        )
+
+    # PRD_Malfunction_Device_Status v1.1: 탐지 이벤트 발생 = 장비 정상 작동
+    device.status = EnumDeviceStatus.ACTIVATED
+
     # Convert string enum values to enum types
     try:
-        event_action_reported = EnumTrueFalse(event_data.action_reported)
         event_result = EnumDetectionType(event_data.result)
-        event_type_device = EnumDeviceType(event_data.type_device)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid enum value: {str(e)}"
         )
 
-    # Create new detection event
+    # PRD v1.1: Generate device_description automatically
+    device_description = _generate_device_description(device)
+
+    # Create new detection event with device_id
+    # PRD v2.1: group_event, sequence 필드 제거됨
+    # PRD v2.8: action_reported는 항상 "False"로 시작 (시스템 자동 관리)
+    # PRD_Event_Detail_JsonB.md v1.0: detail JSONB 필드 추가
     new_event = DetectionEvent(
-        group_event=event_data.group_event,
+        category_event="detection",  # Polymorphic discriminator
         type_event=event_data.type_event,
-        controller=event_data.controller,
-        sensor=event_data.sensor,
-        type_device=event_type_device,
-        sequence=event_data.sequence,
-        action_reported=event_action_reported,
+        device_id=event_data.device_id,
+        device_description=device_description,
+        action_reported=EnumTrueFalse.False_,  # PRD v2.8: 자동 설정
         result=event_result,
-        datetime=event_data.datetime
+        detail=event_data.detail  # PRD_Event_Detail_JsonB.md v1.0
     )
 
     db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
+    await db.commit()
+    await db.refresh(new_event)
 
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.DETECTION_EVENT,
+        resource_id=new_event.id,
+        resource_name=f"DetectionEvent-{new_event.id} ({new_event.type_event})",
+        action=EnumConfigActionType.CREATED,
+        after_state={"id": new_event.id, "type_event": new_event.type_event},
+        description="DetectionEvent 생성"
+    )
+
+    # PRD v2.1: Include device nested in response (group_event 제거됨)
+    # PRD v1.3: device_id, sequence 필드 제거
+    # PRD v1.4: category_event 필드 제거
+    # PRD_Event_Detail_JsonB.md v1.0: detail JSONB 필드 추가
     event_response = DetectionEventResponse(
         id=new_event.id,
-        group_event=new_event.group_event,
         type_event=new_event.type_event,
-        controller=new_event.controller,
-        sensor=new_event.sensor,
-        type_device=new_event.type_device.value,
-        sequence=new_event.sequence,
-        action_reported=new_event.action_reported.value,
+        action_reported=new_event.action_reported.value if hasattr(new_event.action_reported, 'value') else new_event.action_reported,
         result=new_event.result.value,
-        datetime=new_event.datetime,
+        device=await _build_device_nested_response(device, db),
+        device_description=new_event.device_description,
+        detail=new_event.detail,  # PRD_Event_Detail_JsonB.md v1.0
         created_at=new_event.created_at,
         updated_at=new_event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event created successfully",
         data=event_response
     )
 
 
-@router.patch("/{event_id}", response_model=ApiResponse[DetectionEventResponse])
+@router.patch("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse], dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def update_detection_event(
     event_id: int,
     event_data: DetectionEventUpdate,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Update a detection event (partial update)
+    탐지 이벤트 부분 수정 (PATCH)
 
-    Args:
-        event_id: Detection event ID
-        event_data: Detection event update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    PRD v2.1: device_id 기반으로 변경됨
 
-    Returns:
-        ApiResponse with updated detection event data
+    탐지 이벤트의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Raises:
-        HTTPException 404: If detection event not found
-        HTTPException 422: If invalid enum value provided
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
+
+    **Request Body** (모든 필드 선택):
+    - **type_event**: 이벤트 유형
+    - **action_reported**: 조치보고 여부
+    - **result**: 결과 유형
+
+    **Response**: 수정된 탐지 이벤트 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
-    event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
+    # PRD v1.1: Eager load device relationship
+    event = (await db.execute(
+        select(DetectionEvent)
+        .options(selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(DetectionEvent.id == event_id)
+    )).scalars().first()
 
     if not event:
         raise HTTPException(
@@ -268,7 +493,10 @@ async def update_detection_event(
             detail=f"Detection event with id {event_id} not found"
         )
 
-    # Update fields if provided
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(event)
+
+    # Update fields if provided (PRD v2.1: type_event, action_reported, result만 수정 가능)
     update_data = event_data.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
@@ -288,66 +516,86 @@ async def update_detection_event(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Invalid result value: {value}"
                 )
-        elif field == "type_device" and value is not None:
-            try:
-                value = EnumDeviceType(value)
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Invalid type_device value: {value}"
-                )
 
         setattr(event, field, value)
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(event)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        await log_config_change_async(
+            db=db,
+            resource_type=EnumConfigResourceType.DETECTION_EVENT,
+            resource_id=event.id,
+            resource_name=f"DetectionEvent-{event.id} ({event.type_event})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="DetectionEvent 수정"
+        )
+
+    # PRD v2.1: Response with device nested
+    # PRD_Event_Detail_JsonB.md v1.0: detail 필드 포함
     event_response = DetectionEventResponse(
         id=event.id,
-        group_event=event.group_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
-        sequence=event.sequence,
-        action_reported=event.action_reported.value,
+        action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        datetime=event.datetime,
+        device=await _build_device_nested_response(event.device, db),
+        device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event updated successfully",
         data=event_response
     )
 
 
-@router.put("/{event_id}", response_model=ApiResponse[DetectionEventResponse])
+@router.put("/{event_id}", response_model=ApiSingleResponse[DetectionEventResponse], dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def replace_detection_event(
     event_id: int,
-    event_data: DetectionEventCreate,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    event_data: DetectionEventReplace,
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Replace a detection event (full update - all fields required)
+    탐지 이벤트 전체 수정 (PUT)
 
-    Args:
-        event_id: Detection event ID
-        event_data: Complete detection event data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    PRD v4.8 Phase 12-7b: device_id / device_description 변경 원천 차단
+    - device_id: PUT으로 수정 불가 (v2.1 불변식 — device 바인딩은 생성 시점에 확정)
+    - device_description: Device 스냅샷 보존 (생성 시점 값 유지)
+    - device 재지정이 필요하면 DELETE 후 POST로 재생성
 
-    Returns:
-        ApiResponse with updated detection event data
+    탐지 이벤트의 필드를 교체합니다. (device 바인딩 제외)
 
-    Raises:
-        HTTPException 404: If detection event not found
-        HTTPException 422: If invalid enum value provided
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
+
+    **Request Body** (모든 필드 필수, device_id/device_description 전송 시 422):
+    - **type_event**: 이벤트 유형
+    - **result**: 결과 유형
+    - **detail**: 탐지 상세 정보 (선택)
+
+    **자동 관리**:
+    - **action_reported**: PUT 시에도 기존 값 유지 (시스템 자동 관리, PRD v2.8)
+    - **device / device_description**: 생성 시 바인딩된 값 유지 (Phase 12-7b)
+
+    **Response**: 수정된 탐지 이벤트 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값 / device_id/device_description 등 금지 필드 전송
     """
-    event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
+    event = (await db.execute(
+        select(DetectionEvent).where(DetectionEvent.id == event_id)
+    )).scalars().first()
 
     if not event:
         raise HTTPException(
@@ -357,72 +605,67 @@ async def replace_detection_event(
 
     # Convert string enum values to enum types
     try:
-        event_action_reported = EnumTrueFalse(event_data.action_reported)
         detection_result = EnumDetectionType(event_data.result)
-        event_type_device = EnumDeviceType(event_data.type_device)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid enum value: {str(e)}"
         )
 
-    # Replace all fields (PUT = full replacement)
-    event.group_event = event_data.group_event
+    # Replace allowed fields only (PUT = full replacement, device 바인딩 제외)
+    # PRD v4.8 Phase 12-7b: device_id / device_description는 변경 불가 (스냅샷 보존)
+    # PRD v2.8: action_reported는 시스템 자동 관리 (기존 값 유지)
     event.type_event = event_data.type_event
-    event.controller = event_data.controller
-    event.sensor = event_data.sensor
-    event.type_device = event_type_device
-    event.sequence = event_data.sequence
-    event.action_reported = event_action_reported
+    # event.device_id / event.device_description는 변경하지 않음 (Phase 12-7b)
+    # event.action_reported는 변경하지 않음 (시스템 자동 관리)
     event.result = detection_result
-    event.datetime = event_data.datetime
+    event.detail = event_data.detail
 
-    db.commit()
-    db.refresh(event)
+    await db.commit()
+    await db.refresh(event)
 
     event_response = DetectionEventResponse(
         id=event.id,
-        group_event=event.group_event,
         type_event=event.type_event,
-        controller=event.controller,
-        sensor=event.sensor,
-        type_device=event.type_device.value,
-        sequence=event.sequence,
-        action_reported=event.action_reported.value,
+        action_reported=event.action_reported.value if hasattr(event.action_reported, 'value') else event.action_reported,
         result=event.result.value,
-        datetime=event.datetime,
+        device=await _build_device_nested_response(event.device, db),
+        device_description=event.device_description,
+        detail=event.detail,
         created_at=event.created_at,
         updated_at=event.updated_at
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Detection event replaced successfully",
         data=event_response
     )
 
 
-@router.delete("/{event_id}", response_model=ApiResponse[Optional[dict]])
+@router.delete("/{event_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional_async("events", "delete"))])
 async def delete_detection_event(
     event_id: int,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Delete a detection event
+    탐지 이벤트 삭제
 
-    Args:
-        event_id: Detection event ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 탐지 이벤트를 삭제합니다. 조치보고가 등록된 이벤트는 삭제할 수 없습니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If detection event not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    - 409: 조치보고가 등록된 탐지 이벤트는 삭제 불가
     """
-    event = db.query(DetectionEvent).filter(DetectionEvent.id == event_id).first()
+    event = (await db.execute(
+        select(DetectionEvent).where(DetectionEvent.id == event_id)
+    )).scalars().first()
 
     if not event:
         raise HTTPException(
@@ -437,11 +680,100 @@ async def delete_detection_event(
             detail="조치보고가 등록된 탐지 이벤트는 삭제할 수 없습니다. ActionEvent를 먼저 삭제해주세요. / Cannot delete Detection event with Action reported. Please delete the ActionEvent first."
         )
 
-    db.delete(event)
-    db.commit()
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = event.id
+    deleted_identifier = {"id": event.id, "type_event": event.type_event}
+    deleted_name = f"DetectionEvent-{event.id} ({event.type_event})"
+
+    await db.delete(event)
+    await db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.DETECTION_EVENT,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="DetectionEvent 삭제"
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        message=f"Detection event {event_id} deleted successfully",
+        data=None
+    )
+
+
+@router.get("/{event_id}/actions", response_model=ApiResponse[list[ActionEventResponse]])
+async def get_action_events_for_detection(
+    event_id: int,
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    탐지 이벤트의 조치 이벤트 목록 조회
+
+    특정 탐지 이벤트에 연결된 조치 이벤트 목록을 조회합니다.
+    PRD: PRD_ActionEvent_1N_Refactoring.md v2.0 — 1:N 관계 리스트 반환
+
+    **파라미터**:
+    - **event_id**: 탐지 이벤트 ID (Path Parameter)
+
+    **Response**: 조치 이벤트 목록 (빈 리스트 허용)
+
+    **Error**:
+    - 404: 탐지 이벤트를 찾을 수 없음
+    """
+    # 1. DetectionEvent 존재 확인 (device eager loading — response 구성용)
+    detection = (await db.execute(
+        select(DetectionEvent)
+        .options(selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(DetectionEvent.id == event_id)
+    )).scalars().first()
+    if not detection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Detection event not found with Id={event_id}"
+        )
+
+    # 2. ActionEvent 목록 조회 (1:N 관계)
+    actions = (await db.execute(
+        select(ActionEvent)
+        .where(ActionEvent.from_event_id == event_id)
+        .order_by(ActionEvent.created_at.desc())
+    )).scalars().all()
+
+    # 3. source event response 구성
+    source_event_response = DetectionEventResponse(
+        id=detection.id,
+        type_event=detection.type_event,
+        action_reported=detection.action_reported.value if hasattr(detection.action_reported, 'value') else detection.action_reported,
+        result=detection.result.value,
+        device=await _build_device_nested_response(detection.device, db),
+        device_description=detection.device_description,
+        detail=detection.detail,
+        created_at=detection.created_at,
+        updated_at=detection.updated_at
+    )
+
+    # 4. ActionEventResponse 리스트 구성
+    action_responses = [
+        ActionEventResponse(
+            id=action.id,
+            type_event=action.type_event,
+            content=action.content,
+            user=action.user,
+            from_event=source_event_response,
+            created_at=action.created_at,
+            updated_at=action.updated_at
+        )
+        for action in actions
+    ]
 
     return ApiResponse(
         success=True,
-        message="Detection event deleted successfully",
-        data=None
+        message="Action events retrieved successfully",
+        data=action_responses
     )

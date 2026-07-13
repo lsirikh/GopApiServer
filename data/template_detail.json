@@ -1,0 +1,85 @@
+{
+  "id": 1,
+  "name": "일일 종합 보고서",
+  "description": "장비/이벤트/시스템/사용자 전체 현황을 포함하는 종합 보고서 템플릿",
+  "report_type": "STANDARD",
+  "owner_id": null,
+  "is_public": true,
+  "components": [
+    {
+      "id": "SUMMARY_CARD",
+      "order": 1,
+      "enabled": true,
+      "title": "전체 현황 요약"
+    },
+    {
+      "id": "DEVICE_STATUS_PIE",
+      "order": 2,
+      "enabled": true,
+      "title": "장비 상태 분포"
+    },
+    {
+      "id": "DEVICE_TYPE_BAR",
+      "order": 3,
+      "enabled": true,
+      "title": "장비 유형별 현황"
+    },
+    {
+      "id": "DEVICE_GRID",
+      "order": 4,
+      "enabled": true,
+      "title": "장비 목록"
+    },
+    {
+      "id": "EVENT_SUMMARY_PIE",
+      "order": 5,
+      "enabled": true,
+      "title": "이벤트 유형 분포"
+    },
+    {
+      "id": "EVENT_TREND_LINE",
+      "order": 6,
+      "enabled": true,
+      "title": "이벤트 추이"
+    },
+    {
+      "id": "EVENT_DETECTION_GRID",
+      "order": 7,
+      "enabled": true,
+      "title": "탐지 이벤트 목록"
+    },
+    {
+      "id": "SYSTEM_SEVERITY_BAR",
+      "order": 8,
+      "enabled": true,
+      "title": "시스템 이벤트 심각도"
+    },
+    {
+      "id": "SYSTEM_TREND_LINE",
+      "order": 9,
+      "enabled": true,
+      "title": "시스템 이벤트 추이"
+    },
+    {
+      "id": "SYSTEM_EVENT_GRID",
+      "order": 10,
+      "enabled": true,
+      "title": "시스템 이벤트 목록"
+    },
+    {
+      "id": "USER_ROLE_PIE",
+      "order": 11,
+      "enabled": true,
+      "title": "역할별 사용자 분포"
+    },
+    {
+      "id": "USER_GRID",
+      "order": 12,
+      "enabled": true,
+      "title": "사용자 목록"
+    }
+  ],
+  "default_period": "7d",
+  "created_at": "2026-01-30T13:09:40.334801",
+  "updated_at": "2026-01-30T13:09:40.334805"
+}

@@ -1,5 +1,6 @@
 """
 Test: Camera schemas
+PRD: PRD_Camera_Urls_JsonB.md v1.0 - Updated to use urls JSONB instead of rtsp_uri/rtsp_port
 """
 import pytest
 from datetime import datetime
@@ -9,7 +10,9 @@ def test_camera_create_schema_fields():
     """
     Test: CameraCreate schema has all required fields including camera-specific fields
 
-    Expected to fail initially (Red phase).
+    PRD: PRD_Camera_Urls_JsonB.md v1.0
+    - rtsp_uri, rtsp_port 제거
+    - urls JSONB 필드 추가
     """
     from app.schemas.device import CameraCreate
 
@@ -24,8 +27,9 @@ def test_camera_create_schema_fields():
         "ip_port": 80,
         "user_name": "admin",
         "user_password": "password123",
-        "rtsp_uri": "rtsp://192.168.1.100:554/stream",
-        "rtsp_port": 554,
+        "urls": {
+            "streams": {"rtsp": {"main": "rtsp://192.168.1.100:554/stream"}}
+        },
         "mode": "ONVIF",
         "category": "PTZ"
     }
@@ -42,8 +46,7 @@ def test_camera_create_schema_fields():
     assert camera_create.ip_port == 80
     assert camera_create.user_name == "admin"
     assert camera_create.user_password == "password123"
-    assert camera_create.rtsp_uri == "rtsp://192.168.1.100:554/stream"
-    assert camera_create.rtsp_port == 554
+    assert camera_create.urls.streams["rtsp"].main == "rtsp://192.168.1.100:554/stream"
     assert camera_create.mode == "ONVIF"
     assert camera_create.category == "PTZ"
 
@@ -52,7 +55,9 @@ def test_camera_response_schema_fields():
     """
     Test: CameraResponse schema has all required fields
 
-    Expected to fail initially (Red phase).
+    PRD: PRD_Camera_Urls_JsonB.md v1.0
+    - rtsp_uri, rtsp_port 제거
+    - urls JSONB 필드 추가
     """
     from app.schemas.device import CameraResponse
 
@@ -68,8 +73,9 @@ def test_camera_response_schema_fields():
         "ip_port": 80,
         "user_name": "admin",
         "user_password": "password123",
-        "rtsp_uri": "rtsp://192.168.1.100:554/stream",
-        "rtsp_port": 554,
+        "urls": {
+            "streams": {"rtsp": {"main": "rtsp://192.168.1.100:554/stream"}}
+        },
         "mode": "ONVIF",
         "category": "PTZ",
         "created_at": datetime.utcnow(),
@@ -89,8 +95,7 @@ def test_camera_response_schema_fields():
     assert camera_response.ip_port == 80
     assert camera_response.user_name == "admin"
     assert camera_response.user_password == "password123"
-    assert camera_response.rtsp_uri == "rtsp://192.168.1.100:554/stream"
-    assert camera_response.rtsp_port == 554
+    assert camera_response.urls.streams["rtsp"].main == "rtsp://192.168.1.100:554/stream"
     assert camera_response.mode == "ONVIF"
     assert camera_response.category == "PTZ"
     assert isinstance(camera_response.created_at, datetime)
@@ -123,10 +128,12 @@ def test_camera_response_from_model(test_db):
     """
     Test: CameraResponse can be created from Camera model
 
-    Expected to fail initially (Red phase).
+    PRD: PRD_Camera_Urls_JsonB.md v1.0
+    - rtsp_uri, rtsp_port 제거
+    - urls JSONB 필드 추가
     """
     from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
-    from app.schemas.device import CameraResponse
+    from app.schemas.device import CameraResponse, CameraUrls
 
     # Create camera
     camera = Camera(
@@ -140,8 +147,7 @@ def test_camera_response_from_model(test_db):
         ip_port=80,
         user_name="admin",
         user_password="password123",
-        rtsp_uri="rtsp://192.168.1.100:554/stream",
-        rtsp_port=554,
+        urls={"streams": {"rtsp": {"main": "rtsp://192.168.1.100:554/stream"}}},
         mode=EnumCameraMode.ONVIF,
         category=EnumCameraType.PTZ
     )
@@ -150,6 +156,10 @@ def test_camera_response_from_model(test_db):
     test_db.refresh(camera)
 
     # Create response from model
+    urls_data = None
+    if camera.urls:
+        urls_data = CameraUrls.model_validate(camera.urls) if isinstance(camera.urls, dict) else camera.urls
+
     camera_response = CameraResponse(
         id=camera.id,
         number_device=camera.number_device,
@@ -162,8 +172,7 @@ def test_camera_response_from_model(test_db):
         ip_port=camera.ip_port,
         user_name=camera.user_name,
         user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
+        urls=urls_data,
         mode=camera.mode.value,
         category=camera.category.value,
         created_at=camera.created_at,
@@ -174,6 +183,7 @@ def test_camera_response_from_model(test_db):
     assert camera_response.number_device == camera.number_device
     assert camera_response.mode == "ONVIF"
     assert camera_response.category == "PTZ"
+    assert camera_response.urls.streams["rtsp"].main == "rtsp://192.168.1.100:554/stream"
 
 
 def test_camera_create_validation():

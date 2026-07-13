@@ -1,10 +1,12 @@
 """
 Test: EventMapping CRUD operations (GET single, POST, PATCH, PUT, DELETE)
 PRD: GOP_Restful_Api_연동설계.md - Section 7.2
+PRD: PRD_CategoryEvent_Refactoring.md v1.1 - category_event → category_event_mapping
 """
 import pytest
 from unittest.mock import MagicMock
 import asyncio
+from app.utils.enums import EnumMappingEventCategory
 
 
 # Phase 16.4: Single retrieval tests
@@ -19,9 +21,7 @@ def test_get_single_event_mapping_returns_mapping(test_db):
 
     # Create test data
     mapping = EventMapping(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         description="센서 침입 탐지 이벤트 매핑",
         status=True
     )
@@ -39,11 +39,11 @@ def test_get_single_event_mapping_returns_mapping(test_db):
         db=test_db
     ))
 
-    # Verify response
+    # Verify response (PRD: device_group_id replaced group_event, category_event_mapping replaced category_event)
     assert response.success is True
     assert response.data.id == mapping.id
     assert response.data.name_event == "침입 탐지"
-    assert response.data.group_event == "intrusion"
+    assert response.data.category_event_mapping == EnumMappingEventCategory.FENCE_SENSOR_ONLY
 
 
 def test_get_single_event_mapping_returns_404_when_not_found(test_db):
@@ -84,9 +84,7 @@ def test_create_event_mapping_returns_201(test_db):
 
     # Create mapping data
     create_data = EventMappingCreate(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         description="센서 침입 탐지 이벤트 매핑",
         status=True
     )
@@ -117,9 +115,7 @@ def test_patch_event_mapping_updates_fields(test_db):
 
     # Create test data
     mapping = EventMapping(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         description="Original description",
         status=True
     )
@@ -186,9 +182,7 @@ def test_patch_event_mapping_updates_timestamp(test_db):
 
     # Create test data
     mapping = EventMapping(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         status=True
     )
     test_db.add(mapping)
@@ -228,9 +222,7 @@ def test_put_event_mapping_replaces_all_fields(test_db):
 
     # Create test data
     mapping = EventMapping(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         description="Original description",
         status=True
     )
@@ -243,9 +235,7 @@ def test_put_event_mapping_replaces_all_fields(test_db):
 
     # Full update
     update_data = EventMappingCreate(
-        name_event="장애 발생",
-        group_event="malfunction",
-        category_event="fault",
+        name_event="장애 발생", category_event_mapping=EnumMappingEventCategory.MULTI_SENSOR_ONLY,
         description="New description",
         status=False
     )
@@ -257,11 +247,10 @@ def test_put_event_mapping_replaces_all_fields(test_db):
         db=test_db
     ))
 
-    # Verify all fields replaced
+    # Verify all fields replaced (PRD: category_event_mapping replaced category_event)
     assert response.success is True
     assert response.data.name_event == "장애 발생"
-    assert response.data.group_event == "malfunction"
-    assert response.data.category_event == "fault"
+    assert response.data.category_event_mapping == EnumMappingEventCategory.MULTI_SENSOR_ONLY
     assert response.data.description == "New description"
     assert response.data.status is False
 
@@ -280,9 +269,7 @@ def test_put_event_mapping_returns_404_when_not_found(test_db):
     mock_user = MagicMock()
 
     update_data = EventMappingCreate(
-        name_event="장애 발생",
-        group_event="malfunction",
-        category_event="fault",
+        name_event="장애 발생", category_event_mapping=EnumMappingEventCategory.MULTI_SENSOR_ONLY,
         status=False
     )
 
@@ -309,9 +296,7 @@ def test_delete_event_mapping_removes_mapping(test_db):
 
     # Create test data
     mapping = EventMapping(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         status=True
     )
     test_db.add(mapping)

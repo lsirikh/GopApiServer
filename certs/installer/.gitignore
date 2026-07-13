@@ -1,0 +1,11 @@
+# 빌드 산출물
+build/
+*.exe
+SHA256.txt
+
+# 실제 인증서 페이로드 (빌드 PC에서 mkcert -CAROOT 로 매번 복사)
+payload/rootCA.pem
+
+# Inno Setup 임시
+*.iss.bak
+Setup.log

@@ -10,25 +10,29 @@ def test_sensor_model_has_required_fields(test_db):
     """
     Test: Sensor model has all required fields
 
-    Expected to fail initially (Red phase).
+    With Joined Table Inheritance, common fields are in 'devices' table
+    and sensor-specific fields are in 'sensors' table.
     """
     from app.models.device import Sensor
 
     # Get table columns
     inspector = inspect(test_db.bind)
-    columns = [col['name'] for col in inspector.get_columns('sensors')]
+    sensor_columns = [col['name'] for col in inspector.get_columns('sensors')]
 
-    # Check all required fields exist
-    assert 'id' in columns
-    assert 'number_device' in columns
-    assert 'group_device' in columns
-    assert 'name_device' in columns
-    assert 'type_device' in columns
-    assert 'version' in columns
-    assert 'status' in columns
-    assert 'controller_id' in columns
-    assert 'created_at' in columns
-    assert 'updated_at' in columns
+    # Sensor-specific fields in sensors table
+    assert 'id' in sensor_columns
+    assert 'controller_id' in sensor_columns
+
+    # Common fields are in devices table (Joined Table Inheritance)
+    device_columns = [col['name'] for col in inspector.get_columns('devices')]
+    assert 'number_device' in device_columns
+    assert 'group_device' in device_columns
+    assert 'name_device' in device_columns
+    assert 'type_device' in device_columns
+    assert 'version' in device_columns
+    assert 'status' in device_columns
+    assert 'created_at' in device_columns
+    assert 'updated_at' in device_columns
 
 
 def test_sensor_model_timestamps_auto_set(test_db):

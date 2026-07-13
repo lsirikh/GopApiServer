@@ -34,8 +34,9 @@ def test_get_controllers_list_includes_sensors_when_flag_is_true(test_db):
     test_db.refresh(controller)
 
     # Create sensors for this controller
+    # Note: number_device must be unique across ALL device types (Joined Table Inheritance)
     sensor1 = Sensor(
-        number_device=1,
+        number_device=101,
         controller_id=controller.id,
         group_device=1,
         name_device="Sensor 1",
@@ -44,7 +45,7 @@ def test_get_controllers_list_includes_sensors_when_flag_is_true(test_db):
         status=EnumDeviceStatus.ACTIVATED
     )
     sensor2 = Sensor(
-        number_device=2,
+        number_device=102,
         controller_id=controller.id,
         group_device=1,
         name_device="Sensor 2",
@@ -80,8 +81,8 @@ def test_get_controllers_list_includes_sensors_when_flag_is_true(test_db):
     assert controller_response.sensors is not None
     assert len(controller_response.sensors) == 2
     assert isinstance(controller_response.sensors[0], SensorResponse)
-    assert controller_response.sensors[0].number_device in [1, 2]
-    assert controller_response.sensors[1].number_device in [1, 2]
+    assert controller_response.sensors[0].number_device in [101, 102]
+    assert controller_response.sensors[1].number_device in [101, 102]
 
 
 def test_get_controllers_list_excludes_sensors_when_flag_is_false(test_db):
@@ -110,8 +111,9 @@ def test_get_controllers_list_excludes_sensors_when_flag_is_false(test_db):
     test_db.commit()
     test_db.refresh(controller)
 
+    # Note: number_device must be unique across ALL device types (Joined Table Inheritance)
     sensor = Sensor(
-        number_device=1,
+        number_device=101,
         controller_id=controller.id,
         group_device=1,
         name_device="Sensor 1",
@@ -170,8 +172,9 @@ def test_get_single_controller_includes_sensors_when_flag_is_true(test_db):
     test_db.refresh(controller)
 
     # Create sensors
+    # Note: number_device must be unique across ALL device types (Joined Table Inheritance)
     sensor1 = Sensor(
-        number_device=1,
+        number_device=101,
         controller_id=controller.id,
         group_device=1,
         name_device="Sensor 1",

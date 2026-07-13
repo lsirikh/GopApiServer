@@ -1,4 +1,4 @@
-"""
+﻿"""
 Test: Authentication Mode Switching (AUTH_MODE environment variable)
 """
 import pytest
@@ -19,7 +19,7 @@ def test_auth_mode_token_requires_authentication(test_db, monkeypatch):
     from app import config
     config.settings = config.Settings()
 
-    from app.routers.auth import router as auth_router, get_current_user_optional
+    from app.routers.auth import router as auth_router, get_current_account_user_optional
     from app.dependencies import get_db
 
     def override_get_db():
@@ -36,7 +36,7 @@ def test_auth_mode_token_requires_authentication(test_db, monkeypatch):
     from fastapi import Depends
 
     @app.get("/api/test-protected")
-    async def test_endpoint(user=Depends(get_current_user_optional)):
+    async def test_endpoint(user=Depends(get_current_account_user_optional)):
         if user is None:
             return {"message": "no auth"}
         return {"message": "authenticated", "username": user.username}
@@ -61,7 +61,7 @@ def test_auth_mode_public_allows_no_authentication(test_db, monkeypatch):
     from app import config
     config.settings = config.Settings()
 
-    from app.routers.auth import router as auth_router, get_current_user_optional
+    from app.routers.auth import router as auth_router, get_current_account_user_optional
     from app.dependencies import get_db
 
     def override_get_db():
@@ -78,7 +78,7 @@ def test_auth_mode_public_allows_no_authentication(test_db, monkeypatch):
     from fastapi import Depends
 
     @app.get("/api/test-public")
-    async def test_endpoint(user=Depends(get_current_user_optional)):
+    async def test_endpoint(user=Depends(get_current_account_user_optional)):
         if user is None:
             return {"message": "no auth"}
         return {"message": "authenticated", "username": user.username}
@@ -118,7 +118,7 @@ def test_auth_mode_public_still_accepts_valid_token(test_db, monkeypatch):
     from app import config
     config.settings = config.Settings()
 
-    from app.routers.auth import router as auth_router, get_current_user_optional
+    from app.routers.auth import router as auth_router, get_current_account_user_optional
     from app.dependencies import get_db
 
     # Create a valid token
@@ -138,7 +138,7 @@ def test_auth_mode_public_still_accepts_valid_token(test_db, monkeypatch):
     from fastapi import Depends
 
     @app.get("/api/test-public-with-token")
-    async def test_endpoint(user=Depends(get_current_user_optional)):
+    async def test_endpoint(user=Depends(get_current_account_user_optional)):
         if user is None:
             return {"message": "no auth"}
         return {"message": "authenticated", "username": user.username}

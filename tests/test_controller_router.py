@@ -1,4 +1,4 @@
-"""
+﻿"""
 Test: Controller API endpoints
 """
 from fastapi import FastAPI
@@ -16,7 +16,7 @@ def test_get_controllers_returns_empty_list(test_db):
 
     from app.routers.controllers import router as controllers_router
     from app.dependencies import get_db
-    from app.routers.auth import get_current_user_optional
+    from app.routers.auth import get_current_account_user_optional
 
     def override_get_db():
         try:
@@ -29,8 +29,8 @@ def test_get_controllers_returns_empty_list(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user_optional] = override_auth
-    app.include_router(controllers_router, prefix="/api")
+    app.dependency_overrides[get_current_account_user_optional] = override_auth
+    app.include_router(controllers_router, prefix="/api/devices/controllers")
 
     client = TestClient(app)
     response = client.get("/api/devices/controllers")
@@ -50,7 +50,7 @@ def test_get_controllers_returns_list_with_data(test_db):
     """
     from app.routers.controllers import router as controllers_router
     from app.dependencies import get_db
-    from app.routers.auth import get_current_user_optional
+    from app.routers.auth import get_current_account_user_optional
     from app.models.device import Controller, EnumDeviceType, EnumDeviceStatus
 
     # Create test controllers
@@ -89,8 +89,8 @@ def test_get_controllers_returns_list_with_data(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user_optional] = override_auth
-    app.include_router(controllers_router, prefix="/api")
+    app.dependency_overrides[get_current_account_user_optional] = override_auth
+    app.include_router(controllers_router, prefix="/api/devices/controllers")
 
     client = TestClient(app)
     response = client.get("/api/devices/controllers")
@@ -111,7 +111,7 @@ def test_get_controllers_pagination(test_db):
     """
     from app.routers.controllers import router as controllers_router
     from app.dependencies import get_db
-    from app.routers.auth import get_current_user_optional
+    from app.routers.auth import get_current_account_user_optional
     from app.models.device import Controller, EnumDeviceType, EnumDeviceStatus
 
     # Create 5 test controllers
@@ -140,8 +140,8 @@ def test_get_controllers_pagination(test_db):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user_optional] = override_auth
-    app.include_router(controllers_router, prefix="/api")
+    app.dependency_overrides[get_current_account_user_optional] = override_auth
+    app.include_router(controllers_router, prefix="/api/devices/controllers")
 
     client = TestClient(app)
 

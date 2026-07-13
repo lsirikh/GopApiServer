@@ -1,0 +1,973 @@
+"""
+DeviceGroup API endpoints
+PRD: PRD_Device_Structure_Refactoring.md - Phase 6
+"""
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, selectin_polymorphic, with_polymorphic
+from sqlalchemy.exc import IntegrityError
+from typing import Optional
+import math
+
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
+from app.utils.enums import EnumConfigResourceType, EnumConfigActionType
+from app.models.device import Device, Controller, Sensor, Camera, Speaker, Enclosure, Lamp
+from app.schemas.device_group import (
+    DeviceGroupCreate,
+    DeviceGroupUpdate,
+    DeviceGroupResponse,
+    DeviceGroupDetailResponse,
+    DeviceAssignRequest,
+    DeviceAssignResponse,
+    DeviceRemoveResponse,
+    DeviceUnassignRequest,
+    DeviceBulkRemoveResponse,
+    ControllerSummary,
+    SensorSummary,
+    CameraSummary,
+    SpeakerSummary,
+    EnclosureSummary,
+    LampSummary,
+)
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta, ValidationErrorResponse
+from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
+
+router = APIRouter(prefix="/devices/groups")
+
+
+@router.get(
+    "",
+    response_model=ApiResponse[list[DeviceGroupResponse]],
+    responses={
+        200: {
+            "description": "디바이스 그룹 목록 조회 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "디바이스 그룹 목록 조회 성공",
+                        "data": [
+                            {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5, "created_at": "2025-01-01T00:00:00.000Z", "updated_at": "2025-01-01T00:00:00.000Z"},
+                            {"id": 2, "name": "GOP 2구역", "description": "GOP 2구역 장비 그룹", "device_count": 3, "created_at": "2025-01-02T00:00:00.000Z", "updated_at": "2025-01-02T00:00:00.000Z"}
+                        ],
+                        "pagination": {"page": 1, "limit": 20, "total": 2, "total_pages": 1},
+                        "meta": {"timestamp": "2025-01-10T10:30:00.000Z", "request_id": "550e8400-e29b-41d4-a716-446655440000"}
+                    }
+                }
+            }
+        },
+        422: {
+            "model": ValidationErrorResponse,
+            "description": "Validation Error - 잘못된 쿼리 파라미터",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "Validation error",
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "details": [
+                                {"field": "page", "message": "Page must be greater than 0"},
+                                {"field": "limit", "message": "Limit must be between 1 and 100"}
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
+async def get_device_groups(
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    name: Optional[str] = Query(None, description="이름으로 필터링 (부분 검색)"),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹 목록 조회 (페이지네이션)
+
+    디바이스 그룹 목록을 페이지네이션하여 조회합니다.
+    이름으로 필터링할 수 있습니다.
+
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **name**: 이름으로 부분 검색 (선택)
+
+    **Response**: 디바이스 그룹 목록 및 페이지네이션 정보
+    """
+    stmt = select(DeviceGroup)
+    count_stmt = select(func.count()).select_from(DeviceGroup)
+
+    if name:
+        stmt = stmt.where(DeviceGroup.name.contains(name))
+        count_stmt = count_stmt.where(DeviceGroup.name.contains(name))
+
+    total = (await db.execute(count_stmt)).scalar() or 0
+    skip = (page - 1) * limit
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+
+    groups = (
+        await db.execute(stmt.order_by(DeviceGroup.id).offset(skip).limit(limit))
+    ).scalars().all()
+
+    group_responses = []
+    for g in groups:
+        device_count = (await db.execute(
+            select(func.count()).select_from(DeviceGroupMapping).where(
+                DeviceGroupMapping.group_id == g.id
+            )
+        )).scalar() or 0
+        group_responses.append(DeviceGroupResponse(
+            id=g.id,
+            name=g.name,
+            description=g.description,
+            device_count=device_count,
+            created_at=g.created_at,
+            updated_at=g.updated_at
+        ))
+
+    pagination = PaginationMeta(
+        page=page,
+        limit=limit,
+        total=total,
+        total_pages=total_pages
+    )
+
+    return ApiResponse(
+        success=True,
+        data=group_responses,
+        pagination=pagination,
+        message="디바이스 그룹 목록 조회 성공"
+    )
+
+
+@router.get(
+    "/{group_id}",
+    responses={
+        200: {
+            "description": "디바이스 그룹 상세 조회 성공",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "include_devices_true": {
+                            "summary": "include_devices=true (기본값) - 디바이스 목록 포함",
+                            "value": {
+                                "success": True,
+                                "message": "디바이스 그룹 조회 성공",
+                                "data": {
+                                    "id": 1,
+                                    "name": "GOP 1구역",
+                                    "description": "GOP 1구역 장비 그룹",
+                                    "device_count": 3,
+                                    "created_at": "2025-01-01T00:00:00.000Z",
+                                    "updated_at": "2025-01-01T00:00:00.000Z",
+                                    "devices": [
+                                        {
+                                            "id": 1,
+                                            "number_device": 1,
+                                            "group_device": 1,
+                                            "name_device": "Controller-A",
+                                            "type_device": "Controller",
+                                            "version": "v2.1.0",
+                                            "status": "ACTIVATED",
+                                            "is_enable": True,
+                                            "ip_address": "192.168.1.100",
+                                            "ip_port": 8001,
+                                            "geolocation": {
+                                                "location": "GOP 1구역 전방 초소",
+                                                "latitude": 38.1234,
+                                                "longitude": 127.5678
+                                            },
+                                            "device_groups": [
+                                                {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+                                            ]
+                                        },
+                                        {
+                                            "id": 101,
+                                            "number_device": 1,
+                                            "group_device": 1,
+                                            "name_device": "Sensor-A-1",
+                                            "type_device": "Multi",
+                                            "version": "v1.5.0",
+                                            "status": "ACTIVATED",
+                                            "is_enable": True,
+                                            "controller_id": 1,
+                                            "geolocation": {
+                                                "location": "GOP 1구역 전방 초소",
+                                                "latitude": 38.1234,
+                                                "longitude": 127.5678
+                                            },
+                                            "device_groups": [
+                                                {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+                                            ]
+                                        },
+                                        {
+                                            "id": 201,
+                                            "number_device": 1,
+                                            "group_device": 1,
+                                            "name_device": "Camera-A-1",
+                                            "type_device": "IpCamera",
+                                            "version": "v1.0.0",
+                                            "status": "ACTIVATED",
+                                            "is_enable": True,
+                                            "ip_address": "192.168.1.200",
+                                            "ip_port": 80,
+                                            "user_name": "admin",
+                                            "user_password": "admin1234",
+                                            "mode": "RTSP",
+                                            "camera_category": "PTZ",
+                                            "is_record": True,
+                                            "urls": {
+                                                "streams": {
+                                                    "rtsp": {"main": "rtsp://192.168.1.200:554/stream1"}
+                                                }
+                                            },
+                                            "hardware_spec": {
+                                                "manufacturer": "Samsung",
+                                                "model": "SNP-6320H",
+                                                "firmware": "2.20.01"
+                                            },
+                                            "geolocation": {
+                                                "location": "GOP 1구역 전방 초소",
+                                                "latitude": 38.1234,
+                                                "longitude": 127.5678
+                                            },
+                                            "device_groups": [
+                                                {"id": 1, "name": "GOP 1구역", "description": "GOP 1구역 장비 그룹", "device_count": 5}
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "meta": {"timestamp": "2025-01-10T10:31:00.000Z", "request_id": "550e8401-e29b-41d4-a716-446655440000"}
+                            }
+                        },
+                        "include_devices_false": {
+                            "summary": "include_devices=false - 디바이스 목록 미포함",
+                            "value": {
+                                "success": True,
+                                "message": "디바이스 그룹 조회 성공",
+                                "data": {
+                                    "id": 1,
+                                    "name": "GOP 1구역",
+                                    "description": "GOP 1구역 장비 그룹",
+                                    "device_count": 3,
+                                    "created_at": "2025-01-01T00:00:00.000Z",
+                                    "updated_at": "2025-01-01T00:00:00.000Z"
+                                },
+                                "meta": {"timestamp": "2025-01-10T10:31:00.000Z", "request_id": "550e8401-e29b-41d4-a716-446655440000"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "DeviceGroup not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {"code": "NOT_FOUND", "message": "DeviceGroup ID 999 not found", "details": "No device group exists with the specified ID"},
+                        "meta": {"timestamp": "2025-01-10T10:31:00.000Z", "request_id": "550e8401-e29b-41d4-a716-446655440000"}
+                    }
+                }
+            }
+        }
+    }
+)
+async def get_device_group(
+    group_id: int,
+    include_devices: bool = Query(True, description="디바이스 목록 포함 여부 (기본값: true)"),
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹 상세 조회
+
+    ID로 디바이스 그룹을 조회합니다.
+    include_devices=true(기본값)이면 소속된 디바이스 목록도 함께 반환합니다.
+
+    - **group_id**: 그룹 ID
+    - **include_devices**: 디바이스 목록 포함 여부 (기본값: true)
+
+    **Response**:
+    - include_devices=true (기본값): DeviceGroupDetailResponse (devices 포함)
+    - include_devices=false: DeviceGroupResponse (devices 미포함)
+
+    PRD: PRD_API_Gap_Analysis.md (IMP-003)
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
+        )
+
+    # Device count calculation (always needed)
+    device_count = (await db.execute(
+        select(func.count()).select_from(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalar() or 0
+
+    # include_devices=false: return basic response without devices
+    if not include_devices:
+        response = DeviceGroupResponse(
+            id=group.id,
+            name=group.name,
+            description=group.description,
+            device_count=device_count,
+            created_at=group.created_at,
+            updated_at=group.updated_at
+        )
+        return ApiSingleResponse(
+            success=True,
+            data=response,
+            message="디바이스 그룹 조회 성공"
+        )
+
+    # include_devices=true (default): return detail response with devices
+    # 소속 디바이스 목록 조회 (Device Base 클래스로 polymorphic query)
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalars().all()
+    devices = []
+    for mapping in mappings:
+        # Device base class로 조회 - polymorphic inheritance로 모든 디바이스 타입 조회
+        # v6.0 P8 후속: selectin_polymorphic 로 서브타입 필드까지 미리 로드 (async lazy 회피)
+        device = (await db.execute(
+            select(Device)
+            .options(selectin_polymorphic(Device, [Controller, Sensor, Camera, Speaker, Enclosure, Lamp]))
+            .where(Device.id == mapping.device_id)
+        )).scalars().first()
+        if device:
+            # 공통 필드 준비
+            base_data = {
+                "id": device.id,
+                "number_device": device.number_device,
+                "group_device": device.group_device,
+                "name_device": device.name_device,
+                "type_device": device.type_device.value if hasattr(device.type_device, 'value') else str(device.type_device),
+                "version": device.version,
+                "status": device.status.value if hasattr(device.status, 'value') else str(device.status),
+                "is_enable": device.is_enable
+            }
+
+            # 디바이스 타입별로 적절한 스키마 사용
+            if isinstance(device, Controller):
+                devices.append(ControllerSummary(
+                    **base_data,
+                    ip_address=device.ip_address,
+                    ip_port=device.ip_port
+                ))
+            elif isinstance(device, Sensor):
+                devices.append(SensorSummary(
+                    **base_data,
+                    controller_id=device.controller_id
+                ))
+            elif isinstance(device, Camera):
+                # PRD_Camera_Urls_JsonB.md: urls JSONB 통합 (rtsp_uri/rtsp_port 제거)
+                from app.schemas.device import CameraUrls
+                urls_data = None
+                if device.urls:
+                    urls_data = CameraUrls.model_validate(device.urls) if isinstance(device.urls, dict) else device.urls
+                devices.append(CameraSummary(
+                    **base_data,
+                    ip_address=device.ip_address,
+                    ip_port=device.ip_port,
+                    user_name=device.user_name,
+                    user_password=device.user_password,
+                    urls=urls_data,
+                    mode=device.mode.value if hasattr(device.mode, 'value') else str(device.mode),
+                    camera_category=device.category.value if hasattr(device.category, 'value') else str(device.category),
+                    is_record=device.is_record,
+                    hardware_spec=device.hardware_spec,
+                    geolocation=device.geolocation
+                ))
+            elif isinstance(device, Speaker):
+                devices.append(SpeakerSummary(
+                    **base_data,
+                    speaker_type=device.speaker_type.value if hasattr(device.speaker_type, 'value') else str(device.speaker_type),
+                    server_id=device.server_id,
+                    description=device.description,
+                    geolocation=device.geolocation
+                ))
+            elif isinstance(device, Enclosure):
+                devices.append(EnclosureSummary(
+                    **base_data,
+                    door_status=device.door_status.value if hasattr(device.door_status, 'value') else str(device.door_status),
+                    heater_enabled=device.heater_enabled,
+                    fan_enabled=device.fan_enabled,
+                    threshold_config=device.threshold_config,
+                    geolocation=device.geolocation
+                ))
+            elif isinstance(device, Lamp):
+                devices.append(LampSummary(
+                    **base_data,
+                    ip_address=device.ip_address,
+                    ip_port=device.ip_port,
+                    description=device.description,
+                    geolocation=device.geolocation
+                ))
+
+    response = DeviceGroupDetailResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        device_count=len(devices),
+        devices=devices,
+        created_at=group.created_at,
+        updated_at=group.updated_at
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=response,
+        message="디바이스 그룹 조회 성공"
+    )
+
+
+@router.post("", response_model=ApiSingleResponse[DeviceGroupResponse], status_code=status.HTTP_201_CREATED)
+async def create_device_group(
+    group_data: DeviceGroupCreate,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹 생성
+
+    새로운 디바이스 그룹을 생성합니다.
+
+    - **name**: 그룹 이름 (필수, UNIQUE)
+    - **description**: 그룹 설명 (선택)
+
+    **Response**: 생성된 디바이스 그룹 정보
+    """
+    # 이름 중복 검사
+    existing = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.name == group_data.name)
+    )).scalars().first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "message": f"DeviceGroup name '{group_data.name}' already exists"}
+        )
+
+    group = DeviceGroup(
+        name=group_data.name,
+        description=group_data.description
+    )
+    db.add(group)
+    await db.commit()
+    await db.refresh(group)
+
+    # ConfigChangeLog: CREATED 로그 기록 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.DEVICE_GROUP,
+        resource_id=group.id,
+        resource_name=f"DeviceGroup-{group.id} ({group.name})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(group),
+        description="DeviceGroup 생성"
+    )
+
+    response = DeviceGroupResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        device_count=0,
+        created_at=group.created_at,
+        updated_at=group.updated_at
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=response,
+        message="디바이스 그룹 생성 성공"
+    )
+
+
+@router.patch("/{group_id}", response_model=ApiSingleResponse[DeviceGroupResponse])
+async def patch_device_group(
+    group_id: int,
+    group_data: DeviceGroupUpdate,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹 부분 수정 (PATCH)
+
+    디바이스 그룹의 특정 필드만 수정합니다.
+
+    - **group_id**: 그룹 ID
+    - **name**: 그룹 이름 (선택)
+    - **description**: 그룹 설명 (선택)
+
+    **Response**: 수정된 디바이스 그룹 정보
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
+        )
+
+    # ConfigChangeLog: before_state 캡처 (PRD v1.2)
+    before_state = model_to_dict(group)
+
+    # 부분 업데이트
+    if group_data.name is not None:
+        # 이름 중복 검사 (자기 자신 제외)
+        existing = (await db.execute(
+            select(DeviceGroup).where(
+                DeviceGroup.name == group_data.name,
+                DeviceGroup.id != group_id
+            )
+        )).scalars().first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "message": f"DeviceGroup name '{group_data.name}' already exists"}
+            )
+        group.name = group_data.name
+
+    if group_data.description is not None:
+        group.description = group_data.description
+
+    await db.commit()
+    await db.refresh(group)
+
+    # ConfigChangeLog: UPDATED 로그 기록 (PRD v1.2)
+    after_state = model_to_dict(group)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        await log_config_change_async(
+            db=db,
+            resource_type=EnumConfigResourceType.DEVICE_GROUP,
+            resource_id=group.id,
+            resource_name=f"DeviceGroup-{group.id} ({group.name})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="DeviceGroup 수정"
+        )
+
+    device_count = (await db.execute(
+        select(func.count()).select_from(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalar() or 0
+    response = DeviceGroupResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        device_count=device_count,
+        created_at=group.created_at,
+        updated_at=group.updated_at
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=response,
+        message="디바이스 그룹 수정 성공"
+    )
+
+
+@router.put("/{group_id}", response_model=ApiSingleResponse[DeviceGroupResponse])
+async def put_device_group(
+    group_id: int,
+    group_data: DeviceGroupCreate,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹 전체 수정 (PUT)
+
+    디바이스 그룹의 모든 필드를 수정합니다.
+
+    - **group_id**: 그룹 ID
+    - **name**: 그룹 이름 (필수)
+    - **description**: 그룹 설명 (선택)
+
+    **Response**: 수정된 디바이스 그룹 정보
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
+        )
+
+    # 이름 중복 검사 (자기 자신 제외)
+    existing = (await db.execute(
+        select(DeviceGroup).where(
+            DeviceGroup.name == group_data.name,
+            DeviceGroup.id != group_id
+        )
+    )).scalars().first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "message": f"DeviceGroup name '{group_data.name}' already exists"}
+        )
+
+    group.name = group_data.name
+    group.description = group_data.description
+
+    await db.commit()
+    await db.refresh(group)
+
+    device_count = (await db.execute(
+        select(func.count()).select_from(DeviceGroupMapping).where(
+            DeviceGroupMapping.group_id == group.id
+        )
+    )).scalar() or 0
+    response = DeviceGroupResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        device_count=device_count,
+        created_at=group.created_at,
+        updated_at=group.updated_at
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=response,
+        message="디바이스 그룹 수정 성공"
+    )
+
+
+@router.delete("/{group_id}", response_model=ApiSingleResponse[None])
+async def delete_device_group(
+    group_id: int,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹 삭제
+
+    디바이스 그룹을 삭제합니다.
+    CASCADE로 인해 소속 매핑도 함께 삭제됩니다.
+
+    - **group_id**: 그룹 ID
+
+    **Response**: 삭제 결과
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
+        )
+
+    # ConfigChangeLog: 삭제 전 identifier 캡처 (PRD v1.2)
+    deleted_id = group.id
+    deleted_identifier = get_identifier(group)
+    deleted_name = f"DeviceGroup-{group.id} ({group.name})"
+
+    await db.delete(group)
+    await db.commit()
+
+    # ConfigChangeLog: DELETED 로그 기록 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.DEVICE_GROUP,
+        resource_id=deleted_id,
+        resource_name=deleted_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="DeviceGroup 삭제"
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=None,
+        message=f"디바이스 그룹 {group_id} 삭제 성공"
+    )
+
+
+@router.post("/{group_id}/devices", response_model=ApiSingleResponse[DeviceAssignResponse])
+async def assign_devices_to_group(
+    group_id: int,
+    request: DeviceAssignRequest,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹에 디바이스 할당
+
+    하나 이상의 디바이스를 그룹에 할당합니다.
+
+    - **group_id**: 그룹 ID
+    - **device_ids**: 할당할 디바이스 ID 목록
+
+    **Response**: 할당 결과 (성공/건너뜀 목록)
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
+        )
+
+    assigned = []
+    skipped = []
+    assigned_categories = {}  # {device_id: category_device.value}
+
+    for device_id in request.device_ids:
+        # 디바이스 존재 확인 (Device base class로 polymorphic query)
+        device = (await db.execute(
+            select(Device).where(Device.id == device_id)
+        )).scalars().first()
+        if not device:
+            skipped.append(device_id)
+            continue
+
+        # 이미 할당된 경우 건너뜀
+        existing_mapping = (await db.execute(
+            select(DeviceGroupMapping).where(
+                DeviceGroupMapping.device_id == device_id,
+                DeviceGroupMapping.category_device == device.category_device,
+                DeviceGroupMapping.group_id == group_id
+            )
+        )).scalars().first()
+
+        if existing_mapping:
+            skipped.append(device_id)
+        else:
+            mapping = DeviceGroupMapping(device_id=device_id, category_device=device.category_device, group_id=group_id)
+            db.add(mapping)
+            assigned.append(device_id)
+            assigned_categories[device_id] = device.category_device.value
+
+    await db.commit()
+
+    # ConfigChangeLog: ASSIGNED 로그 기록 (PRD v1.2)
+    if assigned:
+        await log_config_change_async(
+            db=db,
+            resource_type=EnumConfigResourceType.DEVICE_GROUP,
+            resource_id=group_id,
+            resource_name=f"DeviceGroup-{group_id} ({group.name})",
+            action=EnumConfigActionType.ASSIGNED,
+            after_state={"device_ids": assigned, "categories": assigned_categories},
+            description=f"DeviceGroup에 {len(assigned)}개 디바이스 할당"
+        )
+
+    message = f"{len(assigned)}개 디바이스 할당 완료"
+    if skipped:
+        message += f", {len(skipped)}개 건너뜀"
+
+    response = DeviceAssignResponse(
+        group_id=group_id,
+        assigned_device_ids=assigned,
+        skipped_device_ids=skipped,
+        message=message
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=response,
+        message=message
+    )
+
+
+@router.delete(
+    "/{group_id}/devices",
+    response_model=ApiSingleResponse[DeviceBulkRemoveResponse],
+    responses={
+        200: {"description": "벌크 해제 성공 (부분 성공 포함)"},
+        404: {"description": "DeviceGroup not found"},
+        422: {"description": "device_ids 검증 실패"},
+    },
+)
+async def bulk_unassign_devices_from_group(
+    group_id: int,
+    request: DeviceUnassignRequest,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    디바이스 그룹에서 디바이스 일괄 해제 (벌크)
+
+    PRD_DeviceGroup_BulkUnassign v1.0.
+
+    - **group_id**: 그룹 ID
+    - **device_ids**: 해제할 디바이스 ID 목록 (1~100, 중복 자동 제거)
+
+    **Response**: removed/skipped/not_found 3-way 분류
+    - removed_device_ids: 실제 매핑 삭제된 ID
+    - skipped_device_ids: device는 존재하나 그룹 멤버가 아님 (멱등)
+    - not_found_device_ids: device 자체가 DB에 없음
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"},
+        )
+
+    # 중복 ID 제거 (멱등성)
+    unique_ids = list(dict.fromkeys(request.device_ids))
+
+    removed: list[int] = []
+    skipped: list[int] = []
+    not_found: list[int] = []
+    removed_categories: dict[int, str] = {}
+
+    for device_id in unique_ids:
+        device = (await db.execute(
+            select(Device).where(Device.id == device_id)
+        )).scalars().first()
+        if not device:
+            not_found.append(device_id)
+            continue
+
+        mapping = (await db.execute(
+            select(DeviceGroupMapping).where(
+                DeviceGroupMapping.device_id == device_id,
+                DeviceGroupMapping.category_device == device.category_device,
+                DeviceGroupMapping.group_id == group_id,
+            )
+        )).scalars().first()
+
+        if not mapping:
+            skipped.append(device_id)
+            continue
+
+        await db.delete(mapping)
+        removed.append(device_id)
+        removed_categories[device_id] = device.category_device.value
+
+    await db.commit()  # 단일 commit (원자성)
+
+    # ConfigChangeLog: removed가 있을 때만 1건 발행
+    if removed:
+        await log_config_change_async(
+            db=db,
+            resource_type=EnumConfigResourceType.DEVICE_GROUP,
+            resource_id=group_id,
+            resource_name=f"DeviceGroup-{group_id} ({group.name})",
+            action=EnumConfigActionType.UNASSIGNED,
+            before_state={
+                "device_ids": removed,
+                "categories": removed_categories,
+            },
+            description=f"DeviceGroup에서 {len(removed)}개 디바이스 해제 (bulk)",
+        )
+
+    parts = [f"{len(removed)}개 디바이스 해제 완료"]
+    if skipped:
+        parts.append(f"{len(skipped)}개 건너뜀")
+    if not_found:
+        parts.append(f"{len(not_found)}개 없음")
+    message = ", ".join(parts)
+
+    return ApiSingleResponse(
+        success=True,
+        data=DeviceBulkRemoveResponse(
+            group_id=group_id,
+            removed_device_ids=removed,
+            skipped_device_ids=skipped,
+            not_found_device_ids=not_found,
+            message=message,
+        ),
+        message=message,
+    )
+
+
+@router.delete("/{group_id}/devices/{device_id}", response_model=ApiSingleResponse[DeviceRemoveResponse])
+async def remove_device_from_group(
+    group_id: int,
+    device_id: int,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    디바이스 그룹에서 디바이스 제거
+
+    특정 디바이스를 그룹에서 제거합니다.
+
+    - **group_id**: 그룹 ID
+    - **device_id**: 제거할 디바이스 ID
+
+    **Response**: 제거 결과
+    """
+    group = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id == group_id)
+    )).scalars().first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"DeviceGroup ID {group_id} not found"}
+        )
+
+    # Device 조회로 올바른 category_device 확인 (polymorphic query)
+    device = (await db.execute(
+        select(Device).where(Device.id == device_id)
+    )).scalars().first()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"Device ID {device_id} not found"}
+        )
+
+    mapping = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == device.category_device,
+            DeviceGroupMapping.group_id == group_id
+        )
+    )).scalars().first()
+
+    if not mapping:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": f"Device ID {device_id} is not assigned to group {group_id}"}
+        )
+
+    await db.delete(mapping)
+    await db.commit()
+
+    # ConfigChangeLog: UNASSIGNED 로그 기록 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.DEVICE_GROUP,
+        resource_id=group_id,
+        resource_name=f"DeviceGroup-{group_id} ({group.name})",
+        action=EnumConfigActionType.UNASSIGNED,
+        before_state={"device_id": device_id, "category_device": device.category_device.value},
+        description=f"DeviceGroup에서 디바이스 {device_id} ({device.category_device.value}) 제거"
+    )
+
+    response = DeviceRemoveResponse(
+        group_id=group_id,
+        device_id=device_id,
+        message="디바이스 그룹에서 제거 성공"
+    )
+
+    return ApiSingleResponse(
+        success=True,
+        data=response,
+        message="디바이스 그룹에서 제거 성공"
+    )

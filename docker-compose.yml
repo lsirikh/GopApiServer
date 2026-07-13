@@ -1,28 +1,176 @@
-version: '3.8'
+x-logging: &default-logging
+  # v5.2 stability hotfix: 로그 회전 설정 (디스크 잠식 방지 + 죽음 증거 보존)
+  # 10MB × 3 파일 = 서비스당 최대 30MB 보존, 호스트 C: 압박 해소
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
-  api_server-fastapi:
-    container_name: api_server-fastapi
+  postgres:
+    image: postgres:16-alpine
+    container_name: pids-api-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gop}
+      POSTGRES_USER: ${POSTGRES_USER:-gop_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gop_pass}
+      PGTZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - api-test-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gop_user} -d ${POSTGRES_DB:-gop}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  api-server:
+    container_name: pids-api-server
+    image: pids-api-server:latest
     build:
       context: .
       dockerfile: Dockerfile
+    labels:
+      # A-7 #5: autoheal 대상 표시 (AUTOHEAL_CONTAINER_LABEL을 'autoheal'로 좁힐 때 사용)
+      - "autoheal=true"
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      # PRD v4.10 Phase 2: HTTPS 인증서 (mkcert 발급, certs/ 미존재 시 HTTP fallback)
+      - ./certs:/app/certs:ro
+      # v6.0-report_persistence FR-RPP-01: PDF 영속 볼륨 (recreate 시 유지)
+      - api-test-reports:/app/reports
     environment:
-      - AUTH_MODE=public
-      - JWT_SECRET_KEY=your-secret-key-change-in-production
-      - JWT_ALGORITHM=HS256
-      - JWT_EXPIRATION_HOURS=24
-      - DATABASE_URL=sqlite:///./data/gop.db
-      - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=8000
+      # v6.0-auth_mode_secure_default (2026-07-05): 기본값 public → token (secure by default).
+      # 개발 편의로 public이 필요하면 .env 또는 호스트 환경변수에 AUTH_MODE=public 명시.
+      - AUTH_MODE=${AUTH_MODE:-token}
+      # v6.0-cert_installer_fix (2026-07-06): HTTPS 강제. 인증서 없이 HTTP로 뜨려면 명시적 opt-in.
+      # Dockerfile CMD가 이 env를 확인해 fail-fast vs HTTP fallback을 결정.
+      - ALLOW_HTTP_FALLBACK=${ALLOW_HTTP_FALLBACK:-false}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
+      - DATABASE_URL=${API_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - INIT_SAMPLE_DATA=${INIT_SAMPLE_DATA:-true}
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=${SERVER_PORT:-8000}
+      - TZ=Asia/Seoul
+      # P1-02 (review0710): 세션 강제폐기/권한변경 NATS 통지 배선. 게이트(NATS_REVOKE_ENABLED)
+      #   기본 false → 기능 dormant(현행 동작 불변). true 로 켜야 api-server 가 nats_external 로 발행.
+      #   env 만 있고 네트워크 미연결이면 켰을 때 publish 가 조용히 실패하므로 배선을 함께 둔다.
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
+      - NATS_REVOKE_ENABLED=${NATS_REVOKE_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - default
+      - nats_external
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      # v5.2 stability hotfix: 경량 health endpoint로 전환
+      # 이전 /docs (3.6KB HTML) → /api/tracking/health (무인증, JSON 30B)
+      # DB 블로킹 시 false-healthy 방지 + healthcheck 자체가 hot path에 부담 X
+      test: ["CMD", "curl", "-fk", "https://localhost:8000/api/tracking/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging: *default-logging
+
+  db-monitor:
+    build:
+      context: ./db_monitor
+      dockerfile: Dockerfile
+    container_name: pids-api-db-monitor
+    image: pids-api-db-monitor:latest
+    environment:
+      - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
+      - UNIT_ID=${UNIT_ID:-unit001}
+      # nats-dbapi-sync-completion FR-05: ENCLOSURE_METRICS 주기 발행 간격(초). 0 아님 권장.
+      - ENCLOSURE_METRICS_INTERVAL=${ENCLOSURE_METRICS_INTERVAL:-10}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+      - nats_external
+    logging: *default-logging
+    # MSG-02: 하트비트 파일 신선도(<60s)로 health 판정 → autoheal(label=all)이 감시·재기동.
+    # 재연결 백오프 상한 30s 를 고려해 60s window (일시 재연결은 unhealthy 오판 방지).
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import time,sys; sys.exit(0 if time.time()-int(open('/tmp/db_monitor_heartbeat').read())<60 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  gis-ingest:
+    # 추적 이력 인제스트 워커: NATS sensorway.*.gis.tracking-status 구독 → track_points INSERT
+    # PRD_Tracking_History_API.md §7 (db-monitor 역방향 미러)
+    build:
+      context: ./gis_ingest
+      dockerfile: Dockerfile
+    container_name: pids-api-gis-ingest
+    image: pids-api-gis-ingest:latest
+    environment:
+      - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
+      - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
+      - UNIT_ID=${UNIT_ID:-unit001}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+      - nats_external
+    logging: *default-logging
+
+  autoheal:
+    # A-7 #5 Quick Win: healthcheck unhealthy 감지 시 컨테이너 자동 재기동
+    # AUTOHEAL_CONTAINER_LABEL=all → healthcheck 정의된 모든 컨테이너 감시
+    # (특정 라벨만 대상으로 좁히려면 값을 'autoheal'로 바꾸면 됨 — pids-api-server에 label 부여 완료)
+    image: willfarrell/autoheal:latest
+    container_name: pids-api-autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=all
+      - AUTOHEAL_INTERVAL=30
+      - AUTOHEAL_START_PERIOD=60
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=15
+      - TZ=Asia/Seoul
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging: *default-logging
+
+  db-admin:
+    container_name: pids-api-db-admin
+    image: adminer
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  api-test-pgdata:
+  # v6.0-report_persistence FR-RPP-01: PDF 저장소 (컨테이너 recreate/재빌드에도 유지)
+  api-test-reports:
+
+networks:
+  default:
+  nats_external:
+    external: true
+    name: nats-core_nats-network

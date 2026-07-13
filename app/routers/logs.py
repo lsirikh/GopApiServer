@@ -3,77 +3,91 @@ Log viewing API endpoints
 """
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
 import math
 
-from app.dependencies import get_db
+from app.dependencies import get_async_db
 from app.models.log import ApiLog
 from app.schemas.log import ApiLogResponse
 from app.schemas.common import ApiResponse, PaginationMeta
+from app.routers.auth import require_perm_async
 
 router = APIRouter(tags=[])
 
 
-@router.get("", response_model=ApiResponse[list[ApiLogResponse]])
+# SEC-01: API 로그는 민감 요청/응답 감사 데이터 → audit_logs:view 이상만 접근
+# (ADMIN bypass 또는 매트릭스 audit_logs:view). 무인증 공개를 차단한다.
+@router.get("", response_model=ApiResponse[list[ApiLogResponse]],
+            dependencies=[Depends(require_perm_async("audit_logs", "view"))])
 async def get_logs(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    start_date: Optional[str] = Query(None, description="Filter logs from this date (ISO 8601 format)"),
-    end_date: Optional[str] = Query(None, description="Filter logs until this date (ISO 8601 format)"),
-    method: Optional[str] = Query(None, description="Filter logs by HTTP method (GET, POST, etc.)"),
-    resource: Optional[str] = Query(None, description="Filter logs by resource (e.g., devices/controllers)"),
-    client_uuid: Optional[str] = Query(None, description="Filter logs by client UUID"),
-    db: Session = Depends(get_db)
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    start_date: Optional[str] = Query(None, description="시작 날짜로 필터링 (ISO 8601 형식)"),
+    end_date: Optional[str] = Query(None, description="종료 날짜로 필터링 (ISO 8601 형식)"),
+    method: Optional[str] = Query(None, description="HTTP 메소드로 필터링 (GET, POST 등)"),
+    resource: Optional[str] = Query(None, description="리소스로 필터링 (예: devices/controllers)"),
+    client_uuid: Optional[str] = Query(None, description="클라이언트 UUID로 필터링"),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Get API logs with pagination and filtering
+    API 로그 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        start_date: Filter logs from this date (ISO 8601 format)
-        end_date: Filter logs until this date (ISO 8601 format)
-        method: Filter logs by HTTP method (GET, POST, etc.)
-        resource: Filter logs by resource (e.g., devices/controllers)
-        client_uuid: Filter logs by client UUID
+    API 로그 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of API logs and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **start_date**: 시작 날짜로 필터링 (ISO 8601 형식)
+    - **end_date**: 종료 날짜로 필터링 (ISO 8601 형식)
+    - **method**: HTTP 메소드로 필터링 (GET, POST 등)
+    - **resource**: 리소스로 필터링 (예: devices/controllers)
+    - **client_uuid**: 클라이언트 UUID로 필터링
+
+    **Response**: API 로그 목록 및 페이지네이션 정보
     """
-    query = db.query(ApiLog)
+    stmt = select(ApiLog)
+    count_stmt = select(func.count()).select_from(ApiLog)
 
     # Apply date range filtering
     if start_date:
         start_dt = datetime.fromisoformat(start_date)
-        query = query.filter(ApiLog.timestamp >= start_dt)
+        stmt = stmt.where(ApiLog.timestamp >= start_dt)
+        count_stmt = count_stmt.where(ApiLog.timestamp >= start_dt)
 
     if end_date:
         end_dt = datetime.fromisoformat(end_date)
-        query = query.filter(ApiLog.timestamp <= end_dt)
+        stmt = stmt.where(ApiLog.timestamp <= end_dt)
+        count_stmt = count_stmt.where(ApiLog.timestamp <= end_dt)
 
     # Apply method filtering
     if method:
-        query = query.filter(ApiLog.method == method)
+        stmt = stmt.where(ApiLog.method == method)
+        count_stmt = count_stmt.where(ApiLog.method == method)
 
     # Apply resource filtering
     if resource:
-        query = query.filter(ApiLog.resource == resource)
+        stmt = stmt.where(ApiLog.resource == resource)
+        count_stmt = count_stmt.where(ApiLog.resource == resource)
 
     # Apply client_uuid filtering
     if client_uuid:
-        query = query.filter(ApiLog.client_uuid == client_uuid)
+        stmt = stmt.where(ApiLog.client_uuid == client_uuid)
+        count_stmt = count_stmt.where(ApiLog.client_uuid == client_uuid)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
     # Apply pagination and ordering (most recent first)
-    logs = query.order_by(ApiLog.timestamp.desc()).offset(skip).limit(limit).all()
+    logs = (await db.execute(
+        stmt.order_by(ApiLog.timestamp.desc(), ApiLog.id.desc()).offset(skip).limit(limit)
+    )).scalars().all()
 
     pagination = PaginationMeta(
         page=page,
@@ -90,10 +104,15 @@ async def get_logs(
     )
 
 
-@router.get("/viewer", response_class=HTMLResponse)
+@router.get("/viewer", response_class=HTMLResponse,
+            dependencies=[Depends(require_perm_async("audit_logs", "view"))])
 async def log_viewer():
     """
-    Log viewer web page with pagination and filtering
+    로그 뷰어 웹 페이지
+
+    페이지네이션 및 필터링 기능이 있는 로그 뷰어 웹 페이지를 반환합니다.
+
+    **Response**: HTML 로그 뷰어 페이지
     """
     html_content = """
 <!DOCTYPE html>
@@ -428,7 +447,7 @@ async def log_viewer():
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔍 GOP API Log Viewer</h1>
+            <h1>GOP API Log Viewer</h1>
             <p>Real-time API request monitoring and analysis</p>
         </div>
 
@@ -490,7 +509,7 @@ async def log_viewer():
             </div>
             <div class="stats-info">
                 <button class="btn btn-secondary" onclick="loadLogs(currentPage)" style="padding: 8px 16px;">
-                    🔄 Refresh
+                    Refresh
                 </button>
             </div>
         </div>
@@ -499,7 +518,7 @@ async def log_viewer():
             <div id="loading" class="loading">Loading logs</div>
             <div id="error" class="error" style="display: none;"></div>
             <div id="no-data" class="no-data" style="display: none;">
-                📭 No logs found matching your criteria
+                No logs found matching your criteria
             </div>
             <table id="logs-table" style="display: none;">
                 <thead>

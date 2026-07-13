@@ -72,6 +72,7 @@ def test_sensor_response_schema_includes_all_fields():
         "type_device": "PIR",
         "version": "1.0.0",
         "status": "ACTIVATED",
+        "is_enable": True,
         "controller_id": 1,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
@@ -131,6 +132,7 @@ def test_sensor_schema_enum_serialization():
         "type_device": "PIR",
         "version": "1.0.0",
         "status": "ACTIVATED",
+        "is_enable": True,
         "controller_id": 1
     }
     sensor_create = SensorCreate(**create_data)

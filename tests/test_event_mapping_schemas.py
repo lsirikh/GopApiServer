@@ -1,9 +1,11 @@
 """
 Test: EventMapping schemas
 PRD: GOP_Restful_Api_연동설계.md - Section 7.2
+PRD: PRD_CategoryEvent_Refactoring.md v1.1 - category_event → category_event_mapping
 """
 import pytest
 from datetime import datetime
+from app.utils.enums import EnumMappingEventCategory
 
 
 def test_event_mapping_create_schema_has_required_fields():
@@ -14,11 +16,11 @@ def test_event_mapping_create_schema_has_required_fields():
     """
     from app.schemas.integration import EventMappingCreate
 
-    # Create schema instance
+    # Create schema instance (PRD: category_event_mapping)
     mapping_data = {
         "name_event": "침입 탐지",
-        "group_event": "intrusion",
-        "category_event": "detection",
+        "device_group_id": 1,
+        "category_event_mapping": EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         "description": "센서 침입 탐지 이벤트 매핑",
         "status": True
     }
@@ -27,8 +29,8 @@ def test_event_mapping_create_schema_has_required_fields():
 
     # Verify all fields are present
     assert mapping.name_event == "침입 탐지"
-    assert mapping.group_event == "intrusion"
-    assert mapping.category_event == "detection"
+    assert mapping.device_group_id == 1
+    assert mapping.category_event_mapping == EnumMappingEventCategory.FENCE_SENSOR_ONLY
     assert mapping.description == "센서 침입 탐지 이벤트 매핑"
     assert mapping.status is True
 
@@ -41,11 +43,10 @@ def test_event_mapping_create_schema_description_is_optional():
     """
     from app.schemas.integration import EventMappingCreate
 
-    # Create schema without description
+    # Create schema without description (PRD: category_event_mapping)
     mapping_data = {
         "name_event": "장애 발생",
-        "group_event": "malfunction",
-        "category_event": "fault",
+        "category_event_mapping": EnumMappingEventCategory.MULTI_SENSOR_ONLY,
         "status": True
     }
 
@@ -63,13 +64,13 @@ def test_event_mapping_response_schema_has_all_fields():
     """
     from app.schemas.integration import EventMappingResponse
 
-    # Create response schema with all fields
+    # Create response schema with all fields (PRD: category_event_mapping)
     now = datetime.now()
     response_data = {
         "id": 1,
         "name_event": "침입 탐지",
-        "group_event": "intrusion",
-        "category_event": "detection",
+        "device_group_id": 1,
+        "category_event_mapping": EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         "description": "센서 침입 탐지 이벤트 매핑",
         "status": True,
         "created_at": now,
@@ -81,8 +82,8 @@ def test_event_mapping_response_schema_has_all_fields():
     # Verify all fields
     assert response.id == 1
     assert response.name_event == "침입 탐지"
-    assert response.group_event == "intrusion"
-    assert response.category_event == "detection"
+    assert response.device_group_id == 1
+    assert response.category_event_mapping == EnumMappingEventCategory.FENCE_SENSOR_ONLY
     assert response.description == "센서 침입 탐지 이벤트 매핑"
     assert response.status is True
     assert response.created_at == now
@@ -107,8 +108,8 @@ def test_event_mapping_update_schema_all_fields_optional():
     # Verify only status is set, others are None
     assert update.status is False
     assert update.name_event is None
-    assert update.group_event is None
-    assert update.category_event is None
+    assert update.device_group_id is None
+    assert update.category_event_mapping is None
     assert update.description is None
 
 
@@ -132,5 +133,5 @@ def test_event_mapping_update_schema_can_update_multiple_fields():
     assert update.name_event == "Updated Name"
     assert update.description == "Updated description"
     assert update.status is False
-    assert update.group_event is None
-    assert update.category_event is None
+    assert update.device_group_id is None
+    assert update.category_event_mapping is None

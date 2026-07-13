@@ -19,45 +19,169 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual Environment
-venv/
-ENV/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Environment
-.env
-.env.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-data/*.db
-
-# Logs
-logs/*.log
-*.log
-
-# Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+
+# TEST-01 (2026-07-10): tests/ 재추적 — clone/CI 재현성 확보(기존 미추적 = 재현 불가 위험).
+#   __pycache__ 만 계속 제외(아래 규칙). 운영 DB 보호는 conftest pytest_configure 가드.
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+#.env
+.env.*
+.env*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Data (DB files auto-generated on startup)
+data/*.db
+
+# Claude/AI 관련
+.claude/
+Claude.md
+claude.md
+.playwright-mcp
+
+
+# reports (generated PDFs at root level only)
+/reports/
+
+# Documentation & Planning
+docs/*
+Docs/*
+plan.md
+PRD.md
+prd.md
+*prd.md
+prd*.md
+
+# v4.6 FR-12: PRD 산출물 + 동기화 가이드는 git 추적 (PC 손상 시 보존)
+!docs/PRD_*.md
+!docs/v45_sync_guide.md
+!docs/v46_release_notes.md
+
+# Tests cache & artifacts
+tests/__pycache__/
+.pytest_cache/
+test_*.db
+nul
+
+# Docker
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
+# v4.6 — CLAUDE.md 규약 산출물 예외 (session-context + INDEX)
+!docs/INDEX.md
+!docs/memory/
+!docs/memory/**
 
-# 문서
-Docs/
-docs/
-.claude/
+# v4.6 — Analysis 보고서 예외
+!docs/Analysis/
+!docs/Analysis/**
+!docs/v48_phase12_immutability_report.html
+!docs/v45_3way_critical_mismatches.html
+!docs/GOP_Server_API_OpenQuestions.md
+!docs/GOP_Server_API_OpenQuestions_RESPONSE.md
+!docs/GOP_Server_API_FollowupRequests.md
+!docs/PRD_v4.9_Followup_AccountIntegration.md
+!docs/PRD_v4.10_SEC1_password_masking.md
+!docs/PRD_v4.10_Phase1_mask_rollback.md
+!docs/PRD_v4.10_Phase2_HTTPS_mkcert_Inno.md
+!docs/GOP_RootCA_Installer_Guide.md
+!docs/GOP_Server_API_v4.9_Review_Issues.md
+!docs/GOP_Server_API_v4.9_Review_RESPONSE.md
 
+# v4.10 Phase 2: mkcert 인증서 (절대 commit 금지)
+certs/*.crt
+certs/*.key
+certs/*.pem
+!certs/installer/
+# v6.0-installer_ps2exe_path_fix: mkcert.exe 는 신규 PC 에서 자동 다운로드 → 커밋 금지 (~5MB)
+certs/mkcert.exe
+certs/tools/
+
+# Inno Setup 빌드 산출물
+certs/installer/build/*.exe
+certs/installer/build/*.txt
+certs/installer/payload/rootCA.pem
+
+# v4.10 Phase 2: PS2EXE 인스톨러 - 외부 도구 빌드 시 자동 다운로드
+certs/installer_ps2exe/ps2exe.ps1
+
+# v4.12 정합 정리 (2026-06-29)
+# 사용자 프로필 사진 (PII, 절대 commit 금지)
+data/profiles/
+!data/profiles/.gitkeep
+# 외부 세션 backslash escape 사고 산출물 차단
+c:workspace_python*
+!docs/PRD_GOP_Server_RBAC_Enforcement.md
+
+!docs/PRD_v5.2_Stability_Hotfix.md
+
+# ── Claude Skill Harness ──
+# 이 섹션은 claude-skill-harness install.js가 자동 생성합니다.
+# 하네스/스킬/MCP 관련 파일을 git 추적에서 제외합니다.
+
+# Harness core
+.claude/*
+# 단, 고아 가드 매니페스트만 git 추적 — 외부삭제/IDE Clean 생존 보장
+# (orphan-gitlink-protection PRD Layer 1). .claude/* 는 직접 자식만 무시하므로
+# 디렉터리째 무시(.claude/)와 달리 이 파일 하나만 negation 으로 되살릴 수 있다.
+!.claude/orphan-guard.json
+CLAUDE.md
+CHANGELOG.md
+UPGRADE.md
+
+# Harness documents
+docs/memory/
+docs/analyses/
+docs/prds/
+docs/plans/
+docs/tests/
+docs/reports/
+docs/INDEX.md
+docs/Manual.md
+
+# Harness installer / backup
+install.js
+claude-skill-harness*/
+.skill-set-backup*
+# ── /Claude Skill Harness ──
+
+!docs/prds/PRD_Legacy_User_Removal.md
+!docs/plans/Legacy_User_Removal-prd-plan.md
+!docs/GOP_Server_API_v5.3_Legacy_User_Removal_NOTIFY.md
+!docs/prds/PRD_Role_Simplification.md
+!docs/prds/PRD_Role_Simplification.md
+!docs/plans/Role_Simplification-prd-plan.md
+!docs/GOP_Server_API_v5.4_Role_Simplification_NOTIFY.md
+# v6.0-* NOTIFY/REPLY 문서 (클라 통지용 — 커밋 포함)
+!docs/GOP_Server_API_v6.0_report_updates_NOTIFY.md
+!docs/GOP_Server_API_servers_port0_issue_REPLY.md
+!docs/GOP_Server_API_users_role_response_relax_REPLY.md
+!docs/GOP_Server_API_installer_ps2exe_path_fix_REPLY.md
+!docs/GOP_Server_API_clone_deploy_bugfix_REPLY.md
+!docs/GOP_Server_API_response_schema_audit_REPLY.md
+!docs/reports/BUG_REPORT_*.md

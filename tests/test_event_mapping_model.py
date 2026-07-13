@@ -1,10 +1,12 @@
 """
 Test: EventMapping model
 PRD: GOP_Restful_Api_연동설계.md - Section 7.2
+PRD: PRD_CategoryEvent_Refactoring.md v1.1 - category_event → category_event_mapping
 """
 import pytest
 from sqlalchemy import inspect
 from datetime import datetime
+from app.utils.enums import EnumMappingEventCategory
 
 
 def test_event_mapping_model_has_required_fields(test_db):
@@ -22,8 +24,8 @@ def test_event_mapping_model_has_required_fields(test_db):
     # Check all required fields exist
     assert 'id' in columns
     assert 'name_event' in columns
-    assert 'group_event' in columns
-    assert 'category_event' in columns
+    assert 'device_group_id' in columns
+    assert 'category_event_mapping' in columns
     assert 'description' in columns
     assert 'status' in columns
     assert 'created_at' in columns
@@ -40,9 +42,7 @@ def test_event_mapping_model_timestamps_auto_set(test_db):
 
     # Create event mapping
     mapping = EventMapping(
-        name_event="침입 탐지",
-        group_event="intrusion",
-        category_event="detection",
+        name_event="침입 탐지", category_event_mapping=EnumMappingEventCategory.FENCE_SENSOR_ONLY,
         description="센서 침입 탐지 이벤트 매핑",
         status=True
     )
@@ -76,9 +76,7 @@ def test_event_mapping_model_create_and_retrieve(test_db):
 
     # Create event mapping
     mapping = EventMapping(
-        name_event="장애 발생",
-        group_event="malfunction",
-        category_event="fault",
+        name_event="장애 발생", category_event_mapping=EnumMappingEventCategory.MULTI_SENSOR_ONLY,
         description="센서 장애 발생 이벤트 매핑",
         status=True
     )
@@ -91,7 +89,7 @@ def test_event_mapping_model_create_and_retrieve(test_db):
 
     assert retrieved is not None
     assert retrieved.name_event == "장애 발생"
-    assert retrieved.group_event == "malfunction"
-    assert retrieved.category_event == "fault"
+    assert retrieved.device_group_id is None  # No device_group assigned
+    assert retrieved.category_event_mapping == EnumMappingEventCategory.MULTI_SENSOR_ONLY
     assert retrieved.description == "센서 장애 발생 이벤트 매핑"
     assert retrieved.status is True

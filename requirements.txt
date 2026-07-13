@@ -4,6 +4,7 @@ uvicorn[standard]>=0.24.0
 
 # Database
 sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
 
 # Data Validation
 pydantic>=2.5.0
@@ -22,3 +23,26 @@ httpx>=0.25.0
 
 # Development
 python-dotenv>=1.0.0
+
+# Image Processing (PRD_Thumbnail_Image.md v1.1)
+Pillow>=10.0.0
+
+# Report Generation (PRD_Report_System.md Phase 3)
+matplotlib>=3.8.0
+reportlab>=4.0.0
+
+# Report Master Redesign (PRD_Report_Master_Redesign) — HTML→PDF 렌더
+# 네이비/골드 디자인을 Chart.js+CSS 그대로 PDF화 (Chromium 헤드리스)
+playwright>=1.40.0
+# PDF 무손실 재압축(객체스트림 GC + deflate) — Chromium 출력 대비 ~85% 축소
+PyMuPDF>=1.23.0
+
+# Templating (PRD_Report_System.md Section 10: Preview Page)
+jinja2>=3.1.0
+
+# DB Change Monitor (PRD_DB_Change_Monitor.md)
+nats-py>=2.6.0
+asyncpg>=0.29.0
+
+# Scheduled jobs — 권한그룹 부여 만료 sweep (PRD_Permission_Group_Scheduling.md FR-04)
+APScheduler>=3.10.0

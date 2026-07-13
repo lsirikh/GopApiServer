@@ -6,6 +6,12 @@ import pytest
 from sqlalchemy import inspect
 from datetime import datetime
 
+pytestmark = pytest.mark.skip(
+    reason="Old \"new structure\" (from_event+from_type_event) — "
+           "superseded by PRD v2.1 from_event_id; "
+           "see tests/test_action_event_from_event_id.py"
+)
+
 
 def test_action_event_model_has_from_event_field(test_db):
     """

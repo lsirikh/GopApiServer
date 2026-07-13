@@ -40,3 +40,59 @@ def test_user_has_timestamps():
 
     assert hasattr(user, 'created_at')
     assert hasattr(user, 'updated_at')
+
+
+# ============================================================
+# UserSession Model Tests (PRD_UserSession_Improvement.md)
+# ============================================================
+
+class TestUserSessionModel:
+    """US-1: UserSession 모델 필드 검증"""
+
+    def test_user_session_no_device_type_field(self):
+        """US-1.1: UserSession 모델에 device_type 필드 없음 확인"""
+        from app.models.user import UserSession
+
+        # device_type 필드가 없어야 함
+        assert not hasattr(UserSession, 'device_type'), \
+            "UserSession should not have device_type field (removed per PRD)"
+
+    def test_user_session_no_location_field(self):
+        """US-1.1: UserSession 모델에 location 필드 없음 확인"""
+        from app.models.user import UserSession
+
+        # location 필드가 없어야 함
+        assert not hasattr(UserSession, 'location'), \
+            "UserSession should not have location field (removed per PRD)"
+
+    def test_user_session_has_created_at_field(self):
+        """US-1.3: UserSession 모델에 created_at 필드 존재 확인"""
+        from app.models.user import UserSession
+
+        # created_at 필드가 있어야 함 (login_at 대체)
+        assert hasattr(UserSession, 'created_at'), \
+            "UserSession should have created_at field (replaces login_at)"
+
+    def test_user_session_no_login_at_field(self):
+        """US-1.3: UserSession 모델에 login_at 필드 없음 확인"""
+        from app.models.user import UserSession
+
+        # login_at 필드가 없어야 함 (created_at으로 변경됨)
+        assert not hasattr(UserSession, 'login_at'), \
+            "UserSession should not have login_at field (renamed to created_at)"
+
+    def test_user_session_has_updated_at_field(self):
+        """US-1.4: UserSession 모델에 updated_at 필드 존재 확인"""
+        from app.models.user import UserSession
+
+        # updated_at 필드가 있어야 함 (last_activity 대체)
+        assert hasattr(UserSession, 'updated_at'), \
+            "UserSession should have updated_at field (replaces last_activity)"
+
+    def test_user_session_no_last_activity_field(self):
+        """US-1.4: UserSession 모델에 last_activity 필드 없음 확인"""
+        from app.models.user import UserSession
+
+        # last_activity 필드가 없어야 함 (updated_at으로 변경됨)
+        assert not hasattr(UserSession, 'last_activity'), \
+            "UserSession should not have last_activity field (renamed to updated_at)"

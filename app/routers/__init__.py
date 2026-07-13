@@ -10,6 +10,17 @@ from app.routers import detections
 from app.routers import malfunctions
 from app.routers import connections
 from app.routers import actions
+from app.routers import event_mappings
+from app.routers import event_mapping_cameras
+from app.routers import server_categories
+from app.routers import servers
+from app.routers import device_groups
+from app.routers import camera_presets
+from app.routers import rois
+from app.routers import xypoints
+from app.routers import speakers
+from app.routers import enclosures
+from app.routers import file_groups
 
 __all__ = [
     "auth",
@@ -21,4 +32,15 @@ __all__ = [
     "malfunctions",
     "connections",
     "actions",
+    "event_mappings",
+    "event_mapping_cameras",
+    "server_categories",
+    "servers",
+    "device_groups",
+    "camera_presets",
+    "rois",
+    "xypoints",
+    "speakers",
+    "enclosures",
+    "file_groups",
 ]

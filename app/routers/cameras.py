@@ -2,96 +2,276 @@
 Camera API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import Optional
+from sqlalchemy import select, func, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional, List
 import math
 
-from app.dependencies import get_db
-from app.routers.auth import get_current_user_optional
+from app.dependencies import get_async_db
+from app.routers.auth import get_current_account_user_optional_async, require_perm_optional_async
 from app.models.device import Camera, EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType
-from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate
-from app.schemas.common import ApiResponse, PaginationMeta
+from app.models.device_group import DeviceGroup, DeviceGroupMapping
+from app.utils.enums import EnumDeviceCategory, EnumConfigResourceType, EnumConfigActionType
+from app.schemas.device import CameraCreate, CameraResponse, CameraUpdate, HardwareSpec, Geolocation, DeviceGroupNestedResponse, CameraUrls, CameraWithPresetsResponse
+from app.schemas.device_group import DeviceGroupResponse
+from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
+from app.schemas.camera_preset import CameraPresetNestedResponse, ROIListNestedResponse
+from app.models.camera_preset import CameraPreset, ROI
+from app.services.config_log_service import log_config_change_async, get_identifier, get_changed_fields, model_to_dict
 
-router = APIRouter(tags=[])
+router = APIRouter()
+
+
+async def _get_device_groups_nested(db: AsyncSession, device_id: int, category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA) -> List[DeviceGroupNestedResponse]:
+    """Get device groups for a single camera (v2.4: timestamp 제외).
+
+    ⚠ v5.4 후속 (문서 A-7 #3): 목록(get_cameras)에서 카메라마다 이 함수를 호출하면
+    N × (M+1) 쿼리 폭발 → 이벤트루프 블로킹의 방아쇠. 목록은 `_build_device_groups_index()`
+    로 배치 인덱스를 만들어 `_get_device_groups_from_index()`로 O(1) 조회할 것.
+    이 함수는 **단건 조회(GET /cameras/{id}, PATCH/POST 응답)** 전용.
+    """
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )).scalars().all()
+
+    groups: List[DeviceGroupNestedResponse] = []
+    for mapping in mappings:
+        group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == mapping.group_id)
+        )).scalars().first()
+        if group:
+            device_count = (await db.execute(
+                select(func.count()).select_from(DeviceGroupMapping).where(
+                    DeviceGroupMapping.group_id == group.id
+                )
+            )).scalar()
+            groups.append(DeviceGroupNestedResponse(
+                id=group.id,
+                name=group.name,
+                description=group.description,
+                device_count=device_count
+            ))
+    return groups
+
+
+async def _build_device_groups_index(
+    db: AsyncSession,
+    device_ids: List[int],
+    category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA,
+) -> dict:
+    """v5.4 후속 (문서 A-7 #3): N+1 폭발 방지용 배치 인덱스.
+
+    반환: `{device_id: [DeviceGroupNestedResponse, ...]}`. 쿼리 총 3회 (device_ids 크기 무관):
+      1) 대상 카메라들의 mappings — device_id IN (…) AND category=…
+      2) 매핑 대상 그룹들 — DeviceGroup.id IN (해당 group_ids)
+      3) 그룹별 device_count — group_id IN (…) GROUP BY group_id
+
+    이후 in-memory 조립 → 요청당 DB 라운드트립을 O(N)에서 O(1)로 축소.
+    """
+    if not device_ids:
+        return {}
+
+    # 1) 대상 카메라들의 매핑 일괄 조회
+    mappings = (await db.execute(
+        select(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id.in_(device_ids),
+            DeviceGroupMapping.category_device == category_device,
+        )
+    )).scalars().all()
+    if not mappings:
+        return {did: [] for did in device_ids}
+
+    # 2) 매핑된 group_id 집합 → 그룹 일괄 조회 (id → group)
+    group_ids = {m.group_id for m in mappings}
+    groups_rows = (await db.execute(
+        select(DeviceGroup).where(DeviceGroup.id.in_(group_ids))
+    )).scalars().all()
+    groups_by_id: dict = {g.id: g for g in groups_rows}
+
+    # 3) 그룹별 device_count 일괄 조회 — 그룹 GROUP BY count
+    count_rows = (await db.execute(
+        select(
+            DeviceGroupMapping.group_id, func.count(DeviceGroupMapping.id)
+        ).where(
+            DeviceGroupMapping.group_id.in_(group_ids)
+        ).group_by(DeviceGroupMapping.group_id)
+    )).all()
+    device_count_by_group: dict = {gid: cnt for gid, cnt in count_rows}
+
+    # 4) in-memory 조립 — device_id → [DeviceGroupNestedResponse]
+    index: dict = {did: [] for did in device_ids}
+    for m in mappings:
+        group = groups_by_id.get(m.group_id)
+        if group is None:
+            continue
+        index[m.device_id].append(DeviceGroupNestedResponse(
+            id=group.id,
+            name=group.name,
+            description=group.description,
+            device_count=device_count_by_group.get(group.id, 0),
+        ))
+    return index
+
+
+async def _update_device_group_mappings(db: AsyncSession, device_id: int, group_ids: List[int], category_device: EnumDeviceCategory = EnumDeviceCategory.CAMERA):
+    """Update device group mappings for a camera"""
+    # Remove existing mappings
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == device_id,
+            DeviceGroupMapping.category_device == category_device
+        )
+    )
+
+    # Create new mappings
+    for group_id in group_ids:
+        # Verify group exists
+        group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == group_id)
+        )).scalars().first()
+        if group:
+            mapping = DeviceGroupMapping(
+                device_id=device_id,
+                category_device=category_device,
+                group_id=group_id
+            )
+            db.add(mapping)
+
+
+async def _camera_to_response(camera: Camera, db: AsyncSession) -> CameraResponse:
+    """Convert Camera model to CameraResponse schema with extended fields and device_groups"""
+    # Convert hardware_spec dict to HardwareSpec if exists
+    hw_spec = None
+    if camera.hardware_spec:
+        hw_spec = HardwareSpec(**camera.hardware_spec)
+
+    # Convert geolocation dict to Geolocation if exists
+    geo = None
+    if camera.geolocation:
+        geo = Geolocation(**camera.geolocation)
+
+    # Convert urls dict to CameraUrls if exists (PRD_Camera_Urls_JsonB.md)
+    urls = None
+    if camera.urls:
+        urls = CameraUrls(**camera.urls)
+
+    # v2.4: Nested Response 규칙 적용 - device_groups에서 timestamp 제외
+    # v5.4 후속 (문서 A-7 #3): 단건 응답에만 이 헬퍼 사용. 목록은 배치 인덱스 사용.
+    device_groups = await _get_device_groups_nested(db, camera.id, EnumDeviceCategory.CAMERA)
+
+    return CameraResponse(
+        id=camera.id,
+        number_device=camera.number_device,
+        group_device=camera.group_device,
+        name_device=camera.name_device,
+        type_device=camera.type_device.value,
+        version=camera.version,
+        status=camera.status.value,
+        is_enable=camera.is_enable,
+        ip_address=camera.ip_address,
+        ip_port=camera.ip_port,
+        user_name=camera.user_name,
+        user_password=camera.user_password,
+        mode=camera.mode.value,
+        category=camera.category.value,
+        is_record=camera.is_record,
+        hardware_spec=hw_spec,
+        geolocation=geo,
+        urls=urls,
+        created_at=camera.created_at,
+        updated_at=camera.updated_at,
+        device_groups=device_groups
+    )
 
 
 @router.get("", response_model=ApiResponse[list[CameraResponse]])
 async def get_cameras(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    group_device: Optional[int] = Query(None, description="Filter by group_device"),
-    type_device: Optional[str] = Query(None, description="Filter by type_device"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    mode: Optional[str] = Query(None, description="Filter by camera mode"),
-    category: Optional[str] = Query(None, description="Filter by camera category"),
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
+    group_device: Optional[int] = Query(None, description="장치 그룹으로 필터링 (레거시 1:1)"),
+    group_id: Optional[int] = Query(None, description="DeviceGroup ID로 필터링 (N:N 관계)"),
+    type_device: Optional[str] = Query(None, description="장치 유형으로 필터링"),
+    status: Optional[str] = Query(None, description="상태로 필터링"),
+    mode: Optional[str] = Query(None, description="카메라 모드로 필터링"),
+    category: Optional[str] = Query(None, description="카메라 카테고리로 필터링"),
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Get list of cameras with pagination and filters
+    카메라 목록 조회 (페이지네이션)
 
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20, max: 100)
-        group_device: Filter by group_device
-        type_device: Filter by type_device
-        status: Filter by status
-        mode: Filter by camera mode
-        category: Filter by camera category
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    카메라 목록을 페이지네이션하여 조회합니다. 다양한 필터 옵션을 지원합니다.
 
-    Returns:
-        ApiResponse with list of cameras and pagination metadata
+    **파라미터**:
+    - **page**: 페이지 번호 (기본값: 1)
+    - **limit**: 페이지당 항목 수 (기본값: 20, 최대: 100)
+    - **group_device**: 장치 그룹으로 필터링 - 레거시 1:1 관계
+    - **group_id**: DeviceGroup ID로 필터링 - N:N 관계
+    - **type_device**: 장치 유형으로 필터링
+    - **status**: 상태로 필터링
+    - **mode**: 카메라 모드로 필터링
+    - **category**: 카메라 카테고리로 필터링
+
+    **Response**: 카메라 목록 및 페이지네이션 정보
     """
     # Build query
-    query = db.query(Camera)
+    stmt = select(Camera)
+    count_stmt = select(func.count()).select_from(Camera)
 
     # Apply filters
     if group_device is not None:
-        query = query.filter(Camera.group_device == group_device)
+        stmt = stmt.where(Camera.group_device == group_device)
+        count_stmt = count_stmt.where(Camera.group_device == group_device)
+    if group_id is not None:
+        # N:N filtering via DeviceGroupMapping junction table
+        subquery = select(DeviceGroupMapping.device_id).where(
+            DeviceGroupMapping.group_id == group_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.CAMERA
+        ).subquery()
+        stmt = stmt.where(Camera.id.in_(select(subquery)))
+        count_stmt = count_stmt.where(Camera.id.in_(select(subquery)))
     if type_device is not None:
-        query = query.filter(Camera.type_device == type_device)
+        stmt = stmt.where(Camera.type_device == type_device)
+        count_stmt = count_stmt.where(Camera.type_device == type_device)
     if status is not None:
-        query = query.filter(Camera.status == status)
+        stmt = stmt.where(Camera.status == status)
+        count_stmt = count_stmt.where(Camera.status == status)
     if mode is not None:
-        query = query.filter(Camera.mode == mode)
+        stmt = stmt.where(Camera.mode == mode)
+        count_stmt = count_stmt.where(Camera.mode == mode)
     if category is not None:
-        query = query.filter(Camera.category == category)
+        stmt = stmt.where(Camera.category == category)
+        count_stmt = count_stmt.where(Camera.category == category)
 
     # Get total count
-    total = query.count()
+    total = (await db.execute(count_stmt)).scalar()
 
     # Calculate pagination
     skip = (page - 1) * limit
     total_pages = math.ceil(total / limit) if total > 0 else 1
 
-    # Get paginated results
-    cameras = query.offset(skip).limit(limit).all()
+    # Get paginated results (order by id for stable pagination)
+    cameras = (await db.execute(
+        stmt.order_by(Camera.id).offset(skip).limit(limit)
+    )).scalars().all()
 
-    # Convert to response format
-    camera_responses = [
-        CameraResponse(
-            id=c.id,
-            number_device=c.number_device,
-            group_device=c.group_device,
-            name_device=c.name_device,
-            type_device=c.type_device.value,
-            version=c.version,
-            status=c.status.value,
-            ip_address=c.ip_address,
-            ip_port=c.ip_port,
-            user_name=c.user_name,
-            user_password=c.user_password,
-            rtsp_uri=c.rtsp_uri,
-            rtsp_port=c.rtsp_port,
-            mode=c.mode.value,
-            category=c.category.value,
-            created_at=c.created_at,
-            updated_at=c.updated_at
-        )
-        for c in cameras
-    ]
+    # v5.4 후속 (문서 A-7 #3): device_groups 배치 인덱스 — N+1 폭발 방지.
+    # 이전: 카메라마다 _get_device_groups_nested() 호출 → 매 카메라 (M+1) 쿼리.
+    # 지금: 3-쿼리 배치 인덱스 1회로 dict 완성 → 각 카메라는 O(1) 조회.
+    _dg_index = await _build_device_groups_index(
+        db, [c.id for c in cameras], EnumDeviceCategory.CAMERA
+    )
+
+    # Convert to response format — 단건 헬퍼를 그대로 재사용하되 device_groups만 인덱스에서 취함.
+    camera_responses = []
+    for c in cameras:
+        resp = await _camera_to_response(c, db)
+        # device_groups 필드만 인덱스로 대체(단건 헬퍼가 부른 _get_device_groups_nested 결과 덮어씀).
+        resp.device_groups = _dg_index.get(c.id, [])
+        camera_responses.append(resp)
 
     pagination = PaginationMeta(
         page=page,
@@ -108,27 +288,32 @@ async def get_cameras(
     )
 
 
-@router.get("/{camera_id}", response_model=ApiResponse[CameraResponse])
+@router.get("/{camera_id}")
 async def get_camera(
     camera_id: int,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    include_presets: bool = Query(False, description="프리셋 정보 포함 여부 (기본값: false)"),
+    include_rois: bool = Query(False, description="ROI 정보 포함 여부 (기본값: false, include_presets=true 필요)"),
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Get a single camera by ID
+    카메라 단건 조회
 
-    Args:
-        camera_id: Camera ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 카메라의 상세 정보를 조회합니다.
 
-    Returns:
-        ApiResponse with camera data
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
+    - **include_presets**: 프리셋 정보 포함 여부 (기본값: false)
+    - **include_rois**: ROI 정보 포함 여부 (기본값: false, include_presets=true일 때만 유효)
 
-    Raises:
-        HTTPException 404: If camera not found
+    **Response**: 카메라 상세 정보 (include_presets=true 시 presets 포함)
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
     """
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(
+        select(Camera).where(Camera.id == camera_id)
+    )).scalars().first()
 
     if not camera:
         raise HTTPException(
@@ -136,65 +321,109 @@ async def get_camera(
             detail=f"Camera with id {camera_id} not found"
         )
 
-    camera_response = CameraResponse(
-        id=camera.id,
-        number_device=camera.number_device,
-        group_device=camera.group_device,
-        name_device=camera.name_device,
-        type_device=camera.type_device.value,
-        version=camera.version,
-        status=camera.status.value,
-        ip_address=camera.ip_address,
-        ip_port=camera.ip_port,
-        user_name=camera.user_name,
-        user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
-        mode=camera.mode.value,
-        category=camera.category.value,
-        created_at=camera.created_at,
-        updated_at=camera.updated_at
-    )
+    # include_rois=true implies include_presets=true
+    if include_rois:
+        include_presets = True
 
-    return ApiResponse(
-        success=True,
-        message="Camera retrieved successfully",
-        data=camera_response
-    )
+    # If include_presets is requested, return CameraWithPresetsResponse
+    if include_presets:
+        camera_response = await _camera_to_response(camera, db)
+        presets = await _get_camera_presets_nested(db, camera_id, include_rois)
 
-
-@router.post("", response_model=ApiResponse[CameraResponse], status_code=status.HTTP_201_CREATED)
-async def create_camera(
-    camera_data: CameraCreate,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    """
-    Create a new camera
-
-    Args:
-        camera_data: Camera creation data
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
-
-    Returns:
-        ApiResponse with created camera data
-
-    Raises:
-        HTTPException 409: If camera with same number_device already exists
-        HTTPException 422: If invalid enum value provided
-    """
-    # Check for duplicate number_device
-    existing = db.query(Camera).filter(
-        Camera.number_device == camera_data.number_device
-    ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Camera with number_device {camera_data.number_device} already exists"
+        return ApiSingleResponse(
+            success=True,
+            message="Camera retrieved successfully",
+            data=CameraWithPresetsResponse(
+                **camera_response.model_dump(),
+                presets=presets
+            )
         )
 
+    return ApiSingleResponse(
+        success=True,
+        message="Camera retrieved successfully",
+        data=await _camera_to_response(camera, db)
+    )
+
+
+async def _get_camera_presets_nested(db: AsyncSession, camera_id: int, include_rois: bool = False) -> List[CameraPresetNestedResponse]:
+    """Get camera presets as nested response (v2.11: for include_presets query param)"""
+    from app.models.camera_preset import XyPoint  # Import for point_count query
+
+    presets = (await db.execute(
+        select(CameraPreset).where(CameraPreset.camera_id == camera_id)
+    )).scalars().all()
+
+    result: List[CameraPresetNestedResponse] = []
+    for preset in presets:
+        rois_list: List[ROIListNestedResponse] = []
+        if include_rois:
+            rois = (await db.execute(
+                select(ROI).where(ROI.preset_id == preset.id)
+            )).scalars().all()
+            for roi in rois:
+                # Use explicit query instead of lazy-loaded dynamic relationship
+                point_count = (await db.execute(
+                    select(func.count()).select_from(XyPoint).where(XyPoint.roi_id == roi.id)
+                )).scalar()
+                rois_list.append(ROIListNestedResponse(
+                    id=roi.id,
+                    preset_id=roi.preset_id,
+                    name=roi.name,
+                    resolution_width=roi.resolution_width,
+                    resolution_height=roi.resolution_height,
+                    is_enable=roi.is_enable,
+                    point_count=point_count
+                ))
+
+        roi_count = (await db.execute(
+            select(func.count()).select_from(ROI).where(ROI.preset_id == preset.id)
+        )).scalar()
+
+        result.append(CameraPresetNestedResponse(
+            id=preset.id,
+            camera_id=preset.camera_id,
+            preset_index=preset.preset_index,
+            preset_name=preset.preset_name,
+            touring_time=preset.touring_time,
+            roi_count=roi_count,
+            rois=rois_list
+        ))
+
+    return result
+
+
+@router.post("", response_model=ApiSingleResponse[CameraResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional_async("cameras", "edit"))])
+async def create_camera(
+    camera_data: CameraCreate,
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    카메라 생성
+
+    새로운 카메라를 생성합니다.
+
+    **Request Body**:
+    - **number_device**: 장치 번호 (필수)
+    - **group_device**: 장치 그룹 (필수)
+    - **name_device**: 장치 이름 (필수)
+    - **type_device**: 장치 유형 (필수)
+    - **version**: 버전 (필수)
+    - **status**: 상태 (필수)
+    - **ip_address**: IP 주소 (필수)
+    - **ip_port**: IP 포트 (필수)
+    - **user_name**: 사용자 이름 (선택)
+    - **user_password**: 사용자 비밀번호 (선택)
+    - **urls**: 카메라 URL 정보 JSONB (선택) - PRD_Camera_Urls_JsonB.md
+    - **mode**: 카메라 모드 (필수)
+    - **category**: 카메라 카테고리 (필수)
+
+    **Response**: 생성된 카메라 정보
+
+    **Error**:
+    - 422: 유효하지 않은 enum 값
+    """
     # Convert string enum values to enum types
     try:
         device_type = EnumDeviceType(camera_data.type_device)
@@ -207,7 +436,13 @@ async def create_camera(
             detail=f"Invalid enum value: {str(e)}"
         )
 
-    # Create new camera
+    # Convert extended fields to dict for JSON storage
+    hw_spec_dict = camera_data.hardware_spec.model_dump(exclude_none=True) if camera_data.hardware_spec else None
+    geo_dict = camera_data.geolocation.model_dump(exclude_none=True) if camera_data.geolocation else None
+    # PRD_Camera_Urls_JsonB.md: Convert urls to dict for JSONB storage
+    urls_dict = camera_data.urls.model_dump(exclude_none=True) if camera_data.urls else None
+
+    # Create new camera with extended fields
     new_camera = Camera(
         number_device=camera_data.number_device,
         group_device=camera_data.group_device,
@@ -215,72 +450,85 @@ async def create_camera(
         type_device=device_type,
         version=camera_data.version,
         status=device_status,
+        is_enable=camera_data.is_enable,
         ip_address=camera_data.ip_address,
         ip_port=camera_data.ip_port,
         user_name=camera_data.user_name,
         user_password=camera_data.user_password,
-        rtsp_uri=camera_data.rtsp_uri,
-        rtsp_port=camera_data.rtsp_port,
+        urls=urls_dict,
         mode=camera_mode,
-        category=camera_category
+        category=camera_category,
+        is_record=camera_data.is_record,
+        hardware_spec=hw_spec_dict,
+        geolocation=geo_dict
     )
 
     db.add(new_camera)
-    db.commit()
-    db.refresh(new_camera)
+    await db.commit()
+    await db.refresh(new_camera)
 
-    camera_response = CameraResponse(
-        id=new_camera.id,
-        number_device=new_camera.number_device,
-        group_device=new_camera.group_device,
-        name_device=new_camera.name_device,
-        type_device=new_camera.type_device.value,
-        version=new_camera.version,
-        status=new_camera.status.value,
-        ip_address=new_camera.ip_address,
-        ip_port=new_camera.ip_port,
-        user_name=new_camera.user_name,
-        user_password=new_camera.user_password,
-        rtsp_uri=new_camera.rtsp_uri,
-        rtsp_port=new_camera.rtsp_port,
-        mode=new_camera.mode.value,
-        category=new_camera.category.value,
-        created_at=new_camera.created_at,
-        updated_at=new_camera.updated_at
+    # Handle group_ids if provided (N:N relationship)
+    if camera_data.group_ids:
+        await _update_device_group_mappings(db, new_camera.id, camera_data.group_ids, EnumDeviceCategory.CAMERA)
+        await db.commit()
+
+    # ConfigChangeLog: CREATED 로깅 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.CAMERA,
+        resource_id=new_camera.id,
+        resource_name=f"Camera-{new_camera.id} ({new_camera.name_device})",
+        action=EnumConfigActionType.CREATED,
+        after_state=get_identifier(new_camera),
+        description="Camera 생성"
     )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera created successfully",
-        data=camera_response
+        data=await _camera_to_response(new_camera, db)
     )
 
 
-@router.patch("/{camera_id}", response_model=ApiResponse[CameraResponse])
+@router.patch("/{camera_id}", response_model=ApiSingleResponse[CameraResponse], dependencies=[Depends(require_perm_optional_async("cameras", "edit"))])
 async def update_camera(
     camera_id: int,
     camera_data: CameraUpdate,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Update a camera (partial update)
+    카메라 부분 수정 (PATCH)
 
-    Args:
-        camera_id: Camera ID
-        camera_data: Camera update data (all fields optional)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    카메라의 일부 필드만 수정합니다. 제공된 필드만 업데이트됩니다.
 
-    Returns:
-        ApiResponse with updated camera data
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
-        HTTPException 409: If number_device conflicts with existing camera
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 선택):
+    - **number_device**: 장치 번호
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 유형
+    - **version**: 버전
+    - **status**: 상태
+    - **ip_address**: IP 주소
+    - **ip_port**: IP 포트
+    - **user_name**: 사용자 이름
+    - **user_password**: 사용자 비밀번호
+    - **urls**: 카메라 URL 정보 JSONB (PRD_Camera_Urls_JsonB.md)
+    - **mode**: 카메라 모드
+    - **category**: 카메라 카테고리
+
+    **Response**: 수정된 카메라 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(
+        select(Camera).where(Camera.id == camera_id)
+    )).scalars().first()
 
     if not camera:
         raise HTTPException(
@@ -288,18 +536,8 @@ async def update_camera(
             detail=f"Camera with id {camera_id} not found"
         )
 
-    # Check for number_device conflict
-    if camera_data.number_device is not None:
-        existing = db.query(Camera).filter(
-            Camera.number_device == camera_data.number_device,
-            Camera.id != camera_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Camera with number_device {camera_data.number_device} already exists"
-            )
+    # ConfigChangeLog: 변경 전 상태 캡처
+    before_state = model_to_dict(camera)
 
     # Update fields if provided
     update_data = camera_data.model_dump(exclude_unset=True)
@@ -337,83 +575,93 @@ async def update_camera(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Invalid category value: {value}"
                 )
+        elif field == "hardware_spec" and value is not None:
+            # Convert Pydantic model to dict for JSON storage
+            value = value if isinstance(value, dict) else value
+        elif field == "geolocation" and value is not None:
+            # Convert Pydantic model to dict for JSON storage
+            value = value if isinstance(value, dict) else value
+        elif field == "urls" and value is not None:
+            # PRD_Camera_Urls_JsonB.md: Convert Pydantic model to dict for JSONB storage
+            value = value if isinstance(value, dict) else value
+        elif field == "group_ids":
+            # Handle group_ids separately (N:N relationship)
+            if value is not None:
+                await _update_device_group_mappings(db, camera_id, value, EnumDeviceCategory.CAMERA)
+            continue
 
         setattr(camera, field, value)
 
-    db.commit()
-    db.refresh(camera)
+    await db.commit()
+    await db.refresh(camera)
 
-    camera_response = CameraResponse(
-        id=camera.id,
-        number_device=camera.number_device,
-        group_device=camera.group_device,
-        name_device=camera.name_device,
-        type_device=camera.type_device.value,
-        version=camera.version,
-        status=camera.status.value,
-        ip_address=camera.ip_address,
-        ip_port=camera.ip_port,
-        user_name=camera.user_name,
-        user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
-        mode=camera.mode.value,
-        category=camera.category.value,
-        created_at=camera.created_at,
-        updated_at=camera.updated_at
-    )
+    # ConfigChangeLog: UPDATED 로깅 (PRD v1.2 - 변경된 필드만 저장)
+    after_state = model_to_dict(camera)
+    before_changes, after_changes = get_changed_fields(before_state, after_state)
+    if before_changes or after_changes:
+        await log_config_change_async(
+            db=db,
+            resource_type=EnumConfigResourceType.CAMERA,
+            resource_id=camera.id,
+            resource_name=f"Camera-{camera.id} ({camera.name_device})",
+            action=EnumConfigActionType.UPDATED,
+            before_state=before_changes,
+            after_state=after_changes,
+            description="Camera 수정"
+        )
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera updated successfully",
-        data=camera_response
+        data=await _camera_to_response(camera, db)
     )
 
 
-@router.put("/{camera_id}", response_model=ApiResponse[CameraResponse])
+@router.put("/{camera_id}", response_model=ApiSingleResponse[CameraResponse], dependencies=[Depends(require_perm_optional_async("cameras", "edit"))])
 async def replace_camera(
     camera_id: int,
     camera_data: CameraCreate,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Replace a camera (full update - all fields required)
+    카메라 전체 수정 (PUT)
 
-    Args:
-        camera_id: Camera ID
-        camera_data: Complete camera data (all fields required)
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    카메라의 모든 필드를 교체합니다. 모든 필드가 필수입니다.
 
-    Returns:
-        ApiResponse with updated camera data
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
-        HTTPException 409: If number_device conflicts with existing camera
-        HTTPException 422: If invalid enum value provided
+    **Request Body** (모든 필드 필수):
+    - **number_device**: 장치 번호
+    - **group_device**: 장치 그룹
+    - **name_device**: 장치 이름
+    - **type_device**: 장치 유형
+    - **version**: 버전
+    - **status**: 상태
+    - **ip_address**: IP 주소
+    - **ip_port**: IP 포트
+    - **user_name**: 사용자 이름
+    - **user_password**: 사용자 비밀번호
+    - **urls**: 카메라 URL 정보 JSONB (PRD_Camera_Urls_JsonB.md)
+    - **mode**: 카메라 모드
+    - **category**: 카메라 카테고리
+
+    **Response**: 수정된 카메라 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
+    - 422: 유효하지 않은 enum 값
     """
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(
+        select(Camera).where(Camera.id == camera_id)
+    )).scalars().first()
 
     if not camera:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Camera with id {camera_id} not found"
         )
-
-    # Check for number_device conflict
-    if camera_data.number_device != camera.number_device:
-        existing = db.query(Camera).filter(
-            Camera.number_device == camera_data.number_device,
-            Camera.id != camera_id
-        ).first()
-
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Camera with number_device {camera_data.number_device} already exists"
-            )
 
     # Convert string enum values to enum types
     try:
@@ -427,6 +675,12 @@ async def replace_camera(
             detail=f"Invalid enum value: {str(e)}"
         )
 
+    # Convert extended fields to dict for JSON storage
+    hw_spec_dict = camera_data.hardware_spec.model_dump(exclude_none=True) if camera_data.hardware_spec else None
+    geo_dict = camera_data.geolocation.model_dump(exclude_none=True) if camera_data.geolocation else None
+    # PRD_Camera_Urls_JsonB.md: Convert urls to dict for JSONB storage
+    urls_dict = camera_data.urls.model_dump(exclude_none=True) if camera_data.urls else None
+
     # Replace all fields (PUT = full replacement)
     camera.number_device = camera_data.number_device
     camera.group_device = camera_data.group_device
@@ -434,66 +688,55 @@ async def replace_camera(
     camera.type_device = device_type
     camera.version = camera_data.version
     camera.status = device_status
+    camera.is_enable = camera_data.is_enable
     camera.ip_address = camera_data.ip_address
     camera.ip_port = camera_data.ip_port
     camera.user_name = camera_data.user_name
     camera.user_password = camera_data.user_password
-    camera.rtsp_uri = camera_data.rtsp_uri
-    camera.rtsp_port = camera_data.rtsp_port
+    camera.urls = urls_dict
     camera.mode = camera_mode
     camera.category = camera_category
+    camera.is_record = camera_data.is_record
+    camera.hardware_spec = hw_spec_dict
+    camera.geolocation = geo_dict
 
-    db.commit()
-    db.refresh(camera)
+    await db.commit()
+    await db.refresh(camera)
 
-    camera_response = CameraResponse(
-        id=camera.id,
-        number_device=camera.number_device,
-        group_device=camera.group_device,
-        name_device=camera.name_device,
-        type_device=camera.type_device.value,
-        version=camera.version,
-        status=camera.status.value,
-        ip_address=camera.ip_address,
-        ip_port=camera.ip_port,
-        user_name=camera.user_name,
-        user_password=camera.user_password,
-        rtsp_uri=camera.rtsp_uri,
-        rtsp_port=camera.rtsp_port,
-        mode=camera.mode.value,
-        category=camera.category.value,
-        created_at=camera.created_at,
-        updated_at=camera.updated_at
-    )
+    # Handle group_ids if provided (N:N relationship)
+    if camera_data.group_ids is not None:
+        await _update_device_group_mappings(db, camera.id, camera_data.group_ids, EnumDeviceCategory.CAMERA)
+        await db.commit()
 
-    return ApiResponse(
+    return ApiSingleResponse(
         success=True,
         message="Camera replaced successfully",
-        data=camera_response
+        data=await _camera_to_response(camera, db)
     )
 
 
-@router.delete("/{camera_id}", response_model=ApiResponse[dict])
+@router.delete("/{camera_id}", response_model=ApiSingleResponse[None], dependencies=[Depends(require_perm_optional_async("cameras", "delete"))])
 async def delete_camera(
     camera_id: int,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Delete a camera
+    카메라 삭제
 
-    Args:
-        camera_id: Camera ID
-        current_user: Current authenticated user (optional based on AUTH_MODE)
-        db: Database session
+    특정 카메라를 삭제합니다.
 
-    Returns:
-        ApiResponse with deletion confirmation
+    **파라미터**:
+    - **camera_id**: 카메라 ID (Path Parameter)
 
-    Raises:
-        HTTPException 404: If camera not found
+    **Response**: 삭제 확인 정보
+
+    **Error**:
+    - 404: 카메라를 찾을 수 없음
     """
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    camera = (await db.execute(
+        select(Camera).where(Camera.id == camera_id)
+    )).scalars().first()
 
     if not camera:
         raise HTTPException(
@@ -501,11 +744,34 @@ async def delete_camera(
             detail=f"Camera with id {camera_id} not found"
         )
 
-    db.delete(camera)
-    db.commit()
+    # ConfigChangeLog: 삭제 전 식별 정보 캡처
+    deleted_identifier = get_identifier(camera)
+    resource_name = f"Camera-{camera.id} ({camera.name_device})"
 
-    return ApiResponse(
+    # Delete associated device group mappings first (no FK cascade for polymorphic relation)
+    await db.execute(
+        delete(DeviceGroupMapping).where(
+            DeviceGroupMapping.device_id == camera_id,
+            DeviceGroupMapping.category_device == EnumDeviceCategory.CAMERA
+        )
+    )
+
+    await db.delete(camera)
+    await db.commit()
+
+    # ConfigChangeLog: DELETED 로깅 (PRD v1.2)
+    await log_config_change_async(
+        db=db,
+        resource_type=EnumConfigResourceType.CAMERA,
+        resource_id=camera_id,
+        resource_name=resource_name,
+        action=EnumConfigActionType.DELETED,
+        before_state=deleted_identifier,
+        description="Camera 삭제"
+    )
+
+    return ApiSingleResponse(
         success=True,
         message="Camera deleted successfully",
-        data={"id": camera_id}
+        data=None
     )

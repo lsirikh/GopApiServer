@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-07-13 (advance-phase 자동)
-- **총 문서 수**: 30개
+- **총 문서 수**: 31개
 
 ---
 
@@ -39,7 +39,7 @@
 
 | 파일 | 연관 PRD | 진행률 | 날짜 |
 |------|---------|--------|------|
-| [audit-auto-lock-unlock-prd-plan.md](plans/audit-auto-lock-unlock-prd-plan.md) | [PRD](prds/audit-auto-lock-unlock-prd.md) | 0/19 | 2026-07-13 |
+| [audit-auto-lock-unlock-prd-plan.md](plans/audit-auto-lock-unlock-prd-plan.md) | [PRD](prds/audit-auto-lock-unlock-prd.md) | 12/19 | 2026-07-13 |
 | [Role_Simplification-prd-plan.md](plans/Role_Simplification-prd-plan.md) | [PRD](prds/Role_Simplification-prd.md) | 5/30 | 2026-07-02 |
 | [Legacy_User_Removal-prd-plan.md](plans/Legacy_User_Removal-prd-plan.md) | [PRD](prds/Legacy_User_Removal-prd.md) | 0/55 | 2026-07-02 |
 | [Permission_Group_Scheduling-prd-plan.md](plans/Permission_Group_Scheduling-prd-plan.md) | [PRD](prds/Permission_Group_Scheduling-prd.md) | 1/36 | 2026-06-30 |
@@ -49,6 +49,7 @@
 
 | 파일 | 통과율 | 커버리지 | 날짜 |
 |------|--------|---------|------|
+| [audit-auto-lock-unlock-test.md](tests/audit-auto-lock-unlock-test.md) | -% | -% | 2026-07-13 |
 
 ## 완료 리포트 (docs/reports/)
 

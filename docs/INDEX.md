@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-07-13 (advance-phase 자동)
-- **총 문서 수**: 34개
+- **총 문서 수**: 36개
 
 ---
 
@@ -51,12 +51,14 @@
 
 | 파일 | 통과율 | 커버리지 | 날짜 |
 |------|--------|---------|------|
+| [nats-dbapi-sync-completion-test.md](tests/nats-dbapi-sync-completion-test.md) | -% | -% | 2026-07-13 |
 | [audit-auto-lock-unlock-test.md](tests/audit-auto-lock-unlock-test.md) | -% | -% | 2026-07-13 |
 
 ## 완료 리포트 (docs/reports/)
 
 | 파일 | 문서 연결 체인 | 날짜 |
 |------|------------|------|
+| [nats-dbapi-sync-completion-report.md](reports/nats-dbapi-sync-completion-report.md) | [PRD](prds/nats-dbapi-sync-completion-prd.md) → [Plan](plans/nats-dbapi-sync-completion-prd-plan.md) | 2026-07-13 |
 | [audit-auto-lock-unlock-report.md](reports/audit-auto-lock-unlock-report.md) | [PRD](prds/audit-auto-lock-unlock-prd.md) → [Plan](plans/audit-auto-lock-unlock-prd-plan.md) | 2026-07-13 |
 | [BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md](reports/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md) | [PRD](prds/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md-prd.md) → [Plan](plans/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md-prd-plan.md) | 2026-07-06 |
 | [BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md](reports/BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md) | [PRD](prds/BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md-prd.md) → [Plan](plans/BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md-prd-plan.md) | 2026-07-06 |

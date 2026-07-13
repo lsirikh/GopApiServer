@@ -404,66 +404,10 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- **API Version**: 6.3 (release/v6.0 브랜치, 2026-07-13 확정 — v6.0 Async 대전환 → v6.0 후속 21 topic 누적 → v6.3 승격)
-- **명세**: GOP_Restful_Api_연동설계.md v6.3
-- **주요 PRD**: PRD_v5.0_Permission_Management.md, PRD_Tracking_History_API.md, PRD_v4.9_Followup_AccountIntegration.md, PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_Report_System.md
-- **최신 CHANGELOG**: `CHANGELOG.md` 참조
-
-### v6.0 → v6.3 주요 업데이트 (2026-07-03 ~ 07-13)
-
-#### Async 대전환 (`v6.0`, 2026-07-03)
-- SQLAlchemy 2.x + asyncpg + AsyncSession 완전 전환
-- 41 라우터 async 100%, ~99 endpoint RBAC 매트릭스
-- api_logs PostgreSQL RANGE 파티셔닝 + `asyncio.Queue` batch INSERT
-- Docker autoheal · Chromium PDF 렌더 (Playwright to_thread)
-
-#### 리포트 시스템 (`v6.0-report_*`, 2026-07-04 ~ 07-05)
-- **`v6.0-report_fixes`** — 세션/감사/설정/시스템 그리드 컬럼 확장, JSON preview ↔ HTML/PDF 필터 통일, 라벨 통일
-- **`v6.0-report_lifecycle_persistence`** — Startup 재조정(PENDING/GENERATING→FAILED), PDF named volume 영속화, 파일 소실 시 HTTP 410
-- **`v6.0-report_progress_perf`** — 진행률 필드 3개(`progress_pct`, `progress_stage`, `progress_updated_at`), Stall 워치도그(60s no-progress → FAILED), SQL 집계 이관, 상세 CSV 다운로드 endpoint (`GET /generations/{id}/detail.csv?type=...`)
-- **`v6.0-report_date_range`** — 요청에 `start_date/end_date` 커스텀 범위, `period_type="custom"`, 366일 상한
-
-#### 인증 · 계정 (`v6.0-auth_*`, `v6.0-account_*`)
-- **`v6.0-auth_mode_secure_default`** — `AUTH_MODE=token` 기본값 (public fallback 시 부팅 WARN + staging/prod 거부)
-- **`v6.0-account_rbac`** — ADMIN Static seed 3종(m_manager, vms_manager, popup_manager)
-- **`v6.0-account_managers_expand`** — 장비 도메인별 ADMIN 5종 신규(CameraManager, BroadcastingManager, QLiteLampManager, NVRManager, EnclosureManager). 총 9 ADMIN
-- 모두 password `sensorway1` (dev/시연 기본값)
-
-#### API 계약 개선
-- **`v6.0-servers_port_response_relax`** — `ServerResponse.port` `ge=1 → ge=0` (Postel's Law: 요청 엄격, 응답 관대). 목록 응답 fault tolerance
-- 다운로드 응답 분화: 파일 소실 시 404 → **HTTP 410 `PDF_FILE_MISSING`**
-
-#### 인프라 · 배포 (`v6.0-rename_pids`, `v6.0-cert_installer_fix`, `v6.0-bootstrap_automation`)
-- **`v6.0-rename_pids`** — 컨테이너/이미지 `api-test-*` → `pids-api-*` (볼륨·데이터 보전)
-- **`v6.0-cert_installer_fix`** — HTTPS 인증서 인스톨러 6 버그 픽스. Dockerfile CMD **fail-fast** (인증서 없으면 exit 1, 개발 편의는 `ALLOW_HTTP_FALLBACK=true` 명시 opt-in)
-- **`v6.0-bootstrap_automation`** — `bootstrap.ps1` 1-Click 배포 (관리자 상승 + 인증서 발급 + docker up + healthy 대기)
-
-### 신규 · 변경 endpoint 요약
-
-| Endpoint | 변경 |
-|---|---|
-| `GET /api/reports/generations/{id}` | 응답에 `progress_pct` · `progress_stage` · `progress_updated_at` 3필드 추가 |
-| `POST /api/reports/generate` | `start_date` · `end_date` Optional 필드 추가 (커스텀 범위) |
-| `GET /api/reports/generations/{id}/detail.csv?type=…` | **신규** — 상세 rows CSV (8 grid type: detection/malfunction/action/system/config/audit/login/session) |
-| `POST /api/reports/generations/{id}/cancel` | 진행 중 리포트 취소 (v6.0 후속에서 도입) |
-| `GET /api/reports/generations/{id}/download` | 파일 소실 시 404 → **HTTP 410 `PDF_FILE_MISSING`** 분화 |
-| `GET /api/servers` | 응답 `port` 제약 `ge=1` → `ge=0`. 목록 응답 fault tolerance |
-
-#### v6.0 후속 안정화 (2026-07-06~07, clone 배포 대응)
-
-- **`clone_deploy_bugfix`** — 신규 PC clone 배포 6버그 근본 해결 (startup 자동 마이그레이션, connections selectinload, event_statistics tz 정규화, audit_role 완화)
-- **`response_schema_audit`** — 전 `*Response` 스키마 Enum 지뢰 21건 전수 완화 (String 컬럼 + strict Enum → 목록 500 원천 차단). `report_type`/`period_type`/`status`/`type_event`/`result`/`action`/`actor_role` 등 응답 필드 Enum → str
-- **`role_seed_normalize`** — role 규칙(v5.3 ADMIN/USER 2종) 시드·기존 데이터 재적용. startup 자동 정규화(옛 OPERATOR/VIEWER/MAINTAINER → USER)
-- **`force_logout_tz_fix`** — 세션 강제 로그아웃 500 버그 수정 (logged_out_at tz-aware → naive KST). `DELETE /api/user-sessions/{id}` 정상화 + 토큰 즉시 무효화
-- **`installer_ps2exe_path_fix`** / **`bootstrap_automation`** — 신규 PC 1-Click 설치 (bootstrap.ps1 + PS2EXE 경로 근본 수정)
-
-#### 보안 하드닝 (2026-07-08~13, v6.3 확정분)
-- **`session_token_jti`** — 세션에 원문 JWT 대신 jti 저장 + `refresh_expires_at`
-- **`login_rate_limit`** — 로그인 IP 슬라이딩윈도우 (300s/10회 초과 429)
-- **`migration_tracking`** — `schema_migrations` 추적 테이블 + fail-fast
-- **`review0710_p0/p1`** — 민감 GET 무인증 차단, refresh orphan 제거, logout 폐기 `revoke_session_family` 통일, public GET allowlist 계약 테스트
-- **`audit_logs_authz`** — audit-logs GET을 `audit_logs:view`로 강화 (config-change-logs와 감사도메인 일관)
-- **역할 표기 정합** — `EnumUserRole` 5종→2종(ADMIN/USER), 명세 폐기역할(MAINTAINER 등) 현행화
+- **API Version**: `6.3.0`
+- **Branch**: `release/v6.3` (canonical) · 2026-07-13 확정
+- **명세**: `GOP_Restful_Api_연동설계.md` v6.3
+- **전체 변경 이력**: 명세서 하단 ChangeLog · 저장소 `CHANGELOG.md` 참조
 """,
     version="6.3.0",
     docs_url=None,  # Disable default docs to use custom

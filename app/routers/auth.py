@@ -384,6 +384,36 @@ def _record_login_failure(db, *, login_id, reason, ip_address, user_agent, user_
             pass
 
 
+async def _audit_auto(db, *, action: str, user, ip, ua, description: str) -> None:
+    """자동(시스템) 계정 잠금/해제를 audit_logs 에 best-effort 기록 (audit-auto-lock-unlock FR-03).
+
+    사람 행위자가 없는 자동 이벤트이므로 actor_id=None / actor_login_id='(system)' /
+    actor_name='시스템(자동)', 대상은 resource_type='USER'(resource_id/name=대상 계정).
+    감사 실패가 로그인(잠금 집행)을 막지 않도록 try/except 로 격리(best-effort, NFR-01).
+    log_action 은 async-def-sync-body 라 sync Session 으로 await 호출 가능.
+    """
+    try:
+        from app.services.audit_service import log_action
+        await log_action(
+            db=db,
+            action_type=action,
+            resource_type="USER",
+            actor_login_id="(system)",
+            actor_id=None,
+            actor_name="시스템(자동)",
+            resource_id=user.id,
+            resource_name=user.name,
+            description=description,
+            ip_address=ip,
+            user_agent=ua,
+        )
+    except Exception:
+        import logging
+        logging.getLogger("app.routers.auth").warning(
+            "auto audit(%s) failed for user %s", action,
+            getattr(user, "login_id", "?"), exc_info=True)
+
+
 @router.post("/login")
 async def login(
     login_data: AccountLoginRequest,
@@ -457,6 +487,9 @@ async def login(
             user.locked_at = None
             user.lock_reason = None
             db.commit()
+            # FR-02: 자동 해제를 audit_logs 에 기록(USER_UNLOCKED, 시스템 행위자, best-effort)
+            await _audit_auto(db, action="USER_UNLOCKED", user=user, ip=_ip, ua=_ua,
+                              description=f"잠금 후 {_lock_dur}분 경과로 자동 해제")
             # 자동 해제됨 — 아래 비밀번호 검증으로 계속 진행
         else:
             _record_login_failure(db, login_id=user.login_id, reason="ACCOUNT_LOCKED",
@@ -494,6 +527,11 @@ async def login(
         # ACC-P1-09: 비밀번호 불일치 감사 기록(위 commit 로 failed_count/lock 반영 후).
         _record_login_failure(db, login_id=user.login_id, reason=_reason,
                               ip_address=_ip, user_agent=_ua, user_id=user.id)
+
+        # FR-01: 이번 실패로 자동 잠금되면 audit_logs 에 기록(USER_LOCKED, 시스템 행위자, best-effort)
+        if _locked_now:
+            await _audit_auto(db, action="USER_LOCKED", user=user, ip=_ip, ua=_ua,
+                              description=f"로그인 실패 {_lockout_threshold}회 초과로 계정 자동 잠금")
 
         # ㉯ 잔여 횟수 안내(틀린 이유는 비노출 유지 — 미존재 계정 경로는 위에서 이미 분기).
         #    구조화 details(failed_count/threshold/remaining/locked)로 클라 렌더 지원.

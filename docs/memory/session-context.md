@@ -272,7 +272,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 - **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
 - **활성 PRD**: v6.0 완결 (Async 대전환 종결)
 - **활성 Plan**: 없음 — v6.1 대기 상태
-- **현재 Phase**: prd
+- **현재 Phase**: plan
 - **Track**: C
 - **다음 할 일**: **v6.1 pytest 스위트 async 마이그레이션** (v6.0에서 인프라만 완료 = dual-stack fixture 등, 전체 테스트 async 재작성은 v6.1 별도 차수)
 - **핵심 기술결정 (v6.0 확정)**:
@@ -297,7 +297,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-39272
+- **현재 세션 ID**: ppid-59680
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-39272
+- **활성 세션 목록**: ppid-59680
 

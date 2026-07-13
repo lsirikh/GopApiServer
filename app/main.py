@@ -404,12 +404,12 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- **API Version**: 6.0 (release/v6.0 브랜치, 2026-07-03 배포 → 후속 픽스 진행 중)
-- **명세**: GOP_Restful_Api_연동설계.md v5.0
+- **API Version**: 6.3 (release/v6.0 브랜치, 2026-07-13 확정 — v6.0 Async 대전환 → v6.0 후속 21 topic 누적 → v6.3 승격)
+- **명세**: GOP_Restful_Api_연동설계.md v6.3
 - **주요 PRD**: PRD_v5.0_Permission_Management.md, PRD_Tracking_History_API.md, PRD_v4.9_Followup_AccountIntegration.md, PRD_Account_Design.md, PRD_Device_Structure_Refactoring.md, PRD_Report_System.md
 - **최신 CHANGELOG**: `CHANGELOG.md` 참조
 
-### v6.0 주요 업데이트 (2026-07-03 ~ 진행 중)
+### v6.0 → v6.3 주요 업데이트 (2026-07-03 ~ 07-13)
 
 #### Async 대전환 (`v6.0`, 2026-07-03)
 - SQLAlchemy 2.x + asyncpg + AsyncSession 완전 전환
@@ -456,8 +456,16 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 - **`role_seed_normalize`** — role 규칙(v5.3 ADMIN/USER 2종) 시드·기존 데이터 재적용. startup 자동 정규화(옛 OPERATOR/VIEWER/MAINTAINER → USER)
 - **`force_logout_tz_fix`** — 세션 강제 로그아웃 500 버그 수정 (logged_out_at tz-aware → naive KST). `DELETE /api/user-sessions/{id}` 정상화 + 토큰 즉시 무효화
 - **`installer_ps2exe_path_fix`** / **`bootstrap_automation`** — 신규 PC 1-Click 설치 (bootstrap.ps1 + PS2EXE 경로 근본 수정)
+
+#### 보안 하드닝 (2026-07-08~13, v6.3 확정분)
+- **`session_token_jti`** — 세션에 원문 JWT 대신 jti 저장 + `refresh_expires_at`
+- **`login_rate_limit`** — 로그인 IP 슬라이딩윈도우 (300s/10회 초과 429)
+- **`migration_tracking`** — `schema_migrations` 추적 테이블 + fail-fast
+- **`review0710_p0/p1`** — 민감 GET 무인증 차단, refresh orphan 제거, logout 폐기 `revoke_session_family` 통일, public GET allowlist 계약 테스트
+- **`audit_logs_authz`** — audit-logs GET을 `audit_logs:view`로 강화 (config-change-logs와 감사도메인 일관)
+- **역할 표기 정합** — `EnumUserRole` 5종→2종(ADMIN/USER), 명세 폐기역할(MAINTAINER 등) 현행화
 """,
-    version="6.0.0",
+    version="6.3.0",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",

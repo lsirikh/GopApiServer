@@ -10,11 +10,29 @@
 
 | 항목 | 값 |
 |---|---|
-| **차수** | **v6.1** (2026-07-04, **리포트/서버 초기화 정합화** — 4 Issue + 1 부수결함 일괄 픽스, sample_servers 9카테고리 14대 Static 승격, JSON preview/HTML/PDF 필터 통일, audit/config/system 컬럼 확장 + user_sessions JOIN, N+1 제거) / v6.0 (2026-07-03, Async 대전환) / v5.4~v5.2 (이전 차수) |
-| **HEAD commit** | (v6.1 커밋 예정) — 이전 tip `2f1f5b3` (v6.0 Quick Wins) |
-| **branch** | `release/v6.0` (v6.1 소분 이력을 같은 브랜치 위에 누적) — 태그 `v6.0` 유지, `v6.1` 부여 예정 |
+| **차수** | **v6.3** (2026-07-13 의식적 승격 — v6.0 후속 21 topic 확정) / v6.1 (2026-07-04, **리포트/서버 초기화 정합화** — 4 Issue + 1 부수결함 일괄 픽스, sample_servers 9카테고리 14대 Static 승격, JSON preview/HTML/PDF 필터 통일, audit/config/system 컬럼 확장 + user_sessions JOIN, N+1 제거) / v6.0 (2026-07-03, Async 대전환) / v5.4~v5.2 (이전 차수) |
+| **HEAD commit** | `3936414` (2026-07-12, v6.0-review0710_p1) — v6.1 이후 review0708/0710·login_rate_limit·migration_tracking·session_token_jti(E1)·재감사 P0/P1 누적 |
+| **branch** | `release/v6.0` (v6.1 소분 이력을 같은 브랜치 위에 누적) — 태그 `v6.3` 부여(2026-07-13 승격), 후속은 `v6.3-{topic}` |
 | **Container** | ✅ **v6.1 rebuild 완료** (2026-07-04) — `[OK] Sample servers created: 14` 확인, 9카테고리 전부 인스턴스 최소 1대. api-server / postgres / autoheal / gis-ingest / db-monitor healthy. |
 | **DB** | PostgreSQL 16 + asyncpg / `servers` 14행 (v6.1 시드), `account_users` 3건, `report_generations` 24건 (v6.1 검증 리포트 포함) / `api_logs` 파티셔닝 v6.0 상태 계승. |
+
+## 최신 작업 (2026-07-12 — 재감사 review0710 마감 + clone-deploy 검증)
+
+> v6.1(아래) 이후 누적된 보안/세션 강화 작업의 최신 상태. auth.py 소유권은 2026-07-02 재해제됨(SESSION_COORDINATION.md) — 본 세션이 v6.0 세션/인증 작업 연속 소유.
+
+- **재감사 P0 (commit baed794)**: 민감 GET 무인증 노출 차단(config-change-logs/system-events/event-statistics 라우터 가드) + refresh 회전 시 옛 access jti orphan 제거.
+- **재감사 P1 (commits 99d0d70·fa641bd·3936414)**:
+  - P1-01 logout 폐기를 `revoke_session_family`로 통일(access static TTL→stored exp, logout·refresh·revoke·force_logout 동일 원천).
+  - P2-02 `tests/test_public_get_contract.py` — public GET allowlist 계약(구조 introspection + 라이브 무토큰 2xx 미노출). 10 passed.
+  - P1-02 api-server를 `nats_external`(nats-core_nats-network) 연결 + `NATS_REVOKE_ENABLED`(기본 false) — dormant 배선.
+  - P1-03 종결(무효): aiosqlite는 requirements-test.txt 정위치, DEBUG=release 미재현.
+- **clone-deploy 동등성 검증**: 재빌드=git clone 동등 확인. `gop` 52테이블 = 43모델+schema_migrations+8 `api_logs` 런타임파티션. **옛 데이터 잔존 원인 = named volume `api-test-server_api-test-pgdata`(2026-03-16 생성)는 컨테이너/이미지 삭제로 안 지워짐** → 진짜 초기화는 `docker compose down -v`.
+- **검증**: 라이브 E2E A01~A18 10/10, logout 재사용 401, P2-02 10/10, 재빌드 후 컨테이너 healthy·nats_external 연결·migrations v61~v64 적용. origin+gitea push 완료.
+- **명세서 5중싱크 (commit a58c317, 규칙1·3 지연분 해소)**: `GOP_Restful_Api_연동설계.md` 롤링 항목(`v6.0 후속` 07-04~07→**~12**)에 `[보안 하드닝]` 그룹 추가(session_token_jti·migration_tracking·login_rate_limit·test_reproducibility·review0710 P0·P1) + §4.5 `EnumUserRole` **5종→2종(ADMIN/USER)** 정정 + 폐기역할(MAINTAINER/OPERATOR/VIEWER/GUEST) 필터·예시·권한컬럼 현행화. 
+- **audit-logs 인가 강화 (commit ec95eca — 위 별건 해결)**: `audit-logs` GET(목록/상세)이 `get_current_account_user_optional`로 **전 인증 사용자** 열람 가능하던 것을 `require_perm_async("audit_logs","view")`로 강화 → config-change-logs 와 감사도메인 인가 **일관화**. 실측 무토큰 401·ADMIN 200·권한없는 USER **403**(두 엔드포인트 동일), A01~A18 10/10·계약 10 passed. 명세 §9 권한컬럼 + 롤링 체인지로그(`audit_logs_authz`) 동반 갱신(5중싱크).
+- **잔여(후순위)**: P2-01 secret/CORS(SEC-02 보류 영역), P3-01 invalid enum 422화, matrix_enforcer default-deny 전환(설계 결정). 선재: TestClient lifespan 반복 시 log_consumer 이벤트루프 오류(하네스 격리 개선, 내 변경 무관).
+
+---
 
 ## 이번 세션 (v6.1 — 2026-07-04)
 
@@ -251,7 +269,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 - **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
 - **활성 PRD**: v6.0 완결 (Async 대전환 종결)
 - **활성 Plan**: 없음 — v6.1 대기 상태
-- **현재 Phase**: plan
+- **현재 Phase**: dev
 - **Track**: C
 - **다음 할 일**: **v6.1 pytest 스위트 async 마이그레이션** (v6.0에서 인프라만 완료 = dual-stack fixture 등, 전체 테스트 async 재작성은 v6.1 별도 차수)
 - **핵심 기술결정 (v6.0 확정)**:
@@ -276,7 +294,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-60404
+- **현재 세션 ID**: ppid-70624
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-60404
+- **활성 세션 목록**: ppid-70624
 

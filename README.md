@@ -1,15 +1,15 @@
 # GOP RESTful API Server
 
-![version](https://img.shields.io/badge/version-v6.0.0-navy)
+![version](https://img.shields.io/badge/version-v6.3.0-navy)
 ![python](https://img.shields.io/badge/python-3.11-blue)
 ![framework](https://img.shields.io/badge/FastAPI-async-teal)
 ![sqlalchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-red)
 ![postgres](https://img.shields.io/badge/PostgreSQL-16-blue)
-![status](https://img.shields.io/badge/release-2026--07--07-success)
+![status](https://img.shields.io/badge/release-2026--07--13-success)
 
 GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-> **현재 버전**: v6.0.0 (2026-07-03 Async 대전환) + 후속 안정화 (2026-07-04~07, `release/v6.0`).
+> **현재 버전**: v6.3.0 (2026-07-13 승격 — v6.0 Async 대전환 → 후속 21 topic 확정, `release/v6.0` 브랜치).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 
 ---

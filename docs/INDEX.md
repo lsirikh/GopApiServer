@@ -15,7 +15,7 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
-| [nats-dbapi-sync-completion-prd.md](prds/nats-dbapi-sync-completion-prd.md) | nats-dbapi-sync-completion | Approved | 2026-07-13 |
+| [nats-dbapi-sync-completion-prd.md](prds/nats-dbapi-sync-completion-prd.md) | nats-dbapi-sync-completion | Completed | 2026-07-13 |
 | [audit-auto-lock-unlock-prd.md](prds/audit-auto-lock-unlock-prd.md) | audit-auto-lock-unlock | Completed | 2026-07-13 |
 | [e1-session-token-hash-prd.md](prds/e1-session-token-hash-prd.md) | e1-session-token-hash | Approved | 2026-07-10 |
 | [account-session-authority-prd.md](prds/account-session-authority-prd.md) | account-session-authority | Approved | 2026-07-09 |

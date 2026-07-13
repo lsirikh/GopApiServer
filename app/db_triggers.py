@@ -101,7 +101,8 @@ BEGIN
         payload := jsonb_build_object(
             'cmd', 'SYNC_PRESET',
             'action', action_type,
-            'resource_id', resource_id
+            'resource_id', resource_id,
+            'camera_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.camera_id ELSE NEW.camera_id END
         );
     ELSIF TG_TABLE_NAME = 'file_groups' THEN
         payload := jsonb_build_object(
@@ -113,13 +114,13 @@ BEGIN
         payload := jsonb_build_object(
             'cmd', 'SYNC_CAMERA_SETTING',
             'action', action_type,
-            'resource_id', resource_id
+            'camera_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.camera_id ELSE NEW.camera_id END
         );
     ELSIF TG_TABLE_NAME = 'proxy_settings' THEN
         payload := jsonb_build_object(
             'cmd', 'SYNC_PROXY_SETTING',
             'action', action_type,
-            'resource_id', resource_id
+            'server_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.server_id ELSE NEW.server_id END
         );
     -- v4.6 FR-8: event_mapping_cameras/speakers/lamps row-level 분기 제거
     --   v4.3 마이그레이션에서 statement-level 트리거(fn_notify_emc_stmt /
@@ -146,7 +147,8 @@ BEGIN
         payload := jsonb_build_object(
             'cmd', 'SYNC_PRESET',
             'action', 'UPDATED',
-            'resource_id', resource_id
+            'resource_id', resource_id,
+            'camera_id', (SELECT camera_id FROM camera_presets WHERE id = resource_id)
         );
     ELSE
         RETURN NULL;
@@ -482,6 +484,37 @@ GET_TRIGGER_SQLS = [
         AFTER UPDATE ON event_mapping_lamps
         REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
         FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_eml_stmt();
+    """,
+    # SYSTEM_EVENT (nats-dbapi-sync-completion FR-04): system_events AFTER INSERT →
+    #   신규 채널 gop_event 로 **Full-DTO** NOTIFY (SYNC 의 gop_sync '알림만' 과 분리).
+    #   acknowledged=is_acknowledged 매핑, enum(type_event/severity) ::text 캐스트.
+    #   트리거 실패가 INSERT 를 롤백하지 않도록 EXCEPTION WHEN OTHERS 로 방어(best-effort).
+    """
+    CREATE OR REPLACE FUNCTION fn_notify_system_event()
+    RETURNS trigger AS $$
+    BEGIN
+        PERFORM pg_notify('gop_event', jsonb_build_object(
+            'cmd', 'SYSTEM_EVENT',
+            'id', NEW.id,
+            'server_id', NEW.server_id,
+            'type_event', NEW.type_event::text,
+            'severity', NEW.severity::text,
+            'source', NEW.source,
+            'message', NEW.message,
+            'acknowledged', NEW.is_acknowledged,
+            'server_description', NEW.server_description,
+            'created_at', NEW.created_at
+        )::text);
+        RETURN NULL;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_notify_system_event ON system_events;
+    CREATE TRIGGER trg_notify_system_event
+        AFTER INSERT ON system_events
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_system_event();
     """,
 ]
 

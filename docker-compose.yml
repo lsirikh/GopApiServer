@@ -93,6 +93,8 @@ services:
       - DATABASE_URL=${MONITOR_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
       - NATS_URL=${NATS_URL:-nats://nats-server-01:4222}
       - UNIT_ID=${UNIT_ID:-unit001}
+      # nats-dbapi-sync-completion FR-05: ENCLOSURE_METRICS 주기 발행 간격(초). 0 아님 권장.
+      - ENCLOSURE_METRICS_INTERVAL=${ENCLOSURE_METRICS_INTERVAL:-10}
       - PYTHONUNBUFFERED=1
     depends_on:
       postgres:

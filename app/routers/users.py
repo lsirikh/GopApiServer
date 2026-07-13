@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import logging
 import os
+import io
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -358,15 +359,60 @@ async def change_my_password(
 # photo_url(DB)에는 절대 API URL 저장 → 클라가 그대로 표시(GET /api/users/photo/{name}).
 ALLOWED_PHOTO_MIME = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
 MAX_PHOTO_BYTES = 5 * 1024 * 1024  # 5MB
+# 실제 이미지 포맷(Pillow magic-byte) → 확장자. content_type(클라 위조 가능) 대신 이 매핑을 신뢰한다.
+IMAGE_FORMAT_TO_EXT = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif"}
+
+
+def _detect_image_ext(content: bytes) -> Optional[str]:
+    """실제 바이트에서 이미지 포맷을 판별해 확장자를 돌려준다(위조 content_type 방어, P2).
+
+    Pillow 로 열어 무결성(verify)까지 확인. 이미지가 아니거나 미지원 포맷이면 None.
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(content)) as img:
+            fmt = (img.format or "").upper()   # 'JPEG'/'PNG'/'WEBP'/'GIF'
+            img.verify()                        # 손상/비이미지 방어
+    except Exception:
+        return None
+    return IMAGE_FORMAT_TO_EXT.get(fmt)
+
+
+def _delete_photo_file(photo_url: Optional[str]) -> None:
+    """photo_url 이 서버 로컬 업로드 파일을 가리키면 해당 파일을 삭제한다(P1 orphan 정리).
+
+    - None / 외부 URL(/api/users/photo/ 아님) / default.png → 무시(삭제 안 함)
+    - traversal 방어 후 존재 시 unlink. 실패(파일 없음·권한 등)는 비치명적이라 로그만 남기고 무시.
+    """
+    if not photo_url:
+        return
+    if "/api/users/photo/" not in photo_url:   # 서버 서빙 경로가 아니면(외부 URL 등) 건드리지 않음
+        return
+    from app.utils.default_profile import DEFAULT_PROFILE_FILENAME
+    file_name = photo_url.rstrip("/").split("/")[-1]
+    if not file_name or file_name == DEFAULT_PROFILE_FILENAME:   # default 는 공유 자원 → 보존
+        return
+    if "/" in file_name or "\\" in file_name or ".." in file_name:   # traversal 방어
+        return
+    file_path = os.path.join(settings.PROFILE_STORAGE_PATH, file_name)
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except OSError as e:
+        logger.warning("프로필 사진 파일 삭제 실패(무시): %s (%s)", file_path, e)
 
 
 async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Request, db: AsyncSession):
-    """업로드 파일 검증 → data/profiles 저장 → user.photo_url(절대 URL) 갱신. (본인/admin 공통)"""
-    ext = ALLOWED_PHOTO_MIME.get(file.content_type or "")
-    if ext is None:
+    """업로드 파일 검증 → data/profiles 저장 → user.photo_url(절대 URL) 갱신. (본인/admin 공통)
+
+    v6.3-profile_photo_crud: content_type 대신 실제 이미지 magic-byte(P2)로 검증하고,
+    재업로드 시 옛 파일을 orphan 으로 남기지 않고 제거(P1)한다.
+    """
+    # 크기 선검사(헤더 제공 시) → 전량 read → 재확인 (헤더 미제공 대비)
+    if file.size is not None and file.size > MAX_PHOTO_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type: {file.content_type}. Allowed: {', '.join(ALLOWED_PHOTO_MIME)}",
+            detail=f"File too large: {file.size} bytes (max {MAX_PHOTO_BYTES})",
         )
     content = await file.read()
     if len(content) > MAX_PHOTO_BYTES:
@@ -374,7 +420,18 @@ async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Requ
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File too large: {len(content)} bytes (max {MAX_PHOTO_BYTES})",
         )
+    # P2: content_type(클라 위조 가능) 이 아닌 실제 바이트로 포맷 판별
+    ext = _detect_image_ext(content)
+    if ext is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported or invalid image (declared content_type: {file.content_type}). "
+                f"Allowed: {', '.join(ALLOWED_PHOTO_MIME)}"
+            ),
+        )
     os.makedirs(settings.PROFILE_STORAGE_PATH, exist_ok=True)
+    old_url = user.photo_url   # 교체 전 값 — 커밋 성공 후 orphan 제거용
     file_name = f"{user.id}_{uuid.uuid4().hex[:8]}.{ext}"   # uuid 파일명 — traversal/충돌 방지
     file_path = os.path.join(settings.PROFILE_STORAGE_PATH, file_name)
     with open(file_path, "wb") as f:
@@ -383,6 +440,9 @@ async def _save_profile_photo(user: AccountUser, file: UploadFile, request: Requ
     user.photo_url = f"{str(request.base_url).rstrip('/')}/api/users/photo/{file_name}"
     await db.commit()
     await db.refresh(user)
+    # P1: 신규 저장이 확정된 뒤에만 옛 파일 제거. default/외부/동일 URL 은 helper 가 걸러냄.
+    if old_url and old_url != user.photo_url:
+        _delete_photo_file(old_url)
     return {"success": True, "message": "Profile photo uploaded", "data": AccountUserResponse.model_validate(user)}
 
 
@@ -395,6 +455,29 @@ async def upload_my_photo(
 ):
     """본인 프로필 사진 업로드 → data/profiles/ 저장 + photo_url(DB) 갱신."""
     return await _save_profile_photo(current_user, file, request, db)
+
+
+@router.delete("/me/photo", summary="본인 프로필 사진 삭제")
+async def delete_my_photo(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
+):
+    """본인 프로필 사진 삭제 → data/profiles 파일 제거 + photo_url=None (v6.3-profile_photo_crud, P1-D).
+
+    응답 스키마가 photo_url null 을 default 이미지 URL(/api/users/photo/default.png)로 채우므로,
+    삭제 후 사용자는 자동으로 default 아바타로 복귀한다. 사진이 없어도 200(idempotent).
+    """
+    old_url = current_user.photo_url
+    current_user.photo_url = None
+    await db.commit()
+    await db.refresh(current_user)
+    # DB 반영 뒤 파일 정리. default/외부/None 은 helper 가 무시.
+    _delete_photo_file(old_url)
+    return {
+        "success": True,
+        "message": "Profile photo deleted",
+        "data": AccountUserResponse.model_validate(current_user),
+    }
 
 
 @router.get("/photo/{file_name}", summary="프로필 사진 다운로드(파일명 기반)")

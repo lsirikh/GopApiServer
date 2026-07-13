@@ -211,8 +211,13 @@ class AccountUserSelfUpdate(BaseModel):
     def validate_photo_url_scheme(cls, v):
         """PRD v4.9 Phase 4 (A-1.2): photo_url XSS validator
 
-        허용: http:// / https:// / /static/profiles/* (서버 자체 static 경로) / None
-        차단: javascript: / data: / vbscript: / file: / 기타 스킴 → 422
+        허용: http:// / https:// / /api/users/photo/* (서버 자체 서빙 경로) / None
+        차단: javascript: / data: / vbscript: / file: / about: / 기타 스킴 → 422
+
+        v6.3-profile_photo_crud (2026-07-13): 허용 상대경로를 실제 서빙 경로(/api/users/photo/)로
+        정정. 종전 /static/profiles/ 는 실존하지 않는 경로(StaticFiles 미마운트)여서, 서버가 응답에
+        채우는 default(/api/users/photo/default.png)를 클라가 되받아 PUT /me 로 보낼 때 422 로 거부되던
+        버그를 유발했다(서버가 emit 하는 값을 서버가 되받지 못함).
         """
         if v is None or v == "":
             return v
@@ -221,9 +226,9 @@ class AccountUserSelfUpdate(BaseModel):
         for forbidden in ("javascript:", "data:", "vbscript:", "file:", "about:"):
             if v_lower.startswith(forbidden):
                 raise ValueError(f"photo_url scheme '{forbidden[:-1]}' is not allowed (XSS prevention)")
-        # 허용 패턴: http(s):// 또는 /static/profiles/ 시작
-        if not (v_lower.startswith("http://") or v_lower.startswith("https://") or v_lower.startswith("/static/profiles/")):
-            raise ValueError("photo_url must start with http://, https://, or /static/profiles/")
+        # 허용 패턴: http(s):// 또는 실제 서빙 경로 /api/users/photo/ 시작
+        if not (v_lower.startswith("http://") or v_lower.startswith("https://") or v_lower.startswith("/api/users/photo/")):
+            raise ValueError("photo_url must start with http://, https://, or /api/users/photo/")
         return v
 
 

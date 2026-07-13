@@ -30,7 +30,10 @@
 - **검증**: 라이브 E2E A01~A18 10/10, logout 재사용 401, P2-02 10/10, 재빌드 후 컨테이너 healthy·nats_external 연결·migrations v61~v64 적용. origin+gitea push 완료.
 - **명세서 5중싱크 (commit a58c317, 규칙1·3 지연분 해소)**: `GOP_Restful_Api_연동설계.md` 롤링 항목(`v6.0 후속` 07-04~07→**~12**)에 `[보안 하드닝]` 그룹 추가(session_token_jti·migration_tracking·login_rate_limit·test_reproducibility·review0710 P0·P1) + §4.5 `EnumUserRole` **5종→2종(ADMIN/USER)** 정정 + 폐기역할(MAINTAINER/OPERATOR/VIEWER/GUEST) 필터·예시·권한컬럼 현행화. 
 - **audit-logs 인가 강화 (commit ec95eca — 위 별건 해결)**: `audit-logs` GET(목록/상세)이 `get_current_account_user_optional`로 **전 인증 사용자** 열람 가능하던 것을 `require_perm_async("audit_logs","view")`로 강화 → config-change-logs 와 감사도메인 인가 **일관화**. 실측 무토큰 401·ADMIN 200·권한없는 USER **403**(두 엔드포인트 동일), A01~A18 10/10·계약 10 passed. 명세 §9 권한컬럼 + 롤링 체인지로그(`audit_logs_authz`) 동반 갱신(5중싱크).
-- **잔여(후순위)**: P2-01 secret/CORS(SEC-02 보류 영역), P3-01 invalid enum 422화, matrix_enforcer default-deny 전환(설계 결정). 선재: TestClient lifespan 반복 시 log_consumer 이벤트루프 오류(하네스 격리 개선, 내 변경 무관).
+- **v6.3 승격 + release/v6.3 컷 (2026-07-13)**: v6.0 후속 21 topic 확정 승격, 전 산출물 6.3.0 동기(Swagger/명세/README/main.py desc/CLAUDE.md), `release/v6.3` canonical 컷(release/v6.0 frozen), 태그 `v6.3`. 후속 태그 `v6.3-{topic}`.
+- **계정 잠금 정책 완성 (2026-07-13, `v6.3-lockout_policy`, commit a8179a1)**: PM 점검(로그인 실패 안내 부재·자동해제 부재·unlock 재잠금 트랩) 대응. ㉰ 신규 세션설정 `lockout_duration_minutes`(기본30, 0=영구, 1~1440) 자동해제+카운트리셋 / ㉯ 로그인 오답 401 "`N회 중 X회 실패, M회 남음`" 메시지 + 구조화 `error.details`(failed_count/threshold/remaining/locked), 미존재계정·틀린이유 비노출(열거방지) / ㉱ `unlock_user` 카운트·locked_at·lock_reason 리셋. 5중싱크(5코드 + 명세 §9.2.2 실패응답·§9.8 설정필드·v6.3후속 체인지로그 + 재빌드). 실측 자동해제/리셋 통과, A01~A18 10/10·계약 10 passed. **세션 검증 3문 결론**: ①실패안내 없음→추가완료, ②잠금임계 세션설정 매핑 정상, ③session_enabled=false→10년(영속, SEC-05 보류) 확인.
+- **[진행중 PRD] 감사 자동잠금/해제 기록 (Draft, `docs/prds/audit-auto-lock-unlock-prd.md`)**: PM 프로세스 지적("구현 직행 말고 PRD")으로 착수. 발견: auth.py 는 `log_action`(AuditLog) 호출 0건 — 수동 lock/unlock만 감사되고 **자동잠금(브루트포스)·자동해제(타이머)는 audit_logs 누락**. 범위=자동 2이벤트만 `USER_LOCKED`/`USER_UNLOCKED`(시스템 행위자 `actor_id=None`)로 기록. FR3/NFR4/V4/리스크4. **Phase=prd, 승인 대기** → 승인 시 plan. 프로세스 규율은 [[feedback_prd_before_implementation]].
+- **잔여(후순위)**: P2-01 secret/CORS(SEC-02 보류 영역), P3-01 invalid enum 422화, matrix_enforcer default-deny 전환(설계 결정), SEC-05(session off 10년 JWT 보류). 선재: TestClient lifespan 반복 시 log_consumer 이벤트루프 오류(하네스 격리 개선, 내 변경 무관).
 
 ---
 
@@ -269,7 +272,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 - **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
 - **활성 PRD**: v6.0 완결 (Async 대전환 종결)
 - **활성 Plan**: 없음 — v6.1 대기 상태
-- **현재 Phase**: dev
+- **현재 Phase**: complete
 - **Track**: C
 - **다음 할 일**: **v6.1 pytest 스위트 async 마이그레이션** (v6.0에서 인프라만 완료 = dual-stack fixture 등, 전체 테스트 async 재작성은 v6.1 별도 차수)
 - **핵심 기술결정 (v6.0 확정)**:
@@ -294,7 +297,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-70624
+- **현재 세션 ID**: ppid-39272
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-70624
+- **활성 세션 목록**: ppid-39272
 

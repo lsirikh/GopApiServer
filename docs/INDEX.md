@@ -15,6 +15,7 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
+| [audit-auto-lock-unlock-prd.md](prds/audit-auto-lock-unlock-prd.md) | audit-auto-lock-unlock | Draft | 2026-07-13 |
 | [account-session-authority-prd.md](prds/account-session-authority-prd.md) | account-session-authority | Approved | 2026-07-09 |
 | [GOP_API_Server_자동설치_문제점_정리.md](prds/GOP_API_Server_자동설치_문제점_정리.md) | GOP_API_Server_자동설치_문제점_정리.md | Draft | 2026-07-06 |
 | [GOPDB_servers_port0_issue.md](prds/GOPDB_servers_port0_issue.md) | GOPDB_servers_port0_issue.md | Draft | 2026-07-06 |

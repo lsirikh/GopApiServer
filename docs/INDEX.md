@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-07-13 (advance-phase 자동)
-- **총 문서 수**: 31개
+- **총 문서 수**: 32개
 
 ---
 
@@ -15,7 +15,7 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
-| [audit-auto-lock-unlock-prd.md](prds/audit-auto-lock-unlock-prd.md) | audit-auto-lock-unlock | Approved | 2026-07-13 |
+| [audit-auto-lock-unlock-prd.md](prds/audit-auto-lock-unlock-prd.md) | audit-auto-lock-unlock | Completed | 2026-07-13 |
 | [e1-session-token-hash-prd.md](prds/e1-session-token-hash-prd.md) | e1-session-token-hash | Approved | 2026-07-10 |
 | [account-session-authority-prd.md](prds/account-session-authority-prd.md) | account-session-authority | Approved | 2026-07-09 |
 | [GOP_API_Server_자동설치_문제점_정리.md](prds/GOP_API_Server_자동설치_문제점_정리.md) | GOP_API_Server_자동설치_문제점_정리.md | Draft | 2026-07-06 |
@@ -55,6 +55,7 @@
 
 | 파일 | 문서 연결 체인 | 날짜 |
 |------|------------|------|
+| [audit-auto-lock-unlock-report.md](reports/audit-auto-lock-unlock-report.md) | [PRD](prds/audit-auto-lock-unlock-prd.md) → [Plan](plans/audit-auto-lock-unlock-prd-plan.md) | 2026-07-13 |
 | [BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md](reports/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md) | [PRD](prds/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md-prd.md) → [Plan](plans/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md-prd-plan.md) | 2026-07-06 |
 | [BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md](reports/BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md) | [PRD](prds/BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md-prd.md) → [Plan](plans/BUG_REPORT_EVENT_STATISTICS_TIMEZONE_MISMATCH.md-prd-plan.md) | 2026-07-06 |
 | [BUG_REPORT_AUDIT_LOGS_ENUM_MISMATCH.md](reports/BUG_REPORT_AUDIT_LOGS_ENUM_MISMATCH.md) | [PRD](prds/BUG_REPORT_AUDIT_LOGS_ENUM_MISMATCH.md-prd.md) → [Plan](plans/BUG_REPORT_AUDIT_LOGS_ENUM_MISMATCH.md-prd-plan.md) | 2026-07-06 |

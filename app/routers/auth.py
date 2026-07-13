@@ -445,12 +445,31 @@ async def login(
 
     # Check if account is locked
     if user.is_locked:
-        _record_login_failure(db, login_id=user.login_id, reason="ACCOUNT_LOCKED",
-                              ip_address=_ip, user_agent=_ua, user_id=user.id)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is locked",
-        )
+        # ㉰ 자동 해제(lockout_duration_minutes): locked_at 로부터 duration 경과 시 잠금 자동 해제 후
+        #    로그인 계속. duration=0 이면 자동해제 비활성(관리자 수동 해제만).
+        from app.services import settings_service as _ss
+        from app.services.settings_service import SettingKey as _SK
+        _lock_dur = _ss.get(db, _SK.LOCKOUT_DURATION_MINUTES)
+        _now_kst = datetime.now(settings.tz).replace(tzinfo=None)
+        if _lock_dur and user.locked_at and (_now_kst - user.locked_at) >= timedelta(minutes=_lock_dur):
+            user.is_locked = False
+            user.failed_login_count = 0
+            user.locked_at = None
+            user.lock_reason = None
+            db.commit()
+            # 자동 해제됨 — 아래 비밀번호 검증으로 계속 진행
+        else:
+            _record_login_failure(db, login_id=user.login_id, reason="ACCOUNT_LOCKED",
+                                  ip_address=_ip, user_agent=_ua, user_id=user.id)
+            _lock_detail = "Account is locked"
+            if _lock_dur and user.locked_at:
+                _remain_min = _lock_dur - int((_now_kst - user.locked_at).total_seconds() // 60)
+                if _remain_min > 0:
+                    _lock_detail = f"계정이 잠겼습니다. 약 {_remain_min}분 후 자동 해제됩니다."
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=_lock_detail,
+            )
 
     # Verify password
     if not verify_password(login_data.password, user.password_hash):
@@ -462,17 +481,40 @@ async def login(
         from app.services.settings_service import SettingKey
         _lockout_threshold = settings_service.get(db, SettingKey.LOCKOUT_THRESHOLD)
         _reason = "INVALID_CREDENTIALS"
+        _locked_now = False
         if _lockout_threshold and user.failed_login_count >= _lockout_threshold:
             user.is_locked = True
             user.lock_reason = "Too many failed login attempts"
             user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
             _reason = "ACCOUNT_LOCKED"  # 이번 실패로 잠금 임계 도달
+            _locked_now = True
 
         db.commit()
 
         # ACC-P1-09: 비밀번호 불일치 감사 기록(위 commit 로 failed_count/lock 반영 후).
         _record_login_failure(db, login_id=user.login_id, reason=_reason,
                               ip_address=_ip, user_agent=_ua, user_id=user.id)
+
+        # ㉯ 잔여 횟수 안내(틀린 이유는 비노출 유지 — 미존재 계정 경로는 위에서 이미 분기).
+        #    구조화 details(failed_count/threshold/remaining/locked)로 클라 렌더 지원.
+        if _lockout_threshold:
+            _remaining = max(0, _lockout_threshold - user.failed_login_count)
+            if _locked_now:
+                _msg = f"로그인 정보가 올바르지 않습니다. 실패 {_lockout_threshold}회 초과로 계정이 잠겼습니다."
+                _dur = settings_service.get(db, SettingKey.LOCKOUT_DURATION_MINUTES)
+                if _dur:
+                    _msg += f" 약 {_dur}분 후 자동 해제됩니다."
+            else:
+                _msg = (f"로그인 정보가 올바르지 않습니다. "
+                        f"({_lockout_threshold}회 중 {user.failed_login_count}회 실패, {_remaining}회 남음)")
+            _exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_msg)
+            _exc.details = {
+                "failed_count": user.failed_login_count,
+                "threshold": _lockout_threshold,
+                "remaining": _remaining,
+                "locked": _locked_now,
+            }
+            raise _exc
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

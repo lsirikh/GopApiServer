@@ -2,7 +2,7 @@
 세션/인증 정책 런타임 관리 API — Session_Settings FR-SVS-03/04.
 
 GET/PUT /api/settings/session (require_admin):
-- 편집 가능: session_timeout_hours / refresh_expiration_days / lockout_threshold / session_enabled
+- 편집 가능: session_timeout_hours / refresh_expiration_days / lockout_threshold / lockout_duration_minutes / session_enabled
 - 읽기전용 노출: auth_mode / jwt_algorithm (배포전용). jwt_secret 은 절대 미노출(NFR-SVS-03).
 - PUT 은 편집 부분집합만 수용, 경계 위반 422, app_settings UPSERT + ConfigChangeLog 감사 + 캐시 무효화.
 """
@@ -31,6 +31,7 @@ async def _current(db: AsyncSession) -> dict:
         "session_timeout_hours": await settings_service.get_async(db, SettingKey.SESSION_TIMEOUT_HOURS),
         "refresh_expiration_days": await settings_service.get_async(db, SettingKey.REFRESH_EXPIRATION_DAYS),
         "lockout_threshold": await settings_service.get_async(db, SettingKey.LOCKOUT_THRESHOLD),
+        "lockout_duration_minutes": await settings_service.get_async(db, SettingKey.LOCKOUT_DURATION_MINUTES),
         "session_enabled": await settings_service.get_async(db, SettingKey.SESSION_ENABLED),
         "auth_mode": app_config.AUTH_MODE,        # 읽기전용
         "jwt_algorithm": app_config.JWT_ALGORITHM,  # 읽기전용
@@ -62,6 +63,7 @@ async def update_session_settings(
         SettingKey.SESSION_TIMEOUT_HOURS: payload.session_timeout_hours,
         SettingKey.REFRESH_EXPIRATION_DAYS: payload.refresh_expiration_days,
         SettingKey.LOCKOUT_THRESHOLD: payload.lockout_threshold,
+        SettingKey.LOCKOUT_DURATION_MINUTES: payload.lockout_duration_minutes,
         SettingKey.SESSION_ENABLED: payload.session_enabled,
     }
     changed_keys = [k for k, v in editable.items() if v is not None]

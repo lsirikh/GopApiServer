@@ -23,6 +23,7 @@ class SettingKey:
     SESSION_TIMEOUT_HOURS = "session_timeout_hours"
     REFRESH_EXPIRATION_DAYS = "refresh_expiration_days"
     LOCKOUT_THRESHOLD = "lockout_threshold"
+    LOCKOUT_DURATION_MINUTES = "lockout_duration_minutes"
     SESSION_ENABLED = "session_enabled"
 
 
@@ -32,6 +33,7 @@ def _defaults() -> dict:
         SettingKey.SESSION_TIMEOUT_HOURS: (app_config.JWT_EXPIRATION_HOURS, "int"),
         SettingKey.REFRESH_EXPIRATION_DAYS: (app_config.JWT_REFRESH_EXPIRATION_DAYS, "int"),
         SettingKey.LOCKOUT_THRESHOLD: (5, "int"),   # auth.py 기존 하드코딩 >= 5
+        SettingKey.LOCKOUT_DURATION_MINUTES: (30, "int"),  # 잠금 자동해제(분). 0=영구(관리자 수동해제만)
         SettingKey.SESSION_ENABLED: (True, "bool"),
     }
 

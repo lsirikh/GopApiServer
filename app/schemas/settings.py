@@ -2,7 +2,8 @@
 세션 설정 API 스키마 — Session_Settings FR-SVS-03/04, NFR-SVS-04.
 
 편집 가능: session_timeout_hours(1~168), refresh_expiration_days(1~90),
-           lockout_threshold(0 또는 3~20), session_enabled(bool).
+           lockout_threshold(0 또는 3~20), lockout_duration_minutes(0=영구 또는 1~1440),
+           session_enabled(bool).
 읽기전용(응답에만 노출, 배포전용): auth_mode, jwt_algorithm. jwt_secret 은 절대 미노출.
 """
 from typing import Optional
@@ -14,6 +15,7 @@ class SessionSettingsResponse(BaseModel):
     session_timeout_hours: int
     refresh_expiration_days: int
     lockout_threshold: int
+    lockout_duration_minutes: int
     session_enabled: bool
     # 읽기전용(배포/.env 전용 — 런타임 편집 불가)
     auth_mode: str
@@ -25,6 +27,7 @@ class SessionSettingsUpdate(BaseModel):
     session_timeout_hours: Optional[int] = Field(None, ge=1, le=168)
     refresh_expiration_days: Optional[int] = Field(None, ge=1, le=90)
     lockout_threshold: Optional[int] = Field(None, ge=0, le=20)
+    lockout_duration_minutes: Optional[int] = Field(None, ge=0, le=1440)
     session_enabled: Optional[bool] = None
 
     @field_validator("lockout_threshold")

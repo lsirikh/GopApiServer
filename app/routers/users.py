@@ -896,6 +896,10 @@ async def unlock_user(
     _assert_can_modify_admin_target(current_user, user)
 
     user.is_locked = False
+    # ㉱ 해제 시 실패 카운트·잠금시각·사유도 리셋 — 안 하면 해제 직후 1회 실패로 즉시 재잠금(재잠금 트랩).
+    user.failed_login_count = 0
+    user.locked_at = None
+    user.lock_reason = None
 
     # Create system event for user unlock (SECURITY_ALERT: USER_* moved to UserLoginLog per PRD_SystemEvent_Sync.md)
     system_event = SystemEvent(

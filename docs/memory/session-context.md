@@ -11,8 +11,8 @@
 | 항목 | 값 |
 |---|---|
 | **차수** | **v6.3** (2026-07-13 의식적 승격 — v6.0 후속 21 topic 확정) / v6.1 (2026-07-04, **리포트/서버 초기화 정합화** — 4 Issue + 1 부수결함 일괄 픽스, sample_servers 9카테고리 14대 Static 승격, JSON preview/HTML/PDF 필터 통일, audit/config/system 컬럼 확장 + user_sessions JOIN, N+1 제거) / v6.0 (2026-07-03, Async 대전환) / v5.4~v5.2 (이전 차수) |
-| **HEAD commit** | `3936414` (2026-07-12, v6.0-review0710_p1) — v6.1 이후 review0708/0710·login_rate_limit·migration_tracking·session_token_jti(E1)·재감사 P0/P1 누적 |
-| **branch** | `release/v6.0` (v6.1 소분 이력을 같은 브랜치 위에 누적) — 태그 `v6.3` 부여(2026-07-13 승격), 후속은 `v6.3-{topic}` |
+| **HEAD commit** | `bf8333b` (2026-07-13, **release v6.3** 승격) — 그 위 audit_logs_authz·명세 5중싱크·review0710 P0/P1·session_token_jti(E1)·rate_limit·migration_tracking 누적 |
+| **branch** | **`release/v6.3`** (2026-07-13 canonical 컷 — branch=버전 일치) — `release/v6.0` frozen 보존, 태그 `v6.3`, 후속은 `v6.3-{topic}` |
 | **Container** | ✅ **v6.1 rebuild 완료** (2026-07-04) — `[OK] Sample servers created: 14` 확인, 9카테고리 전부 인스턴스 최소 1대. api-server / postgres / autoheal / gis-ingest / db-monitor healthy. |
 | **DB** | PostgreSQL 16 + asyncpg / `servers` 14행 (v6.1 시드), `account_users` 3건, `report_generations` 24건 (v6.1 검증 리포트 포함) / `api_logs` 파티셔닝 v6.0 상태 계승. |
 

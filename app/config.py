@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # Grant sweep 주기(분) — FR-08(grant-enforcement-hardening). 만료 grant 의 is_active 정리(표시/통지 백스톱용).
     # ★ 보안 비의존: 요청시점 계산(_active_grants)이 인가 권위. 본 값은 표시 최신성·자연만료 통지 지연 상한만 좌우.
     GRANT_SWEEP_INTERVAL_MINUTES: int = 10
+    # FR-07 per-grant 실시간 만료 통지: valid_until 발화 job 등록 지평(시간, 0=무제한). 스케일 상한(RISK-03).
+    GRANT_JOB_HORIZON_HOURS: int = 0
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod

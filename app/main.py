@@ -319,7 +319,12 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(run_blacklist_cleanup, "interval", hours=1, id="blacklist_cleanup",
                           coalesce=True, max_instances=1)
         scheduler.start()
-        print("Grant sweep scheduler started (interval 10m)")
+        # FR-07: per-grant 만료 실시간 통지 스케줄러 주입 + 부팅 복원(미래 만료분 재등록, NFR-05)
+        from app.services import grant_scheduler
+        grant_scheduler.set_scheduler(scheduler)
+        _rescheduled = await grant_scheduler.reschedule_future_grants()
+        print(f"Grant expiry jobs rescheduled on boot: {_rescheduled}")
+        print(f"Grant sweep scheduler started (interval {settings.GRANT_SWEEP_INTERVAL_MINUTES}m)")
         print("Session sweep scheduler started (interval 5m)")
         print("API logs sweep scheduler started (cron 12:00 daily, retention 30d)")
         print("API logs partition scheduler started (cron 00:05 daily, +6 months)")

@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-07-20 (advance-phase 자동)
-- **총 문서 수**: 39개
+- **총 문서 수**: 40개
 
 ---
 
@@ -42,6 +42,7 @@
 
 | 파일 | 연관 PRD | 진행률 | 날짜 |
 |------|---------|--------|------|
+| [grant-enforcement-hardening-prd-plan.md](plans/grant-enforcement-hardening-prd-plan.md) | [PRD](prds/grant-enforcement-hardening-prd.md) | 11/43 | 2026-07-20 |
 | [admin-profile-photo-upload-prd-plan.md](plans/admin-profile-photo-upload-prd-plan.md) | [PRD](prds/admin-profile-photo-upload-prd.md) | 9/10 | 2026-07-20 |
 | [RBAC_Enforcement-prd-plan.md](plans/RBAC_Enforcement-prd-plan.md) | [PRD](prds/RBAC_Enforcement-prd.md) | 5/9 | 2026-07-13 |
 | [nats-dbapi-sync-completion-prd-plan.md](plans/nats-dbapi-sync-completion-prd-plan.md) | [PRD](prds/nats-dbapi-sync-completion-prd.md) | 0/20 | 2026-07-13 |

@@ -24,6 +24,7 @@ from app.routers.auth import get_current_account_user_async, require_admin_async
 from app.services.audit_service import log_action_async
 from app.services.grant_service import grant_status
 from app.services.nats_revoke_publisher import publish_permissions_changed
+from app.services import grant_scheduler
 
 router = APIRouter()
 
@@ -134,6 +135,8 @@ async def create_grant(
 
     # FR-06: 권한 변경 통지(best-effort, 게이트 NATS_REVOKE_ENABLED off 시 무동작). 클라 재평가 트리거.
     await publish_permissions_changed(user_id=user_id, reason="GRANT_CREATED")
+    # FR-07: 만료 시각 실시간 통지 job 등록(best-effort; 상시/과거/지평밖·스케줄러 미주입 시 무동작)
+    grant_scheduler.schedule_grant_expiry(grant.id, user_id, valid_until)
 
     return {"success": True, "data": _serialize(grant, now)}
 
@@ -275,5 +278,7 @@ async def revoke_grant(
 
         # FR-06: 권한 변경 통지(best-effort, 게이트 off 시 무동작)
         await publish_permissions_changed(user_id=grant.user_id, reason="GRANT_REVOKED")
+        # FR-07: 예약된 만료 통지 job 취소(best-effort)
+        grant_scheduler.cancel_grant_expiry(grant_id)
 
     return {"success": True, "message": f"Grant {grant_id} revoked", "data": None}

@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     #    발행 ACL(FR-SVF-08) 적용 후에만 True 로. False면 force_logout 은 블랙리스트만 수행.
     NATS_REVOKE_ENABLED: bool = False
 
+    # Grant sweep 주기(분) — FR-08(grant-enforcement-hardening). 만료 grant 의 is_active 정리(표시/통지 백스톱용).
+    # ★ 보안 비의존: 요청시점 계산(_active_grants)이 인가 권위. 본 값은 표시 최신성·자연만료 통지 지연 상한만 좌우.
+    GRANT_SWEEP_INTERVAL_MINUTES: int = 10
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def reject_default_jwt_secret(cls, v: str) -> str:

@@ -2,7 +2,9 @@
 
 > **목적**: 동시에 도는 두 작업 세션이 **같은 파일 충돌 없이** 협업하도록 소유권·경계·확장훅을 못박는다.
 > 두 세션 모두 작업 시작 전 이 파일을 읽고, 경계를 바꾸려면 여기 먼저 갱신한다.
-> **갱신**: 2026-07-02 / HEAD at write: `97f72be`
+> **갱신**: 2026-07-02 / HEAD at write: `97f72be` · **최신 클레임 2026-07-21 ↓**
+>
+> 🔒 **grant-enforcement-hardening Phase 2 영역 클레임 (2026-07-21, 본 세션)**: PRD `docs/prds/grant-enforcement-hardening-prd.md`(v3.0 Approved) Phase 2 착수. 편집 대상 = `app/config.py`·`app/main.py`(sweep lifespan)·`app/routers/grants.py`·신규 `app/services/grant_scheduler.py`·`app/services/grant_service.py`·`app/security/matrix_enforcer.py`+`permission_map.py`(FR-09 default-deny). ★auth.py 소유권 **2026-07-02 재해제**(아래 line 15)+본 세션 v6.0~v6.3 auth.py 연속 편집 이력 → 편집 가능. 활성 세션 1(동시 WS-B 없음). 롤백태그 `pre-v6.3-grant_enforcement_hardening`. Phase 1(FR-01~05, tests/) 완료·회귀0. 실제 flip(NATS 활성/default-deny)은 배포 게이트로 별도.
 >
 > ✅ **v5.3 Phase 2 마감 통지 (2026-07-02, 차장님 지시 대응)**: Role 축소(EnumUserRole 5→2, ADMIN/USER) + 등급 그룹 → Preset Group 정리 완료. v5.2 R10① 정신 스키마 완성. 실측 6/6 PASS. auth.py 편집 없음(enums + init_db + init_sample_data + main.py만 변경, WS-B 소유권 무영향). DB `v57_role_simplification.sql` 실 적용. Swagger 5.3.5 + EnumUserRole=["ADMIN","USER"] 확정. Gitea/origin push 완료. 태그 `pre-role-simplification` + `v5.3-final-stable` (Phase 1+2 통합 마감).
 >

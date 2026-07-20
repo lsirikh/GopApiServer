@@ -305,8 +305,8 @@ async def lifespan(app: FastAPI):
         from app.services.token_blacklist_service import run_blacklist_cleanup
 
         scheduler = AsyncIOScheduler(timezone=settings.tz)
-        scheduler.add_job(run_grant_sweep, "interval", minutes=10, id="grant_sweep",
-                          coalesce=True, max_instances=1)
+        scheduler.add_job(run_grant_sweep, "interval", minutes=settings.GRANT_SWEEP_INTERVAL_MINUTES,
+                          id="grant_sweep", coalesce=True, max_instances=1)
         scheduler.add_job(run_session_sweep, "interval", minutes=5, id="session_sweep",
                           coalesce=True, max_instances=1)
         # v5.4 후속 (문서 A-7 #6): api_logs 무제한 성장 방지 — 일 1회(정오) 30일 이상 삭제

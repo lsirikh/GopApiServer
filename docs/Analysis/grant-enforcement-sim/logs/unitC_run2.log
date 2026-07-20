@@ -1,0 +1,30 @@
+### UNIT C — enforce_matrix 전역 결정표  [run2]
+# 복제 (matrix_enforcer.py:100-125). 24 조합 전수.
+# 표기: notable=★(default-allow 미등록=4-c 스코프주의 / token 만료차단=403)
+
+[PASS] mode=public reg=True  user=none     eff=True  -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=True  user=none     eff=False -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=True  user=admin    eff=True  -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=True  user=admin    eff=False -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=True  user=nonadmin eff=True  -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=True  user=nonadmin eff=False -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=False user=none     eff=True  -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=False user=none     eff=False -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=False user=admin    eff=True  -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=False user=admin    eff=False -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=False user=nonadmin eff=True  -> ALLOW(public bypass :100)   
+[PASS] mode=public reg=False user=nonadmin eff=False -> ALLOW(public bypass :100)   
+[PASS] mode=token  reg=True  user=none     eff=True  -> 401(:111)                   
+[PASS] mode=token  reg=True  user=none     eff=False -> 401(:111)                   
+[PASS] mode=token  reg=True  user=admin    eff=True  -> ALLOW(admin bypass :116)    
+[PASS] mode=token  reg=True  user=admin    eff=False -> ALLOW(admin bypass :116)    
+[PASS] mode=token  reg=True  user=nonadmin eff=True  -> ALLOW(:121)                 
+[PASS] mode=token  reg=True  user=nonadmin eff=False -> 403(:122)                     ★만료/무권한 차단=403
+[PASS] mode=token  reg=False user=none     eff=True  -> ALLOW(default-allow 미등록 :105)  ★미등록=default-allow(4-c)
+[PASS] mode=token  reg=False user=none     eff=False -> ALLOW(default-allow 미등록 :105)  ★미등록=default-allow(4-c)
+[PASS] mode=token  reg=False user=admin    eff=True  -> ALLOW(default-allow 미등록 :105)  ★미등록=default-allow(4-c)
+[PASS] mode=token  reg=False user=admin    eff=False -> ALLOW(default-allow 미등록 :105)  ★미등록=default-allow(4-c)
+[PASS] mode=token  reg=False user=nonadmin eff=True  -> ALLOW(default-allow 미등록 :105)  ★미등록=default-allow(4-c)
+[PASS] mode=token  reg=False user=nonadmin eff=False -> ALLOW(default-allow 미등록 :105)  ★미등록=default-allow(4-c)
+
+# UNIT C 요약: 24/24 PASS

@@ -504,6 +504,94 @@ async def get_profile_photo(file_name: str):
     return FileResponse(path=file_path)
 
 
+# ── 관리자: 대상 계정 프로필 사진 (v6.3-admin_photo_upload) ────────────────────
+# 본인 경로(/me/photo)를 타 계정 편집에 재사용하다 토큰 소유자(로그인 관리자) 사진이
+# 오염되던 사고(2026-07-13) 대응. 관리자 CRUD 는 반드시 {user_id} 대상을 향한다.
+# require_perm(users:edit) + base-ADMIN 상승 가드(비-ADMIN 의 ADMIN 대상 변경 차단).
+# ★ 라우트 순서: 위 리터럴 /me/photo · /photo/{file_name} 뒤, /{user_id} 앞에 등록 —
+#   2세그먼트 경로라 단일세그먼트 /{user_id} 와 미충돌, /me/photo 가 먼저라 그림자화 없음.
+@router.post(
+    "/{user_id}/photo",
+    dependencies=[Depends(require_perm_async("users", "edit"))],
+    summary="관리자: 대상 계정 프로필 사진 업로드",
+)
+async def upload_user_photo(
+    user_id: int,
+    request: Request,
+    file: UploadFile = File(..., description="이미지 파일 (jpeg/png/webp/gif, ≤5MB)"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
+):
+    """관리자(권한자)가 **대상 계정**의 프로필 사진을 업로드/교체한다.
+
+    저장/검증/orphan 정리는 본인 경로와 동일한 `_save_profile_photo`(magic-byte·5MB·orphan)를
+    재사용하되 대상은 `{user_id}`. 감사에는 행위자(관리자)와 대상을 분리 기록해 추적성을 확보한다.
+    """
+    target = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    # base-ADMIN 상승 가드 — 비-ADMIN 은 ADMIN 대상 사진 변경 불가(횡적 권한 탈취 차단)
+    _assert_can_modify_admin_target(current_user, target)
+    resp = await _save_profile_photo(target, file, request, db)
+    # 감사: 행위자(관리자) ≠ 대상 을 명시 기록 (2026-07-13 오염사고 추적성)
+    await log_action_async(
+        db=db,
+        action_type="USER_PHOTO_CHANGED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=target.id,
+        resource_name=f"{target.name} ({target.login_id})",
+        description=f"프로필 사진 변경(관리자): {target.login_id} (by {current_user.login_id})",
+    )
+    return resp
+
+
+@router.delete(
+    "/{user_id}/photo",
+    dependencies=[Depends(require_perm_async("users", "edit"))],
+    summary="관리자: 대상 계정 프로필 사진 삭제",
+)
+async def delete_user_photo(
+    user_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: AccountUser = Depends(get_current_account_user_async),
+):
+    """관리자가 대상 계정의 프로필 사진을 삭제한다(default 복귀, idempotent)."""
+    target = (await db.execute(
+        select(AccountUser).where(AccountUser.id == user_id)
+    )).scalars().first()
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    _assert_can_modify_admin_target(current_user, target)
+    old_url = target.photo_url
+    target.photo_url = None
+    await db.commit()
+    await db.refresh(target)
+    _delete_photo_file(old_url)   # DB 반영 뒤 파일 정리 (default/외부/None 은 helper 가 무시)
+    await log_action_async(
+        db=db,
+        action_type="USER_PHOTO_DELETED",
+        resource_type="USER",
+        actor_login_id=current_user.login_id,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        actor_role=current_user.role,
+        resource_id=target.id,
+        resource_name=f"{target.name} ({target.login_id})",
+        description=f"프로필 사진 삭제(관리자): {target.login_id} (by {current_user.login_id})",
+    )
+    return {
+        "success": True,
+        "message": "Profile photo deleted",
+        "data": AccountUserResponse.model_validate(target),
+    }
+
+
 @router.get("/{user_id}", dependencies=[Depends(require_perm_async("users", "view"))])
 async def get_user_by_id(
     user_id: int,

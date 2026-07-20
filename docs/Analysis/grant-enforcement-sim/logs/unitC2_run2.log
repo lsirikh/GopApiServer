@@ -1,0 +1,43 @@
+### UNIT C2 — enforce_matrix default-DENY 변형 (FR-09)  [run2]
+# 현행 default-allow(Unit C) 대비 token+미등록+¬allowlist 를 403 으로.
+# <<CHANGED = 현행 대비 결정이 바뀌는 셀(=FR-09 영향 범위).
+
+[PASS] mode=public reg=True                  user=none     eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=True                  user=none     eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=True                  user=admin    eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=True                  user=admin    eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=True                  user=nonadmin eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=True                  user=nonadmin eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=False user=none     eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=False user=none     eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=False user=admin    eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=False user=admin    eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=False user=nonadmin eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=False user=nonadmin eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=True  user=none     eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=True  user=none     eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=True  user=admin    eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=True  user=admin    eff=False | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=True  user=nonadmin eff=True  | old=public-bypass new=public-bypass
+[PASS] mode=public reg=False pub_allow=True  user=nonadmin eff=False | old=public-bypass new=public-bypass
+[PASS] mode=token  reg=True                  user=none     eff=True  | old=401           new=401          
+[PASS] mode=token  reg=True                  user=none     eff=False | old=401           new=401          
+[PASS] mode=token  reg=True                  user=admin    eff=True  | old=admin-bypass  new=admin-bypass 
+[PASS] mode=token  reg=True                  user=admin    eff=False | old=admin-bypass  new=admin-bypass 
+[PASS] mode=token  reg=True                  user=nonadmin eff=True  | old=allow         new=allow        
+[PASS] mode=token  reg=True                  user=nonadmin eff=False | old=403           new=403          
+[PASS] mode=token  reg=False pub_allow=False user=none     eff=True  | old=default-allow new=deny-403       <<CHANGED
+[PASS] mode=token  reg=False pub_allow=False user=none     eff=False | old=default-allow new=deny-403       <<CHANGED
+[PASS] mode=token  reg=False pub_allow=False user=admin    eff=True  | old=default-allow new=deny-403       <<CHANGED
+[PASS] mode=token  reg=False pub_allow=False user=admin    eff=False | old=default-allow new=deny-403       <<CHANGED
+[PASS] mode=token  reg=False pub_allow=False user=nonadmin eff=True  | old=default-allow new=deny-403       <<CHANGED
+[PASS] mode=token  reg=False pub_allow=False user=nonadmin eff=False | old=default-allow new=deny-403       <<CHANGED
+[PASS] mode=token  reg=False pub_allow=True  user=none     eff=True  | old=default-allow new=public-allow 
+[PASS] mode=token  reg=False pub_allow=True  user=none     eff=False | old=default-allow new=public-allow 
+[PASS] mode=token  reg=False pub_allow=True  user=admin    eff=True  | old=default-allow new=public-allow 
+[PASS] mode=token  reg=False pub_allow=True  user=admin    eff=False | old=default-allow new=public-allow 
+[PASS] mode=token  reg=False pub_allow=True  user=nonadmin eff=True  | old=default-allow new=public-allow 
+[PASS] mode=token  reg=False pub_allow=True  user=nonadmin eff=False | old=default-allow new=public-allow 
+
+# 변경 셀 수(blast radius) = 6  (전부 token+미등록+¬allowlist)
+# UNIT C2 요약: 36/36 PASS

@@ -1,0 +1,21 @@
+### UNIT D — sweep 표시성 · publish 게이트 · 자연만료 통지 지연  [run2]
+# NOW=2026-07-21T12:00:00 | sweep interval I=10m (main.py:308)
+
+-- Part1: is_active 표시성 (만료 grant, is_active T/F 무관하게 집행은 차단) --
+[PASS] isact=True  | 집행차단=True sweep_due=True(exp True)  → 집행은 is_active 무관 차단
+[PASS] isact=False | 집행차단=True sweep_due=False(exp False)  → 집행은 is_active 무관 차단
+
+-- Part2: publish_permissions_changed 게이트(NATS_REVOKE_ENABLED) --
+[PASS] NATS_REVOKE_ENABLED=False -> publish=False (exp False)
+[PASS] NATS_REVOKE_ENABLED=True  -> publish=True (exp True)
+
+-- Part3: 자연만료 통지 지연 — sweep(10m) 발행이 유일 소스일 때 vs per-grant 타이머 --
+[PASS] 만료 t= 0.0m | sweep-only 통지지연= 0.0m (최악 10m) | per-grant타이머 지연=0m
+[PASS] 만료 t= 0.5m | sweep-only 통지지연= 9.5m (최악 10m) | per-grant타이머 지연=0m
+[PASS] 만료 t= 3.0m | sweep-only 통지지연= 7.0m (최악 10m) | per-grant타이머 지연=0m
+[PASS] 만료 t= 7.0m | sweep-only 통지지연= 3.0m (최악 10m) | per-grant타이머 지연=0m
+[PASS] 만료 t= 9.9m | sweep-only 통지지연=0.09999999999999964m (최악 10m) | per-grant타이머 지연=0m
+[PASS] 만료 t=10.0m | sweep-only 통지지연= 0.0m (최악 10m) | per-grant타이머 지연=0m
+
+# 결론: 자연만료의 실시간 푸시는 sweep-only 로는 최대 10m 지연 → FR-07(per-grant fire) 필요.
+# UNIT D 요약: 10/10 PASS

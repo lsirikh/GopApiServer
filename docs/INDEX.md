@@ -1,8 +1,8 @@
 <!-- auto-section-start -->
 # 프로젝트 문서 인덱스
 
-- **마지막 갱신**: 2026-07-13 (advance-phase 자동)
-- **총 문서 수**: 36개
+- **마지막 갱신**: 2026-07-21 (grant-enforcement-hardening PRD v2.0 + 시뮬 검증)
+- **총 문서 수**: 38개
 
 ---
 
@@ -15,6 +15,7 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
+| [grant-enforcement-hardening-prd.md](prds/grant-enforcement-hardening-prd.md) | grant-enforcement-hardening (GIS 집행 검증 부채) | Draft | 2026-07-21 |
 | [nats-dbapi-sync-completion-prd.md](prds/nats-dbapi-sync-completion-prd.md) | nats-dbapi-sync-completion | Completed | 2026-07-13 |
 | [audit-auto-lock-unlock-prd.md](prds/audit-auto-lock-unlock-prd.md) | audit-auto-lock-unlock | Completed | 2026-07-13 |
 | [e1-session-token-hash-prd.md](prds/e1-session-token-hash-prd.md) | e1-session-token-hash | Approved | 2026-07-10 |

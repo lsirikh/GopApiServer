@@ -1,0 +1,16 @@
+### UNIT B — effective_allows 합집합 (등급 ∪ 유효 grant 그룹)  [run1]
+# 헬퍼 모드: REAL app.routers.auth
+# 대상 권한 = cameras:control | NOW=2026-07-21T12:00:00
+
+[PASS] allow=True  exp=True  | 활성grant그룹수=0 | role 보유, grant 없음
+[PASS] allow=False exp=False | 활성grant그룹수=0 | role 미보유, grant 없음
+[PASS] allow=True  exp=True  | 활성grant그룹수=1 | role 미보유, +유효 grant(cam:control)
+[PASS] allow=False exp=False | 활성grant그룹수=0 | role 미보유, +만료 grant(cam:control) → perm 무시
+[PASS] allow=False exp=False | 활성grant그룹수=0 | role 미보유, +대기(PENDING) grant(cam:control)
+[PASS] allow=False exp=False | 활성grant그룹수=0 | role 미보유, +회수 grant(cam:control)
+[PASS] allow=False exp=False | 활성grant그룹수=1 | role 미보유, +유효 grant(다른모듈 devices:view)
+[PASS] allow=False exp=False | 활성grant그룹수=1 | role 미보유, +유효 grant 지만 그룹 비활성
+[PASS] allow=False exp=False | 활성grant그룹수=0 | role 보유하나 등급그룹 비활성
+[PASS] allow=True  exp=True  | 활성grant그룹수=1 | role 미보유, 만료 grant + 유효 grant 혼합 → 유효분으로 허용
+
+# UNIT B 요약: 10/10 PASS

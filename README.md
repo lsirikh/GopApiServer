@@ -11,6 +11,12 @@ GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 �
 
 > **현재 버전**: v6.3.0 (2026-07-13 승격 — v6.0 Async 대전환 → 후속 21 topic 확정, `release/v6.0` 브랜치).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
+>
+> 🚧 **진행 중 (v6.3 후속 · `grant-enforcement-hardening`)** — 권한부여(grant) 시간기반 집행 하드닝:
+> - **Phase 1 검증부채**: 경계초(`valid_until==now`) 삼중 회귀 · `AUTH_MODE=token` 집행 E2E · `async_db` 격리(운영 DB 무접촉)
+> - **Phase 2 통지/집행**: per-grant 실시간 만료 통지(FR-07) · 스윕 주기 설정화(`GRANT_SWEEP_INTERVAL_MINUTES`) · NATS 통지 게이트(FR-06) · matrix `default-deny` observe/enforce 모드(`MATRIX_DENY_MODE`, 기본 `off`=현행 보존)
+> - **상태**: 코드·테스트 완료(로컬, 신규 44+ passed). **실제 활성**(NATS `NATS_REVOKE_ENABLED` flip · `default-deny` enforce)은 라우트 audit·클라 조율 후 **배포 게이트**.
+> - 근거: [PRD](docs/prds/grant-enforcement-hardening-prd.md) · [시뮬 128/128](docs/Analysis/grant-enforcement-sim/SIMULATION_REPORT.md) · [GIS 회신](docs/Analysis/Grant_Enforcement_Server_Analysis_REPLY.md)
 
 ---
 

@@ -302,7 +302,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 - **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
 - **활성 PRD**: `docs/prds/grant-enforcement-hardening-prd.md` (**v2.0 Draft — 승인 대기**, 2026-07-21, 시뮬 92/92 검증완료)
 - **활성 Plan**: 없음
-- **현재 Phase**: dev
+- **현재 Phase**: plan
 - **Track**: C
 - **다음 할 일**: **grant-enforcement-hardening PRD v2.0 승인**(정책 3건 흡수·시뮬 검증 완료) → 승인 시 plan 착수. 유일 결정거리 = default-deny(4-c)를 FR-09로 포함할지. 승인 명령 `node .claude/hooks/advance-phase.js approve prd "..."`
 - **핵심 기술결정 (v6.0 확정)**:

@@ -1,8 +1,8 @@
 <!-- auto-section-start -->
 # 프로젝트 문서 인덱스
 
-- **마지막 갱신**: 2026-07-31
-- **총 문서 수**: 41개
+- **마지막 갱신**: 2026-07-31 (advance-phase 자동)
+- **총 문서 수**: 47개
 
 ---
 
@@ -10,12 +10,15 @@
 
 | 파일 | 분석 대상 | 날짜 |
 |------|---------|------|
-| [session-concurrency-policy-analysis.md](analyses/session-concurrency-policy-analysis.md) | 세션 동시성 정책(evict) 재설계 — 중복 세션 허용 + SSO 대비, 신규 설정 4키 + 선행 결함 4건 + FR-01~15 | 2026-07-31 |
+| [datetime-timezone-consolidated-analysis.md](analyses/datetime-timezone-consolidated-analysis.md) | datetime-timezone-consolidated | 2026-07-31 |
+| [session-concurrency-policy-analysis.md](analyses/session-concurrency-policy-analysis.md) | session-concurrency-policy | 2026-07-31 |
 
 ## 요구사항 정의서 (docs/prds/)
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
+| [datetime-timezone-unification-prd.md](prds/datetime-timezone-unification-prd.md) | datetime-timezone-unification | Draft | 2026-07-31 |
+| [offline-installer-prd.md](prds/offline-installer-prd.md) | offline-installer | Draft | 2026-07-20 |
 | [grant-enforcement-hardening-prd.md](prds/grant-enforcement-hardening-prd.md) | grant-enforcement-hardening | Approved | 2026-07-20 |
 | [admin-profile-photo-upload-prd.md](prds/admin-profile-photo-upload-prd.md) | admin-profile-photo-upload | Draft | 2026-07-20 |
 | [e1-session-token-hash-prd.md](prds/e1-session-token-hash-prd.md) | e1-session-token-hash | Approved | 2026-07-13 |
@@ -43,7 +46,9 @@
 
 | 파일 | 연관 PRD | 진행률 | 날짜 |
 |------|---------|--------|------|
-| [grant-enforcement-hardening-prd-plan.md](plans/grant-enforcement-hardening-prd-plan.md) | [PRD](prds/grant-enforcement-hardening-prd.md) | 11/43 | 2026-07-20 |
+| [datetime-timezone-unification-prd-plan.md](plans/datetime-timezone-unification-prd-plan.md) | [PRD](prds/datetime-timezone-unification-prd.md) | 7/30 | 2026-07-31 |
+| [offline-installer-prd-plan.md](plans/offline-installer-prd-plan.md) | [PRD](prds/offline-installer-prd.md) | 0/38 | 2026-07-20 |
+| [grant-enforcement-hardening-prd-plan.md](plans/grant-enforcement-hardening-prd-plan.md) | [PRD](prds/grant-enforcement-hardening-prd.md) | 15/43 | 2026-07-20 |
 | [admin-profile-photo-upload-prd-plan.md](plans/admin-profile-photo-upload-prd-plan.md) | [PRD](prds/admin-profile-photo-upload-prd.md) | 9/10 | 2026-07-20 |
 | [RBAC_Enforcement-prd-plan.md](plans/RBAC_Enforcement-prd-plan.md) | [PRD](prds/RBAC_Enforcement-prd.md) | 5/9 | 2026-07-13 |
 | [nats-dbapi-sync-completion-prd-plan.md](plans/nats-dbapi-sync-completion-prd-plan.md) | [PRD](prds/nats-dbapi-sync-completion-prd.md) | 0/20 | 2026-07-13 |
@@ -63,6 +68,7 @@
 
 | 파일 | 문서 연결 체인 | 날짜 |
 |------|------------|------|
+| [datetime-timezone-unification-prd-counterargument-report.md](reports/datetime-timezone-unification-prd-counterargument-report.md) | [PRD](prds/datetime-timezone-unification-prd-counterargument-prd.md) → [Plan](plans/datetime-timezone-unification-prd-counterargument-prd-plan.md) | 2026-07-31 |
 | [nats-dbapi-sync-completion-report.md](reports/nats-dbapi-sync-completion-report.md) | [PRD](prds/nats-dbapi-sync-completion-prd.md) → [Plan](plans/nats-dbapi-sync-completion-prd-plan.md) | 2026-07-13 |
 | [audit-auto-lock-unlock-report.md](reports/audit-auto-lock-unlock-report.md) | [PRD](prds/audit-auto-lock-unlock-prd.md) → [Plan](plans/audit-auto-lock-unlock-prd-plan.md) | 2026-07-13 |
 | [BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md](reports/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md) | [PRD](prds/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md-prd.md) → [Plan](plans/BUG_REPORT_CONNECTIONS_LAZYLOAD_ASYNC.md-prd-plan.md) | 2026-07-06 |

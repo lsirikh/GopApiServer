@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from app.utils.datetime import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def _job_id(grant_id: int) -> str:
 
 def _now() -> datetime:
     from app.config import settings
-    return datetime.now(settings.tz).replace(tzinfo=None)
+    return utc_now()
 
 
 def _within_horizon(valid_until: datetime, now: datetime) -> bool:

@@ -9,6 +9,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -54,7 +55,7 @@ class AuditLog(Base):
     # 타임스탬프
     created_at = Column(
         UtcDateTime,
-        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
+        default=utc_now,
         nullable=False,
         index=True
     )

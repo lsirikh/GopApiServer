@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -44,8 +45,8 @@ class FileGroup(Base):
     files = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # JSONB array: ["file1.mp3", "file2.mp3"]
 
     # Timestamps
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Unique constraint: (server_id, group_id)
     __table_args__ = (

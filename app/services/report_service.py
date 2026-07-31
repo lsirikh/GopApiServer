@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, cast, Date, select, text, case, and_, or_
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+from app.utils.datetime import to_utc, utc_now
 
 from app.models.device import Device
 from app.models.event import Event, DetectionEvent, MalfunctionEvent, ActionEvent
@@ -1030,13 +1031,14 @@ class ReportServiceAsync:
 
         end_date가 None이면 상한 필터 없음(현재까지).
         """
+        # datetime-unification: 필터 경계를 aware UTC 로 통일(events/reports timestamptz)
         if start_date is not None:
-            _start = start_date.replace(tzinfo=None) if start_date.tzinfo else start_date
+            _start = to_utc(start_date)
         else:
-            _start = datetime.now() - timedelta(days=days)
+            _start = utc_now() - timedelta(days=days)
         _end = None
         if end_date is not None:
-            _end = end_date.replace(tzinfo=None) if end_date.tzinfo else end_date
+            _end = to_utc(end_date)
         return _start, _end
 
     async def get_enabled_components(self, generation: ReportGeneration) -> Optional[List[str]]:

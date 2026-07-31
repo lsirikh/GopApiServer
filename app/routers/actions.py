@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectin_polymorphic, selectinload
 from typing import Optional, Union
 from datetime import datetime, timezone, timedelta
+from app.utils.datetime import to_utc, utc_now
 import math
 
 _KST = timezone(timedelta(hours=9))
@@ -29,11 +30,8 @@ _KST = timezone(timedelta(hours=9))
 
 def _to_kst_naive(dt_val: datetime | None) -> datetime | None:
     """timezone-aware datetime → KST naive (DB 저장용). naive는 이미 KST로 간주."""
-    if dt_val is None:
-        return None
-    if dt_val.tzinfo is not None:
-        return dt_val.astimezone(_KST).replace(tzinfo=None)
-    return dt_val
+    # datetime-unification: 입력을 aware UTC 로 정규화(timestamptz 저장/비교용, naive는 DISPLAY_TZ 간주)
+    return to_utc(dt_val)
 
 
 from app.dependencies import get_async_db

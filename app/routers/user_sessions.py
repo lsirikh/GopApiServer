@@ -2,6 +2,7 @@
 UserSession API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from app.utils.datetime import utc_now
 from sqlalchemy import select, func, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -179,7 +180,7 @@ async def force_logout_all_user_sessions(
         session.is_active = False
         session.logout_reason = "FORCED"
         session.forced_by = current_user.id
-        session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+        session.logged_out_at = utc_now()
 
         _sess_id = session.id
         # E1/P1-10: session.token/refresh_token 은 이제 jti → decode 불필요, 직접 블랙리스트.
@@ -188,13 +189,13 @@ async def force_logout_all_user_sessions(
         if session.token:
             await add_to_blacklist_async(
                 db=db, jti=session.token,
-                expires_at=session.expires_at or (datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
+                expires_at=session.expires_at or (utc_now() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
                 reason="FORCE_LOGOUT_BULK", user_id=user_id, token_type="access",
             )
         if session.refresh_token:
             await add_to_blacklist_async(
                 db=db, jti=session.refresh_token,
-                expires_at=session.refresh_expires_at or (datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)),
+                expires_at=session.refresh_expires_at or (utc_now() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)),
                 reason="FORCE_LOGOUT_BULK", user_id=user_id, token_type="refresh",
             )
 
@@ -307,7 +308,7 @@ async def delete_my_session(
     session.logout_reason = "SELF_LOGOUT"
     # v6.0-force_logout_tz_fix (2026-07-07): logged_out_at 컬럼은 naive DateTime.
     # tz-aware(Asia/Seoul) 를 넣으면 asyncpg 가 offset-naive/aware 비교 거부 → 500.
-    session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+    session.logged_out_at = utc_now()
 
     await db.commit()
 
@@ -422,7 +423,7 @@ async def force_logout_session(
     session.forced_by = current_user.id
     # v6.0-force_logout_tz_fix (2026-07-07): logged_out_at 은 naive DateTime 컬럼.
     # tz-aware 를 넣으면 asyncpg DataError(offset-naive/aware) → 강제로그아웃 전체 500 + 롤백.
-    session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+    session.logged_out_at = utc_now()
 
     # ★ 토큰 즉시 무효화 — is_active=False 만으로는 이미 발급된 JWT가 exp(24h)까지 통과하여
     #    강제 로그아웃이 실효 없음. access + refresh jti 를 블랙리스트에 등록해야:
@@ -438,12 +439,12 @@ async def force_logout_session(
     if session.token:
         await add_to_blacklist_async(
             db=db, jti=session.token,
-            expires_at=session.expires_at or (datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
+            expires_at=session.expires_at or (utc_now() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
             reason="FORCED", user_id=session.user_id, token_type="access")
     if session.refresh_token:
         await add_to_blacklist_async(
             db=db, jti=session.refresh_token,
-            expires_at=session.refresh_expires_at or (datetime.utcnow() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)),
+            expires_at=session.refresh_expires_at or (utc_now() + _td(days=settings.JWT_REFRESH_EXPIRATION_DAYS)),
             reason="FORCED", user_id=session.user_id, token_type="refresh")
 
     # Create a login log entry for the force logout

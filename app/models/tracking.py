@@ -13,6 +13,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -52,7 +53,7 @@ class TrackPoint(Base):
     # 인제스트 시각 (감사용) — naive KST 컨벤션(audit_log 동일)
     created_at = Column(
         UtcDateTime,
-        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
+        default=utc_now,
         nullable=False,
     )
 

@@ -11,6 +11,7 @@ from datetime import datetime as dt
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -26,7 +27,7 @@ class Thumbnail(Base):
     height = Column(Integer, nullable=True, doc="이미지 높이 (px)")
     created_at = Column(
         UtcDateTime,
-        default=lambda: dt.now(settings.tz).replace(tzinfo=None),
+        default=utc_now,
         nullable=False,
         index=True,
         doc="생성 시간"

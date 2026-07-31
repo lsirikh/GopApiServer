@@ -12,6 +12,7 @@ from sqlalchemy.orm import relationship, backref
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 from app.utils.enums import (
     EnumOperationMode, EnumWindyMode,
@@ -28,8 +29,8 @@ class ProxySetting(Base):
     server_id = Column(Integer, ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     operation_mode = Column(SAEnum(EnumOperationMode), nullable=False, default=EnumOperationMode.NORMAL)
     windy_mode = Column(SAEnum(EnumWindyMode), nullable=False, default=EnumWindyMode.WIND0)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # v6.0 hotfix: Server DELETE 시 ORM이 서버_id → NULL UPDATE 시도 → NotNullViolation.
     # backref에 cascade="all, delete-orphan" + passive_deletes=True 로 DB CASCADE 위임.
@@ -54,7 +55,7 @@ class CameraSetting(Base):
     iris_mode = Column(SAEnum(EnumIrisMode), nullable=False, default=EnumIrisMode.AUTO)
     tracking = Column(SAEnum(EnumTrackingStatus), nullable=False, default=EnumTrackingStatus.IDLE)
     palette = Column(SAEnum(EnumPalette), nullable=True, default=None)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     camera = relationship("Camera", back_populates="setting", uselist=False)

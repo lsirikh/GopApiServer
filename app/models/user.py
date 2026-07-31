@@ -8,6 +8,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -25,8 +26,8 @@ class UserGroup(Base):
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Timestamps
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Audit fields (FK to User - defined later via Integer for now)
     created_by = Column(Integer, nullable=True)
@@ -83,8 +84,8 @@ class AccountUser(Base):
     last_login_ip = Column(String(45), nullable=True)  # IPv6 length
 
     # Timestamps
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Audit fields
     created_by = Column(Integer, nullable=True)
@@ -134,7 +135,7 @@ class UserGroupGrant(Base):
     granted_by = Column(Integer, nullable=True)
     revoked_at = Column(UtcDateTime, nullable=True)
 
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
 
     # Relationships
     user = relationship("AccountUser", back_populates="grants")
@@ -172,8 +173,8 @@ class UserSession(Base):
     logged_out_at = Column(UtcDateTime, nullable=True)
 
     # Standard timestamps (PRD_UserSession_Improvement.md v1.2)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)  # was: login_at
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=True)   # was: last_activity
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)  # was: login_at
+    updated_at = Column(UtcDateTime, default=utc_now, nullable=True)   # was: last_activity
 
     # Status fields
     is_active = Column(Boolean, default=True, nullable=False)
@@ -212,7 +213,7 @@ class UserLoginLog(Base):
     user_agent = Column(String(500), nullable=True)
 
     # Timestamp
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False, index=True)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False, index=True)
 
     # Relationships
     user = relationship("AccountUser", back_populates="login_logs")

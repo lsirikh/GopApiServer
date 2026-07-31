@@ -14,6 +14,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from datetime import datetime
+from app.utils.datetime import to_utc, utc_now
 from typing import Optional
 
 from app.config import settings
@@ -30,16 +31,13 @@ router = APIRouter()
 
 
 def _now() -> datetime:
-    return datetime.now(settings.tz).replace(tzinfo=None)
+    return utc_now()
 
 
 def _to_naive_kst(dt: Optional[datetime]) -> Optional[datetime]:
     """tz-aware 입력을 KST 기준 naive 로 정규화(타 테이블 저장 컨벤션 일치)."""
-    if dt is None:
-        return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(settings.tz)
-    return dt.replace(tzinfo=None)
+    # datetime-unification: aware UTC 로 정규화(timestamptz 저장/비교용)
+    return to_utc(dt)
 
 
 def _serialize(grant: UserGroupGrant, now: Optional[datetime] = None) -> GrantResponse:

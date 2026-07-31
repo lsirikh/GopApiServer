@@ -14,6 +14,7 @@ from datetime import datetime as dt
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.utils.enums import EnumDeviceType, EnumDetectionType, EnumFaultType, EnumTrueFalse, EnumEventCategory
 from app.config import settings
 
@@ -74,8 +75,8 @@ class Event(Base):
     sequence = Column(Integer, nullable=True, doc="시퀀스 번호 (Deprecated - PRD v2.7)")
 
     # ===== Timestamps =====
-    created_at = Column(UtcDateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False, index=True)
-    updated_at = Column(UtcDateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False, index=True)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # ===== Relationships =====
     device = relationship("Device", foreign_keys=[device_id])
@@ -267,8 +268,8 @@ class ActionEvent(Base):
     content = Column(String(500), nullable=False, doc="조치 내용")
     user = Column(String(100), nullable=False, index=True, doc="조치한 사용자")
 
-    created_at = Column(UtcDateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False, index=True)
-    updated_at = Column(UtcDateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False, index=True)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # ===== Relationship =====
     source_event = relationship(

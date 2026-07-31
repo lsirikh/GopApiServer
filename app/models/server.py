@@ -9,6 +9,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 from app.utils.enums import EnumServerType, EnumServerStatus
 
@@ -34,8 +35,8 @@ class ServerCategory(Base):
     type_server = Column(SQLEnum(EnumServerType), nullable=False, unique=True)
     description = Column(String(200), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationship to servers (1:N)
     servers = relationship("Server", back_populates="category", cascade="all, delete-orphan")
@@ -83,8 +84,8 @@ class Server(Base):
     threshold_config = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # 타임스탬프
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationship to category
     category = relationship("ServerCategory", back_populates="servers")
@@ -150,7 +151,7 @@ class ServerMetrics(Base):
 
     # 타임스탬프
     collected_at = Column(UtcDateTime, nullable=True)  # 수집 시간
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
 
     # Relationship to server
     server = relationship("Server", back_populates="metrics")

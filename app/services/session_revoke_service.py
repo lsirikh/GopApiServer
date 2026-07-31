@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from app.utils.datetime import utc_now
 from typing import Optional
 
 from jose import JWTError, jwt
@@ -56,7 +57,7 @@ def _iter_session_tokens(session: UserSession):
 def _blacklist_pairs(session: UserSession):
     """(jti, expires_at, token_type) — E1: session.token/refresh_token 은 이미 jti,
     만료는 stored expires_at/refresh_expires_at 사용(decode 불필요). 원문 미저장."""
-    fb = datetime.utcnow() + _FALLBACK_TTL
+    fb = utc_now() + _FALLBACK_TTL
     if session.token:
         yield session.token, (session.expires_at or fb), "access"
     if session.refresh_token:
@@ -79,7 +80,7 @@ def revoke_session_family(
         add_to_blacklist(db, jti=jti, expires_at=exp_dt, reason=reason,
                          user_id=session.user_id, token_type=ttype)
     session.is_active = False
-    session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+    session.logged_out_at = utc_now()
     session.logout_reason = reason
     if commit:
         db.commit()
@@ -98,7 +99,7 @@ async def revoke_session_family_async(
         await add_to_blacklist_async(db, jti=jti, expires_at=exp_dt, reason=reason,
                                      user_id=session.user_id, token_type=ttype)
     session.is_active = False
-    session.logged_out_at = datetime.now(settings.tz).replace(tzinfo=None)
+    session.logged_out_at = utc_now()
     session.logout_reason = reason
     if commit:
         await db.commit()

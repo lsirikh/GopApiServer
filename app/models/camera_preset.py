@@ -13,6 +13,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -46,8 +47,8 @@ class CameraPreset(Base):
         default=False,
         comment="감시금지구역 표시 — true 시 매니저 측에서 통일 처리 (RTSP/녹화/이벤트/화면 모두 차단)"
     )
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Unique constraint: camera_id + preset_index
     __table_args__ = (
@@ -84,8 +85,8 @@ class ROI(Base):
     resolution_width = Column(Float, nullable=False)
     resolution_height = Column(Float, nullable=False)
     is_enable = Column(Boolean, nullable=False, default=True)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     preset = relationship("CameraPreset", back_populates="rois")
@@ -115,8 +116,8 @@ class XyPoint(Base):
     x = Column(Float, nullable=False)
     y = Column(Float, nullable=False)
     order = Column(Integer, nullable=False)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Unique constraint: roi_id + order
     __table_args__ = (

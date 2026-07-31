@@ -14,6 +14,7 @@ from typing import Optional, List, Any
 
 from app.utils.enums import EnumReportType, EnumReportPeriod, EnumReportStatus
 from app.config import settings
+from app.utils.datetime import to_utc  # datetime-unification: 입력 aware UTC 정규화
 
 
 # ============================================================
@@ -191,6 +192,9 @@ class ReportGenerateRequest(BaseModel):
             )
 
         if has_start and has_end:
+            # datetime-unification(FR-07): 입력(aware/naive/date-only)을 aware UTC 로 통일 후 비교/저장
+            self.start_date = to_utc(self.start_date)
+            self.end_date = to_utc(self.end_date)
             # end >= start
             if self.end_date < self.start_date:
                 raise ValueError(

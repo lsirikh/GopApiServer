@@ -8,6 +8,7 @@ from datetime import datetime
 
 from app.database import Base
 from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 from app.utils.enums import EnumDeviceCategory
 
@@ -29,8 +30,8 @@ class DeviceGroup(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(200), nullable=False, unique=True, index=True)
     description = Column(String(500), nullable=True)
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationship to DeviceGroupMapping (Junction Table)
     device_mappings = relationship(
@@ -91,7 +92,7 @@ class DeviceGroupMapping(Base):
         nullable=False,
         index=True
     )
-    created_at = Column(UtcDateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
 
     # Unique constraint: prevent duplicate device-group combinations (including category_device)
     __table_args__ = (

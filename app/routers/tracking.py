@@ -14,6 +14,7 @@ from sqlalchemy import func, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from datetime import datetime
+from app.utils.datetime import to_utc, utc_now
 import base64
 
 from app.dependencies import get_async_db
@@ -49,11 +50,8 @@ def _decode_cursor(cursor: str):
 
 def _to_naive_kst(dt: Optional[datetime]) -> Optional[datetime]:
     """저장값(naive KST) 비교용 정규화. aware → KST 변환 후 tz strip."""
-    if dt is None:
-        return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(KST).replace(tzinfo=None)
-    return dt
+    # datetime-unification: aware UTC 로 정규화(tracking.* timestamptz 저장/비교/커서용)
+    return to_utc(dt)
 
 
 def _as_dt(v):

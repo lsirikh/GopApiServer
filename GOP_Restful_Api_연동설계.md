@@ -7345,7 +7345,7 @@ Lamp CRUD 작업 시 자동으로 ConfigChangeLog가 생성됩니다.
 
 > **v2.6 변경사항 (PRD_Event_Field_Normalization.md v1.0)**:
 > - `result`: 별도 필드로 유지 (핵심 분류 필드, 필수)
-> - `detail`: 상세 정보만 포함 (signal, thumbnail, objects, model, inference_ms)
+> - `detail`: 상세 정보만 포함 (signal, thumbnail, **frame_width, frame_height**, objects, model, inference_ms). `frame_width/height`(px, v6.3)는 `objects[].bbox` 픽셀좌표 해석 기준
 > - Request/Response 모두 result가 별도 필드로 분리됨
 
 #### 6.1.1 Detection Event 목록 조회
@@ -16402,6 +16402,16 @@ python scripts/migrate_event_device_id.py
 - **serializer** `schemas/common.py`·`main.py`: `KSTDatetime`/전역 encoder/오류 meta → `to_display`(DISPLAY_TZ), OpenAPI `format:date-time` 유지. **입력 정규화(FR-07)** `ReportGenerateRequest` 등 body 비교 전 `to_utc`. 라우터 정규화 헬퍼(`_to_naive_kst` 계열 6종)·리포트 범위 → `to_utc` 위임.
 - **api_logs**: 파티션 키 ALTER 불가 → 컬럼은 naive 유지하되 저장을 **naive-UTC 벽시계**(`utc_now().replace(tzinfo=None)`)로 바꿔 전역 naive=UTC 규약과 정합(월파티션 ±offset 시프트는 인접월 안착). 업그레이드 직후 **구(舊) KST 행은 retention 소멸까지 표시 offset skew**(전환기, 신규 행 정확). 완전 timestamptz 재생성은 v67(선택) 이연.
 - **라이브 검증(재빌드·재기동)**: 마이그 72 timestamptz / 10 제외(api_logs 9+schema_migrations). aware `collected_at +09:00` POST → **201**(저장 UTC 10:50 / 출력 +09:00). 읽기 GET 다수 200+`+09:00`. reports/generate aware 범위 → **201→COMPLETED**(역순=422, TypeError 아님). 오류 meta `+09:00`. 다국가 `to_display` 격리검증(Budapest `+02:00` DST). 롤백 3종: git `pre-datetime_unification` · 이미지 `pids-api-server:pre-datetime_unification` · DB덤프 `backups/datetime-unification-20260731/`.
+
+### [v6.3 후속] `detection_sync` — 탐지 이벤트 SYNC 발행 (PTZ 회전후 썸네일 갱신 통지) (2026-07-31)
+
+> 신규기능(PRD→plan→dev). 탐지 이벤트 UPDATE/DELETE 시 NATS `SYNC_DETECTION` 발행. 1차 동인 = PTZ 회전 후 갱신된 `detail.thumbnail`을 GIS가 재수신.
+
+- `app/db_triggers.py`: `fn_notify_detection_sync` 트리거(detection_events **AFTER UPDATE OR DELETE**, gop_sync 채널) — `{cmd:SYNC_DETECTION, action, resource_id}`. **INSERT 미발행**(필드 DETECT 중복 방지).
+- `db_monitor/main.py`: `CMD_SUBJECT_MAP` `SYNC_DETECTION → all.sync.detection` (from=DBApi).
+- `app/schemas/event.py`: `DetectionDetail`에 `frame_width`/`frame_height`(px) 추가 + Swagger 예시 4곳 — broker-v15 교차검증 GAP 해소. detail 서술 §이벤트 갱신.
+- 라이브 검증: POST(생성)→**미발행**, PATCH detail→`{UPDATED,id}`, DELETE→`{DELETED,id}`, subject=`all.sync.detection`·from=DBApi. 단위 `tests/test_detection_detail_frame.py` 3 passed.
+- 브로커 명세 `Gop_Message_Broker_연동설계_v1.5.md` §3.2/§6.1/§9.11/카탈로그 동반 갱신. 롤백태그 `pre-detection_sync`.
 
 ### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
 

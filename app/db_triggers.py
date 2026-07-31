@@ -516,6 +516,31 @@ GET_TRIGGER_SQLS = [
         AFTER INSERT ON system_events
         FOR EACH ROW EXECUTE FUNCTION fn_notify_system_event();
     """,
+    # SYNC_DETECTION (detection-sync-message FR-01/02): detection_events AFTER UPDATE OR DELETE →
+    #   gop_sync 채널 '알림만' NOTIFY {cmd, action, resource_id}. **INSERT 미발행**(필드 DETECT 중복/이중연동 방지).
+    #   목적: PTZ 회전 후 detail(썸네일) 갱신을 GIS 가 재조회하도록 통지. from=DBApi·subject=all.sync.detection
+    #   으로 필드 DETECT(all.event.detect, from=PidsProxy/AiAnalysis)와 완전 분리. 알림형이라 resource_id 만(Full-DTO 아님).
+    #   트리거 실패가 detection UPDATE/DELETE 를 롤백하지 않도록 EXCEPTION WHEN OTHERS 방어(best-effort).
+    """
+    CREATE OR REPLACE FUNCTION fn_notify_detection_sync()
+    RETURNS trigger AS $$
+    BEGIN
+        PERFORM pg_notify('gop_sync', jsonb_build_object(
+            'cmd', 'SYNC_DETECTION',
+            'action', CASE WHEN TG_OP = 'DELETE' THEN 'DELETED' ELSE 'UPDATED' END,
+            'resource_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END
+        )::text);
+        RETURN NULL;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_notify_detection_sync ON detection_events;
+    CREATE TRIGGER trg_notify_detection_sync
+        AFTER UPDATE OR DELETE ON detection_events
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_detection_sync();
+    """,
 ]
 
 

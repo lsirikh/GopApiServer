@@ -106,3 +106,25 @@ class EventSuppressionScheduleResponse(BaseModel):
     updated_at: KSTDatetime
 
     model_config = {"from_attributes": True}
+
+
+class EventSuppressionBulkDeleteRequest(BaseModel):
+    """취소·종료(terminal) 억제 스케줄 일괄 하드삭제 요청 — 목록 정리용.
+
+    ★ soft-cancel(DELETE)과 달리 물리 삭제(행+junction 제거, 복구 불가).
+    ★ 안전장치: 활성/예정 스케줄은 삭제하지 않고 skip(먼저 취소해야 함).
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[int] = Field(
+        ..., min_length=1, max_length=500,
+        description="삭제할 스케줄 id 목록(취소/종료만 삭제, 그 외 skip). 최대 500건",
+        json_schema_extra={"example": [3, 5, 8]},
+    )
+
+
+class EventSuppressionBulkDeleteResult(BaseModel):
+    """일괄 하드삭제 결과 — 삭제/스킵/미존재 분리 보고."""
+    deleted_ids: list[int] = Field(default_factory=list, description="실제 삭제된 id")
+    skipped_ids: list[int] = Field(default_factory=list, description="활성/예정이라 삭제 불가(먼저 취소 필요)")
+    not_found_ids: list[int] = Field(default_factory=list, description="존재하지 않는 id")

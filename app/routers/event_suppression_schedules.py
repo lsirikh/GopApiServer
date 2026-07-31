@@ -28,6 +28,8 @@ from app.schemas.event_suppression import (
     EventSuppressionScheduleCreate,
     EventSuppressionScheduleUpdate,
     EventSuppressionScheduleResponse,
+    EventSuppressionBulkDeleteRequest,
+    EventSuppressionBulkDeleteResult,
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.services.config_log_service import (
@@ -343,3 +345,58 @@ async def delete_suppression_schedule(
 
     s2 = await _reload(db, schedule_id)
     return ApiSingleResponse(success=True, message="억제 스케줄 삭제(취소) 성공", data=_to_response(s2))
+
+
+@router.post("/bulk-delete", response_model=ApiSingleResponse[EventSuppressionBulkDeleteResult],
+             dependencies=[Depends(require_perm_optional_async("events", "delete"))])
+async def bulk_delete_suppression_schedules(
+    data: EventSuppressionBulkDeleteRequest,
+    current_user=Depends(get_current_account_user_optional_async),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """취소·종료(terminal) 억제 스케줄 **일괄 하드삭제**(물리 제거, 목록 정리용).
+
+    - soft-cancel(DELETE {id})과 달리 행+junction 을 완전 제거(복구 불가).
+    - **안전장치**: 활성(active)/예정(pending) 스케줄은 삭제하지 않고 `skipped_ids` 로 반환(먼저 취소 필요).
+    - 존재하지 않는 id 는 `not_found_ids` 로 분리 보고.
+    """
+    ids = _dedupe(data.ids)
+    now = utc_now()
+    # ★ 동시성(TOCTOU) 안전: FOR UPDATE 로 대상 행을 잠근 뒤 최신 커밋 상태로 status 재판정.
+    #   조회~삭제 사이 다른 세션의 PATCH(창 연장 등)로 terminal→active 로 뒤바뀐 행이
+    #   오삭제되는 것을 차단(잠금 획득 후 값 재평가 → active/pending 이면 skip).
+    rows = (await db.execute(
+        select(EventSuppressionSchedule).where(EventSuppressionSchedule.id.in_(ids)).with_for_update()
+    )).scalars().all()
+    found_ids = {s.id for s in rows}
+
+    deleted: list[int] = []
+    skipped: list[int] = []
+    for s in rows:
+        st = suppression_status(s, now)
+        if st in (EnumSuppressionStatus.CANCELLED.value, EnumSuppressionStatus.EXPIRED.value):
+            await db.delete(s)   # cascade: target_devices/target_groups junction 동반 삭제(all,delete-orphan + FK CASCADE)
+            deleted.append(s.id)
+        else:
+            skipped.append(s.id)   # active/pending — 먼저 취소해야 삭제 가능(오삭제 방지)
+
+    not_found = [i for i in ids if i not in found_ids]
+    await db.commit()
+
+    for sid in deleted:
+        await log_config_change_async(
+            db=db,
+            resource_type=EnumConfigResourceType.SUPPRESSION_SCHEDULE,
+            resource_id=sid,
+            resource_name=f"SuppressionSchedule-{sid}",
+            action=EnumConfigActionType.DELETED,
+            description="EventSuppressionSchedule 하드삭제(일괄, 목록 정리)",
+        )
+
+    return ApiSingleResponse(
+        success=True,
+        message=f"삭제 {len(deleted)}건 · 스킵(활성/예정) {len(skipped)}건 · 없음 {len(not_found)}건",
+        data=EventSuppressionBulkDeleteResult(
+            deleted_ids=deleted, skipped_ids=skipped, not_found_ids=not_found,
+        ),
+    )

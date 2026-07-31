@@ -4,6 +4,17 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [6.3.1] - 2026-07-31
+
+> 버그픽스 릴리즈 (하루 1버전 묶음, 2026-07-31): `proxy_mandatory_seed` + `proxy_settings_typed` + `server_metrics_tz_fix` + `settings_config_enum`. Swagger `info.version` 6.3.0 → **6.3.1**.
+
+### v6.3-settings_config_enum — 세션설정 변경 500 수정 (config enum SETTINGS 보강) (2026-07-31)
+
+> clone/업그레이드 DB(옛 named volume 잔존)에서 Postgres 네이티브 enum `enumconfigresourcetype` 에 `SETTINGS` 값이 없어, 세션설정 변경(`PUT /api/settings/session`)의 감사 INSERT(`resource_type='SETTINGS'`)가 "invalid input value for enum" 로 500. `create_all()` 은 기존 enum 에 값 추가 불가 → startup 마이그레이션으로 자가치유.
+
+- `app/migrations/v65_add_settings_config_enum.sql`: `ALTER TYPE enumconfigresourcetype ADD VALUE IF NOT EXISTS 'SETTINGS'`(멱등) + `IDEMPOTENT_MIGRATIONS` 등재 → 모든 DB 다음 기동에 자가치유(fresh no-op / 옛 DB 값 추가). PG16 트랜잭션 내 ADD VALUE 정상 검증.
+- 즉시 조치(재배포 전): 대상 DB 에서 위 `ALTER TYPE ...` 1줄 실행.
+
 ### v6.3-server_metrics_tz_fix — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
 
 > 기존 버그(배포 무관): tz-aware(KST +09:00) collected_at 을 naive 컬럼(TIMESTAMP WITHOUT TIME ZONE)에 INSERT → asyncpg "can't subtract offset-naive and offset-aware datetimes" 거부(500) → CPU/RAM/디스크 메트릭 저장 통째 실패.
@@ -11,10 +22,6 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - `app/routers/server_metrics.py`: `_to_naive_kst` 헬퍼 — aware datetime 을 KST 벽시계 naive 로 정규화 후 저장(프로젝트 표준 naive-KST 정합). 응답은 +09:00 유지.
 - 라이브 재현·수정 검증: aware collected_at POST 500 → **201**, DB `collected_at` naive(`2026-07-31 10:00:00`) 저장 확인.
 - `tests/test_server_metrics_tz.py` 4 passed. 롤백태그 `pre-server_metrics_tz_fix`.
-
-## [6.3.1] - 2026-07-31
-
-> 버그픽스 릴리즈 — 서버 시드/프록시 설정 정합 (하루 1버전 묶음: `proxy_mandatory_seed` + `proxy_settings_typed`). Swagger `info.version` 6.3.0 → **6.3.1**.
 
 ### v6.3-proxy_settings_typed — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
 

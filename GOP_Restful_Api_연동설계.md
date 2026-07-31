@@ -15124,7 +15124,12 @@ Accept: application/json
     "lockout_duration_minutes": 30,
     "session_enabled": true,
     "auth_mode": "public",
-    "jwt_algorithm": "HS256"
+    "jwt_algorithm": "HS256",
+    "session_concurrency_policy": "evict_all",
+    "max_concurrent_sessions": 0,
+    "session_self_replace_enabled": false,
+    "session_history_retention_days": 0,
+    "login_anomaly_event_enabled": false
   }
 }
 ```
@@ -15138,6 +15143,11 @@ Accept: application/json
 | session_enabled | bool | ✅ | — |
 | auth_mode | string | ❌ 읽기전용 | 배포(.env) 전용 |
 | jwt_algorithm | string | ❌ 읽기전용 | 배포 전용 |
+| session_concurrency_policy | string | ✅ | `evict_all`(기본, 단일세션 강제) 또는 `allow`(계정 다중세션 공존). ★기본=현행 동작 |
+| max_concurrent_sessions | int | ✅ | 0(무제한) ~ 100. `allow`에서 초과 시 최오래된 세션부터 evict |
+| session_self_replace_enabled | bool | ✅ | 기본 false. `allow`+true 시 **동일 client_id** 재로그인만 자기 세션 교체(그 외 공존) |
+| session_history_retention_days | int | ✅ | 0(무동작) ~ 3650. >0이면 sweep 시 오래된 비활성 세션 이력 DELETE |
+| login_anomaly_event_enabled | bool | ✅ | 기본 false. (예약 — 신규 IP/UA 로그인 이상탐지 이벤트, 배선 후속) |
 
 > `jwt_secret`은 **절대 응답에 노출되지 않는다**(NFR-SVS-03).
 
@@ -15156,8 +15166,10 @@ Accept: application/json
 **Response (200 OK)**: GET과 동일한 전체 스냅샷(`data`).
 
 **Error**:
-- `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422.
+- `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422. `session_concurrency_policy`가 `evict_all`/`allow` 외, `max_concurrent_sessions` 0~100 외, `session_history_retention_days` 0~3650 외 → 422.
 - `401`/`403` — 미인증 / 비-ADMIN.
+
+> **동시세션 정책(v6.3-session_concurrency)**: 기본 `evict_all`은 로그인 시 같은 계정의 기존 세션을 전부 강제폐기(단일세션). `allow`로 전환하면 계정 다중세션 공존(SSO 대비) — 신규 로그인부터 적용, 기존 세션 유지. 로그인 시 클라이언트는 `X-Client-Id` 헤더(또는 `client_id` 바디 필드, 1~64자 `[A-Za-z0-9._:-]`)로 자신을 식별하며, `session_self_replace_enabled=true`일 때 **동일 client_id** 재로그인만 자기 세션을 교체한다. 폐기된 토큰으로의 요청은 `401 SESSION_REVOKED`(`details.reason`=`DUPLICATE` 등)로 통일 응답.
 
 ---
 
@@ -16492,6 +16504,17 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `session_concurrency` — 다중세션 정책 + 인증 하드닝 (evict_all/allow, RBAC-03, SEC-01, SSO 예약) (2026-07-31)
+
+> 단일세션 강제 evict 를 **정책화**(SSO 다중세션 대비). §9.8 세션설정에 5키 추가, §9.2 로그인에 `X-Client-Id`. ★기본값=현행 100% 보존(evict_all·상한0·self_replace off) → 배포 직후 동작 0. 커밋 `9b7b8c0`(origin). 라이브: A01~A18 10/10 + allow공존 + RBAC403 + SEC-01.
+
+- **설정(§9.8)**: `session_concurrency_policy`(evict_all|allow) · `max_concurrent_sessions`(0=무제한, 초과 시 최오래 evict) · `session_self_replace_enabled`(동일 client_id 재로그인만 교체) · `session_history_retention_days`(0=무동작, sweep DELETE) · `login_anomaly_event_enabled`(예약). `settings_service`/`schemas.settings`/`routers.settings` + `ConfigChangeLog` 감사.
+- **스키마**: 마이그 `v68_session_client_id.sql`(멱등) — `user_sessions.client_id VARCHAR(64)` + **SSO 예약컴럼** `auth_source`(기본 'local')·`idp_subject`·`idp_session_id` + 부분 인덱스 2종. `UserSession` 모델 반영, `IDEMPOTENT_MIGRATIONS` 등재.
+- **로그인(§9.2)**: `X-Client-Id` 헤더 우선(또는 `client_id` 바디, 1~64자 `[A-Za-z0-9._:-]`, invalid=무시). `allow`에서 정책 분기(evict_all=현행/allow=공존), cap 초과 evict_oldest, self-replace 게이트.
+- **RBAC-03**: `enforce_matrix` 경로해석을 `request.url.path`로 교정 — 중첩마운트 상대경로 버그(전 라우트 무집행)를 실집행으로. integrations 등 등록경로 권한0 USER 쓰기 → **403**(수정 전 404).
+- **SEC-01**: 폐기 토큰이 전역 enforcer 경유 쓰기에서도 `401 SESSION_REVOKED`(`details.reason` 보존) 동형 발화 — read/write shape 일치.
+- **SSO 예약(로직 0)**: `config.py` `SSO_ENABLED=False`/`OIDC_*=""` — 실배선은 후속 SSO PRD. FR-FIX-01~04(P0 세션결함, 커밋 ff0126b) 선행.
 
 ### [v6.3 후속] `event_suppression` — 스케줄 기반 이벤트 수신 억제(정비 창) 신규 (2026-07-31)
 

@@ -20,7 +20,7 @@
 
 > v6.1(아래) 이후 누적된 보안/세션 강화 작업의 최신 상태. auth.py 소유권은 2026-07-02 재해제됨(SESSION_COORDINATION.md) — 본 세션이 v6.0 세션/인증 작업 연속 소유.
 
-- **📋 탐지 이벤트 SYNC 발행 PRD 작성 (2026-07-31, Draft, `docs/prds/detection-sync-message-prd.md`)**: PM "탐지 이벤트에도 Sync 메시지 만들어줘 PRD 기반으로". analysis(멀티에이전트 3관점: mechanism/broker/consumer)→PRD. **핵심 설계**: `SYNC_DETECTION` **알림형**(패턴3) @ `all.sync.detection`, from=DBApi, body `{action,resource_id}`, **UPDATE/DELETE만(INSERT 제외 — 필드 DETECT와 중복 시 EventMapping 이중실행)**, 소비자는 `GET /api/events/detections/{id}` 재조회. gop_sync 채널 재사용(db_monitor CMD_SUBJECT_MAP 1줄) + detection_events 트리거 + frame_width/height GAP 동반해소(FR-04). FR6·NFR4·V5·R5. **PRD Approved(v1.2, 2026-07-31)** → **plan 작성완료** `docs/plans/detection-sync-message-prd-plan.md`(20태스크/~17h, 5-Phase). 다음=**dev 착수 대기**(SETUP-01 롤백태그부터). ⚠ VER-06(subject: all.sync.detection vs gis.detection-update) PM 결정 대기·미정시 1차안 / db_monitor 컨테이너도 재빌드 필수(FR-03) / detail PATCH 주체(AiAnalysis·NVRManager)=클라 조율. [[broker-v15-api-crossverify]] [[feedback_prd_before_implementation]]
+- **📋 탐지 이벤트 SYNC 발행 PRD 작성 (2026-07-31, Draft, `docs/prds/detection-sync-message-prd.md`)**: PM "탐지 이벤트에도 Sync 메시지 만들어줘 PRD 기반으로". analysis(멀티에이전트 3관점: mechanism/broker/consumer)→PRD. **핵심 설계**: `SYNC_DETECTION` **알림형**(패턴3) @ `all.sync.detection`, from=DBApi, body `{action,resource_id}`, **UPDATE/DELETE만(INSERT 제외 — 필드 DETECT와 중복 시 EventMapping 이중실행)**, 소비자는 `GET /api/events/detections/{id}` 재조회. gop_sync 채널 재사용(db_monitor CMD_SUBJECT_MAP 1줄) + detection_events 트리거 + frame_width/height GAP 동반해소(FR-04). FR6·NFR4·V5·R5. **PRD Approved(v1.2, 2026-07-31)** → **plan 작성완료** `docs/plans/detection-sync-message-prd-plan.md`(20태스크/~17h, 5-Phase). **✅ dev 완료 (2026-07-31, 커밋 `735ae5b`, 롤백태그 `pre-detection_sync`)**: subject=**all.sync.detection**(1차안 확정). db_triggers `fn_notify_detection_sync`(detection_events AFTER UPDATE/DELETE, INSERT제외) + db_monitor CMD_SUBJECT_MAP + event.py frame_width/height(+예시4곳). **라이브 검증 PASS**(m_manager): POST→미발행 / PATCH detail→`{UPDATED,id}` / DELETE→`{DELETED,id}`, from=DBApi·필드DETECT 무유출. 단위 3 passed. api-server+db-monitor 재빌드. 브로커명세 §3.2/§6.1/§9.11/카탈로그 + API명세 + CHANGELOG + NOTIFY(로컬). origin+gitea push. **✅ 5중싱크+버전 fold 완료 (PM "모두 싱크")**: 하루 1버전 규율로 detection_sync 를 **6.3.1 에 fold**(6.3.2 아님), v6.3.1 태그를 `eebb48b`(feature+문서 포함)로 이동·force-push(origin+gitea). 코드/스웨거(info.version=6.3.1+DetectionDetail frame 노출)/컨테이너·이미지(api-server+db-monitor healthy)/명세(브로커+REST+CHANGELOG+README) 전부 6.3.1 정합. ⚠ 잔여(클라): detail PATCH 주체(AiAnalysis·NVRManager) 조율. [[broker-v15-api-crossverify]] [[feedback_prd_before_implementation]]
 
 - **✅ server_metrics collected_at tz INSERT 버그 수정 (2026-07-31, `server_metrics_tz_fix`, 커밋 `f938f55`, 롤백태그 `pre-server_metrics_tz_fix`)**: GIS(clone 박스) 보고 — `POST /api/servers/{id}/metrics`에 tz-aware(KST+09:00) `collected_at` 보내면 asyncpg가 naive 컬럼(`TIMESTAMP WITHOUT TIME ZONE`)에 aware 못 넣어 500 → CPU/RAM/디스크 메트릭 저장 통째 실패(**배포 무관 코드 버그, 전 Postgres 배포 공통**). `app/routers/server_metrics.py` `_to_naive_kst` 헬퍼로 aware→KST 벽시계 naive 정규화(응답은 +09:00 유지). 라이브 재현 500→수정 **201**, DB naive(`2026-07-31 10:00:00`) 저장 실측. `tests/test_server_metrics_tz.py` 4 passed, 명세 §8.6+변경이력, 재빌드+healthy, origin+gitea push. **✅ 6.3.1 통합 완료 (PM "하루 1버전 고정")**: 오늘 버그픽스 4건(proxy_mandatory_seed·proxy_settings_typed·server_metrics_tz_fix·settings_config_enum)을 **6.3.1 하나로 고정**, v6.3.1 태그를 최종 HEAD `1a2f211`로 이동+강제푸시(origin+gitea). **✅ 세션설정 500 영구수정**: `app/migrations/v65_add_settings_config_enum.sql`(`ALTER TYPE enumconfigresourcetype ADD VALUE IF NOT EXISTS 'SETTINGS'`, IDEMPOTENT_MIGRATIONS 등재) → clone/옛볼륨 DB 다음 기동 자가치유(PG16 tx내 ADD VALUE 검증). 라이브: v65 적용·기록, 세션설정 PUT **200**(SETTINGS 감사 INSERT), server_metrics aware **201**, Swagger **6.3.1**. 롤백태그 `pre-settings_enum_fix`.
 - **✅ v6.3.1 버그픽스 릴리즈 전체 싱크 완료 (2026-07-31, PM "버전 업+전체 싱크", 커밋 `e87bc11`, 태그 `v6.3.1`)**: 오늘 버그픽스 2건(`proxy_mandatory_seed` `7ee1941` + `proxy_settings_typed` `cbf63bd`)을 **하루=1버전** 규율로 **6.3.0→6.3.1** 묶음. `main.py` version→6.3.1(Swagger 구동), 명세서 문서버전+버전표 6.3.1, README 배지/현재버전/릴리즈표/푸터(v6.0.0 stale 정정), CHANGELOG `[6.3.1]` 섹션, 이미지 재빌드+컨테이너 healthy. **라이브 openapi `info.version=6.3.1` 실측.** origin+gitea 브랜치+태그 `v6.3.1` 푸시 완료. ⚠ 잔여: 서버 테스트 44 stale(cpu_usage→ServerMetrics 분리 후 미갱신 + 라우터 401 인증)은 async 테스트 인프라 별건 → 미착수(롤백태그 `pre-server_test_stale_fix`만 존재). [[feedback_five_artifact_sync]] [[feedback_one_day_one_version]] [[feedback_branch_tag_naming]]
@@ -307,7 +307,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 - **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
 - **활성 PRD**: `docs/prds/grant-enforcement-hardening-prd.md` (**v2.0 Draft — 승인 대기**, 2026-07-21, 시뮬 92/92 검증완료)
 - **활성 Plan**: 없음
-- **현재 Phase**: plan
+- **현재 Phase**: prd
 - **Track**: C
 - **다음 할 일**: **grant-enforcement-hardening PRD v2.0 승인**(정책 3건 흡수·시뮬 검증 완료) → 승인 시 plan 착수. 유일 결정거리 = default-deny(4-c)를 FR-09로 포함할지. 승인 명령 `node .claude/hooks/advance-phase.js approve prd "..."`
 - **핵심 기술결정 (v6.0 확정)**:
@@ -332,7 +332,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-11100
+- **현재 세션 ID**: ppid-64316
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-11100
+- **활성 세션 목록**: ppid-64316
 

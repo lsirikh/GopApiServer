@@ -17,6 +17,12 @@ class SessionSettingsResponse(BaseModel):
     lockout_threshold: int
     lockout_duration_minutes: int
     session_enabled: bool
+    # v6.3-session_concurrency
+    session_concurrency_policy: str
+    max_concurrent_sessions: int
+    session_history_retention_days: int
+    login_anomaly_event_enabled: bool
+    session_self_replace_enabled: bool
     # 읽기전용(배포/.env 전용 — 런타임 편집 불가)
     auth_mode: str
     jwt_algorithm: str
@@ -29,6 +35,12 @@ class SessionSettingsUpdate(BaseModel):
     lockout_threshold: Optional[int] = Field(None, ge=0, le=20)
     lockout_duration_minutes: Optional[int] = Field(None, ge=0, le=1440)
     session_enabled: Optional[bool] = None
+    # v6.3-session_concurrency
+    session_concurrency_policy: Optional[str] = Field(None, pattern="^(evict_all|allow)$")
+    max_concurrent_sessions: Optional[int] = Field(None, ge=0, le=100)
+    session_history_retention_days: Optional[int] = Field(None, ge=0, le=3650)
+    login_anomaly_event_enabled: Optional[bool] = None
+    session_self_replace_enabled: Optional[bool] = None
 
     @field_validator("lockout_threshold")
     @classmethod

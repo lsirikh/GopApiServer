@@ -40,6 +40,7 @@ IDEMPOTENT_MIGRATIONS = [
     "v64_session_token_jti.sql",                # E1/P1-10: refresh_expires_at 추가 + 원문토큰 세션 무효화
     "v65_add_settings_config_enum.sql",         # config enum 에 SETTINGS 보강 (세션설정 변경 500 자가치유, clone 옛볼륨)
     "v66_datetime_to_utc.sql",                  # datetime-unification: naive→timestamptz(UTC 저장). 조건부멱등(naive만 대상), api_logs 제외(v67 재생성)
+    "v68_session_client_id.sql",                # session_concurrency: user_sessions.client_id + SSO 예약컬럼(auth_source/idp_subject/idp_session_id)
 ]
 
 

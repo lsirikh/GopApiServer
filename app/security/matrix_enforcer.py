@@ -91,7 +91,10 @@ async def _resolve_user_from_request_async(request: Request, db: AsyncSession):
     except JWTError:
         return None
     if token_data.jti and await is_blacklisted_async(db, token_data.jti):
-        return None
+        # FR-SEC-01: 폐기 토큰은 route 의존성과 동형으로 SESSION_REVOKED(401) 발화 — read/write shape 일치.
+        from app.exceptions import RevokedTokenError
+        from app.services.token_blacklist_service import get_blacklist_reason_async
+        raise RevokedTokenError(reason=await get_blacklist_reason_async(db, token_data.jti))
     login_id = token_data.username
     if not login_id:
         return None
@@ -117,12 +120,14 @@ async def enforce_matrix(request: Request, db: AsyncSession = Depends(get_async_
     if settings.AUTH_MODE != "token":
         return
 
-    route = request.scope.get("route")
-    perm = lookup_permission(request.method, getattr(route, "path", "")) if route is not None else None
+    # FR-RBAC-03: 중첩 마운트에서 request.scope["route"].path 가 prefix-strip 된 상대경로가 되어
+    #   절대경로 맵과 안 맞던 버그(전 라우트 무집행). 실제 절대경로(request.url.path)를 숫자 ID 정규화해 조회.
+    import re as _re
+    path = request.url.path
+    perm = lookup_permission(request.method, _re.sub(r"/\d+", "/{}", path))
     if perm is None:
         # FR-09 미등록 경로 정책: off=통과(현행) / observe=로그+통과 / enforce=allowlist 외 403.
         mode = getattr(settings, "MATRIX_DENY_MODE", "off")
-        path = getattr(route, "path", "")
         if mode == "off" or is_public_allowlisted(request.method, path):
             return  # 현행 default-allow 또는 공개 allowlist
         if mode == "observe":

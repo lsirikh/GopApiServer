@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # ★ enforce 활성은 observe 로 미분류 0 확인 + 배포 게이트 후에만. 기본 off = 현행 동작 100% 보존.
     MATRIX_DENY_MODE: str = "off"
 
+    # SSO(OIDC) 연동 예약 (FR-SSO-04) — 현 차수 미사용, 기본 off/빈값. 실제 배선은 후속 SSO PRD.
+    SSO_ENABLED: bool = False
+    OIDC_ISSUER: str = ""
+    OIDC_CLIENT_ID: str = ""
+    OIDC_CLIENT_SECRET: str = ""
+    OIDC_JWKS_URL: str = ""
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def reject_default_jwt_secret(cls, v: str) -> str:

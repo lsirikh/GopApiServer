@@ -70,6 +70,8 @@ async def _remaining_active_admin_sessions(
         .where(
             UserSession.user_id.in_(admin_ids),
             UserSession.is_active == True,
+            # FR-SC 보강: 좀비(만료) 세션 제외 — 실제 살아있는 ADMIN 세션만 카운트(전원 잠금 오판 방지).
+            func.coalesce(UserSession.refresh_expires_at, UserSession.expires_at) > utc_now(),
         )
     )
     if exclude_session_id is not None:

@@ -25,6 +25,12 @@ class SettingKey:
     LOCKOUT_THRESHOLD = "lockout_threshold"
     LOCKOUT_DURATION_MINUTES = "lockout_duration_minutes"
     SESSION_ENABLED = "session_enabled"
+    # v6.3-session_concurrency
+    SESSION_CONCURRENCY_POLICY = "session_concurrency_policy"     # evict_all(현행) | allow(공존)
+    MAX_CONCURRENT_SESSIONS = "max_concurrent_sessions"          # 0=무제한, allow 전용, 초과 시 evict_oldest
+    SESSION_HISTORY_RETENTION_DAYS = "session_history_retention_days"  # 0=무제한, 비활성 이력 정리
+    LOGIN_ANOMALY_EVENT_ENABLED = "login_anomaly_event_enabled"  # 신규 IP/UA 로그인 SystemEvent
+    SESSION_SELF_REPLACE_ENABLED = "session_self_replace_enabled"  # allow+동일 client_id self-replace(기본 off)
 
 
 # 기본값 표 — (default, value_type). default 는 .env/config 또는 현 하드코딩값에서 시드.
@@ -35,6 +41,12 @@ def _defaults() -> dict:
         SettingKey.LOCKOUT_THRESHOLD: (5, "int"),   # auth.py 기존 하드코딩 >= 5
         SettingKey.LOCKOUT_DURATION_MINUTES: (30, "int"),  # 잠금 자동해제(분). 0=영구(관리자 수동해제만)
         SettingKey.SESSION_ENABLED: (True, "bool"),
+        # v6.3-session_concurrency — 기본값 전부 현행 동작 보존
+        SettingKey.SESSION_CONCURRENCY_POLICY: ("evict_all", "str"),
+        SettingKey.MAX_CONCURRENT_SESSIONS: (0, "int"),
+        SettingKey.SESSION_HISTORY_RETENTION_DAYS: (0, "int"),
+        SettingKey.LOGIN_ANOMALY_EVENT_ENABLED: (False, "bool"),
+        SettingKey.SESSION_SELF_REPLACE_ENABLED: (False, "bool"),
     }
 
 

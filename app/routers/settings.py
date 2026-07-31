@@ -33,6 +33,11 @@ async def _current(db: AsyncSession) -> dict:
         "lockout_threshold": await settings_service.get_async(db, SettingKey.LOCKOUT_THRESHOLD),
         "lockout_duration_minutes": await settings_service.get_async(db, SettingKey.LOCKOUT_DURATION_MINUTES),
         "session_enabled": await settings_service.get_async(db, SettingKey.SESSION_ENABLED),
+        "session_concurrency_policy": await settings_service.get_async(db, SettingKey.SESSION_CONCURRENCY_POLICY),
+        "max_concurrent_sessions": await settings_service.get_async(db, SettingKey.MAX_CONCURRENT_SESSIONS),
+        "session_history_retention_days": await settings_service.get_async(db, SettingKey.SESSION_HISTORY_RETENTION_DAYS),
+        "login_anomaly_event_enabled": await settings_service.get_async(db, SettingKey.LOGIN_ANOMALY_EVENT_ENABLED),
+        "session_self_replace_enabled": await settings_service.get_async(db, SettingKey.SESSION_SELF_REPLACE_ENABLED),
         "auth_mode": app_config.AUTH_MODE,        # 읽기전용
         "jwt_algorithm": app_config.JWT_ALGORITHM,  # 읽기전용
     }
@@ -65,6 +70,11 @@ async def update_session_settings(
         SettingKey.LOCKOUT_THRESHOLD: payload.lockout_threshold,
         SettingKey.LOCKOUT_DURATION_MINUTES: payload.lockout_duration_minutes,
         SettingKey.SESSION_ENABLED: payload.session_enabled,
+        SettingKey.SESSION_CONCURRENCY_POLICY: payload.session_concurrency_policy,
+        SettingKey.MAX_CONCURRENT_SESSIONS: payload.max_concurrent_sessions,
+        SettingKey.SESSION_HISTORY_RETENTION_DAYS: payload.session_history_retention_days,
+        SettingKey.LOGIN_ANOMALY_EVENT_ENABLED: payload.login_anomaly_event_enabled,
+        SettingKey.SESSION_SELF_REPLACE_ENABLED: payload.session_self_replace_enabled,
     }
     changed_keys = [k for k, v in editable.items() if v is not None]
     for key in changed_keys:

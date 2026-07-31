@@ -55,13 +55,28 @@ async def run_session_sweep() -> int:
     try:
         now = utc_now()
         expired = await find_expired_sessions_async(db, now)
-        if not expired:
-            return 0
         for s in expired:
             s.is_active = False
             s.logout_reason = EnumLogoutReason.EXPIRED.value
             s.logged_out_at = now
-        await db.commit()
+        if expired:
+            await db.commit()
+
+        # FR-SC-04: 이력 보존 정리 — retention>0 이면 오래된 비활성 이력 행 DELETE(활성 세션 미대상, 기본 0=무동작).
+        from app.services import settings_service
+        from app.services.settings_service import SettingKey
+        _retention = await settings_service.get_async(db, SettingKey.SESSION_HISTORY_RETENTION_DAYS)
+        if _retention and _retention > 0:
+            from datetime import timedelta
+            from sqlalchemy import delete as _delete
+            from app.models.user import UserSession
+            cutoff = now - timedelta(days=_retention)
+            await db.execute(_delete(UserSession).where(
+                UserSession.is_active == False,
+                UserSession.logged_out_at.isnot(None),
+                UserSession.logged_out_at < cutoff,
+            ))
+            await db.commit()
         return len(expired)
     finally:
         await db.close()

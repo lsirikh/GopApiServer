@@ -13475,6 +13475,8 @@ GET /api/servers/summary
 
 서버의 리소스 사용량을 시계열로 기록하고 조회합니다.
 
+> **collected_at 타임존 (v6.3 후속 `server_metrics_tz_fix`)**: `collected_at` 은 tz-aware(예: `2026-07-31T10:00:00+09:00`) 또는 naive 둘 다 허용하며, 서버가 **KST 벽시계 naive** 로 정규화해 저장한다(응답은 `+09:00` 표기). 이전엔 aware 값 전송 시 500 이었다.
+
 > **PRD Reference**: PRD_System_Event.md Section 2.4
 
 **리소스 구조**:
@@ -16366,6 +16368,19 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `settings_config_enum` — 세션설정 변경 500 수정 (config enum SETTINGS 보강) (2026-07-31)
+
+> clone/업그레이드 DB(옛 named volume 잔존)에서 Postgres 네이티브 enum `enumconfigresourcetype` 에 `SETTINGS` 값이 없어, 세션설정 변경(`PUT /api/settings/session`)의 감사 INSERT(`resource_type='SETTINGS'`)가 "invalid input value for enum" 로 500. `create_all()` 은 기존 enum 에 값 추가 불가 → startup 마이그레이션으로 자가치유.
+
+- `app/migrations/v65_add_settings_config_enum.sql`: `ALTER TYPE enumconfigresourcetype ADD VALUE IF NOT EXISTS 'SETTINGS'`(멱등) + `IDEMPOTENT_MIGRATIONS` 등재 → 모든 DB 다음 기동 시 자가치유(fresh no-op / 옛 DB 값 추가). PG16 트랜잭션 내 ADD VALUE 정상 검증. 즉시 조치(재배포 전): 대상 DB 에서 위 `ALTER TYPE ...` 1줄 실행.
+
+### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
+
+> 기존 버그(배포 무관): `POST /api/servers/{id}/metrics` 에 tz-aware(KST +09:00) `collected_at` 을 보내면 asyncpg 가 naive 컬럼(`TIMESTAMP WITHOUT TIME ZONE`)에 aware 값을 못 넣어 500 → CPU/RAM/디스크 메트릭 저장 통째 실패.
+
+- `app/routers/server_metrics.py`: `_to_naive_kst` 헬퍼로 aware `collected_at` 을 KST 벽시계 naive 로 정규화 후 저장(프로젝트 표준 naive-KST 정합, 응답은 `KSTDatetime` 이 +09:00 부여).
+- 라이브 재현→수정: aware POST 500 → **201**, DB `collected_at`=`2026-07-31 10:00:00`(naive). `tests/test_server_metrics_tz.py` 4 passed. 롤백태그 `pre-server_metrics_tz_fix`.
 
 ### [v6.3 후속] `proxy_settings_typed` — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
 

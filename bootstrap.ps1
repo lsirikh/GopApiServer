@@ -202,6 +202,32 @@ if ($SkipCerts) {
     exit 1
 }
 
+# ----- 2.5) client_install.exe 재빌드 (이 서버 CA 임베드) -------------------
+# v6.3-cert_san_expand: 서버 CA 는 이 서버 PC 의 mkcert -install 로 생성/사용된다.
+#   클라 배포용 client_install.exe 가 '이 서버의 rootCA' 를 임베드해야 클라 PC 가 이 서버
+#   인증서를 신뢰한다. 방금 발급된 certsootCA.pem 을 임베드해 client_install.exe 를 재생성한다.
+#   → 리모트에서 git clone + bootstrap.ps1 만으로 배포용 client_install.exe 가 완성된다.
+if ($SkipCerts) {
+    Write-Step '2.5/5 client_install.exe 재빌드 (스킵 - -SkipCerts)'
+} else {
+    Write-Step '2.5/5 client_install.exe 재빌드 (이 서버 rootCA 임베드)'
+    $buildScript = Join-Path $repoRoot 'certs\installer_ps2exeuild_install_exe.ps1'
+    $rootCaPem   = Join-Path $certDir 'rootCA.pem'
+    if ((Test-Path $buildScript) -and (Test-Path $rootCaPem)) {
+        try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript -RootCaPath $rootCaPem
+            if ($LASTEXITCODE -ne 0) { throw "build_install_exe.ps1 종료코드 $LASTEXITCODE" }
+            Write-Host "  client_install.exe 재빌드 완료 (이 서버 CA 임베드)" -ForegroundColor Green
+            Write-Host "  -> 이 파일을 클라이언트 PC 로 전달해 실행: $certDir\client_install.exe" -ForegroundColor Cyan
+        } catch {
+            Write-Host "  [WARN] client_install.exe 재빌드 실패: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  대안) certsootCA.pem 을 클라 PC 의 client_install.exe 와 같은 폴더에 두고 실행" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  [WARN] build 스크립트/rootCA.pem 미발견 - 재빌드 스킵" -ForegroundColor Yellow
+    }
+}
+
 # ----- 3) docker compose build --------------------------------------------
 if ($SkipDocker) {
     Write-Step '3/5 docker compose build (스킵)'

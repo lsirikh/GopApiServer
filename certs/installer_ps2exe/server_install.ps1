@@ -223,8 +223,13 @@ try {
         }
         else { Read-AdditionalIPs }
     $defaultSans = @('localhost','127.0.0.1','::1','host.docker.internal')
-    $allSans = ($defaultSans + $userSans) | Where-Object { $_ } | Select-Object -Unique
-    Write-Log ("SAN 목록: " + ($allSans -join ', ')) 'INFO'
+    # v6.3-cert_san_expand (2026-07-31): 배포 고정 SAN — TLS 인증서에는 IP 와일드카드가 없어 서브넷 호스트를 열거한다.
+    #   공인 IP(포트포워딩 대상) + 내부 서브넷 192.168.1.0/24 · 192.168.202.0/24 전체(각 1~254).
+    #   → 서브넷 내 어느 IP로 서버가 뜨거나 접속하든 인증서 재발급 없이 신뢰된다.
+    $publicSans = @('123.141.236.253','123.141.236.248')
+    $subnetSans = foreach ($i in 1..254) { "192.168.1.$i"; "192.168.202.$i" }
+    $allSans = ($defaultSans + $publicSans + $subnetSans + $userSans) | Where-Object { $_ } | Select-Object -Unique
+    Write-Log ("SAN $($allSans.Count)개 발급 (기본+공인2+내부서브넷 192.168.1.0/24·192.168.202.0/24)") 'INFO'
 
     # 4) 인증서 발급
     Write-Banner '[4/5] server.crt / server.key 발급'

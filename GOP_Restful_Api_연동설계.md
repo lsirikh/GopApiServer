@@ -3143,7 +3143,7 @@ Accept: application/json
 **Path Parameters**:
 - `camera_id` (int, required): Camera ID
 
-> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+> **Note**: (PROXY 서버에 한해) 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성). 비-PROXY 서버는 **404** (lazy-create 하지 않음).
 
 **Request Example**:
 ```http
@@ -13908,6 +13908,8 @@ GET /api/servers/summary
 ### 8.8 프록시 설정 API
 
 > **v3.6 신규**: PidsProxy 서버 운용 설정 (operation_mode, windy_mode) 관리
+>
+> **⚠ v6.3 후속 `proxy_settings_typed`**: 이 API(GET/PATCH/PUT)는 **PROXY 유형 서버 전용**입니다. 대상 서버의 카테고리가 PROXY 가 아니면 **404** 를 반환하며 설정을 lazy-create 하지 않습니다. (기존: 모든 서버 유형 허용 → **계약 변경**)
 
 #### 8.8.1 프록시 설정 조회
 
@@ -13920,7 +13922,7 @@ GET /api/servers/{server_id}/proxy-settings
 |---------|------|------|------|
 | server_id | integer | Y | Server ID |
 
-> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+> **Note**: (PROXY 서버에 한해) 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성). 비-PROXY 서버는 **404** (lazy-create 하지 않음).
 
 **Request Example**:
 ```http
@@ -16364,6 +16366,15 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `proxy_settings_typed` — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
+
+> PM 결정: `proxy-settings`(GET/PATCH/PUT)는 기획상 PROXY 서버 전용인데 코드가 모든 server_id 를 받아 비-PROXY 서버에도 lazy-create 되던 문제.
+
+- `app/routers/proxy_settings.py`: `_get_proxy_server_or_404` 헬퍼 도입 — 대상 서버 카테고리가 `PROXY` 가 아니면 **404**(lazy-create 차단). GET/PATCH/PUT 3곳 공통 적용(§8.8).
+- **계약 변경**: 기존엔 모든 서버 유형에서 200/upsert 가능 → 이제 비-PROXY 는 404. 현재 junk(비-PROXY) 설정 0건이라 정리 불필요. → **.NET 소비 클라 통지 대상**.
+- 테스트 `tests/test_proxy_settings_router.py` **격리 async 재작성(11 passed)** — 기존 sync TestClient 가 async 라우터의 `get_async_db` 미오버라이드로 실 파일 DB(data/gop.db)를 읽던 **사전 격리 버그**도 함께 해소(리포 표준 = 엔드포인트 함수 직접 태우기).
+- 라이브 검증: PROXY(id 17)=**200**, VMS(id 3)=**404**. 5중싱크(코드 + 명세 §8.8·본 체인지로그 + Swagger docstring + 이미지 재빌드 + 컨테이너 healthy). 롤백태그 `pre-proxy_settings_typed`.
 
 ### [v6.3 후속] `proxy_mandatory_seed` — 필수 서버 유형 기본 시드 보장 (2026-07-31)
 

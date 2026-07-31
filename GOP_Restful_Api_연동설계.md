@@ -284,6 +284,8 @@ X-Request-ID: {request-uuid} //선택적 참고용
 
 **클라이언트 가이드**: 요청 시 가능하면 offset 을 명시하라(`2026-07-01T00:00:00+09:00`). 응답 datetime 은 항상 offset 이 붙어 오므로 그대로 `DateTimeOffset`(.NET)/`ZonedDateTime` 으로 파싱하면 된다. naive 문자열로 파싱 후 로컬 TZ 를 임의 부여하지 말 것.
 
+> **날짜 범위 필터 규약**: 조회·리포트의 `start_date`/`end_date`(서버 메트릭 GET 은 `start_time`/`end_time`) 필터는 **닫힌구간 `[start, end]`**(양끝 포함, `≥ start AND ≤ end`). 리포트 생성(`POST /reports/generate`)은 끝일이 **자정(00:00)·날짜만(date-only)** 으로 오면 그날 **23:59:59.999999 로 자동 확장해 끝일 전체 포함**한다. 입력 포맷은 `+09:00`·`Z`·naive·date-only 모두 수용(naive/date-only 는 DISPLAY_TZ 자정 기준).
+
 ---
 
 ## 4. Enum 타입 정의
@@ -16545,6 +16547,8 @@ python scripts/migrate_event_device_id.py
 - **serializer** `schemas/common.py`·`main.py`: `KSTDatetime`/전역 encoder/오류 meta → `to_display`(DISPLAY_TZ), OpenAPI `format:date-time` 유지. **입력 정규화(FR-07)** `ReportGenerateRequest` 등 body 비교 전 `to_utc`. 라우터 정규화 헬퍼(`_to_naive_kst` 계열 6종)·리포트 범위 → `to_utc` 위임.
 - **api_logs**: 파티션 키 ALTER 불가 → 컬럼은 naive 유지하되 저장을 **naive-UTC 벽시계**(`utc_now().replace(tzinfo=None)`)로 바꿔 전역 naive=UTC 규약과 정합(월파티션 ±offset 시프트는 인접월 안착). 업그레이드 직후 **구(舊) KST 행은 retention 소멸까지 표시 offset skew**(전환기, 신규 행 정확). 완전 timestamptz 재생성은 v67(선택) 이연.
 - **라이브 검증(재빌드·재기동)**: 마이그 72 timestamptz / 10 제외(api_logs 9+schema_migrations). aware `collected_at +09:00` POST → **201**(저장 UTC 10:50 / 출력 +09:00). 읽기 GET 다수 200+`+09:00`. reports/generate aware 범위 → **201→COMPLETED**(역순=422, TypeError 아님). 오류 meta `+09:00`. 다국가 `to_display` 격리검증(Budapest `+02:00` DST). 롤백 3종: git `pre-datetime_unification` · 이미지 `pids-api-server:pre-datetime_unification` · DB덤프 `backups/datetime-unification-20260731/`.
+- **후속 fix `gis-ingest`(`3e91dfe`)**: gis-ingest 워커(raw asyncpg)가 v66 timestamptz 전환 후 `track_points.observed_at` 을 naive-KST 로 바인딩 → asyncpg 가 naive 를 UTC 로 간주해 **+9h 미래로 조용히 저장**(데이터 오염) → `_parse_observed_at`/`ingested_at` 을 aware UTC 로 수정. 라이브 E2E(UTC 10:30 입력→10:30 저장) 복구, `test_gis_ingest` 8 passed, 이미지 재빌드.
+- **후속 fix 리포트 끝일 경계(`c349a1d`)**: FR-07 validator 가 `end_date` 를 aware UTC 로 선변환하면서 리포트 FR-RCD-03 자정판정(`end_date.hour==0`)이 깨져 date-only/자정 end 가 23:59:59 로 확장 안 되어 **끝일 통째 누락**하던 회귀 → 판정을 DISPLAY_TZ 벽시계(`to_display`)로 교정 후 확장→`to_utc` 저장. 라이브: date-only `2026-01-06` end → 저장 `2026-01-06 14:59:59 UTC`(=23:59:59 KST, 끝일 포함) 복구. GIS 문의(Q2) 검증 중 발견. §3.4 날짜 범위 필터 규약 동반 신설.
 
 ### [v6.3 후속] `detection_sync` — 탐지 이벤트 SYNC 발행 (PTZ 회전후 썸네일 갱신 통지) (2026-07-31)
 

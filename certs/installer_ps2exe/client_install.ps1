@@ -1,4 +1,4 @@
-﻿#Requires -RunAsAdministrator
+﻿# 관리자 권한 불필요 (CurrentUser Root 저장소 사용)
 <#
 .SYNOPSIS
     GOP API Client - rootCA 신뢰 저장소 등록
@@ -121,7 +121,7 @@ function Test-CertInStore {
     param(
         [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert
     )
-    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine')
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser')
     try {
         $store.Open('ReadOnly')
         $existing = $store.Certificates | Where-Object { $_.Thumbprint -eq $Cert.Thumbprint }
@@ -135,11 +135,11 @@ function Install-RootCert {
     param(
         [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert
     )
-    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine')
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser')
     try {
         $store.Open('ReadWrite')
         $store.Add($Cert)
-        Write-Log '인증서를 LocalMachine\Root 저장소에 추가했습니다.' 'OK'
+        Write-Log '인증서를 CurrentUser\Root 저장소에 추가했습니다.' 'OK'
     } finally {
         $store.Close()
     }
@@ -166,7 +166,7 @@ try {
     Write-Banner 'GOP 클라이언트 인증서 설치 (rootCA -> Windows 신뢰 저장소)'
     Write-Log "로그 파일: $script:LogPath" 'INFO'
 
-    if (-not (Test-IsAdmin)) {
+    if ($false) {  # 관리자 권한 불필요 (CurrentUser 저장소)
         throw '관리자 권한이 필요합니다. 우클릭 > 관리자 권한으로 실행 하세요.'
     }
 

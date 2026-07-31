@@ -43,6 +43,7 @@ IDEMPOTENT_MIGRATIONS = [
     "v67_event_suppression_schedules.sql",      # event-suppression: enumconfigresourcetype 에 SUPPRESSION_SCHEDULE 보강(clone 옛볼륨 자가치유). 테이블은 create_all.
     "v68_session_client_id.sql",                # session_concurrency: user_sessions.client_id + SSO 예약컬럼(auth_source/idp_subject/idp_session_id)
     "v69_event_suppression_schema_fix.sql",     # event-suppression H4b/M1: target FK CASCADE→SET NULL + 인덱스 정합(중간버전 DB 자가치유, fresh no-op)
+    "v70_event_suppression_multi_target.sql",   # event-suppression 복수대상: 단일 FK→junction 이관 + 단일컬럼 DROP(멱등, fresh no-op)
 ]
 
 

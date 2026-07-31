@@ -13,7 +13,9 @@ from app.models.audit_log import AuditLog
 from app.models.device_setting import ProxySetting, CameraSetting
 from app.models.thumbnail import Thumbnail
 from app.models.tracking import TrackPoint
-from app.models.event_suppression import EventSuppressionSchedule
+from app.models.event_suppression import (
+    EventSuppressionSchedule, EventSuppressionTargetDevice, EventSuppressionTargetGroup,
+)
 
 __all__ = [
     # Device models
@@ -58,4 +60,6 @@ __all__ = [
     "TrackPoint",
     # Event Suppression Schedule models
     "EventSuppressionSchedule",
+    "EventSuppressionTargetDevice",
+    "EventSuppressionTargetGroup",
 ]

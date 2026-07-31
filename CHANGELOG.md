@@ -4,6 +4,15 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.3-event_suppression_multi_target — 정비 창 대상 복수 선택 (2026-08-01)
+
+> GIS 요청(P1, PRD `docs/prds/event-suppression-multi-target-prd.md` v1.0 → dev → test → 배포). 한 정비 창에 **복수 대상**(장비 N개 / 그룹 N개 / 전체) 지정. `target_type`(device/group/all 배타) 유지, 단일 FK → **배열 + junction 2테이블**. ⚠ API 파괴적(단일→배열) — GIS UI 미구현이라 안전.
+
+- **모델**: `target_device_id`/`target_group_id` 컬럼 제거 → junction `event_suppression_target_devices`·`event_suppression_target_groups`(FK **CASCADE**, UNIQUE, `lazy="selectin"`). 마이그 **v70**(단일행→junction 이관 + 컬럼 DROP, 멱등·fresh no-op).
+- **스키마/API**: `target_device_ids: int[]`·`target_group_ids: int[]`(device→≥1/group→≥1 검증). 응답·목록·/active 배열. 목록 필터 `?device_id=`/`?group_id=` junction EXISTS 매치.
+- **게이트**: DEVICE `device_id ∈ ids` / GROUP `set(group_ids) ∩ 소속그룹 ≠ ∅`. 그룹 멤버십 합집합 1회 배치(N+1 회피). fail-open 등 불변.
+- **검증**: 단위 **32 passed**(회귀 0) + 라이브 E2E(EnclosureManager) **13/13**(복수 device 11·12 억제/13 정상·상태불변 · 복수 group[1,2] 교집합·필터). 5중싱크(명세 §6.8·Swagger 배열·재빌드·v70). 롤백 `pre-v6.3-event_suppression_multi_target`. ⚠ 버전 bump(6.3.2)는 동일 2026-08-01 차수로 동시세션과 정합 예정.
+
 ## [6.3.1] - 2026-07-31
 
 > 2026-07-31 릴리즈 (하루 1버전 묶음): **[버그픽스]** `proxy_mandatory_seed` · `proxy_settings_typed` · `server_metrics_tz_fix` · `settings_config_enum` + **[기능]** `detection_sync`(SYNC_DETECTION) · `event_suppression`(정비 창 이벤트 수신 억제). Swagger `info.version` 6.3.0 → **6.3.1**.

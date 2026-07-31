@@ -119,10 +119,12 @@ async def is_suppressed(db, device_id: int, device_category, category: str, now:
 
         device_side = _derive_side(device_category)
 
-        # GROUP 스코프 후보의 그룹 멤버십을 1회 배치 조회(N+1 회피)
+        # GROUP 후보들의 대상 그룹 **합집합**으로 멤버십 1회 배치 조회(N+1 회피 유지).
+        # target_groups 는 relationship lazy="selectin" 으로 후보 로드 시 자동 eager 로드됨.
         group_ids = {
-            c.target_group_id for c in candidates
-            if c.target_type == EnumSuppressionTargetType.GROUP and c.target_group_id is not None
+            g.group_id for c in candidates
+            if c.target_type == EnumSuppressionTargetType.GROUP
+            for g in c.target_groups
         }
         member_groups: set[int] = set()
         if group_ids:
@@ -137,13 +139,15 @@ async def is_suppressed(db, device_id: int, device_category, category: str, now:
         for c in candidates:
             tt = c.target_type
             if tt == EnumSuppressionTargetType.DEVICE:
-                if c.target_device_id == device_id:
+                # device_id ∈ 대상 장비 집합
+                if device_id in {t.device_id for t in c.target_devices}:
                     return True, c.id
             elif tt == EnumSuppressionTargetType.ALL:
                 if _side_matches(device_side, c.target_side):
                     return True, c.id
             elif tt == EnumSuppressionTargetType.GROUP:
-                if c.target_group_id in member_groups and _side_matches(device_side, c.target_side):
+                # 대상 그룹 집합 ∩ 장비 소속 그룹 ≠ ∅
+                if ({t.group_id for t in c.target_groups} & member_groups) and _side_matches(device_side, c.target_side):
                     return True, c.id
         return False, None
     except Exception as e:  # fail-open — 억제 게이트 오류가 이벤트 저장을 막지 않음

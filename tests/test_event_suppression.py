@@ -10,7 +10,9 @@ from datetime import timedelta
 import pytest
 
 import app.models  # noqa: F401 — 모델 등록(Base.metadata) 보장
-from app.models.event_suppression import EventSuppressionSchedule
+from app.models.event_suppression import (
+    EventSuppressionSchedule, EventSuppressionTargetDevice, EventSuppressionTargetGroup,
+)
 from app.models.device_group import DeviceGroupMapping
 from app.utils.datetime import utc_now
 from app.utils.enums import (
@@ -84,7 +86,9 @@ def test_should_return_cancelled_when_revoked_regardless_of_window():
 
 # ───────── DB: is_suppressed 게이트 (격리 aiosqlite) ─────────
 
-async def _add(async_db, **kw):
+async def _add(async_db, target_device_id=None, target_group_id=None,
+               target_device_ids=None, target_group_ids=None, **kw):
+    """테스트 헬퍼 — 단일(target_device_id) / 복수(target_device_ids) 모두 junction 으로 생성."""
     now = utc_now()
     base = dict(
         name="t", target_type=EnumSuppressionTargetType.DEVICE,
@@ -93,9 +97,14 @@ async def _add(async_db, **kw):
     )
     base.update(kw)
     s = EventSuppressionSchedule(**base)
+    dev_ids = target_device_ids if target_device_ids is not None else (
+        [target_device_id] if target_device_id is not None else [])
+    grp_ids = target_group_ids if target_group_ids is not None else (
+        [target_group_id] if target_group_id is not None else [])
+    s.target_devices = [EventSuppressionTargetDevice(device_id=d) for d in dev_ids]
+    s.target_groups = [EventSuppressionTargetGroup(group_id=g) for g in grp_ids]
     async_db.add(s)
     await async_db.commit()
-    await async_db.refresh(s)
     return s
 
 
@@ -321,34 +330,91 @@ async def test_patch_rejects_mixed_tz_window_with_422_not_500(async_db):
 
 
 @pytest.mark.asyncio
-async def test_patch_clears_stale_fk_when_target_type_changes(async_db):
-    """H4a: target_type 변경 시 이전 스코프 FK 정리(stale FK 잔존 방지)."""
+async def test_patch_replaces_targets_when_type_changes(async_db):
+    """멀티타깃: target_type 변경 시 이전 모드 junction 정리 + 새 모드 대상 반영."""
     from app.routers import event_suppression_schedules as r
     from app.schemas.event_suppression import EventSuppressionScheduleUpdate
     from app.models.device_group import DeviceGroup
 
-    now = utc_now()
-    grp = DeviceGroup(name="G-h4a")
+    grp = DeviceGroup(name="G-mt")
     async_db.add(grp)
     await async_db.commit()
     await async_db.refresh(grp)
 
-    # DEVICE 스코프 스케줄을 직접 삽입(stale device fk = 42, sqlite FK 미강제)
-    sched = EventSuppressionSchedule(
-        name="d", target_type=EnumSuppressionTargetType.DEVICE, target_device_id=42,
-        target_group_id=None, target_side=EnumSuppressionSide.BOTH,
-        event_scope=EnumSuppressionEventScope.DETECTION,
-        window_start=now, window_end=now + timedelta(hours=1),
-    )
-    async_db.add(sched)
-    await async_db.commit()
-    await async_db.refresh(sched)
+    sched = await _add(async_db, target_type=EnumSuppressionTargetType.DEVICE, target_device_ids=[42])
 
     patched = await r.patch_suppression_schedule(
         sched.id, EventSuppressionScheduleUpdate(
-            target_type=EnumSuppressionTargetType.GROUP, target_group_id=grp.id,
+            target_type=EnumSuppressionTargetType.GROUP, target_group_ids=[grp.id],
         ), current_user=None, db=async_db,
     )
     assert patched.data.target_type == EnumSuppressionTargetType.GROUP
-    assert patched.data.target_group_id == grp.id
-    assert patched.data.target_device_id is None  # 이전 DEVICE FK 정리됨
+    assert patched.data.target_group_ids == [grp.id]
+    assert patched.data.target_device_ids == []  # 이전 DEVICE junction 정리됨
+
+
+# ───────── 멀티타깃 (복수 대상) ─────────
+
+@pytest.mark.asyncio
+async def test_should_suppress_when_device_in_multi_device_set(async_db):
+    await _add(async_db, target_type=EnumSuppressionTargetType.DEVICE, target_device_ids=[10, 11, 12])
+    for d in (10, 11, 12):
+        sup, _ = await svc.is_suppressed(async_db, d, "sensor", "detection")
+        assert sup is True, d
+    sup_out, _ = await svc.is_suppressed(async_db, 99, "sensor", "detection")
+    assert sup_out is False
+
+
+@pytest.mark.asyncio
+async def test_should_suppress_when_multi_group_intersects_membership(async_db):
+    await _add(async_db, target_type=EnumSuppressionTargetType.GROUP, target_group_ids=[5, 6, 7])
+    # device 10 은 대상 그룹 집합 중 하나(6)에만 속함 → 교집합 ≠ ∅ → 억제
+    async_db.add(DeviceGroupMapping(device_id=10, category_device=EnumDeviceCategory.SENSOR, group_id=6))
+    await async_db.commit()
+    sup, _ = await svc.is_suppressed(async_db, 10, "sensor", "detection")
+    assert sup is True
+    # device 20 은 어느 대상 그룹에도 미소속 → 미억제
+    sup2, _ = await svc.is_suppressed(async_db, 20, "sensor", "detection")
+    assert sup2 is False
+
+
+@pytest.mark.asyncio
+async def test_crud_multi_group_and_filter_via_router(async_db):
+    from app.models.device_group import DeviceGroup
+    from app.routers import event_suppression_schedules as r
+    from app.schemas.event_suppression import EventSuppressionScheduleCreate
+
+    now = utc_now()
+    g1, g2 = DeviceGroup(name="mt-g1"), DeviceGroup(name="mt-g2")
+    async_db.add_all([g1, g2])
+    await async_db.commit()
+    await async_db.refresh(g1)
+    await async_db.refresh(g2)
+
+    created = await r.create_suppression_schedule(
+        EventSuppressionScheduleCreate(
+            name="다중그룹 정비", target_type=EnumSuppressionTargetType.GROUP,
+            target_group_ids=[g1.id, g2.id], event_scope=EnumSuppressionEventScope.ALL,
+            window_start=now - timedelta(minutes=5), window_end=now + timedelta(hours=1),
+        ), current_user=None, db=async_db,
+    )
+    assert set(created.data.target_group_ids) == {g1.id, g2.id}
+
+    # 목록 필터: 그룹 중 하나로 필터 → junction 포함 매치
+    listed = await r.list_suppression_schedules(
+        page=1, limit=20, status_filter=None, target_type=None,
+        device_id=None, group_id=g1.id, current_user=None, db=async_db,
+    )
+    assert listed.pagination.total == 1
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_empty_ids_when_device_mode():
+    from app.schemas.event_suppression import EventSuppressionScheduleCreate
+    now = utc_now()
+    with pytest.raises(ValueError):  # device 모드인데 배열 비어있음
+        EventSuppressionScheduleCreate(
+            name="bad", target_type=EnumSuppressionTargetType.DEVICE, target_device_ids=[],
+            event_scope=EnumSuppressionEventScope.DETECTION,
+            window_start=now, window_end=now + timedelta(hours=1),
+        )

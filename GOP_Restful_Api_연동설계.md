@@ -10002,8 +10002,8 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 | name | string(200) | ✅ | 작업명/사유 |
 | description | string(500) | | 상세 |
 | target_type | enum | ✅ | `device` / `group` / `all` (EnumSuppressionTargetType) |
-| target_device_id | int | target=device 시 | 대상 장비 devices.id |
-| target_group_id | int | target=group 시 | 대상 그룹 device_groups.id |
+| target_device_ids | int[] | target=device 시 ≥1 | 대상 장비 devices.id **배열**(복수, v6.3 확장) |
+| target_group_ids | int[] | target=group 시 ≥1 | 대상 그룹 device_groups.id **배열**(복수, v6.3 확장) |
 | target_side | enum | | `detection` / `surveillance` / `both`(기본). group·all 에 적용(감지=sensor/controller, 감시=camera 파생) |
 | event_scope | enum | ✅ | `connection` / `detection` / `malfunction` / `all` (EnumSuppressionEventScope) |
 | window_start / window_end | datetime | ✅ | 억제 시간창(KST +09:00, 저장 UTC). end>start, end 필수(자동 만료) |
@@ -10018,7 +10018,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 {
   "name": "GOP 3구역 펜스 보수",
   "target_type": "group",
-  "target_group_id": 5,
+  "target_group_ids": [5, 6],
   "target_side": "detection",
   "event_scope": "all",
   "window_start": "2026-08-01T09:00:00+09:00",
@@ -10033,7 +10033,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
   "message": "억제 스케줄 생성 성공",
   "data": {
     "id": 12, "name": "GOP 3구역 펜스 보수", "description": null,
-    "target_type": "group", "target_device_id": null, "target_group_id": 5,
+    "target_type": "group", "target_device_ids": [], "target_group_ids": [5, 6],
     "target_side": "detection", "event_scope": "all",
     "window_start": "2026-08-01T09:00:00+09:00", "window_end": "2026-08-01T18:00:00+09:00",
     "recurrence_rule": null, "is_active": true, "status": "pending",
@@ -10043,7 +10043,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 }
 ```
 
-**Error**: 400(대상 device/group 미존재) · 422(end≤start, target_type↔id 불일치, enum 불량) · 401/403(인가).
+**Error**: 400(대상 device/group id 미존재 — 배열 원소 전부 검증) · 422(end≤start, device→ids≥1/group→ids≥1 위반, enum 불량) · 401/403(인가). ※ 대상은 모드 내 **복수**(device N개 / group N개), 응답도 `target_device_ids[]`/`target_group_ids[]` 배열.
 
 #### 6.8.3 GET `/api/event-suppression-schedules`
 
@@ -16506,6 +16506,16 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `event_suppression_multi_target` — 정비 창 대상 복수 선택 지원 (2026-08-01)
+
+> GIS 요청(P1). 한 정비 창에 **복수 대상**(장비 N개 / 그룹 N개 / 전체) 지정. `target_type`(device/group/all 배타) 유지, 단일 FK → **배열 + junction 2테이블**. §6.8 필드/예시 배열화.
+
+- **모델**: 단일 컬럼 `target_device_id`/`target_group_id` 제거 → junction `event_suppression_target_devices`·`event_suppression_target_groups`(각 schedule_id/device|group_id FK **CASCADE**, UNIQUE). 관계 `lazy="selectin"`(async 안전). 마이그 **v70**(기존 단일행→junction 이관 + 컬럼 DROP, 멱등·fresh no-op).
+- **스키마/API**: Create/Update `target_device_ids: int[]`·`target_group_ids: int[]`(device→≥1/group→≥1 검증, 중복제거). Response·목록·/active 배열 반환. 목록 필터 `?device_id=`/`?group_id=`는 junction 포함 매치(EXISTS).
+- **게이트 `is_suppressed()`**: DEVICE `device_id ∈ ids`, GROUP `set(group_ids) ∩ 소속그룹 ≠ ∅`. 그룹 멤버십은 후보 전체 group_ids 합집합 1회 배치조회(N+1 회피 유지). fail-open 등 안전장치 불변.
+- **테스트** `tests/test_event_suppression.py` **32 passed**(멀티 device 집합·멀티 group 교집합·CRUD 다중그룹+필터·PATCH 대상교체). 회귀 0.
+- **라이브 E2E**(EnclosureManager): 복수 device[11,12] 둘 다 202·대상외 13 정상 201·상태불변 / 복수 group[1,2] 교집합 억제·필터 매치 — **13/13 PASS**, DB 청결. 5중싱크(명세 §6.8·Swagger 배열·재빌드·v70 적용). 롤백 `pre-v6.3-event_suppression_multi_target`.
 
 ### [v6.3 후속] `session_concurrency` — 다중세션 정책 + 인증 하드닝 (evict_all/allow, RBAC-03, SEC-01, SSO 예약) (2026-07-31)
 

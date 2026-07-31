@@ -1,16 +1,10 @@
 """
-Event Suppression Schedule API — 스케줄 기반 이벤트 수신 억제(정비 창).
+Event Suppression Schedule API — 스케줄 기반 이벤트 수신 억제(정비 창), 복수 대상.
 
-PRD: docs/prds/event-suppression-schedule-prd.md v1.1 §3.5
+PRD: event-suppression-schedule-prd.md v1.1 + event-suppression-multi-target-prd.md v1.0
 
-6개 독립 엔드포인트(설정 추가/조회/변경/삭제 + 활성):
-- POST   /api/event-suppression-schedules          생성          (events:edit)
-- GET    /api/event-suppression-schedules          목록(필터·페이지) (events:view)
-- GET    /api/event-suppression-schedules/active   활성 창       (events:view)
-- GET    /api/event-suppression-schedules/{id}     단건          (events:view)
-- PATCH  /api/event-suppression-schedules/{id}     변경          (events:edit)
-- DELETE /api/event-suppression-schedules/{id}     삭제(soft-cancel)(events:delete)
-
+6개 엔드포인트: POST(생성) / GET(목록·필터) / GET active / GET {id} / PATCH / DELETE(soft-cancel).
+대상은 모드(device/group/all 배타) 내 복수 — junction 2테이블(target_devices/target_groups).
 RBAC: 라우트-레벨 require_perm_optional_async + 중앙 enforce_matrix(PERMISSION_MAP). role=ADMIN bypass.
 """
 import math
@@ -25,7 +19,9 @@ from app.routers.auth import (
     get_current_account_user_optional_async,
     require_perm_optional_async,
 )
-from app.models.event_suppression import EventSuppressionSchedule
+from app.models.event_suppression import (
+    EventSuppressionSchedule, EventSuppressionTargetDevice, EventSuppressionTargetGroup,
+)
 from app.models.device import Device
 from app.models.device_group import DeviceGroup
 from app.schemas.event_suppression import (
@@ -47,15 +43,19 @@ from app.utils.enums import (
 router = APIRouter(prefix="/event-suppression-schedules")
 
 
+def _dedupe(ids) -> list[int]:
+    return list(dict.fromkeys(ids or []))
+
+
 def _to_response(s: EventSuppressionSchedule, now=None) -> EventSuppressionScheduleResponse:
-    """ORM → Response(파생 status 포함)."""
+    """ORM → Response. target_devices/target_groups junction 은 lazy='selectin' 로 로드됨."""
     return EventSuppressionScheduleResponse(
         id=s.id,
         name=s.name,
         description=s.description,
         target_type=s.target_type,
-        target_device_id=s.target_device_id,
-        target_group_id=s.target_group_id,
+        target_device_ids=[t.device_id for t in s.target_devices],
+        target_group_ids=[t.group_id for t in s.target_groups],
         target_side=s.target_side,
         event_scope=s.event_scope,
         window_start=s.window_start,
@@ -70,18 +70,31 @@ def _to_response(s: EventSuppressionSchedule, now=None) -> EventSuppressionSched
     )
 
 
-async def _assert_target_exists(db: AsyncSession, target_type, target_device_id, target_group_id):
-    """대상 존재 검증(400). DEVICE→devices, GROUP→device_groups. ALL→무검증."""
-    if target_type == EnumSuppressionTargetType.DEVICE:
-        dev = (await db.execute(select(Device.id).where(Device.id == target_device_id))).scalar()
-        if dev is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                                detail={"success": False, "message": f"Device id {target_device_id} not found"})
-    elif target_type == EnumSuppressionTargetType.GROUP:
-        grp = (await db.execute(select(DeviceGroup.id).where(DeviceGroup.id == target_group_id))).scalar()
-        if grp is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                                detail={"success": False, "message": f"DeviceGroup id {target_group_id} not found"})
+async def _reload(db: AsyncSession, schedule_id: int) -> EventSuppressionSchedule:
+    """junction 을 selectin 으로 재로드(쓰기 후 응답 조립 안전)."""
+    return (await db.execute(
+        select(EventSuppressionSchedule).where(EventSuppressionSchedule.id == schedule_id)
+    )).scalars().first()
+
+
+async def _assert_devices_exist(db: AsyncSession, device_ids: list[int]):
+    if not device_ids:
+        return
+    found = set((await db.execute(select(Device.id).where(Device.id.in_(device_ids)))).scalars().all())
+    missing = [d for d in device_ids if d not in found]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail={"success": False, "message": f"Device id(s) not found: {missing}"})
+
+
+async def _assert_groups_exist(db: AsyncSession, group_ids: list[int]):
+    if not group_ids:
+        return
+    found = set((await db.execute(select(DeviceGroup.id).where(DeviceGroup.id.in_(group_ids)))).scalars().all())
+    missing = [g for g in group_ids if g not in found]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail={"success": False, "message": f"DeviceGroup id(s) not found: {missing}"})
 
 
 @router.post(
@@ -94,21 +107,17 @@ async def create_suppression_schedule(
     current_user=Depends(get_current_account_user_optional_async),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """이벤트 억제 스케줄 생성(정비 창 추가).
+    """이벤트 억제 스케줄 생성 — 모드(device/group/all) 내 복수 대상.
 
     - **target_type**: device / group / all
+    - **target_device_ids**: device 시 ≥1 · **target_group_ids**: group 시 ≥1
     - **event_scope**: connection / detection / malfunction / all
     - **window_start~window_end**: 억제 시간창(종료 필수, 자동 만료)
-    - **target_side**: 감지/감시 필터(group·all 적용, 기본 both)
     """
-    await _assert_target_exists(db, data.target_type, data.target_device_id, data.target_group_id)
-
     schedule = EventSuppressionSchedule(
         name=data.name,
         description=data.description,
         target_type=data.target_type,
-        target_device_id=data.target_device_id if data.target_type == EnumSuppressionTargetType.DEVICE else None,
-        target_group_id=data.target_group_id if data.target_type == EnumSuppressionTargetType.GROUP else None,
         target_side=data.target_side,
         event_scope=data.event_scope,
         window_start=data.window_start,
@@ -116,9 +125,17 @@ async def create_suppression_schedule(
         recurrence_rule=data.recurrence_rule,
         created_by=(current_user.id if current_user else None),
     )
+    if data.target_type == EnumSuppressionTargetType.DEVICE:
+        ids = _dedupe(data.target_device_ids)
+        await _assert_devices_exist(db, ids)
+        schedule.target_devices = [EventSuppressionTargetDevice(device_id=d) for d in ids]
+    elif data.target_type == EnumSuppressionTargetType.GROUP:
+        ids = _dedupe(data.target_group_ids)
+        await _assert_groups_exist(db, ids)
+        schedule.target_groups = [EventSuppressionTargetGroup(group_id=g) for g in ids]
+
     db.add(schedule)
     await db.commit()
-    await db.refresh(schedule)
 
     await log_config_change_async(
         db=db,
@@ -130,9 +147,8 @@ async def create_suppression_schedule(
         description="EventSuppressionSchedule 생성",
     )
 
-    return ApiSingleResponse(
-        success=True, message="억제 스케줄 생성 성공", data=_to_response(schedule),
-    )
+    s = await _reload(db, schedule.id)
+    return ApiSingleResponse(success=True, message="억제 스케줄 생성 성공", data=_to_response(s))
 
 
 @router.get("", response_model=ApiResponse[list[EventSuppressionScheduleResponse]],
@@ -142,12 +158,12 @@ async def list_suppression_schedules(
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
     status_filter: Optional[EnumSuppressionStatus] = Query(None, alias="status", description="상태 필터"),
     target_type: Optional[EnumSuppressionTargetType] = Query(None, description="대상 유형 필터"),
-    device_id: Optional[int] = Query(None, description="대상 장비 ID 필터"),
-    group_id: Optional[int] = Query(None, description="대상 그룹 ID 필터"),
+    device_id: Optional[int] = Query(None, description="대상 장비 ID 필터(배열 포함 매치)"),
+    group_id: Optional[int] = Query(None, description="대상 그룹 ID 필터(배열 포함 매치)"),
     current_user=Depends(get_current_account_user_optional_async),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """억제 스케줄 목록(페이지네이션 + 상태/대상 필터)."""
+    """억제 스케줄 목록(페이지네이션 + 상태/대상 필터). device_id/group_id 는 junction 포함 매치."""
     now = utc_now()
     stmt = select(EventSuppressionSchedule)
     count_stmt = select(func.count()).select_from(EventSuppressionSchedule)
@@ -169,9 +185,11 @@ async def list_suppression_schedules(
     if target_type is not None:
         conds.append(EventSuppressionSchedule.target_type == target_type)
     if device_id is not None:
-        conds.append(EventSuppressionSchedule.target_device_id == device_id)
+        conds.append(EventSuppressionSchedule.target_devices.any(
+            EventSuppressionTargetDevice.device_id == device_id))
     if group_id is not None:
-        conds.append(EventSuppressionSchedule.target_group_id == group_id)
+        conds.append(EventSuppressionSchedule.target_groups.any(
+            EventSuppressionTargetGroup.group_id == group_id))
 
     for c in conds:
         stmt = stmt.where(c)
@@ -217,9 +235,7 @@ async def get_suppression_schedule(
     db: AsyncSession = Depends(get_async_db),
 ):
     """억제 스케줄 단건 조회."""
-    s = (await db.execute(
-        select(EventSuppressionSchedule).where(EventSuppressionSchedule.id == schedule_id)
-    )).scalars().first()
+    s = await _reload(db, schedule_id)
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail={"success": False, "message": f"SuppressionSchedule {schedule_id} not found"})
@@ -234,47 +250,54 @@ async def patch_suppression_schedule(
     current_user=Depends(get_current_account_user_optional_async),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """억제 스케줄 부분 수정(창/스코프/side/유형)."""
-    s = (await db.execute(
-        select(EventSuppressionSchedule).where(EventSuppressionSchedule.id == schedule_id)
-    )).scalars().first()
+    """억제 스케줄 부분 수정. 대상 배열 제공 시 해당 모드 junction 전체 교체."""
+    s = await _reload(db, schedule_id)
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail={"success": False, "message": f"SuppressionSchedule {schedule_id} not found"})
 
     before_state = model_to_dict(s)
+    before_devices, before_groups = list(s.device_ids), list(s.group_ids)
+
     fields = data.model_dump(exclude_unset=True)
-    for k, v in fields.items():
+    new_device_ids = fields.pop("target_device_ids", None)
+    new_group_ids = fields.pop("target_group_ids", None)
+    for k, v in fields.items():  # 스칼라 컬럼만 (name/description/target_type/side/scope/window/recurrence)
         setattr(s, k, v)
 
-    # target_type 에 맞지 않는 이전 스코프 FK 정리(H4a — POST 와 동일 규칙, stale FK 잔존 방지)
-    if s.target_type == EnumSuppressionTargetType.DEVICE:
-        s.target_group_id = None
-    elif s.target_type == EnumSuppressionTargetType.GROUP:
-        s.target_device_id = None
-    elif s.target_type == EnumSuppressionTargetType.ALL:
-        s.target_device_id = None
-        s.target_group_id = None
-
-    # 최종 상태 정합 검증(창 순서 — UTC 정규화 후 비교로 naive/aware TypeError→500 회피, H3/NFR-03)
+    # 창 순서 검증(H3: UTC 정규화 후 비교)
     _ws, _we = to_utc(s.window_start), to_utc(s.window_end)
     if _ws is not None and _we is not None and _we <= _ws:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail={"success": False, "message": "window_end must be after window_start"})
-    if s.target_type == EnumSuppressionTargetType.DEVICE and s.target_device_id is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            detail={"success": False, "message": "target_device_id required when target_type=device"})
-    if s.target_type == EnumSuppressionTargetType.GROUP and s.target_group_id is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            detail={"success": False, "message": "target_group_id required when target_type=group"})
-    await _assert_target_exists(db, s.target_type, s.target_device_id, s.target_group_id)
+
+    # 최종 모드에 맞춰 대상 junction 재구성(제공 배열 우선, 없으면 기존 유지, 반대 모드 정리)
+    final_type = s.target_type
+    if final_type == EnumSuppressionTargetType.DEVICE:
+        ids = _dedupe(new_device_ids) if new_device_ids is not None else before_devices
+        if len(ids) < 1:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail={"success": False, "message": "target_device_ids requires ≥1 when target_type=device"})
+        await _assert_devices_exist(db, ids)
+        s.target_devices = [EventSuppressionTargetDevice(device_id=d) for d in ids]
+        s.target_groups = []
+    elif final_type == EnumSuppressionTargetType.GROUP:
+        ids = _dedupe(new_group_ids) if new_group_ids is not None else before_groups
+        if len(ids) < 1:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail={"success": False, "message": "target_group_ids requires ≥1 when target_type=group"})
+        await _assert_groups_exist(db, ids)
+        s.target_groups = [EventSuppressionTargetGroup(group_id=g) for g in ids]
+        s.target_devices = []
+    else:  # ALL — 대상 없음
+        s.target_devices = []
+        s.target_groups = []
 
     await db.commit()
-    await db.refresh(s)
 
     after_state = model_to_dict(s)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
-    if before_changes or after_changes:
+    if before_changes or after_changes or new_device_ids is not None or new_group_ids is not None:
         await log_config_change_async(
             db=db,
             resource_type=EnumConfigResourceType.SUPPRESSION_SCHEDULE,
@@ -286,7 +309,8 @@ async def patch_suppression_schedule(
             description="EventSuppressionSchedule 수정",
         )
 
-    return ApiSingleResponse(success=True, message="억제 스케줄 수정 성공", data=_to_response(s))
+    s2 = await _reload(db, schedule_id)
+    return ApiSingleResponse(success=True, message="억제 스케줄 수정 성공", data=_to_response(s2))
 
 
 @router.delete("/{schedule_id}", response_model=ApiSingleResponse[EventSuppressionScheduleResponse],
@@ -297,9 +321,7 @@ async def delete_suppression_schedule(
     db: AsyncSession = Depends(get_async_db),
 ):
     """억제 스케줄 삭제(soft-cancel = revoked_at 세팅 + is_active=false)."""
-    s = (await db.execute(
-        select(EventSuppressionSchedule).where(EventSuppressionSchedule.id == schedule_id)
-    )).scalars().first()
+    s = await _reload(db, schedule_id)
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail={"success": False, "message": f"SuppressionSchedule {schedule_id} not found"})
@@ -308,7 +330,6 @@ async def delete_suppression_schedule(
         s.revoked_at = utc_now()
     s.is_active = False
     await db.commit()
-    await db.refresh(s)
 
     await log_config_change_async(
         db=db,
@@ -320,4 +341,5 @@ async def delete_suppression_schedule(
         description="EventSuppressionSchedule soft-cancel",
     )
 
-    return ApiSingleResponse(success=True, message="억제 스케줄 삭제(취소) 성공", data=_to_response(s))
+    s2 = await _reload(db, schedule_id)
+    return ApiSingleResponse(success=True, message="억제 스케줄 삭제(취소) 성공", data=_to_response(s2))

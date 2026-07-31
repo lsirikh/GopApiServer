@@ -1,9 +1,11 @@
 """
-EventSuppressionSchedule Pydantic schemas — event-suppression-schedule PRD v1.1 §3.3/§3.5
+EventSuppressionSchedule Pydantic schemas.
 
-- Create: 억제 스케줄 생성(extra='forbid', 창 순서·target 정합 검증).
-- Update: 부분 수정(PATCH, 전 필드 선택).
-- Response: 파생 status 포함, 시간은 KSTDatetime(DISPLAY_TZ ISO 출력).
+PRD: event-suppression-schedule-prd.md v1.1 (기반) + event-suppression-multi-target-prd.md v1.0 (복수 대상)
+
+- Create: 억제 스케줄 생성(extra='forbid', 창 순서·대상 배열 검증).
+- Update: 부분 수정(PATCH).
+- Response: 파생 status + 대상 배열(target_device_ids/target_group_ids).
 """
 from __future__ import annotations
 
@@ -22,15 +24,21 @@ from app.utils.enums import (
 
 
 class EventSuppressionScheduleCreate(BaseModel):
-    """억제 스케줄 생성 요청."""
+    """억제 스케줄 생성 요청 — 대상 복수(모드 내)."""
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1, max_length=200, description="작업명/사유",
                       json_schema_extra={"example": "GOP 3구역 펜스 보수"})
     description: Optional[str] = Field(None, max_length=500, description="상세 설명")
-    target_type: EnumSuppressionTargetType = Field(..., description="대상 스코프: device/group/all")
-    target_device_id: Optional[int] = Field(None, description="target_type=device 시 필수 — devices.id")
-    target_group_id: Optional[int] = Field(None, description="target_type=group 시 필수 — device_groups.id")
+    target_type: EnumSuppressionTargetType = Field(..., description="대상 모드(배타): device/group/all")
+    target_device_ids: list[int] = Field(
+        default_factory=list, description="target_type=device 시 최소 1개(그 외 무시)",
+        json_schema_extra={"example": [11, 12, 13]},
+    )
+    target_group_ids: list[int] = Field(
+        default_factory=list, description="target_type=group 시 최소 1개(그 외 무시)",
+        json_schema_extra={"example": [5, 6]},
+    )
     target_side: EnumSuppressionSide = Field(
         EnumSuppressionSide.BOTH, description="감지/감시 필터(group·all 적용). 기본 both",
     )
@@ -49,11 +57,15 @@ class EventSuppressionScheduleCreate(BaseModel):
         s, e = to_utc(self.window_start), to_utc(self.window_end)
         if s is not None and e is not None and e <= s:
             raise ValueError("window_end must be after window_start")
-        # target_type ↔ target_*_id 정합
-        if self.target_type == EnumSuppressionTargetType.DEVICE and self.target_device_id is None:
-            raise ValueError("target_device_id is required when target_type=device")
-        if self.target_type == EnumSuppressionTargetType.GROUP and self.target_group_id is None:
-            raise ValueError("target_group_id is required when target_type=group")
+        # 모드별 대상 배열 최소 1개 (중복 제거)
+        if self.target_type == EnumSuppressionTargetType.DEVICE:
+            self.target_device_ids = list(dict.fromkeys(self.target_device_ids))
+            if len(self.target_device_ids) < 1:
+                raise ValueError("target_device_ids requires at least 1 id when target_type=device")
+        elif self.target_type == EnumSuppressionTargetType.GROUP:
+            self.target_group_ids = list(dict.fromkeys(self.target_group_ids))
+            if len(self.target_group_ids) < 1:
+                raise ValueError("target_group_ids requires at least 1 id when target_type=group")
         return self
 
 
@@ -64,8 +76,8 @@ class EventSuppressionScheduleUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=500)
     target_type: Optional[EnumSuppressionTargetType] = None
-    target_device_id: Optional[int] = None
-    target_group_id: Optional[int] = None
+    target_device_ids: Optional[list[int]] = None
+    target_group_ids: Optional[list[int]] = None
     target_side: Optional[EnumSuppressionSide] = None
     event_scope: Optional[EnumSuppressionEventScope] = None
     window_start: Optional[datetime] = None
@@ -74,13 +86,13 @@ class EventSuppressionScheduleUpdate(BaseModel):
 
 
 class EventSuppressionScheduleResponse(BaseModel):
-    """억제 스케줄 응답 — 파생 status 포함."""
+    """억제 스케줄 응답 — 파생 status + 대상 배열."""
     id: int
     name: str
     description: Optional[str] = None
     target_type: EnumSuppressionTargetType
-    target_device_id: Optional[int] = None
-    target_group_id: Optional[int] = None
+    target_device_ids: list[int] = Field(default_factory=list)
+    target_group_ids: list[int] = Field(default_factory=list)
     target_side: EnumSuppressionSide
     event_scope: EnumSuppressionEventScope
     window_start: KSTDatetime

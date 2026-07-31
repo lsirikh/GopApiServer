@@ -1,7 +1,7 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-07-21  
+**최종 수정일**: 2026-07-31  
 **버전**: v6.3.1 (Swagger `6.3.1` 정합)  **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -268,6 +268,21 @@ X-Request-ID: {request-uuid} //선택적 참고용
 | 422 Unprocessable Entity | 처리 불가 | 요청은 올바르나 비즈니스 로직 오류 |
 | 500 Internal Server Error | 서버 오류 | 서버 내부 오류 |
 | 503 Service Unavailable | 서비스 불가 | 서버 점검 또는 과부하 |
+
+---
+
+### 3.4 Datetime · 타임존 규약 (v6.3 후속, datetime-unification)
+
+> **전역 원칙 (Option B)**: **저장 UTC · 출력 DISPLAY_TZ · 입력 aware 권장**. 특정 국가에 고정되지 않아 해외 사이트(예: 헝가리·미국) 재배포 시 환경변수(`DISPLAY_TIMEZONE`)만 바꾸면 된다.
+
+| 구분 | 규약 |
+|------|------|
+| **저장(DB)** | 모든 datetime 컬럼은 `TIMESTAMP WITH TIME ZONE`(timestamptz)로 **UTC instant** 저장. (예외: `api_logs.timestamp` 는 파티션 키라 naive-UTC 벽시계 유지 — 표시 규약 동일) |
+| **출력(응답)** | 모든 응답 datetime 은 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset 표기. 기본 `Asia/Seoul`(`+09:00`), DST 자동. 예: `"2026-07-31T19:50:00+09:00"`. `meta.timestamp`(성공·오류 **공통**) 동일. |
+| **입력(요청)** | offset 포함 aware(`...+09:00`, `...Z`) **권장** — instant 로 정확 해석. offset 없는 naive 값은 `DISPLAY_TIMEZONE` 로 간주 후 UTC 변환. 날짜만(`2026-07-01`) 은 해당 TZ 00:00. |
+| **설정** | 환경변수 `DISPLAY_TIMEZONE`(IANA TZ, 예 `Asia/Seoul`·`Europe/Budapest`·`America/New_York`). 미지정 시 `Asia/Seoul`. 저장은 항상 UTC 이므로 이 값 변경은 **표시에만** 영향(과거 데이터 불변). |
+
+**클라이언트 가이드**: 요청 시 가능하면 offset 을 명시하라(`2026-07-01T00:00:00+09:00`). 응답 datetime 은 항상 offset 이 붙어 오므로 그대로 `DateTimeOffset`(.NET)/`ZonedDateTime` 으로 파싱하면 된다. naive 문자열로 파싱 후 로컬 TZ 를 임의 부여하지 말 것.
 
 ---
 
@@ -5646,7 +5661,7 @@ Accept: application/json
 ```
 
 > `data.message` 형식: removed/skipped/not_found 중 **개수가 0이 아닌 절만** 콤마로 연결됩니다. 예: skipped=0, not_found=0이면 `"3개 디바이스 해제 완료"` 만 표시. envelope top-level `message` 필드도 동일 문자열로 미러링된다.
-> `meta.timestamp`: KST 타임존(`+09:00`) ISO 8601. `meta.request_id`: 클라이언트가 `X-Request-ID` 헤더를 보내면 그 값, 없으면 `null`.
+> `meta.timestamp`: 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset(기본 `+09:00`, 성공·오류 공통 — 전역 datetime 규약은 §3.4). `meta.request_id`: 클라이언트가 `X-Request-ID` 헤더를 보내면 그 값, 없으면 `null`.
 
 | 응답 필드 | 타입 | 설명 |
 |----------|------|------|
@@ -16375,7 +16390,22 @@ python scripts/migrate_event_device_id.py
 
 - `app/migrations/v65_add_settings_config_enum.sql`: `ALTER TYPE enumconfigresourcetype ADD VALUE IF NOT EXISTS 'SETTINGS'`(멱등) + `IDEMPOTENT_MIGRATIONS` 등재 → 모든 DB 다음 기동 시 자가치유(fresh no-op / 옛 DB 값 추가). PG16 트랜잭션 내 ADD VALUE 정상 검증. 즉시 조치(재배포 전): 대상 DB 에서 위 `ALTER TYPE ...` 1줄 실행.
 
+### [v6.3 후속] `datetime_unification` — 전 API datetime UTC 저장 + DISPLAY_TZ 출력 통일 (Option B) (2026-07-31)
+
+> 문제: 저장 naive-KST / 출력 +09:00 / 입력 혼용이 뒤섞여 asyncpg(v6.0~)가 aware↔naive 혼용을 거부 → server_metrics·events·reports 등 **다수 500**, 해외 재배포 불가(KST 하드코딩). 근본 통일.
+
+**규약 (§3.4 신설)**: 저장 UTC(timestamptz) · 출력 `DISPLAY_TIMEZONE`(기본 Asia/Seoul, DST 자동) · 입력 aware 권장(naive 는 DISPLAY_TZ 간주). 국가 비종속 — `DISPLAY_TIMEZONE` env 만 교체.
+
+- **공용 유틸** `app/utils/datetime.py`: `utc_now`(aware UTC) · `to_utc` · `to_display`. **설정** `app/config.py` `DISPLAY_TIMEZONE`(+`display_tz` ZoneInfo).
+- **타입레벨 차단** `app/models/types.py` `UtcDateTime(TypeDecorator, timezone=True)` — bind 시 aware→UTC 정규화(asyncpg 500 원천 차단). 모델 17파일 `Column(DateTime)`→`UtcDateTime`, 쓰기 default→`utc_now`.
+- **마이그** `app/migrations/v66_datetime_to_utc.sql`(startup 멱등, `init_db` 등록): naive 컬럼만 `USING col AT TIME ZONE 'Asia/Seoul'`(과거 KST 벽시계→정확 UTC instant, 무손실) / `token_blacklist`=`'UTC'`. **api_logs 파티션·schema_migrations 제외**. → **git pull/번들 업그레이드 시 옛 원격 DB 도 자동 전환**(fresh=no-op). 직후 async 풀 `dispose`로 prepared-cache 무효화 전이 500 제거.
+- **serializer** `schemas/common.py`·`main.py`: `KSTDatetime`/전역 encoder/오류 meta → `to_display`(DISPLAY_TZ), OpenAPI `format:date-time` 유지. **입력 정규화(FR-07)** `ReportGenerateRequest` 등 body 비교 전 `to_utc`. 라우터 정규화 헬퍼(`_to_naive_kst` 계열 6종)·리포트 범위 → `to_utc` 위임.
+- **api_logs**: 파티션 키 ALTER 불가 → 컬럼은 naive 유지하되 저장을 **naive-UTC 벽시계**(`utc_now().replace(tzinfo=None)`)로 바꿔 전역 naive=UTC 규약과 정합(월파티션 ±offset 시프트는 인접월 안착). 업그레이드 직후 **구(舊) KST 행은 retention 소멸까지 표시 offset skew**(전환기, 신규 행 정확). 완전 timestamptz 재생성은 v67(선택) 이연.
+- **라이브 검증(재빌드·재기동)**: 마이그 72 timestamptz / 10 제외(api_logs 9+schema_migrations). aware `collected_at +09:00` POST → **201**(저장 UTC 10:50 / 출력 +09:00). 읽기 GET 다수 200+`+09:00`. reports/generate aware 범위 → **201→COMPLETED**(역순=422, TypeError 아님). 오류 meta `+09:00`. 다국가 `to_display` 격리검증(Budapest `+02:00` DST). 롤백 3종: git `pre-datetime_unification` · 이미지 `pids-api-server:pre-datetime_unification` · DB덤프 `backups/datetime-unification-20260731/`.
+
 ### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
+
+> ★ **동일자 `datetime_unification`(상단)으로 상위 통일됨** — `_to_naive_kst` 는 이제 `to_utc`(UTC) 위임, 컬럼은 timestamptz, 저장 UTC / 출력 +09:00. 아래는 최초 국소 수정 이력(보존).
 
 > 기존 버그(배포 무관): `POST /api/servers/{id}/metrics` 에 tz-aware(KST +09:00) `collected_at` 을 보내면 asyncpg 가 naive 컬럼(`TIMESTAMP WITHOUT TIME ZONE`)에 aware 값을 못 넣어 500 → CPU/RAM/디스크 메트릭 저장 통째 실패.
 

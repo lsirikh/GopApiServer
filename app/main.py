@@ -242,6 +242,13 @@ async def lifespan(app: FastAPI):
     # progress_pct 등 누락 → 500. 여기서 IF NOT EXISTS 마이그레이션을 실행해 스키마를 보정한다.
     await _asyncio.to_thread(apply_idempotent_migrations, engine)
 
+    # datetime-unification: 마이그(ALTER COLUMN TYPE 등) 직후 asyncpg prepared-statement 캐시 무효화 방지.
+    # 위 initialize_database_async() 가 스키마 변경 전에 async 풀 커넥션을 만들어 구 스키마 plan 을 캐시하므로,
+    # 마이그 직후 풀을 폐기해 이후 요청이 새 스키마로 prepare 하도록 강제한다(무인 배포 시 전이 500 제거).
+    from app.database import async_engine
+    await async_engine.dispose()
+    print("[OK] async engine pool disposed post-migration (prepared-cache reset)")
+
     # DB-02 (2026-07-09): api_logs 월별 파티션 사전 보장 (당월+6개월).
     # v60 파티셔닝은 2026-10 까지만 생성 → 경계 초과 시 INSERT 실패. 여기서 멱등 확장.
     # 방어적: 실패해도 당월 파티션은 이미 있어 기동 계속 (스케줄러가 재보장).

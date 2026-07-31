@@ -4,6 +4,10 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [6.3.1] - 2026-07-31
+
+> 버그픽스 릴리즈 — 서버 시드/프록시 설정 정합 (하루 1버전 묶음: `proxy_mandatory_seed` + `proxy_settings_typed`). Swagger `info.version` 6.3.0 → **6.3.1**.
+
 ### v6.3-proxy_settings_typed — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
 
 > proxy-settings(GET/PATCH/PUT)가 기획상 Proxy 전용인데 모든 server_id를 받던 문제. 비-PROXY는 404로 거부.

@@ -33,7 +33,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime, timedelta
-from app.utils.datetime import to_utc, utc_now
+from app.utils.datetime import to_utc, utc_now, to_display
 from urllib.parse import quote
 import os
 
@@ -745,11 +745,14 @@ async def generate_report(
     if request_data.start_date is not None and request_data.end_date is not None:
         start_date = request_data.start_date
         end_date = request_data.end_date
-        # FR-RCD-03 경계 정규화: 끝일이 00:00:00 시각으로 왔으면 "그날 전체" 커버 의미로 판단
-        # → 23:59:59.999999로 확장 (끝일 포함 시맨틱). 시간까지 명시했으면 그대로.
-        if (end_date.hour == 0 and end_date.minute == 0
-                and end_date.second == 0 and end_date.microsecond == 0):
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # FR-RCD-03 경계 정규화: 끝일이 DISPLAY_TZ 자정(00:00)으로 왔으면 "그날 전체" 커버로 판단
+        # → 그날 23:59:59.999999(DISPLAY_TZ)로 확장 후 UTC 저장 (끝일 포함 시맨틱).
+        # datetime-unification: validator 가 end_date 를 이미 aware UTC 로 변환하므로,
+        # date-only/자정 판정은 DISPLAY_TZ 벽시계 기준으로 해야 한다(그러지 않으면 끝일 통째 누락).
+        _end_local = to_display(end_date)
+        if (_end_local.hour == 0 and _end_local.minute == 0
+                and _end_local.second == 0 and _end_local.microsecond == 0):
+            end_date = to_utc(_end_local.replace(hour=23, minute=59, second=59, microsecond=999999))
         period_type_value = "custom"
     else:
         start_date, end_date = _calculate_date_range(request_data.period_type.value)

@@ -9,6 +9,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_async_db
+from app.utils.datetime import to_display
 from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Camera
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
@@ -77,8 +78,8 @@ async def get_camera_presets(
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
             "roi_count": roi_count,
-            "created_at": preset.created_at.isoformat(),
-            "updated_at": preset.updated_at.isoformat()
+            "created_at": to_display(preset.created_at).isoformat(),
+            "updated_at": to_display(preset.updated_at).isoformat()
         }
         if include_rois:
             rois_list = (await db.execute(
@@ -188,8 +189,8 @@ async def get_camera_preset(
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
             "rois": rois_data,
-            "created_at": preset.created_at.isoformat(),
-            "updated_at": preset.updated_at.isoformat()
+            "created_at": to_display(preset.created_at).isoformat(),
+            "updated_at": to_display(preset.updated_at).isoformat()
         }
     )
 
@@ -259,8 +260,8 @@ async def create_camera_preset(
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
             "roi_count": 0,
-            "created_at": preset.created_at.isoformat(),
-            "updated_at": preset.updated_at.isoformat()
+            "created_at": to_display(preset.created_at).isoformat(),
+            "updated_at": to_display(preset.updated_at).isoformat()
         }
     )
 
@@ -353,8 +354,8 @@ async def update_camera_preset(
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
             "roi_count": roi_count,
-            "created_at": preset.created_at.isoformat(),
-            "updated_at": preset.updated_at.isoformat()
+            "created_at": to_display(preset.created_at).isoformat(),
+            "updated_at": to_display(preset.updated_at).isoformat()
         }
     )
 
@@ -429,8 +430,8 @@ async def replace_camera_preset(
             "preset_name": preset.preset_name,
             "touring_time": preset.touring_time,
             "roi_count": roi_count,
-            "created_at": preset.created_at.isoformat(),
-            "updated_at": preset.updated_at.isoformat()
+            "created_at": to_display(preset.created_at).isoformat(),
+            "updated_at": to_display(preset.updated_at).isoformat()
         }
     )
 

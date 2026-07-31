@@ -4,6 +4,24 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.3-proxy_settings_typed — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
+
+> proxy-settings(GET/PATCH/PUT)가 기획상 Proxy 전용인데 모든 server_id를 받던 문제. 비-PROXY는 404로 거부.
+
+- `app/routers/proxy_settings.py`: `_get_proxy_server_or_404` 헬퍼 — 카테고리 `type_server != PROXY` 면 404 + lazy-create 차단. GET/PATCH/PUT 공통.
+- **계약 변경**: 비-PROXY 서버 proxy-settings 호출은 이제 404(기존 200/upsert). junk 0건이라 정리 불필요 → .NET 소비 클라 통지 대상.
+- `tests/test_proxy_settings_router.py` 격리 async 재작성 **11 passed**(기존 sync TestClient가 실 gop.db 읽던 격리 버그도 해소). 라이브: PROXY=200 / VMS=404.
+- 롤백태그 `pre-proxy_settings_typed`.
+
+### v6.3-proxy_mandatory_seed — 필수 서버 유형 기본 시드 보장 (PROXY 누락 픽스) (2026-07-31)
+
+> PM 지적: PROXY 가 기본 서버 시드에서 누락(다른 9종만). 필수 유형은 항상 등록 보장 필요.
+
+- `DEFAULT_SERVER_CATEGORIES` 에 `PROXY`(sort_order 10) 추가 → 기본 카테고리 9 → **10종**. 카테고리는 유형별 idempotent(기존 DB 에도 자동 등록).
+- `MANDATORY_SERVER_TYPES = {PROXY, VMS, NVR_API, BROKER}` 도입. `create_sample_servers`(+async) 를 **전체 count>0 통째 스킵 → 유형 기준 보장** 으로 교체: 해당 유형에 서버가 0개일 때만 기본 인스턴스 생성(사용자 등록분 있으면 중복 미생성), 데모 유형은 빈 테이블일 때만 최초 시드.
+- 실측: 재배포 seed 로그 `Servers ensured (mandatory +0, demo +0)`(운영 DB 에 PROXY 기존재 → 중복 0), 카테고리 10 / 서버 15. `tests/test_server_seed.py` **7 passed**(중복 방지 포함), 기존 서버 테스트 회귀 0(사전 44 = 모델 리팩터 후 stale, 무관).
+- 파일: `app/utils/init_server_data.py` + `tests/test_server_seed.py`. 롤백태그 `pre-proxy_mandatory_seed`.
+
 ### v6.0-review0710_p0 — 재감사 P0 2건: 민감 GET 무인증 + refresh access orphan (2026-07-10)
 
 > 재감사 `docs/Analysis/API_Server_Overall_Review_20260710.md` P0-01/P0-02. 실측 확인 후 수정.

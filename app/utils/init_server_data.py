@@ -66,6 +66,12 @@ DEFAULT_SERVER_CATEGORIES = [
         "description": "함체 관리 API 서버",
         "sort_order": 9
     },
+    {
+        "name": "프록시 서버",
+        "type_server": EnumServerType.PROXY,
+        "description": "PidsProxy 서버 (장비 등록/운용 관문)",
+        "sort_order": 10
+    },
 ]
 
 
@@ -87,22 +93,34 @@ DEFAULT_SAMPLE_SERVERS = [
     {"type_server": EnumServerType.NVR_API,       "name": "NVRAPI-ab7701",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.70", "port": 8090, "hostname": "nvrapi-server-01"},
     {"type_server": EnumServerType.SPEAKER_API,   "name": "SPKAPI-ab8801",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.80", "port": 8091, "hostname": "spkapi-server-01"},
     {"type_server": EnumServerType.ENCLOSURE_API, "name": "ENCAPI-ab9901",  "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.90", "port": 8092, "hostname": "encapi-server-01"},
+    {"type_server": EnumServerType.PROXY,         "name": "PROXY-ab0001",   "status": EnumServerStatus.NORMAL,  "ip_address": "192.168.1.100", "port": 8100, "hostname": "proxy-server-01"},
 ]
 
 
-def _build_sample_server_rows(category_map: dict) -> list[dict]:
-    """DEFAULT_SAMPLE_SERVERS의 type_server를 category_id로 변환한 insert-ready row 목록.
+# 필수 서버 유형 — 유형 기준 보장. 해당 유형 서버가 하나도 없으면 기본 인스턴스 생성.
+# (사용자가 직접 등록한 동일 유형 서버가 있으면 중복 생성하지 않음.)
+# "일단" 4종 (추후 확장 가능). 나머지는 데모 취급(빈 테이블일 때만 최초 시드).
+MANDATORY_SERVER_TYPES = {
+    EnumServerType.PROXY,
+    EnumServerType.VMS,
+    EnumServerType.NVR_API,
+    EnumServerType.BROKER,
+}
+
+
+def _build_sample_server_rows(category_map: dict) -> list[tuple]:
+    """DEFAULT_SAMPLE_SERVERS를 (type_server, insert-ready row) 목록으로 변환.
 
     카테고리 매핑이 없으면 그 인스턴스는 스킵. sync/async 공통 사용.
     """
-    rows: list[dict] = []
+    rows: list[tuple] = []
     for entry in DEFAULT_SAMPLE_SERVERS:
         category_id = category_map.get(entry["type_server"])
         if category_id is None:
             continue
         row = {k: v for k, v in entry.items() if k != "type_server"}
         row["category_id"] = category_id
-        rows.append(row)
+        rows.append((entry["type_server"], row))
     return rows
 
 
@@ -147,21 +165,38 @@ def create_server_categories(db: Session) -> dict:
 
 
 def create_sample_servers(db: Session, category_map: dict):
-    """Create sample server instances for testing/demo (idempotent).
+    """서버 인스턴스 시드.
 
-    카테고리 9종을 모두 커버하는 인스턴스를 Static seed로 삽입.
+    - 필수(MANDATORY_SERVER_TYPES): 해당 '유형'에 서버가 하나도 없을 때만 기본 인스턴스 생성.
+      유형 기준 보장이라 사용자가 직접 등록한 동일 유형 서버가 있으면 중복 생성하지 않음.
+    - 데모(그 외): servers 테이블이 비었을 때만 최초 1회 시드 (사용자 삭제 존중).
     """
-    existing_count = db.query(Server).count()
-    if existing_count > 0:
-        print(f"[OK] Sample servers already exist: {existing_count}")
-        return
-
     rows = _build_sample_server_rows(category_map)
-    for row in rows:
-        db.add(Server(**row))
+    demo_seeded_before = db.query(Server).count() > 0   # 루프 전 스냅샷
 
-    db.commit()
-    print(f"[OK] Sample servers created: {len(rows)}")
+    # 필수 유형별 '이미 서버가 있는가' 스냅샷 (사용자 등록분 존중 — 중복 방지)
+    mandatory_type_has_server = {
+        t: db.query(Server).filter(Server.category_id == category_map[t]).first() is not None
+        for t in MANDATORY_SERVER_TYPES if t in category_map
+    }
+
+    created_mandatory = 0
+    created_demo = 0
+    for type_server, row in rows:
+        if type_server in MANDATORY_SERVER_TYPES:
+            if mandatory_type_has_server.get(type_server):
+                continue   # 그 유형 서버가 이미 존재 → 보장 충족(중복 안 만듦)
+            db.add(Server(**row))
+            created_mandatory += 1
+        else:
+            if demo_seeded_before:
+                continue
+            db.add(Server(**row))
+            created_demo += 1
+
+    if created_mandatory or created_demo:
+        db.commit()
+    print(f"[OK] Servers ensured (mandatory +{created_mandatory}, demo +{created_demo})")
 
 
 def initialize_server_data(db: Session, include_samples: bool = True):
@@ -230,20 +265,40 @@ async def create_server_categories_async(db: AsyncSession) -> dict:
 
 
 async def create_sample_servers_async(db: AsyncSession, category_map: dict) -> None:
-    """Async: Create sample server instances for testing/demo (idempotent)."""
+    """Async: 서버 인스턴스 시드 (필수=유형 기준 보장 / 데모=count 가드)."""
     from sqlalchemy import func
-    result = await db.execute(select(func.count()).select_from(Server))
-    existing_count = result.scalar() or 0
-    if existing_count > 0:
-        print(f"[OK] Sample servers already exist: {existing_count}")
-        return
-
     rows = _build_sample_server_rows(category_map)
-    for row in rows:
-        db.add(Server(**row))
 
-    await db.commit()
-    print(f"[OK] Sample servers created: {len(rows)}")
+    total = (await db.execute(select(func.count()).select_from(Server))).scalar() or 0
+    demo_seeded_before = total > 0
+
+    # 필수 유형별 '이미 서버가 있는가' 스냅샷 (사용자 등록분 존중 — 중복 방지)
+    mandatory_type_has_server = {}
+    for t in MANDATORY_SERVER_TYPES:
+        if t not in category_map:
+            continue
+        exists = (await db.execute(
+            select(Server).where(Server.category_id == category_map[t])
+        )).scalars().first()
+        mandatory_type_has_server[t] = exists is not None
+
+    created_mandatory = 0
+    created_demo = 0
+    for type_server, row in rows:
+        if type_server in MANDATORY_SERVER_TYPES:
+            if mandatory_type_has_server.get(type_server):
+                continue   # 그 유형 서버가 이미 존재 → 보장 충족(중복 안 만듦)
+            db.add(Server(**row))
+            created_mandatory += 1
+        else:
+            if demo_seeded_before:
+                continue
+            db.add(Server(**row))
+            created_demo += 1
+
+    if created_mandatory or created_demo:
+        await db.commit()
+    print(f"[OK] Servers ensured async (mandatory +{created_mandatory}, demo +{created_demo})")
 
 
 async def initialize_server_data_async(

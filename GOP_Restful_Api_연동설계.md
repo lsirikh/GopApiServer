@@ -3143,7 +3143,7 @@ Accept: application/json
 **Path Parameters**:
 - `camera_id` (int, required): Camera ID
 
-> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+> **Note**: (PROXY 서버에 한해) 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성). 비-PROXY 서버는 **404** (lazy-create 하지 않음).
 
 **Request Example**:
 ```http
@@ -12465,7 +12465,7 @@ Accept: application/json
 서버 모니터링 API는 GOP 시스템을 구성하는 다양한 서버들의 상태를 관리하고 모니터링하기 위한 API입니다.
 
 **주요 기능**:
-- 서버 카테고리 관리 (9개 기본 카테고리)
+- 서버 카테고리 관리 (10개 기본 카테고리)
 - 서버 인스턴스 CRUD
 - 대시보드용 서버 상태 요약
 
@@ -13452,7 +13452,7 @@ GET /api/servers/summary
 
 ### 8.5 기본 데이터 (Seed)
 
-시스템 초기화 시 다음 9개의 기본 서버 카테고리가 자동 생성됩니다:
+시스템 초기화 시 다음 10개의 기본 서버 카테고리가 자동 생성됩니다 (카테고리는 유형별 idempotent — 매 기동 시 없는 유형만 추가):
 
 | sort_order | name | type_server | description |
 |------------|------|-------------|-------------|
@@ -13465,6 +13465,9 @@ GET /api/servers/summary
 | 7 | NVR API 서버 | NVR_API | Network Video Recorder API 서버 |
 | 8 | SPEAKER API 서버 | SPEAKER_API | 스피커 제어 API 서버 |
 | 9 | 함체관리 API 서버 | ENCLOSURE_API | 함체 관리 API 서버 |
+| 10 | 프록시 서버 | PROXY | PidsProxy 서버 (장비 등록/운용 관문) |
+
+**필수 서버 유형 보장 (v6.3 후속 `proxy_mandatory_seed`)**: `PROXY / VMS / NVR_API / BROKER` 4종은 **유형 기준 보장** 대상 — 시스템 기동 시 해당 유형에 서버 인스턴스가 **하나도 없으면** 기본 인스턴스를 자동 생성한다. 이미 해당 유형 서버가 (사용자 등록분 포함) 존재하면 아무것도 만들지 않는다(중복 방지). 그 외 유형의 기본 인스턴스는 `servers` 테이블이 비어 있을 때만 최초 1회 시드된다.
 
 ---
 
@@ -13905,6 +13908,8 @@ GET /api/servers/summary
 ### 8.8 프록시 설정 API
 
 > **v3.6 신규**: PidsProxy 서버 운용 설정 (operation_mode, windy_mode) 관리
+>
+> **⚠ v6.3 후속 `proxy_settings_typed`**: 이 API(GET/PATCH/PUT)는 **PROXY 유형 서버 전용**입니다. 대상 서버의 카테고리가 PROXY 가 아니면 **404** 를 반환하며 설정을 lazy-create 하지 않습니다. (기존: 모든 서버 유형 허용 → **계약 변경**)
 
 #### 8.8.1 프록시 설정 조회
 
@@ -13917,7 +13922,7 @@ GET /api/servers/{server_id}/proxy-settings
 |---------|------|------|------|
 | server_id | integer | Y | Server ID |
 
-> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+> **Note**: (PROXY 서버에 한해) 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성). 비-PROXY 서버는 **404** (lazy-create 하지 않음).
 
 **Request Example**:
 ```http
@@ -16361,6 +16366,24 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `proxy_settings_typed` — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
+
+> PM 결정: `proxy-settings`(GET/PATCH/PUT)는 기획상 PROXY 서버 전용인데 코드가 모든 server_id 를 받아 비-PROXY 서버에도 lazy-create 되던 문제.
+
+- `app/routers/proxy_settings.py`: `_get_proxy_server_or_404` 헬퍼 도입 — 대상 서버 카테고리가 `PROXY` 가 아니면 **404**(lazy-create 차단). GET/PATCH/PUT 3곳 공통 적용(§8.8).
+- **계약 변경**: 기존엔 모든 서버 유형에서 200/upsert 가능 → 이제 비-PROXY 는 404. 현재 junk(비-PROXY) 설정 0건이라 정리 불필요. → **.NET 소비 클라 통지 대상**.
+- 테스트 `tests/test_proxy_settings_router.py` **격리 async 재작성(11 passed)** — 기존 sync TestClient 가 async 라우터의 `get_async_db` 미오버라이드로 실 파일 DB(data/gop.db)를 읽던 **사전 격리 버그**도 함께 해소(리포 표준 = 엔드포인트 함수 직접 태우기).
+- 라이브 검증: PROXY(id 17)=**200**, VMS(id 3)=**404**. 5중싱크(코드 + 명세 §8.8·본 체인지로그 + Swagger docstring + 이미지 재빌드 + 컨테이너 healthy). 롤백태그 `pre-proxy_settings_typed`.
+
+### [v6.3 후속] `proxy_mandatory_seed` — 필수 서버 유형 기본 시드 보장 (2026-07-31)
+
+> PM 지적: PROXY 가 기본 서버 시드에서 누락(다른 9종만 시드). 필수 서버 유형은 항상 등록 보장 필요.
+
+- **카테고리**: `DEFAULT_SERVER_CATEGORIES` 에 `PROXY`(프록시 서버, sort_order 10) 추가 → 9종 → **10종**. 카테고리는 유형별 idempotent라 기존 DB 에도 다음 기동 시 자동 등록(§8.5).
+- **필수 유형 보장**: `MANDATORY_SERVER_TYPES = {PROXY, VMS, NVR_API, BROKER}` 도입. `create_sample_servers`(+async) 가드를 **전체 count>0 통째 스킵 → 유형 기준 보장** 으로 교체 — 해당 유형에 서버가 하나도 없을 때만 기본 인스턴스 생성(사용자 등록분 존재 시 중복 미생성), 그 외 데모 유형은 `servers` 가 빌 때만 최초 시드.
+- **실측**: 재배포 후 기동 seed 로그 `Servers ensured (mandatory +0, demo +0)`(운영 DB 에 PROXY 기존재 → 중복 미생성), 카테고리 10 / 서버 15. 단위 테스트 `tests/test_server_seed.py` **7 passed**(사용자 등록분 중복 방지 케이스 포함), 기존 서버 테스트 회귀 0(사전 44 실패는 `cpu_usage`→`ServerMetrics` 분리 후 stale 테스트로 무관).
+- 파일: `app/utils/init_server_data.py`. 5중싱크(코드 + 명세 §8.1·§8.5·본 체인지로그 + 이미지 재빌드 + 컨테이너 재기동).
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|

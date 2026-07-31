@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-07-31 (advance-phase 자동)
-- **총 문서 수**: 49개
+- **총 문서 수**: 52개
 
 ---
 
@@ -17,6 +17,7 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
+| [session-concurrency-and-auth-hardening-prd.md](prds/session-concurrency-and-auth-hardening-prd.md) | session-concurrency-and-auth-hardening | Draft | 2026-07-31 |
 | [event-suppression-schedule-prd.md](prds/event-suppression-schedule-prd.md) | event-suppression-schedule | Approved | 2026-07-31 |
 | [detection-sync-message-prd.md](prds/detection-sync-message-prd.md) | detection-sync-message | Draft | 2026-07-31 |
 | [datetime-timezone-unification-prd.md](prds/datetime-timezone-unification-prd.md) | datetime-timezone-unification | Draft | 2026-07-31 |
@@ -48,6 +49,8 @@
 
 | 파일 | 연관 PRD | 진행률 | 날짜 |
 |------|---------|--------|------|
+| [event-suppression-schedule-prd-plan.md](plans/event-suppression-schedule-prd-plan.md) | [PRD](prds/event-suppression-schedule-prd.md) | 0/46 | 2026-07-31 |
+| [detection-sync-message-prd-plan.md](plans/detection-sync-message-prd-plan.md) | [PRD](prds/detection-sync-message-prd.md) | 0/26 | 2026-07-31 |
 | [datetime-timezone-unification-prd-plan.md](plans/datetime-timezone-unification-prd-plan.md) | [PRD](prds/datetime-timezone-unification-prd.md) | 7/30 | 2026-07-31 |
 | [offline-installer-prd-plan.md](plans/offline-installer-prd-plan.md) | [PRD](prds/offline-installer-prd.md) | 0/38 | 2026-07-20 |
 | [grant-enforcement-hardening-prd-plan.md](plans/grant-enforcement-hardening-prd-plan.md) | [PRD](prds/grant-enforcement-hardening-prd.md) | 15/43 | 2026-07-20 |

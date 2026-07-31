@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Column, ForeignKey, Integer, String, DateTime
 from sqlalchemy.dialects.sqlite import INTEGER as SQLITE_INTEGER
 from app.database import Base
+from app.models.types import UtcDateTime
 
 
 class TokenBlacklist(Base):
@@ -30,8 +31,8 @@ class TokenBlacklist(Base):
     user_id = Column(Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True, index=True)
     token_type = Column(String(20), nullable=False, default="access")  # 'access' or 'refresh'
     reason = Column(String(50), nullable=False)  # LOGOUT / LOCK / PASSWORD_CHANGE / FORCED / REVOKED
-    expires_at = Column(DateTime, nullable=False, index=True)
-    revoked_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(UtcDateTime, nullable=False, index=True)
+    revoked_at = Column(UtcDateTime, nullable=False, default=datetime.utcnow)
 
     def __repr__(self):
         return f"<TokenBlacklist jti={self.jti[:8]}... reason={self.reason}>"

@@ -141,7 +141,11 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = '["*"]'
 
     # Timezone
+    # TIMEZONE: 과거 데이터가 저장된 벽시계 tz(마이그 origin). 저장 규약은 UTC(datetime-unification Option B).
     TIMEZONE: str = "Asia/Seoul"
+    # DISPLAY_TIMEZONE (datetime-unification): 출력(표시) 타임존. 저장은 UTC, 출력만 이 tz로 변환.
+    # 배포별 설정: Asia/Seoul(기본) / Europe/Budapest / America/New_York … (IANA 이름, DST 자동 처리).
+    DISPLAY_TIMEZONE: str = "Asia/Seoul"
 
     @field_validator("CORS_ORIGINS")
     @classmethod
@@ -171,6 +175,11 @@ class Settings(BaseSettings):
     def tz(self) -> ZoneInfo:
         """Get timezone object"""
         return ZoneInfo(self.TIMEZONE)
+
+    @property
+    def display_tz(self) -> ZoneInfo:
+        """출력 표시 타임존 (DISPLAY_TIMEZONE env). 저장=UTC, 출력=이 tz로 변환(datetime-unification)."""
+        return ZoneInfo(self.DISPLAY_TIMEZONE)
 
 
 # Create settings instance

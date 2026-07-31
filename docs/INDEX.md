@@ -1,8 +1,8 @@
 <!-- auto-section-start -->
 # 프로젝트 문서 인덱스
 
-- **마지막 갱신**: 2026-07-20 (advance-phase 자동)
-- **총 문서 수**: 40개
+- **마지막 갱신**: 2026-07-31
+- **총 문서 수**: 41개
 
 ---
 
@@ -10,6 +10,7 @@
 
 | 파일 | 분석 대상 | 날짜 |
 |------|---------|------|
+| [session-concurrency-policy-analysis.md](analyses/session-concurrency-policy-analysis.md) | 세션 동시성 정책(evict) 재설계 — 중복 세션 허용 + SSO 대비, 신규 설정 4키 + 선행 결함 4건 + FR-01~15 | 2026-07-31 |
 
 ## 요구사항 정의서 (docs/prds/)
 

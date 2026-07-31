@@ -12,6 +12,7 @@ from sqlalchemy import (
 from datetime import datetime
 
 from app.database import Base
+from app.models.types import UtcDateTime
 from app.config import settings
 
 
@@ -43,14 +44,14 @@ class TrackPoint(Base):
     longitude = Column(Float, nullable=False)                  # targets[].location.longitude
     distance_m = Column(Float)                                 # targets[].location.distance_m
     confidence = Column(Float)                                 # targets[].confidence
-    observed_at = Column(DateTime, nullable=False, index=True)  # targets[].observed_at (keyset 정렬키, naive KST)
+    observed_at = Column(UtcDateTime, nullable=False, index=True)  # targets[].observed_at (keyset 정렬키, naive KST)
     tracking_state = Column(String(16))                        # body.tracking (active 고정; 세션경계 참고)
     speed_mps = Column(Float)                                  # (선택) 서버 계산/미저장 시 클라 재계산
     session_seq = Column(Integer)                             # (선택) 세션 시퀀스
 
     # 인제스트 시각 (감사용) — naive KST 컨벤션(audit_log 동일)
     created_at = Column(
-        DateTime,
+        UtcDateTime,
         default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
         nullable=False,
     )

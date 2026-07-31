@@ -26,8 +26,10 @@ import logging
 # Patch FastAPI's datetime encoder to output ISO 8601 with +09:00 (KST)
 # Covers plain-dict responses that bypass Pydantic model serialization
 from fastapi.encoders import ENCODERS_BY_TYPE as _ENCODERS_BY_TYPE
+from app.utils.datetime import to_display, utc_now
 _KST = timezone(timedelta(hours=9))
-_ENCODERS_BY_TYPE[datetime] = lambda v: (v.replace(tzinfo=_KST) if v.tzinfo is None else v).isoformat()
+# datetime-unification: 저장 UTC → 출력 DISPLAY_TZ (plain-dict/JSONResponse 우회 경로 커버, DST 자동)
+_ENCODERS_BY_TYPE[datetime] = lambda v: to_display(v).isoformat()
 
 from app.config import settings
 from app.database import engine
@@ -579,7 +581,7 @@ def create_error_meta(request: Request) -> dict:
     PRD: PRD_API_Spec_Compliance.md - SPEC-003
     """
     return {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": to_display(utc_now()).isoformat(),  # datetime-unification: 성공 meta와 동일 DISPLAY_TZ
         "request_id": get_request_id(request)
     }
 

@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-07-31 (advance-phase 자동)
-- **총 문서 수**: 47개
+- **총 문서 수**: 49개
 
 ---
 
@@ -17,6 +17,8 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
+| [event-suppression-schedule-prd.md](prds/event-suppression-schedule-prd.md) | event-suppression-schedule | Approved | 2026-07-31 |
+| [detection-sync-message-prd.md](prds/detection-sync-message-prd.md) | detection-sync-message | Draft | 2026-07-31 |
 | [datetime-timezone-unification-prd.md](prds/datetime-timezone-unification-prd.md) | datetime-timezone-unification | Draft | 2026-07-31 |
 | [offline-installer-prd.md](prds/offline-installer-prd.md) | offline-installer | Draft | 2026-07-20 |
 | [grant-enforcement-hardening-prd.md](prds/grant-enforcement-hardening-prd.md) | grant-enforcement-hardening | Approved | 2026-07-20 |

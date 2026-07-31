@@ -850,7 +850,9 @@ async def refresh(
     from app.services import settings_service as _ss
     from app.services.settings_service import SettingKey as _SK
     if token_data.jti:
-        old_refresh_expires = utc_now() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS))
+        # FR-FIX-04: 옛 refresh 블랙리스트 TTL 은 stored refresh_expires_at(실제 만료)로.
+        #   설정값(now+days)로 계산하면 session_enabled=false 의 장기 refresh 가 조기 청소돼 방어층 소실.
+        old_refresh_expires = session.refresh_expires_at or (utc_now() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS)))
         add_to_blacklist(
             db=db,
             jti=token_data.jti,

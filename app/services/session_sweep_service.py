@@ -13,6 +13,7 @@ grant sweep과 동일한 방어 패턴:
 from __future__ import annotations
 
 from datetime import datetime
+from sqlalchemy import func
 from app.utils.datetime import utc_now
 
 from app.utils.enums import EnumLogoutReason
@@ -23,7 +24,8 @@ def find_expired_sessions(db, now: datetime):
     from app.models.user import UserSession
     return db.query(UserSession).filter(
         UserSession.is_active == True,
-        UserSession.expires_at < now,
+        # FR-FIX-01: refresh 수명 기준 판정 — access 만료(expires_at)로 유효한 refresh 무력화 방지.
+        func.coalesce(UserSession.refresh_expires_at, UserSession.expires_at) < now,
     ).all()
 
 
@@ -34,7 +36,8 @@ async def find_expired_sessions_async(db, now: datetime):
 
     stmt = select(UserSession).where(
         UserSession.is_active == True,
-        UserSession.expires_at < now,
+        # FR-FIX-01: refresh 수명 기준 판정 (access 만료로 refresh 무력화 방지).
+        func.coalesce(UserSession.refresh_expires_at, UserSession.expires_at) < now,
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())

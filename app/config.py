@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     OIDC_CLIENT_SECRET: str = ""
     OIDC_JWKS_URL: str = ""
 
+    # 이벤트 억제 스케줄 sweep 주기(분) — event-suppression PRD FR-06. 만료 창 is_active 정리(비권위 백스톱).
+    # ★ 억제 판정 비의존: 억제는 요청시점 계산(is_suppressed)이 권위. 본 값은 표시 최신성·통지 지연 상한만 좌우.
+    SUPPRESSION_SWEEP_INTERVAL_MINUTES: int = 5
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def reject_default_jwt_secret(cls, v: str) -> str:

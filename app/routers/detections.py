@@ -24,6 +24,7 @@ import math
 
 from app.dependencies import get_async_db
 from app.routers.auth import get_current_account_user_optional_async, require_perm_optional_async
+from app.services.event_suppression_service import is_suppressed, record_suppression, suppressed_response
 from app.models.event import DetectionEvent, ActionEvent, EnumTrueFalse, EnumDetectionType
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.models.device_group import DeviceGroupMapping
@@ -384,6 +385,12 @@ async def create_detection_event(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Device with id {event_data.device_id} not found"
         )
+
+    # 이벤트 억제(정비 창) 게이트 — 억제 창 매치 시 저장·상태플립·감사 생략(FR-05, device 조회 후·플립 전)
+    _suppressed, _sched_id = await is_suppressed(db, device.id, device.category_device, "detection")
+    if _suppressed:
+        record_suppression(device.id, "detection", _sched_id)
+        return suppressed_response("detection", _sched_id)
 
     # PRD_Malfunction_Device_Status v1.1: 탐지 이벤트 발생 = 장비 정상 작동
     device.status = EnumDeviceStatus.ACTIVATED

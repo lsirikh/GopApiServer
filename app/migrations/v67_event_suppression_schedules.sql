@@ -1,0 +1,39 @@
+-- v67: 이벤트 억제 스케줄(정비 창) — event-suppression-schedule PRD v1.1
+--
+-- 1) config_change_logs.resource_type enum 에 SUPPRESSION_SCHEDULE 값 보강 (clone/업그레이드 DB 자가치유).
+--    배경: EnumConfigResourceType.SUPPRESSION_SCHEDULE 는 본 기능에서 추가된 값이나,
+--      Postgres 네이티브 enum(enumconfigresourcetype)은 create_all() 로 값이 추가되지 않는다.
+--      → 이 enum 이 먼저 생성된 DB(git clone 시 옛 named volume 잔존 등)엔 값이 없어,
+--        억제 스케줄 CRUD 의 감사 INSERT(resource_type='SUPPRESSION_SCHEDULE')가
+--        "invalid input value for enum enumconfigresourcetype" 로 실패한다.
+--    조치: 값이 없으면 추가(IF NOT EXISTS 로 멱등 — 이미 있으면 no-op).
+--    검증: PG16 에서 트랜잭션 내 ALTER TYPE ADD VALUE 정상(마이그레이션 러너 tx 호환, 커밋 후 사용 가능).
+ALTER TYPE enumconfigresourcetype ADD VALUE IF NOT EXISTS 'SUPPRESSION_SCHEDULE';
+
+-- 2) event_suppression_schedules 테이블은 ORM 모델(app/models/event_suppression.py)에서
+--    Base.metadata.create_all() 로 자동 생성된다(신규 enum 타입 enumsuppressiontargettype/
+--    enumsuppressionside/enumsuppressioneventscope 도 create_all 이 생성). 아래는 문서용 참고 스키마이며
+--    수동 적용이 필요한 경우에만 사용한다(create_all 이 이미 생성했으면 IF NOT EXISTS 로 no-op).
+--
+--    CREATE TABLE IF NOT EXISTS event_suppression_schedules (
+--        id                SERIAL PRIMARY KEY,
+--        name              VARCHAR(200) NOT NULL,
+--        description       VARCHAR(500),
+--        target_type       enumsuppressiontargettype NOT NULL,
+--        target_device_id  INTEGER REFERENCES devices(id) ON DELETE SET NULL,
+--        target_group_id   INTEGER REFERENCES device_groups(id) ON DELETE SET NULL,
+--        target_side       enumsuppressionside NOT NULL DEFAULT 'both',
+--        event_scope       enumsuppressioneventscope NOT NULL,
+--        window_start      TIMESTAMPTZ NOT NULL,
+--        window_end        TIMESTAMPTZ NOT NULL,
+--        recurrence_rule   VARCHAR(255),
+--        is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+--        revoked_at        TIMESTAMPTZ,
+--        created_by        INTEGER REFERENCES account_users(id) ON DELETE SET NULL,
+--        created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+--        updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+--    );
+--    CREATE INDEX IF NOT EXISTS ix_suppression_gate_window
+--        ON event_suppression_schedules (window_start, window_end);
+--    CREATE INDEX IF NOT EXISTS ix_suppression_sweep
+--        ON event_suppression_schedules (is_active, window_end);

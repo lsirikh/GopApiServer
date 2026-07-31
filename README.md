@@ -9,7 +9,7 @@
 
 GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-> **현재 버전**: v6.3.1 (2026-07-31 버그픽스 4건 — PROXY 기본 시드 누락 보강(필수 유형 보장) · proxy-settings PROXY 전용 강제 · server_metrics collected_at 타임존 INSERT · 세션설정 config enum(SETTINGS) 자가치유. `release/v6.3` 브랜치).
+> **현재 버전**: v6.3.1 (2026-07-31 — 버그픽스 4건[PROXY 기본 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 INSERT · 세션설정 config enum 자가치유] + 기능[탐지 이벤트 SYNC 발행 `detection_sync`]. `release/v6.3` 브랜치).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 >
 > 🚧 **진행 중 (v6.3 후속 · `grant-enforcement-hardening`)** — 권한부여(grant) 시간기반 집행 하드닝:
@@ -454,7 +454,7 @@ api-test-server/
 
 | 버전 | 날짜 | 헤드라인 |
 |---|---|---|
-| **v6.3.1** | 2026-07-31 | **버그픽스 4건** — PROXY 기본 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 INSERT · 세션설정 config enum(SETTINGS) 자가치유 |
+| **v6.3.1** | 2026-07-31 | **버그픽스 4건 + 기능** — PROXY 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 · 세션설정 config enum 자가치유 · **탐지 이벤트 SYNC 발행(detection_sync)** |
 | v6.3 | 2026-07-13 | 버전 승격 — v6.0 후속 21 topic 확정 (Async 대전환 + 보안 하드닝) |
 | **v6.0** | 2026-07-03 | **Async 대전환** — 41 라우터 async, GOPDB A-7 6/6 완결, autoheal + partition |
 | v5.4 | 2026-07-03 | Reports RBAC + `AUTH_MODE=token` 기본화 + A-7 저리스크 4건 |

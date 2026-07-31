@@ -4,6 +4,10 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [6.3.1] - 2026-07-31
+
+> 2026-07-31 릴리즈 (하루 1버전 묶음): **[버그픽스]** `proxy_mandatory_seed` · `proxy_settings_typed` · `server_metrics_tz_fix` · `settings_config_enum` + **[기능]** `detection_sync`(SYNC_DETECTION). Swagger `info.version` 6.3.0 → **6.3.1**.
+
 ### v6.3-detection_sync — 탐지 이벤트 SYNC 발행 (PTZ 회전후 썸네일 갱신 통지) (2026-07-31)
 
 > 신규기능(PRD `docs/prds/detection-sync-message-prd.md` v1.2 Approved → plan → dev). 탐지 이벤트 UPDATE/DELETE 시 NATS `SYNC_DETECTION` 발행. 1차 동인 = PTZ 카메라가 탐지 후 회전해 촬영한 썸네일 갱신을 GIS가 재수신.
@@ -13,10 +17,6 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 - `app/schemas/event.py`: `DetectionDetail`에 `frame_width`/`frame_height`(px, bbox 해석 기준) + Swagger 예시 4곳 — broker-v15 교차검증 GAP 동반 해소.
 - 라이브 검증: POST→미발행 / PATCH detail→`{UPDATED,id}` / DELETE→`{DELETED,id}`, subject=`all.sync.detection`·from=DBApi(필드 DETECT 무유출). `tests/test_detection_detail_frame.py` 3 passed.
 - 브로커 명세 §3.2/§6.1/§9.11 신설/카탈로그 갱신 + .NET 통지문서. 롤백태그 `pre-detection_sync`. ⚠ 전제: 회전 후 `detail` PATCH 주체(AiAnalysis/NVRManager) 클라 조율.
-
-## [6.3.1] - 2026-07-31
-
-> 버그픽스 릴리즈 (하루 1버전 묶음, 2026-07-31): `proxy_mandatory_seed` + `proxy_settings_typed` + `server_metrics_tz_fix` + `settings_config_enum`. Swagger `info.version` 6.3.0 → **6.3.1**.
 
 ### v6.3-settings_config_enum — 세션설정 변경 500 수정 (config enum SETTINGS 보강) (2026-07-31)
 

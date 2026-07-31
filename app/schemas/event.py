@@ -41,6 +41,8 @@ class DetectionDetail(BaseModel):
     """Detection Event 확장 정보 (PRD_Event_Detail_JsonB.md v1.0)"""
     result: Optional[str] = Field(None, description="탐지 결과")
     signal: Optional[int] = Field(None, description="탐지 신호 크기")
+    frame_width: Optional[int] = Field(None, description="AI 추론 프레임 가로 해상도(px) — objects[].bbox 좌표 해석 기준")
+    frame_height: Optional[int] = Field(None, description="AI 추론 프레임 세로 해상도(px) — objects[].bbox 좌표 해석 기준")
     thumbnail: str = Field(..., description="썸네일 HTTP URL (카메라 연동 시 필수)")
     objects: Optional[List[DetectionDetailObject]] = Field(None, description="탐지 객체 목록")
     model: Optional[str] = Field(None, description="AI 모델명")
@@ -84,6 +86,8 @@ class DetectionEventCreate(BaseModel):
             "example": {
                 "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
                 "signal": 1500,
+                "frame_width": 1920,
+                "frame_height": 1080,
                 "objects": [
                     {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
                 ],
@@ -131,6 +135,8 @@ class DetectionEventResponse(BaseModel):
             "example": {
                 "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
                 "signal": 1500,
+                "frame_width": 1920,
+                "frame_height": 1080,
                 "objects": [
                     {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
                 ],
@@ -168,6 +174,8 @@ class DetectionEventReplace(BaseModel):
             "example": {
                 "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
                 "signal": 1500,
+                "frame_width": 1920,
+                "frame_height": 1080,
                 "objects": [
                     {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
                 ],
@@ -204,6 +212,8 @@ class DetectionEventUpdate(BaseModel):
             "example": {
                 "thumbnail": "http://192.168.1.50:8080/events/1001/thumb.jpg",
                 "signal": 1500,
+                "frame_width": 1920,
+                "frame_height": 1080,
                 "objects": [
                     {"label": "person", "confidence": 0.95, "bbox": [100, 200, 50, 100]}
                 ],

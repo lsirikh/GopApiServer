@@ -8,7 +8,7 @@ db_monitor(pg_notify→NATS publish)의 **역방향** 미러:
 - 신버전 TRACKING_STATUS body.targets[] 를 행으로 영속(tracking == "active" 만).
 - 구버전(단일 body.target/target_location) 수신 시 방어 정규화(합의 전 호환).
 - 멱등: UNIQUE(track_id, observed_at) → ON CONFLICT DO NOTHING.
-- observed_at(UTC ISO) → naive KST 변환(읽기 API KSTDatetime 직렬화 정합).
+- observed_at(UTC ISO) → aware UTC 저장(datetime-unification: track_points.observed_at=timestamptz).
 """
 import asyncio
 import json
@@ -30,12 +30,17 @@ ON CONFLICT (track_id, observed_at) DO NOTHING
 
 
 def _parse_observed_at(iso_str: str) -> datetime:
-    """ISO 8601(UTC, Z 허용) → naive KST datetime. 파싱 실패 시 ValueError."""
+    """ISO 8601(UTC, Z 허용) → aware UTC datetime. 파싱 실패 시 ValueError.
+
+    datetime-unification(2026-07-31): track_points.observed_at 가 timestamptz 로 전환됨.
+    naive-KST 를 넣으면 asyncpg 가 naive 를 UTC 로 간주해 +9h 미래로 조용히 저장(데이터 오염)하므로
+    aware UTC 로 바인딩한다.
+    """
     s = iso_str.replace("Z", "+00:00")
     dt = datetime.fromisoformat(s)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)  # tz 없으면 UTC 가정
-    return dt.astimezone(KST).replace(tzinfo=None)
+    return dt.astimezone(timezone.utc)
 
 
 def _normalize_legacy(body: dict, envelope: dict) -> list[dict]:
@@ -109,9 +114,9 @@ def parse_tracking_status(envelope: dict) -> list[dict]:
 async def _insert_rows(pool, rows: list[dict]) -> int:
     if not rows:
         return 0
-    # created_at = 인제스트 시각(naive KST). raw asyncpg 경로라 ORM Python default 미적용 →
-    # 명시 지정(컬럼 NOT NULL, DB default 없음).
-    ingested_at = datetime.now(KST).replace(tzinfo=None)
+    # created_at = 인제스트 시각(aware UTC). raw asyncpg 경로라 ORM Python default 미적용 →
+    # 명시 지정(컬럼 NOT NULL, DB default 없음). datetime-unification: timestamptz 정합.
+    ingested_at = datetime.now(timezone.utc)
     params = [
         (r["camera_id"], r["track_id"], r["label"], r["threat_level"],
          r["latitude"], r["longitude"], r["distance_m"], r["confidence"],

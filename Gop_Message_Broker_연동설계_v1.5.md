@@ -477,6 +477,7 @@ sensorway.{부대ID}.{서브시스템}.event.{type}           (이벤트 — 5�
 | `sensorway.unit001.all.sync.file-group` | DBApi | All | SYNC_FILE_GROUP | 파일그룹 동기화 |
 | `sensorway.unit001.all.sync.camera-setting` | DBApi | All | SYNC_CAMERA_SETTING | 카메라 설정 동기화 |
 | `sensorway.unit001.all.sync.proxy-setting` | DBApi | All | SYNC_PROXY_SETTING | 프록시 설정 동기화 |
+| `sensorway.unit001.all.sync.detection` | DBApi | All | SYNC_DETECTION | 탐지 이벤트 상태(action_reported)·detail(회전 후 썸네일) 변경 알림 (UPDATE/DELETE만, INSERT 미발행) |
 
 ### 3.3 구독 패턴
 
@@ -699,6 +700,7 @@ NATS 메시지 body의 Enum 필드는 REST API와 동일한 값을 사용하여 
 | 38 | `SYNC_FILE_GROUP` | `sensorway.{부대ID}.all.sync.file-group` | DBApi → All | PUB | `GET /api/file-groups/{id}` |
 | 39 | `SYNC_CAMERA_SETTING` | `sensorway.{부대ID}.all.sync.camera-setting` | DBApi → All | PUB | `GET /api/devices/cameras/{camera_id}/settings` |
 | 40 | `SYNC_PROXY_SETTING` | `sensorway.{부대ID}.all.sync.proxy-setting` | DBApi → All | PUB | `GET /api/servers/{server_id}/proxy-settings` |
+| 41 | `SYNC_DETECTION` | `sensorway.{부대ID}.all.sync.detection` | DBApi → All | PUB | `GET /api/events/detections/{id}` |
 
 > **동기화 메시지 = 알림(Notification)만 전달**
 > - NATS 메시지 body에는 `action`, `resource_id`만 포함 (데이터 없음!)
@@ -806,6 +808,8 @@ NATS 메시지 body의 Enum 필드는 REST API와 동일한 값을 사용하여 
 > **AI 영상 탐지 (VMS_DETECT)**: AiAnalysis 기반 영상 AI 탐지 이벤트는 `all.event_ai.detect` 브로드캐스트 외에, AiAnalysis가 VMS/GIS에게 카메라 URL과 이벤트 매핑 정보를 포함한 VMS_DETECT를 **PUB**(브로드캐스트, 수신자 VMS·GIS 둘)로 직접 전달합니다. 섹션 8.2.1 VMS_DETECT를 참조하세요.
 
 ---
+
+> **DBApi는 탐지 INSERT를 재발행하지 않는다(중복 방지)**: 최초 `DETECT`는 필드(PidsProxy 센서 / AiAnalysis AI)가 유일 발행한다. DBApi는 탐지 행의 **UPDATE/DELETE**(예: PTZ 회전 후 `detail.thumbnail` 갱신, `action_reported` 변경)만 `SYNC_DETECTION`(§9.11)으로 **별도 subject·from(DBApi)** 으로 알린다. (v6.3 detection-sync-message)
 
 ### 6.2 Malfunction Event (장애)
 
@@ -2503,6 +2507,7 @@ def on_ptz_command(msg):
 | FileGroup | `SYNC_FILE_GROUP` | `all.sync.file-group` | 방송 파일 그룹 |
 | CameraSetting | `SYNC_CAMERA_SETTING` | `all.sync.camera-setting` | 카메라 설정 (v3.7) |
 | ProxySetting | `SYNC_PROXY_SETTING` | `all.sync.proxy-setting` | 프록시 설정 (v3.6) |
+| DetectionEvent | `SYNC_DETECTION` | `all.sync.detection` | 탐지 갱신 알림 — UPDATE/DELETE만, INSERT 미발행 (v6.3) |
 
 #### 동기화 흐름
 
@@ -2933,6 +2938,43 @@ def on_sync_message(msg):
 
 ---
 
+### 9.11 SYNC_DETECTION (탐지 이벤트 갱신 알림)
+
+**cmd**: `SYNC_DETECTION`  
+**Subject**: `sensorway.{부대ID}.all.sync.detection`  
+**방향**: DBApi → All  
+**m_type**: PUB  
+**트리거**: DetectionEvent **UPDATE / DELETE** 발생 시 (**INSERT 미발행** — 최초 탐지는 필드 `DETECT`(PidsProxy/AiAnalysis)가 이미 발행하므로 중복 방지)  
+
+> **데이터 조회**: 알림 수신 후 `GET /api/events/detections/{id}` 호출. 재조회 시 현재 `detail` = **PTZ 회전 후 갱신된 썸네일**(+`frame_width`/`frame_height`).
+>
+> **필요 이유(1차 동인)**: PTZ 카메라는 탐지 후 타겟으로 회전한 뒤 유효 썸네일을 촬영한다. 최초 `DETECT` 시점 썸네일은 회전 전이라, 회전 후 갱신분을 소비자(GIS)가 다시 받아야 정확한 상황도 오버레이가 완성된다. `action_reported`(조치 상태) 변경 통지도 겸한다.
+>
+> **필드 DETECT와 분리**: subject(`all.sync.*` ≠ `all.event.detect`) · from(`DBApi` ≠ PidsProxy/AiAnalysis) 양쪽으로 구분되어 원본 DETECT와 중복/오인이 없다. 알림형(패턴3)이라 body에 Full-DTO 를 싣지 않는다.
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655441002",
+  "m_type": "PUB",
+  "cmd": "SYNC_DETECTION",
+  "from": "DBApi",
+  "body": {
+    "action": "UPDATED",
+    "resource_id": 1001
+  },
+  "created": "2026-02-05T10:30:00.000Z"
+}
+```
+
+**body 필드 정의:**
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `action` | string | Y | `UPDATED`(상태/detail 변경) \| `DELETED`(삭제). INSERT 미발행이라 `CREATED` 없음 |
+| `resource_id` | integer | Y | DetectionEvent ID (REST API 조회용) |
+
+---
+
 ## 10. 에러 처리
 
 ### 10.1 RSP 에러 응답 구조
@@ -3021,6 +3063,7 @@ PUB 메시지는 응답이 없으므로 수신측에서 로컬 로깅으로 에�
 | 38 | all | SYNC_FILE_GROUP | `...all.sync.file-group` | PUB | DBApi | All |
 | 39 | all | SYNC_CAMERA_SETTING | `...all.sync.camera-setting` | PUB | DBApi | All |
 | 40 | all | SYNC_PROXY_SETTING | `...all.sync.proxy-setting` | PUB | DBApi | All |
+| 41 | all | SYNC_DETECTION | `...all.sync.detection` | PUB | DBApi | All |
 | 41 | all | SYSTEM_EVENT | `...all.event.system` | PUB | DBApi | All |
 | 42 | gis | ENCLOSURE_METRICS | `...gis.enclosure-metrics` | PUB | DBApi | GIS |
 

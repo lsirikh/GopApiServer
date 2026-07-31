@@ -34,6 +34,7 @@ CMD_SUBJECT_MAP = {
     "SYNC_FILE_GROUP":     "all.sync.file-group",
     "SYNC_CAMERA_SETTING": "all.sync.camera-setting",
     "SYNC_PROXY_SETTING":  "all.sync.proxy-setting",
+    "SYNC_DETECTION":      "all.sync.detection",     # 탐지 갱신 알림 (detection-sync-message, UPDATE/DELETE만, from=DBApi)
     "SYSTEM_EVENT":        "all.event.system",       # Full-DTO (gop_event 채널)
     "ENCLOSURE_METRICS":   "gis.enclosure-metrics",  # 주기 텔레메트리 (주기 태스크)
 }

@@ -4,7 +4,7 @@ PRD: PRD_Tracking_History_API.md §7 / Phase 6
 
 parse_tracking_status(envelope) → track_points 행 dict 리스트
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from gis_ingest.main import parse_tracking_status, _parse_observed_at
 
@@ -36,8 +36,8 @@ class TestParseTrackingStatus:
         assert rows[0]["distance_m"] == 120.5
         assert rows[0]["tracking_state"] == "active"
         assert rows[1]["distance_m"] is None
-        # observed_at UTC 10:30 → naive KST 19:30
-        assert rows[0]["observed_at"] == datetime(2026, 2, 5, 19, 30, 0)
+        # observed_at UTC 10:30 → aware UTC 10:30 유지(datetime-unification)
+        assert rows[0]["observed_at"] == datetime(2026, 2, 5, 10, 30, 0, tzinfo=timezone.utc)
 
     def test_should_skip_when_tracking_is_lost_or_idle(self):
         assert parse_tracking_status(_envelope([], tracking="lost")) == []
@@ -60,7 +60,7 @@ class TestParseTrackingStatus:
         assert rows[0]["camera_id"] == 201
         assert rows[0]["track_id"] == "201-legacy"
         assert rows[0]["latitude"] == 38.1
-        assert rows[0]["observed_at"] == datetime(2026, 2, 5, 19, 30, 0)  # created 기반
+        assert rows[0]["observed_at"] == datetime(2026, 2, 5, 10, 30, 0, tzinfo=timezone.utc)  # created 기반
 
     def test_should_skip_targets_missing_required_fields(self):
         env = _envelope([
@@ -83,11 +83,11 @@ class TestParseTrackingStatus:
 
 class TestParseObservedAt:
 
-    def test_should_convert_utc_z_to_naive_kst(self):
-        assert _parse_observed_at("2026-02-05T10:30:00.000Z") == datetime(2026, 2, 5, 19, 30, 0)
+    def test_should_convert_utc_z_to_aware_utc(self):
+        assert _parse_observed_at("2026-02-05T10:30:00.000Z") == datetime(2026, 2, 5, 10, 30, 0, tzinfo=timezone.utc)
 
-    def test_should_convert_utc_offset_to_naive_kst(self):
-        assert _parse_observed_at("2026-02-05T10:30:00+00:00") == datetime(2026, 2, 5, 19, 30, 0)
+    def test_should_convert_utc_offset_to_aware_utc(self):
+        assert _parse_observed_at("2026-02-05T10:30:00+00:00") == datetime(2026, 2, 5, 10, 30, 0, tzinfo=timezone.utc)
 
     def test_should_assume_utc_when_naive_input(self):
-        assert _parse_observed_at("2026-02-05T10:30:00") == datetime(2026, 2, 5, 19, 30, 0)
+        assert _parse_observed_at("2026-02-05T10:30:00") == datetime(2026, 2, 5, 10, 30, 0, tzinfo=timezone.utc)

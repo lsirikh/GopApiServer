@@ -36,7 +36,7 @@ from app.database import engine
 from app.db_triggers import apply_triggers
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import APILoggingMiddleware
-from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, grants, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking, settings as settings_router
+from app.routers import auth, logs, controllers, sensors, cameras, speakers, enclosures, lamps, detections, malfunctions, connections, actions, detection_logs, event_mappings, server_categories, servers, server_metrics, proxy_settings, camera_settings, system_events, device_groups, camera_presets, rois, xypoints, event_mapping_cameras, event_mapping_speakers, event_mapping_lamps, file_groups, enclosure_metrics, users, user_groups, grants, user_sessions, audit_logs, config_change_logs, reports, thumbnails, event_statistics, tracking, event_suppression_schedules, settings as settings_router
 from app.models.report import ReportGeneration
 from app.dependencies import get_db
 from app.utils.init_db import initialize_database_async, apply_idempotent_migrations
@@ -308,6 +308,7 @@ async def lifespan(app: FastAPI):
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from app.services.grant_service import run_grant_sweep
+        from app.services.event_suppression_service import run_suppression_sweep
         from app.services.session_sweep_service import run_session_sweep
         from app.services.api_logs_sweep_service import run_api_logs_sweep
         from app.services.api_logs_partition_service import ensure_api_log_partitions
@@ -316,6 +317,9 @@ async def lifespan(app: FastAPI):
         scheduler = AsyncIOScheduler(timezone=settings.tz)
         scheduler.add_job(run_grant_sweep, "interval", minutes=settings.GRANT_SWEEP_INTERVAL_MINUTES,
                           id="grant_sweep", coalesce=True, max_instances=1)
+        # 이벤트 억제 스케줄 만료 창 정리(비권위 백스톱) — event-suppression PRD FR-06
+        scheduler.add_job(run_suppression_sweep, "interval", minutes=settings.SUPPRESSION_SWEEP_INTERVAL_MINUTES,
+                          id="suppression_sweep", coalesce=True, max_instances=1)
         scheduler.add_job(run_session_sweep, "interval", minutes=5, id="session_sweep",
                           coalesce=True, max_instances=1)
         # v5.4 후속 (문서 A-7 #6): api_logs 무제한 성장 방지 — 일 1회(정오) 30일 이상 삭제
@@ -334,6 +338,7 @@ async def lifespan(app: FastAPI):
         _rescheduled = await grant_scheduler.reschedule_future_grants()
         print(f"Grant expiry jobs rescheduled on boot: {_rescheduled}")
         print(f"Grant sweep scheduler started (interval {settings.GRANT_SWEEP_INTERVAL_MINUTES}m)")
+        print(f"Suppression sweep scheduler started (interval {settings.SUPPRESSION_SWEEP_INTERVAL_MINUTES}m)")
         print("Session sweep scheduler started (interval 5m)")
         print("API logs sweep scheduler started (cron 12:00 daily, retention 30d)")
         print("API logs partition scheduler started (cron 00:05 daily, +6 months)")
@@ -771,6 +776,7 @@ app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(thumbnails.router, prefix="/api/thumbnails", tags=["Thumbnails"])
 app.include_router(event_statistics.router, prefix="/api/events/statistics", tags=["Event Statistics"])
 app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])
+app.include_router(event_suppression_schedules.router, prefix="/api", tags=["Event Suppression"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

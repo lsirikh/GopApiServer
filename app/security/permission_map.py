@@ -107,6 +107,10 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     # acknowledge 는 실제 POST 라우트 — 과거 PATCH 항목은 stale 이라 제거.
     #   POST /api/system-events/{}/acknowledge 는 route-level events:edit 가드로 보호(AUTH-01, 2026-07-09).
     ("DELETE", "/api/system-events/{}"): ("events", "delete"),
+    # 이벤트 억제 스케줄 (v6.3-event_suppression 신규) — 쓰기만 등록(GET은 라우트-레벨 require_perm)
+    ("POST", "/api/event-suppression-schedules"): ("events", "edit"),
+    ("PATCH", "/api/event-suppression-schedules/{}"): ("events", "edit"),
+    ("DELETE", "/api/event-suppression-schedules/{}"): ("events", "delete"),
     # Integrations — event mappings (v6.0 후속 Phase 5 확대)
     ("POST", "/api/integrations/event-mappings"): ("integrations", "edit"),
     ("PATCH", "/api/integrations/event-mappings/{}"): ("integrations", "edit"),

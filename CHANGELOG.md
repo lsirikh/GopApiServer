@@ -6,7 +6,19 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [6.3.1] - 2026-07-31
 
-> 2026-07-31 릴리즈 (하루 1버전 묶음): **[버그픽스]** `proxy_mandatory_seed` · `proxy_settings_typed` · `server_metrics_tz_fix` · `settings_config_enum` + **[기능]** `detection_sync`(SYNC_DETECTION). Swagger `info.version` 6.3.0 → **6.3.1**.
+> 2026-07-31 릴리즈 (하루 1버전 묶음): **[버그픽스]** `proxy_mandatory_seed` · `proxy_settings_typed` · `server_metrics_tz_fix` · `settings_config_enum` + **[기능]** `detection_sync`(SYNC_DETECTION) · `event_suppression`(정비 창 이벤트 수신 억제). Swagger `info.version` 6.3.0 → **6.3.1**.
+
+### v6.3-event_suppression — 스케줄 기반 이벤트 수신 억제(정비 창) 신규 (2026-07-31)
+
+> 신규기능(PRD `docs/prds/event-suppression-schedule-prd.md` v1.1 Approved → plan → dev → test → 배포). 공사·설치·장애수리·AS 기간에 **대상(장비/그룹/전체) × 이벤트유형(연결/탐지/장애/전체) × 시간창**을 지정해 이벤트 수신을 억제. ★범위=Phase 1(이 서버 **저장·DB파생 억제**; 라이브 NATS 방송 미차단=각 서브시스템 Phase 2, `docs/subsystems/event-suppression/`).
+
+- **모델/enum/마이그**: `app/models/event_suppression.py` `EventSuppressionSchedule`(테이블 `event_suppression_schedules`, `UtcDateTime` 시간창, target FK **SET NULL**, soft-cancel) + enum 4종(`EnumSuppressionTargetType`/`Side`/`EventScope`/`Status`) + `EnumConfigResourceType.SUPPRESSION_SCHEDULE`. `v67`(enum `ALTER TYPE ADD VALUE` 멱등) + `v69`(중간버전 DB FK CASCADE→SET NULL·인덱스 정합 self-heal), `IDEMPOTENT_MIGRATIONS` 등재.
+- **API(§6.8)**: 6 엔드포인트 `POST/GET(목록·필터)/GET active/GET {id}/PATCH/DELETE(soft-cancel)`. `ApiResponse`/`ApiSingleResponse`, 파생 status, `ConfigChangeLog` 감사. RBAC `require_perm("events", view|edit|delete)`, role=ADMIN bypass, 쓰기 3라우트 `PERMISSION_MAP` 등록.
+- **억제 게이트**: 공유 `event_suppression_service.is_suppressed()`(요청시점 lazy 평가=권위, **fail-open**: 오류 시 rollback 복구 후 정상 저장)를 `detections`/`malfunctions`/`connections` POST 핸들러의 **device 조회 후·상태 플립 전·db.add 전** 삽입. 매치 시 **202 `{suppressed:true}`**(무저장, 상태 플립 생략). sweep(`SUPPRESSION_SWEEP_INTERVAL_MINUTES` 기본5m)=비권위 백스톱. `connections` POST 라우트-레벨 `events:edit` 정합.
+- **감지/감시**: sensor/controller=detection, camera=surveillance, speaker/lamp/enclosure=보조(both만 매치). group·all 스코프에 `target_side` 적용.
+- **테스트**: `tests/test_event_suppression.py` **28 passed**(게이트 로직·CRUD·fail-open 세션복구·PATCH 혼합tz→422·PATCH FK정리 등). 회귀 0(stash 비교). code-review High 4건(fail-open 세션오염·PATCH 500·FK CASCADE 무단소멸·인덱스 불일치) 반영.
+- **라이브 검증**: 재빌드+재기동 healthy, v67/v69 적용, Swagger 6.3.1 신규 3경로, DB 테이블·enum·FK(SET NULL)·인덱스 실측 일치, Suppression sweep 기동. (인증 E2E 는 admin 비번 드리프트로 보류 — 단위테스트+스키마 검증 대체.)
+- **서브시스템 안내**: `docs/subsystems/event-suppression/`(README + Proxy/GIS/VMS/AiAnalysis/NVR/db_monitor). 롤백: git `pre-v6.3-event_suppression` / 이미지 `pids-api-server:pre-v6.3-event_suppression`.
 
 ### v6.3-detection_sync — 탐지 이벤트 SYNC 발행 (PTZ 회전후 썸네일 갱신 통지) (2026-07-31)
 

@@ -70,6 +70,8 @@ async def _remaining_active_admin_sessions(
         .where(
             UserSession.user_id.in_(admin_ids),
             UserSession.is_active == True,
+            # FR-SC 보강: 좀비(만료) 세션 제외 — 실제 살아있는 ADMIN 세션만 카운트(전원 잠금 오판 방지).
+            func.coalesce(UserSession.refresh_expires_at, UserSession.expires_at) > utc_now(),
         )
     )
     if exclude_session_id is not None:
@@ -304,13 +306,12 @@ async def delete_my_session(
             detail="Session not found or not your session"
         )
 
-    session.is_active = False
-    session.logout_reason = "SELF_LOGOUT"
-    # v6.0-force_logout_tz_fix (2026-07-07): logged_out_at 컬럼은 naive DateTime.
-    # tz-aware(Asia/Seoul) 를 넣으면 asyncpg 가 offset-naive/aware 비교 거부 → 500.
-    session.logged_out_at = utc_now()
-
-    await db.commit()
+    # FR-FIX-02: is_active 마킹만으론 발급된 access/refresh 토큰이 exp 까지 통과한다.
+    #   공통 폐기 서비스로 stored jti 를 stored 만료로 블랙리스트 + 세션 마킹까지 원자 수행.
+    #   (allow 정책 전환 시 '내 다른 세션 종료'가 주 UX 가 되므로 실효 폐기가 필수.)
+    from app.services.session_revoke_service import revoke_session_family_async
+    _revoke_targets = await revoke_session_family_async(
+        db, session, reason="SELF_LOGOUT", actor_id=current_user.id, commit=True)
 
     # 감사 로그 기록: SESSION_TERMINATED (자기 세션 종료)
     await log_action_async(
@@ -325,6 +326,11 @@ async def delete_my_session(
         resource_name=f"Session {session_id} ({current_user.login_id})",
         description=f"내 세션 종료: {current_user.login_id}"
     )
+
+    # FR-FIX-02: per-session NATS revoke (NATS_REVOKE_ENABLED off 시 무동작, best-effort)
+    for _sid, _jti in _revoke_targets:
+        await nats_revoke_publisher.publish_session_revoke(
+            user_id=current_user.id, session_id=_sid, jti=_jti, reason=EnumLogoutReason.MANUAL)
 
     return {
         "success": True,

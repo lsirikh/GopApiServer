@@ -24,7 +24,8 @@ from datetime import datetime
 import math
 
 from app.dependencies import get_async_db
-from app.routers.auth import get_current_account_user_optional_async
+from app.routers.auth import get_current_account_user_optional_async, require_perm_optional_async
+from app.services.event_suppression_service import is_suppressed, record_suppression, suppressed_response
 from app.models.event import ConnectionEvent
 from app.models.device import Device, Sensor, Controller, Camera, Speaker, Enclosure, Lamp
 from app.models.device_group import DeviceGroupMapping
@@ -334,7 +335,7 @@ async def get_connection_event(
     )
 
 
-@router.post("", response_model=ApiSingleResponse[ConnectionEventResponse], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiSingleResponse[ConnectionEventResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_perm_optional_async("events", "edit"))])
 async def create_connection_event(
     event_data: ConnectionEventCreate,
     current_user = Depends(get_current_account_user_optional_async),
@@ -366,6 +367,12 @@ async def create_connection_event(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Device with id {event_data.device_id} not found"
         )
+
+    # 이벤트 억제(정비 창) 게이트 — 억제 창 매치 시 저장·감사 생략(FR-05, db.add 전)
+    _suppressed, _sched_id = await is_suppressed(db, device.id, device.category_device, "connection")
+    if _suppressed:
+        record_suppression(device.id, "connection", _sched_id)
+        return suppressed_response("connection", _sched_id)
 
     # PRD v1.1: Generate device_description automatically
     device_description = _generate_device_description(device)

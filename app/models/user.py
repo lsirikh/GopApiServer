@@ -181,6 +181,13 @@ class UserSession(Base):
     logout_reason = Column(String(50), nullable=True)  # EnumLogoutReason value
     forced_by = Column(Integer, nullable=True)  # User ID who forced logout
 
+    # v6.3-session_concurrency: 클라이언트(앱) 식별 — allow 모드 self-replace 축 (FR-SC-03)
+    client_id = Column(String(64), nullable=True, index=True)
+    # SSO 연동 예약(FR-SSO-01) — 현 차수 미사용. 표준 OIDC 필드(향후 SSO Agent가 채움)
+    auth_source = Column(String(20), nullable=False, default="local")   # local / sso
+    idp_subject = Column(String(255), nullable=True)      # OIDC sub
+    idp_session_id = Column(String(255), nullable=True)   # OIDC sid (Back-Channel Logout 조회키)
+
     # Relationships
     user = relationship("AccountUser", back_populates="sessions")
 

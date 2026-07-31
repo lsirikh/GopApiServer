@@ -570,23 +570,44 @@ async def login(
     from app.services.settings_service import SettingKey
     _timeout_hours, _refresh_days = settings_service.resolve_session_expiry(db)
 
-    # v5.4 클라 지적 P1-B: SUPERSEDED — 로그인 시 같은 계정의 활성 세션들을 evict.
-    # 1) is_active=False + logout_reason=DUPLICATE 마킹
-    # 2) 각 세션 access token jti → 블랙리스트 등록 (revoke 즉시 발효)
-    # 3) NATS auth.revoke 발행 (best-effort, 게이트 off 시 무동작)
-    #
-    # 이렇게 하지 않으면 로그인마다 user_sessions 누적 + 이전 토큰 계속 유효(취약).
+    # v6.3-session_concurrency: 세션 동시성 정책 (FR-SC-01/02/03). 기본 evict_all=현행(단일세션) 보존.
+    #   evict_all → 같은 계정 활성 세션 전부 폐기. allow → 공존(+옵션 self-replace/cap).
+    # (evict 는 각 세션 access+refresh jti 를 실제 exp 로 블랙리스트 + is_active=False 마킹 + NATS.)
     from app.services.nats_revoke_publisher import publish_session_revoke as _publish_revoke
     from app.utils.enums import EnumLogoutReason as _EnumLogoutReason
     from app.services.session_revoke_service import revoke_session_family as _revoke_family
-    _superseded_sessions = db.query(UserSession).filter(
+
+    # FR-SC-03: 클라 식별 — X-Client-Id 헤더 우선, 없으면 body. 패턴 위반은 무시(로그인 가용성, 422 금지).
+    import re as _re
+    _client_id = request.headers.get("X-Client-Id") or getattr(login_data, "client_id", None)
+    if _client_id is not None:
+        _client_id = _client_id.strip()
+        if not _re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", _client_id or ""):
+            _client_id = None  # 무효값 무시(경고 로깅 생략)
+
+    _policy = settings_service.get(db, SettingKey.SESSION_CONCURRENCY_POLICY)
+    _active_sessions = db.query(UserSession).filter(
         UserSession.user_id == user.id,
         UserSession.is_active == True,
     ).all()
+    _to_evict = []
+    if _policy == "allow":
+        # self-replace(옵트인, 기본 off): 같은 (user_id, client_id) 세션만 교체.
+        #   ★공유 client_id 로 self-replace 를 켜면 상호 evict(§0.5 B-3) — 고유 client_id 전제.
+        if settings_service.get(db, SettingKey.SESSION_SELF_REPLACE_ENABLED) and _client_id:
+            _to_evict.extend(s for s in _active_sessions if s.client_id == _client_id)
+        # cap(FR-SC-02): 초과 시 미만료 세션을 오래된 순으로 evict(신규 1개 추가 후 max 유지).
+        _cap = settings_service.get(db, SettingKey.MAX_CONCURRENT_SESSIONS)
+        if _cap and _cap > 0:
+            _survivors = [s for s in _active_sessions if s not in _to_evict]
+            _over = len(_survivors) + 1 - _cap
+            if _over > 0:
+                _to_evict.extend(sorted(_survivors, key=lambda s: s.created_at)[:_over])
+    else:  # evict_all — 현행 단일세션(기본값)
+        _to_evict = _active_sessions
+
     _revoke_targets = []  # (session_id, access_jti) — commit 후 NATS 발행용
-    # FR-04 (Session Authority): 공통 폐기 서비스로 access+refresh **둘 다** 실제 exp 로 블랙리스트.
-    # (기존엔 access JTI 만 폐기 → 이전 기기 refresh 로 부활 가능하던 ACC-P0-04 결함.)
-    for _old in _superseded_sessions:
+    for _old in _to_evict:
         _revoke_targets.extend(
             _revoke_family(db, _old, reason=_EnumLogoutReason.DUPLICATE.value, actor_id=user.id)
         )
@@ -603,7 +624,8 @@ async def login(
         expires_at=utc_now() + timedelta(hours=_timeout_hours),
         is_active=True,
         ip_address=client_ip,
-        user_agent=user_agent
+        user_agent=user_agent,
+        client_id=_client_id,  # FR-SC-03
     )
     db.add(session)
     db.flush()  # session.id 확보 (commit 전)
@@ -850,7 +872,9 @@ async def refresh(
     from app.services import settings_service as _ss
     from app.services.settings_service import SettingKey as _SK
     if token_data.jti:
-        old_refresh_expires = utc_now() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS))
+        # FR-FIX-04: 옛 refresh 블랙리스트 TTL 은 stored refresh_expires_at(실제 만료)로.
+        #   설정값(now+days)로 계산하면 session_enabled=false 의 장기 refresh 가 조기 청소돼 방어층 소실.
+        old_refresh_expires = session.refresh_expires_at or (utc_now() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS)))
         add_to_blacklist(
             db=db,
             jti=token_data.jti,

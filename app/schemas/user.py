@@ -423,6 +423,11 @@ class AccountLoginRequest(BaseModel):
         description="비밀번호",
         json_schema_extra={"example": "admin123"}
     )
+    client_id: str | None = Field(
+        None,
+        description="클라이언트(앱) 식별자 — allow 모드 self-replace 축 (X-Client-Id 헤더로도 가능). 서버가 패턴 검증 후 무효값은 무시(로그인 차단 안 함).",
+        json_schema_extra={"example": "vms-service"}
+    )
 
 
 class RefreshTokenRequest(BaseModel):

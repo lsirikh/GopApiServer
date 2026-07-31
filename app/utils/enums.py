@@ -139,6 +139,48 @@ class EnumEventCategory(str, Enum):
     CONNECTION = "connection"     # 연결 이벤트
 
 
+# ============================================================
+# Event Suppression Schedule Enums (정비 창 기반 이벤트 수신 억제)
+# PRD: docs/prds/event-suppression-schedule-prd.md v1.1 §3.3
+# ============================================================
+
+class EnumSuppressionTargetType(str, Enum):
+    """억제 대상 스코프 (장비 / 그룹 / 전체)."""
+    DEVICE = "device"   # 단일 장비 (target_device_id)
+    GROUP = "group"     # 장비 그룹 (target_group_id → device_group_mappings 확장)
+    ALL = "all"         # 전체 장비 (전역, 선택적으로 side 필터)
+
+
+class EnumSuppressionSide(str, Enum):
+    """감지쪽/감시쪽 구분 (category_device 파생 적용). GROUP/ALL 스코프에 적용.
+
+    파생 매핑(D5, 도메인 확정): sensor/controller=DETECTION, camera=SURVEILLANCE,
+    speaker/lamp/enclosure=보조(감지·감시 어느 쪽도 아님 → BOTH 일 때만 매치).
+    """
+    DETECTION = "detection"         # 감지쪽 (센서/컨트롤러)
+    SURVEILLANCE = "surveillance"   # 감시쪽 (카메라)
+    BOTH = "both"                   # 양쪽 모두 (보조 장비 포함)
+
+
+class EnumSuppressionEventScope(str, Enum):
+    """억제할 이벤트 유형 (단일 선택). ALL 은 평가 시 3종 합집합으로 확장."""
+    CONNECTION = "connection"       # 연결보고
+    DETECTION = "detection"         # 탐지보고
+    MALFUNCTION = "malfunction"     # 장애보고
+    ALL = "all"                     # 모든 이벤트 (연결+탐지+장애)
+
+
+class EnumSuppressionStatus(str, Enum):
+    """억제 스케줄 파생 상태 (저장 안 함, 요청시점 계산).
+
+    우선순위: CANCELLED > PENDING > EXPIRED > ACTIVE.
+    """
+    PENDING = "pending"       # 시작 전 (now < window_start)
+    ACTIVE = "active"         # 유효 창 내 (window_start <= now < window_end)
+    EXPIRED = "expired"       # 종료됨 (now >= window_end)
+    CANCELLED = "cancelled"   # soft-cancel (revoked_at 설정)
+
+
 class EnumMappingEventCategory(str, Enum):
     """
     Mapping event category enumeration for EventMapping sensor combination type.
@@ -541,6 +583,9 @@ class EnumConfigResourceType(str, Enum):
 
     # 시스템 설정 (1개) — Session_Settings NFR-SVS-02 (런타임 세션정책 변경 감사)
     SETTINGS = "SETTINGS"                             # 세션/인증 정책 (resource_id=0 sentinel)
+
+    # 이벤트 억제 스케줄 (1개) — event-suppression-schedule PRD v1.1 (정비 창 CRUD 감사)
+    SUPPRESSION_SCHEDULE = "SUPPRESSION_SCHEDULE"     # 이벤트 수신 억제 스케줄(정비 창)
 
 
 class EnumConfigActionType(str, Enum):

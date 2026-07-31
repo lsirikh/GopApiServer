@@ -9976,6 +9976,107 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 
 ---
 
+### 6.8 이벤트 억제 스케줄 API *(v6.3 신규)*
+
+공사·설치·장애수리·AS 기간에 **대상(장비/그룹/전체) × 이벤트유형(연결/탐지/장애/전체) × 시간창**을 지정해 이벤트 수신을 억제하는 "정비 창(Maintenance Window)" 관리 API. 저장 테이블 `event_suppression_schedules`. 인가: `require_perm("events", view|edit|delete)`(role=ADMIN bypass, AUTH_MODE=token 강제). PRD: `docs/prds/event-suppression-schedule-prd.md` v1.1.
+
+> ★ **범위 경계(Phase 1)**: DBApi 는 브로커상 발행 전용이라 장비 이벤트가 HTTP POST 로만 유입된다. 본 억제는 **저장(persistence) + DB 파생 다운스트림**(이벤트 로그·통계·보고서·장비 상태 자동전환)을 막는다. PidsProxy/AiAnalysis 가 직접 발행하는 **실시간 NATS 방송은 막지 않는다** — 각 서브시스템이 `GET .../active` 를 조회해 라이브 반응을 억제하는 것이 Phase 2(`docs/subsystems/event-suppression/` 안내 참조).
+
+#### 6.8.1 Endpoint 목록
+
+| Method | Endpoint | 설명 | 인가 | 섹션 |
+|---|---|---|---|---|
+| POST | `/api/event-suppression-schedules` | 억제 스케줄 생성 | events:edit | 6.8.2 |
+| GET | `/api/event-suppression-schedules` | 목록(상태·대상 필터, 페이지) | events:view | 6.8.3 |
+| GET | `/api/event-suppression-schedules/active` | 현재 활성 창(배너·서브시스템 조회 훅) | events:view | 6.8.4 |
+| GET | `/api/event-suppression-schedules/{id}` | 단건 조회 | events:view | 6.8.5 |
+| PATCH | `/api/event-suppression-schedules/{id}` | 부분 변경 | events:edit | 6.8.6 |
+| DELETE | `/api/event-suppression-schedules/{id}` | 삭제(soft-cancel) | events:delete | 6.8.7 |
+
+**필드 요약** (Enum 은 §4 참조 — `# Python 정의 - app/utils/enums.py`):
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| name | string(200) | ✅ | 작업명/사유 |
+| description | string(500) | | 상세 |
+| target_type | enum | ✅ | `device` / `group` / `all` (EnumSuppressionTargetType) |
+| target_device_id | int | target=device 시 | 대상 장비 devices.id |
+| target_group_id | int | target=group 시 | 대상 그룹 device_groups.id |
+| target_side | enum | | `detection` / `surveillance` / `both`(기본). group·all 에 적용(감지=sensor/controller, 감시=camera 파생) |
+| event_scope | enum | ✅ | `connection` / `detection` / `malfunction` / `all` (EnumSuppressionEventScope) |
+| window_start / window_end | datetime | ✅ | 억제 시간창(KST +09:00, 저장 UTC). end>start, end 필수(자동 만료) |
+| status(응답) | enum | — | 파생 `pending`/`active`/`expired`/`cancelled`(EnumSuppressionStatus) |
+| is_active(응답) | bool | — | sweep 비정규화(표시용). 억제 권위는 요청시점 창 계산 |
+| revoked_at(응답) | datetime | — | soft-cancel 시각 |
+
+#### 6.8.2 POST `/api/event-suppression-schedules`
+
+**Request Body**:
+```json
+{
+  "name": "GOP 3구역 펜스 보수",
+  "target_type": "group",
+  "target_group_id": 5,
+  "target_side": "detection",
+  "event_scope": "all",
+  "window_start": "2026-08-01T09:00:00+09:00",
+  "window_end": "2026-08-01T18:00:00+09:00"
+}
+```
+
+**Response (201)**:
+```json
+{
+  "success": true,
+  "message": "억제 스케줄 생성 성공",
+  "data": {
+    "id": 12, "name": "GOP 3구역 펜스 보수", "description": null,
+    "target_type": "group", "target_device_id": null, "target_group_id": 5,
+    "target_side": "detection", "event_scope": "all",
+    "window_start": "2026-08-01T09:00:00+09:00", "window_end": "2026-08-01T18:00:00+09:00",
+    "recurrence_rule": null, "is_active": true, "status": "pending",
+    "revoked_at": null, "created_by": 1,
+    "created_at": "2026-07-31T20:00:00+09:00", "updated_at": "2026-07-31T20:00:00+09:00"
+  }
+}
+```
+
+**Error**: 400(대상 device/group 미존재) · 422(end≤start, target_type↔id 불일치, enum 불량) · 401/403(인가).
+
+#### 6.8.3 GET `/api/event-suppression-schedules`
+
+Query: `page`(≥1), `limit`(1~100), `status`(pending/active/expired/cancelled), `target_type`, `device_id`, `group_id`. 응답: `ApiResponse[list]` + `pagination`.
+
+#### 6.8.4 GET `/api/event-suppression-schedules/active`
+
+현재 활성(진행 중) 창만 반환(revoked 제외, `window_start<=now<window_end`). UI 배너 및 외부 서브시스템(GIS/VMS/Proxy)의 조회 훅. 응답 형식은 6.8.3 목록과 동일(pagination 없음).
+
+#### 6.8.5 GET `/api/event-suppression-schedules/{id}`
+단건. **Error**: 404.
+
+#### 6.8.6 PATCH `/api/event-suppression-schedules/{id}`
+부분 변경(창/스코프/side/유형). target_type 변경 시 불일치 FK 자동 정리. **Error**: 404 · 422(end≤start, target 정합).
+
+#### 6.8.7 DELETE `/api/event-suppression-schedules/{id}`
+soft-cancel(`revoked_at` 세팅 + `is_active=false`, 물리삭제 아님). 응답에 취소된 스케줄(status=cancelled) 반환. **Error**: 404.
+
+#### 6.8.8 억제 게이트 (이벤트 수신 핸들러 동작)
+
+`POST /api/events/detections|malfunctions|connections` 이벤트가 활성 억제 창에 걸리면, 서버는 **201 대신 202** 를 반환하고 레코드를 생성하지 않으며 장비 상태 플립(탐지→ACTIVATED / 장애→ERROR)도 건너뛴다:
+
+```json
+HTTP/1.1 202 Accepted
+{ "success": true, "suppressed": true,
+  "message": "Event (detection) suppressed by active maintenance window",
+  "schedule_id": 12 }
+```
+
+- 발행/POST 주체(PidsProxy/AiAnalysis)는 **202 를 성공(억제됨)으로 처리**(재시도 금지). 자세히는 `docs/subsystems/event-suppression/Proxy.md`.
+- `connection` POST 는 본 차수부터 라우트-레벨 `events:edit` 데코레이터 정합(기존에도 중앙 매트릭스로 token 모드 인가됨).
+- 억제 판정은 요청시점 계산(권위), sweep(`SUPPRESSION_SWEEP_INTERVAL_MINUTES` 기본 5분)은 만료 창 `is_active` 정리(비권위 백스톱). 게이트 오류 시 **fail-open**(억제 안 함, 이벤트 정상 저장).
+
+---
+
 ## 7. Integration API 설계
 
 ### 7.1 개요
@@ -16010,6 +16111,14 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 - `GET /api/events/statistics/by-device` - 제어기별/카메라별 이벤트 건수 (막대 그래프)
 - `GET /api/events/statistics/dashboard` - 대시보드 통합 (summary + trend + by-device)
 
+**Event Suppression Schedules** (v6.3 신규):
+- `POST /api/event-suppression-schedules` - 억제 스케줄 생성 (events:edit)
+- `GET /api/event-suppression-schedules` - 목록(상태·대상 필터, 페이지) (events:view)
+- `GET /api/event-suppression-schedules/active` - 현재 활성 창(배너·서브시스템 조회 훅) (events:view)
+- `GET /api/event-suppression-schedules/{id}` - 단건 조회 (events:view)
+- `PATCH /api/event-suppression-schedules/{id}` - 부분 변경 (events:edit)
+- `DELETE /api/event-suppression-schedules/{id}` - 삭제(soft-cancel) (events:delete)
+
 #### Integration Endpoints
 
 **Event Mappings**:
@@ -16383,6 +16492,17 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `event_suppression` — 스케줄 기반 이벤트 수신 억제(정비 창) 신규 (2026-07-31)
+
+> 신규기능(PRD→plan→dev→test). 공사·설치·장애수리·AS 기간에 **대상(장비/그룹/전체) × 이벤트유형(연결/탐지/장애/전체) × 시간창**을 지정해 이벤트 수신을 억제. §6.8 신규. ★범위=Phase 1(이 서버 **저장·DB파생 억제**; 라이브 NATS 방송 미차단=Phase 2 각 서브시스템 몫, `docs/subsystems/event-suppression/`).
+
+- **데이터/enum**: `app/models/event_suppression.py` `EventSuppressionSchedule`(테이블 `event_suppression_schedules`, `UtcDateTime` 시간창, target FK `SET NULL`, soft-cancel) + `app/utils/enums.py` enum 4종(`EnumSuppressionTargetType`/`Side`/`EventScope`/`Status`) + `EnumConfigResourceType.SUPPRESSION_SCHEDULE`. 마이그 `v67_event_suppression_schedules.sql`(enum `ALTER TYPE ADD VALUE IF NOT EXISTS` 멱등 + `IDEMPOTENT_MIGRATIONS` 등재; 테이블은 create_all).
+- **API(§6.8)**: 6개 엔드포인트 `POST/GET(목록·필터)/GET active/GET {id}/PATCH/DELETE(soft-cancel)`. `ApiResponse`/`ApiSingleResponse` 엔벌로프, 파생 status, `ConfigChangeLog` 감사. RBAC `require_perm("events", view|edit|delete)`, role=ADMIN bypass. 신규 쓰기 3라우트 `PERMISSION_MAP` 등록.
+- **억제 게이트(핵심)**: 공유 서비스 `event_suppression_service.is_suppressed()` 를 `detections`/`malfunctions`/`connections` POST 핸들러의 **device 조회 후·장비 상태 플립 전·db.add 전** 삽입. 매치 시 **202 `{suppressed:true}`**(무저장, 상태 플립 생략). **fail-open**(게이트 오류 시 rollback 복구 후 정상 저장). lazy 요청시점 평가=권위, sweep(`SUPPRESSION_SWEEP_INTERVAL_MINUTES` 기본5m)=비권위 백스톱. `connections` POST 라우트-레벨 `events:edit` 데코레이터 정합.
+- **감지/감시**: sensor/controller=detection, camera=surveillance, speaker/lamp/enclosure=보조(both일 때만 매치). group·all 스코프에 `target_side` 적용.
+- **테스트**: `tests/test_event_suppression.py` **28 passed**(side파생·매치·status·게이트 device/group/all·side필터·category·window경계·revoked·ALL확장·action제외·CRUD수명주기·fail-open세션복구·PATCH혼합tz→422·PATCH FK정리). 회귀 0.
+- **서브시스템 안내**: `docs/subsystems/event-suppression/`(README + Proxy/GIS/VMS/AiAnalysis/NVR/db_monitor) — 각 서브시스템이 완전 차단 위해 할 일(Proxy 202처리·발행skip / GIS 관리UI·배너·알람필터 / VMS·NVR 이벤트트리거 녹화·PTZ 억제).
 
 ### [v6.3 후속] `settings_config_enum` — 세션설정 변경 500 수정 (config enum SETTINGS 보강) (2026-07-31)
 

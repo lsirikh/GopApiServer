@@ -264,35 +264,15 @@ async def _invalidate_other_sessions_on_password_change(
     result = await db.execute(stmt)
     active_sessions = result.scalars().all()
 
+    # FR-FIX-03: E1/P1-10 이후 session.token/refresh_token 은 원문 JWT 가 아니라 jti 다.
+    #   과거 decode_token(jti) 는 항상 JWTError → except pass 로 블랙리스트가 전량 스킵됐다(무동작 보안결함).
+    #   공통 폐기 서비스로 stored jti 를 stored 만료로 직접 블랙리스트 + is_active/logout_reason 마킹.
+    from app.services.session_revoke_service import revoke_session_family_async
     count = 0
     for session in active_sessions:
         if current_sid is not None and str(session.id) == str(current_sid):
             continue  # 현재 기기 세션은 유지
-        if session.token:
-            try:
-                td = decode_token(session.token)
-                if td.jti:
-                    await add_to_blacklist_async(
-                        db=db, jti=td.jti,
-                        expires_at=utc_now() + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
-                        reason="PASSWORD_CHANGED", user_id=user.id, token_type="access",
-                    )
-            except JWTError:
-                pass
-        if session.refresh_token:
-            try:
-                td = decode_token(session.refresh_token, expected_type="refresh")
-                if td.jti:
-                    await add_to_blacklist_async(
-                        db=db, jti=td.jti,
-                        expires_at=utc_now() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS),
-                        reason="PASSWORD_CHANGED", user_id=user.id, token_type="refresh",
-                    )
-            except JWTError:
-                pass
-        session.is_active = False
-        session.logout_reason = "PASSWORD_CHANGED"
-        session.logged_out_at = utc_now()
+        await revoke_session_family_async(db, session, reason="PASSWORD_CHANGED", actor_id=user.id)
         count += 1
     return count
 

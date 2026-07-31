@@ -6,6 +6,7 @@ PRD: v4.9 Phase 2-A4
 - logout 시 캐시 즉시 무효화
 """
 from datetime import datetime, timedelta
+from app.utils.datetime import utc_now
 from typing import Optional
 
 try:
@@ -73,7 +74,7 @@ def add_to_blacklist(
         token_type=token_type,
         reason=reason,
         expires_at=expires_at,
-        revoked_at=datetime.utcnow(),
+        revoked_at=utc_now(),
     )
     db.add(entry)
     db.commit()
@@ -89,7 +90,7 @@ def add_to_blacklist(
 
 def cleanup_expired(db: Session) -> int:
     """APScheduler가 1시간마다 호출 — exp 경과 row 정리"""
-    now = datetime.utcnow()
+    now = utc_now()
     count = db.query(TokenBlacklist).filter(TokenBlacklist.expires_at < now).delete()
     db.commit()
     return count
@@ -155,7 +156,7 @@ async def add_to_blacklist_async(
         token_type=token_type,
         reason=reason,
         expires_at=expires_at,
-        revoked_at=datetime.utcnow(),
+        revoked_at=utc_now(),
     )
     db.add(entry)
     await db.commit()
@@ -171,7 +172,7 @@ async def add_to_blacklist_async(
 
 async def cleanup_expired_async(db: AsyncSession) -> int:
     """APScheduler가 1시간마다 호출 — exp 경과 row 정리 (async 버전)"""
-    now = datetime.utcnow()
+    now = utc_now()
     stmt = delete(TokenBlacklist).where(TokenBlacklist.expires_at < now)
     result = await db.execute(stmt)
     await db.commit()

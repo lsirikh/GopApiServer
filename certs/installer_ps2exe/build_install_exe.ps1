@@ -139,6 +139,9 @@ $commonArgs = @{
     Copyright       = "Copyright (c) $(Get-Date -Format yyyy) $Company"
     Verbose         = $false
 }
+# 클라 설치기는 관리자 불필요 (CurrentUser 저장소, 설치 확인창만 표시)
+$clientArgs = $commonArgs.Clone()
+$clientArgs.RequireAdmin = $false
 
 try {
     Write-Host "  -> $serverExe" -ForegroundColor Cyan
@@ -161,7 +164,7 @@ try {
         -OutputFile $clientExe `
         -Title      'GOP 클라이언트 인증서 설치' `
         -Description 'GOP rootCA 신뢰 저장소 등록기' `
-        @commonArgs
+        @clientArgs
     if (-not (Test-Path $clientExe)) { Fail 'client_install.exe 생성 실패' }
     Write-Host "  OK ($([math]::Round((Get-Item $clientExe).Length/1KB,1)) KB)" -ForegroundColor Green
 } catch {

@@ -10,6 +10,8 @@ from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer
 
 from app.database import Base
+from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -21,9 +23,9 @@ class AppSettings(Base):
     setting_value = Column(Text, nullable=False)            # 직렬화 문자열
     value_type = Column(String(10), nullable=False)         # 'int' | 'bool' | 'str'
     updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None),
+        UtcDateTime,
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
     )
     updated_by = Column(Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True)

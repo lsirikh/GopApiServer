@@ -8,6 +8,8 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
+from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
 
@@ -68,19 +70,19 @@ class SystemEvent(Base):
     # 확인(Acknowledge) 관련
     is_acknowledged = Column(Boolean, nullable=False, default=False, index=True)
     acknowledged_by = Column(String(100), nullable=True)
-    acknowledged_at = Column(DateTime, nullable=True)
+    acknowledged_at = Column(UtcDateTime, nullable=True)
 
     # 타임스탬프
     created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
+        UtcDateTime,
+        default=utc_now,
         nullable=False,
         index=True
     )
     updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(settings.tz).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None),
+        UtcDateTime,
+        default=utc_now,
+        onupdate=utc_now,
         nullable=True
     )  # PRD 3.2: 수정 시간
 

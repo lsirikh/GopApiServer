@@ -9,6 +9,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
 from datetime import datetime
+from app.utils.datetime import to_utc, utc_now
 from collections import defaultdict
 
 from app.dependencies import get_async_db
@@ -42,9 +43,8 @@ def _naive_kst(dt: datetime) -> datetime:
     asyncpg 가 offset-naive vs offset-aware 비교에서 500 을 낸다. 서버 컨벤션(naive KST)에 맞춰
     tz-aware 는 KST 로 변환 후 tzinfo 를 제거하고, 이미 naive 면 그대로 둔다.
     """
-    if dt is not None and dt.tzinfo is not None:
-        return dt.astimezone(settings.tz).replace(tzinfo=None)
-    return dt
+    # datetime-unification: aware UTC 로 정규화(events.* timestamptz 필터/저장용)
+    return to_utc(dt)
 
 
 async def _count_detections_by_device_category(db: AsyncSession, category: EnumDeviceCategory, start_date, end_date) -> int:

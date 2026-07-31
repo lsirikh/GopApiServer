@@ -11,6 +11,8 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
+from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 
 
@@ -33,8 +35,8 @@ class ReportTemplate(Base):
     default_period = Column(String(20), default="7d")
 
     # Timestamps
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     owner = relationship("AccountUser", back_populates="report_templates")
@@ -59,8 +61,8 @@ class ReportGeneration(Base):
 
     # 기간 설정
     period_type = Column(String(20), nullable=False)
-    start_date = Column(DateTime(timezone=True), nullable=False)
-    end_date = Column(DateTime(timezone=True), nullable=False)
+    start_date = Column(UtcDateTime(timezone=True), nullable=False)
+    end_date = Column(UtcDateTime(timezone=True), nullable=False)
 
     # 생성자 정보 (스냅샷)
     generator_id = Column(Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True)
@@ -85,11 +87,11 @@ class ReportGeneration(Base):
     # stall 워치도그가 progress_updated_at 정체 감지로 hang 판정.
     progress_pct = Column(Integer, nullable=False, default=0)
     progress_stage = Column(String(50), nullable=True)
-    progress_updated_at = Column(DateTime, nullable=True)
+    progress_updated_at = Column(UtcDateTime, nullable=True)
 
     # 타임스탬프 (created_at만 - 변경 불가)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    completed_at = Column(UtcDateTime(timezone=True), nullable=True)
 
     # Relationships
     template = relationship("ReportTemplate", back_populates="generations")

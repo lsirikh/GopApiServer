@@ -160,18 +160,51 @@ def client(test_db, monkeypatch):
 # Async fixtures — v6.0 async 라우터/서비스 테스트 지원 (dual-stack: sync 유지)
 # ============================================================================
 
+def _isolated_async_engine():
+    """격리된 in-memory aiosqlite async 엔진 — 운영/공유 DB 무접촉(FR-03, S-6).
+
+    StaticPool 로 단일 연결을 공유해 :memory: DB 가 세션 간 유지된다.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import StaticPool
+    return create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+
 @pytest_asyncio.fixture
 async def async_db():
     """AsyncSession fixture — v6.0 async 라우터/서비스 테스트 지원.
 
-    실제 Postgres(AsyncSessionLocal) 사용. 각 테스트 후 rollback으로 격리.
+    FR-03(grant-enforcement-hardening) 격리 강화:
+    - **기본**: 격리된 in-memory aiosqlite (운영/공유 DB 무접촉). 각 테스트 독립.
+    - **opt-in**: `ALLOW_DB_TESTS=1` 시에만 실 async DB(`AsyncSessionLocal`) — 전용 test DB 전제.
+      (S-6: 과거엔 무조건 `AsyncSessionLocal` 이라 오실행 시 운영 DB 접촉 위험이 있었다.)
     """
-    from app.database import AsyncSessionLocal
-    async with AsyncSessionLocal() as db:
+    import os
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    if os.environ.get("ALLOW_DB_TESTS") == "1":
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            try:
+                yield db
+            finally:
+                await db.rollback()
+        return
+
+    engine = _isolated_async_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session_local = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_local() as db:
         try:
             yield db
         finally:
             await db.rollback()
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture

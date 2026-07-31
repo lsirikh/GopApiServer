@@ -1,0 +1,7 @@
+# preserve.list — host paths the installer must NEVER overwrite during file sync (FR-06).
+# These carry site-specific secrets and runtime data. One path per line, relative to repo root.
+# Matching is by leading path segment.
+.env
+data
+certs
+logs

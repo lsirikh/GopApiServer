@@ -7,6 +7,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
+from app.utils.datetime import to_utc, utc_now
 
 from app.dependencies import get_async_db
 from app.routers.auth import get_current_account_user_optional_async
@@ -19,8 +20,22 @@ from app.schemas.server import (
     ServerMetricsLatestResponse
 )
 from app.schemas.common import ApiResponse, ApiSingleResponse
+from app.config import settings
 
 router = APIRouter()
+
+
+def _to_naive_kst(dt: Optional[datetime]) -> Optional[datetime]:
+    """tz-aware datetime 을 naive-KST 로 정규화.
+
+    `server_metrics.collected_at` 컬럼은 TIMESTAMP WITHOUT TIME ZONE(naive)이고,
+    프로젝트 표준 타임스탬프도 `utc_now()`(naive-KST)다.
+    클라/워커가 KST(+09:00) 등 tz-aware 값을 보내면 asyncpg 가
+    "can't subtract offset-naive and offset-aware datetimes" 로 INSERT 를 거부하므로,
+    aware 입력은 KST 벽시계로 변환 후 tzinfo 를 제거해 naive-KST 로 저장한다. (naive 입력은 그대로)
+    """
+    # datetime-unification: aware UTC 로 정규화(server_metrics.collected_at timestamptz 저장용)
+    return to_utc(dt)
 
 
 def _metrics_to_response(
@@ -211,7 +226,7 @@ async def create_server_metrics(
         network_out_mbps=metrics_data.network_out_mbps,
         process_count=metrics_data.process_count,
         detail=metrics_data.detail,
-        collected_at=metrics_data.collected_at
+        collected_at=_to_naive_kst(metrics_data.collected_at)  # tz-aware(KST) → naive-KST (asyncpg naive 컬럼)
     )
 
     db.add(new_metrics)

@@ -1,16 +1,22 @@
 # GOP RESTful API Server
 
-![version](https://img.shields.io/badge/version-v6.3.0-navy)
+![version](https://img.shields.io/badge/version-v6.3.1-navy)
 ![python](https://img.shields.io/badge/python-3.11-blue)
 ![framework](https://img.shields.io/badge/FastAPI-async-teal)
 ![sqlalchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-red)
 ![postgres](https://img.shields.io/badge/PostgreSQL-16-blue)
-![status](https://img.shields.io/badge/release-2026--07--13-success)
+![status](https://img.shields.io/badge/release-2026--07--31-success)
 
 GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-> **현재 버전**: v6.3.0 (2026-07-13 승격 — v6.0 Async 대전환 → 후속 21 topic 확정, `release/v6.0` 브랜치).
+> **현재 버전**: v6.3.1 (2026-07-31 버그픽스 4건 — PROXY 기본 시드 누락 보강(필수 유형 보장) · proxy-settings PROXY 전용 강제 · server_metrics collected_at 타임존 INSERT · 세션설정 config enum(SETTINGS) 자가치유. `release/v6.3` 브랜치).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
+>
+> 🚧 **진행 중 (v6.3 후속 · `grant-enforcement-hardening`)** — 권한부여(grant) 시간기반 집행 하드닝:
+> - **Phase 1 검증부채**: 경계초(`valid_until==now`) 삼중 회귀 · `AUTH_MODE=token` 집행 E2E · `async_db` 격리(운영 DB 무접촉)
+> - **Phase 2 통지/집행**: per-grant 실시간 만료 통지(FR-07) · 스윕 주기 설정화(`GRANT_SWEEP_INTERVAL_MINUTES`) · NATS 통지 게이트(FR-06) · matrix `default-deny` observe/enforce 모드(`MATRIX_DENY_MODE`, 기본 `off`=현행 보존)
+> - **상태**: 코드·테스트 완료(로컬, 신규 44+ passed). **실제 활성**(NATS `NATS_REVOKE_ENABLED` flip · `default-deny` enforce)은 라우트 audit·클라 조율 후 **배포 게이트**.
+> - 근거: [PRD](docs/prds/grant-enforcement-hardening-prd.md) · [시뮬 128/128](docs/Analysis/grant-enforcement-sim/SIMULATION_REPORT.md) · [GIS 회신](docs/Analysis/Grant_Enforcement_Server_Analysis_REPLY.md)
 
 ---
 
@@ -448,6 +454,8 @@ api-test-server/
 
 | 버전 | 날짜 | 헤드라인 |
 |---|---|---|
+| **v6.3.1** | 2026-07-31 | **버그픽스 4건** — PROXY 기본 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 INSERT · 세션설정 config enum(SETTINGS) 자가치유 |
+| v6.3 | 2026-07-13 | 버전 승격 — v6.0 후속 21 topic 확정 (Async 대전환 + 보안 하드닝) |
 | **v6.0** | 2026-07-03 | **Async 대전환** — 41 라우터 async, GOPDB A-7 6/6 완결, autoheal + partition |
 | v5.4 | 2026-07-03 | Reports RBAC + `AUTH_MODE=token` 기본화 + A-7 저리스크 4건 |
 | v5.2 | 2026-06-30 | Force-Logout jti + PG statement_timeout + Docker 로그 회전 |
@@ -468,6 +476,6 @@ api-test-server/
 
 ---
 
-**버전**: v6.0.0
-**최종 업데이트**: 2026-07-03
-**브랜치**: `release/v6.0`
+**버전**: v6.3.1
+**최종 업데이트**: 2026-07-31
+**브랜치**: `release/v6.3`

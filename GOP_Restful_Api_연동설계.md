@@ -1,8 +1,8 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-07-13  
-**버전**: v6.3 (Swagger `6.3.0` 정합)  **작성자**: 이기호 차장  
+**최종 수정일**: 2026-07-31  
+**버전**: v6.3.1 (Swagger `6.3.1` 정합)  **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
 
@@ -268,6 +268,21 @@ X-Request-ID: {request-uuid} //선택적 참고용
 | 422 Unprocessable Entity | 처리 불가 | 요청은 올바르나 비즈니스 로직 오류 |
 | 500 Internal Server Error | 서버 오류 | 서버 내부 오류 |
 | 503 Service Unavailable | 서비스 불가 | 서버 점검 또는 과부하 |
+
+---
+
+### 3.4 Datetime · 타임존 규약 (v6.3 후속, datetime-unification)
+
+> **전역 원칙 (Option B)**: **저장 UTC · 출력 DISPLAY_TZ · 입력 aware 권장**. 특정 국가에 고정되지 않아 해외 사이트(예: 헝가리·미국) 재배포 시 환경변수(`DISPLAY_TIMEZONE`)만 바꾸면 된다.
+
+| 구분 | 규약 |
+|------|------|
+| **저장(DB)** | 모든 datetime 컬럼은 `TIMESTAMP WITH TIME ZONE`(timestamptz)로 **UTC instant** 저장. (예외: `api_logs.timestamp` 는 파티션 키라 naive-UTC 벽시계 유지 — 표시 규약 동일) |
+| **출력(응답)** | 모든 응답 datetime 은 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset 표기. 기본 `Asia/Seoul`(`+09:00`), DST 자동. 예: `"2026-07-31T19:50:00+09:00"`. `meta.timestamp`(성공·오류 **공통**) 동일. |
+| **입력(요청)** | offset 포함 aware(`...+09:00`, `...Z`) **권장** — instant 로 정확 해석. offset 없는 naive 값은 `DISPLAY_TIMEZONE` 로 간주 후 UTC 변환. 날짜만(`2026-07-01`) 은 해당 TZ 00:00. |
+| **설정** | 환경변수 `DISPLAY_TIMEZONE`(IANA TZ, 예 `Asia/Seoul`·`Europe/Budapest`·`America/New_York`). 미지정 시 `Asia/Seoul`. 저장은 항상 UTC 이므로 이 값 변경은 **표시에만** 영향(과거 데이터 불변). |
+
+**클라이언트 가이드**: 요청 시 가능하면 offset 을 명시하라(`2026-07-01T00:00:00+09:00`). 응답 datetime 은 항상 offset 이 붙어 오므로 그대로 `DateTimeOffset`(.NET)/`ZonedDateTime` 으로 파싱하면 된다. naive 문자열로 파싱 후 로컬 TZ 를 임의 부여하지 말 것.
 
 ---
 
@@ -3143,7 +3158,7 @@ Accept: application/json
 **Path Parameters**:
 - `camera_id` (int, required): Camera ID
 
-> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+> **Note**: (PROXY 서버에 한해) 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성). 비-PROXY 서버는 **404** (lazy-create 하지 않음).
 
 **Request Example**:
 ```http
@@ -5646,7 +5661,7 @@ Accept: application/json
 ```
 
 > `data.message` 형식: removed/skipped/not_found 중 **개수가 0이 아닌 절만** 콤마로 연결됩니다. 예: skipped=0, not_found=0이면 `"3개 디바이스 해제 완료"` 만 표시. envelope top-level `message` 필드도 동일 문자열로 미러링된다.
-> `meta.timestamp`: KST 타임존(`+09:00`) ISO 8601. `meta.request_id`: 클라이언트가 `X-Request-ID` 헤더를 보내면 그 값, 없으면 `null`.
+> `meta.timestamp`: 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset(기본 `+09:00`, 성공·오류 공통 — 전역 datetime 규약은 §3.4). `meta.request_id`: 클라이언트가 `X-Request-ID` 헤더를 보내면 그 값, 없으면 `null`.
 
 | 응답 필드 | 타입 | 설명 |
 |----------|------|------|
@@ -12465,7 +12480,7 @@ Accept: application/json
 서버 모니터링 API는 GOP 시스템을 구성하는 다양한 서버들의 상태를 관리하고 모니터링하기 위한 API입니다.
 
 **주요 기능**:
-- 서버 카테고리 관리 (9개 기본 카테고리)
+- 서버 카테고리 관리 (10개 기본 카테고리)
 - 서버 인스턴스 CRUD
 - 대시보드용 서버 상태 요약
 
@@ -13452,7 +13467,7 @@ GET /api/servers/summary
 
 ### 8.5 기본 데이터 (Seed)
 
-시스템 초기화 시 다음 9개의 기본 서버 카테고리가 자동 생성됩니다:
+시스템 초기화 시 다음 10개의 기본 서버 카테고리가 자동 생성됩니다 (카테고리는 유형별 idempotent — 매 기동 시 없는 유형만 추가):
 
 | sort_order | name | type_server | description |
 |------------|------|-------------|-------------|
@@ -13465,12 +13480,17 @@ GET /api/servers/summary
 | 7 | NVR API 서버 | NVR_API | Network Video Recorder API 서버 |
 | 8 | SPEAKER API 서버 | SPEAKER_API | 스피커 제어 API 서버 |
 | 9 | 함체관리 API 서버 | ENCLOSURE_API | 함체 관리 API 서버 |
+| 10 | 프록시 서버 | PROXY | PidsProxy 서버 (장비 등록/운용 관문) |
+
+**필수 서버 유형 보장 (v6.3 후속 `proxy_mandatory_seed`)**: `PROXY / VMS / NVR_API / BROKER` 4종은 **유형 기준 보장** 대상 — 시스템 기동 시 해당 유형에 서버 인스턴스가 **하나도 없으면** 기본 인스턴스를 자동 생성한다. 이미 해당 유형 서버가 (사용자 등록분 포함) 존재하면 아무것도 만들지 않는다(중복 방지). 그 외 유형의 기본 인스턴스는 `servers` 테이블이 비어 있을 때만 최초 1회 시드된다.
 
 ---
 
 ### 8.6 Server Metrics API
 
 서버의 리소스 사용량을 시계열로 기록하고 조회합니다.
+
+> **collected_at 타임존 (v6.3 후속 `server_metrics_tz_fix`)**: `collected_at` 은 tz-aware(예: `2026-07-31T10:00:00+09:00`) 또는 naive 둘 다 허용하며, 서버가 **KST 벽시계 naive** 로 정규화해 저장한다(응답은 `+09:00` 표기). 이전엔 aware 값 전송 시 500 이었다.
 
 > **PRD Reference**: PRD_System_Event.md Section 2.4
 
@@ -13905,6 +13925,8 @@ GET /api/servers/summary
 ### 8.8 프록시 설정 API
 
 > **v3.6 신규**: PidsProxy 서버 운용 설정 (operation_mode, windy_mode) 관리
+>
+> **⚠ v6.3 후속 `proxy_settings_typed`**: 이 API(GET/PATCH/PUT)는 **PROXY 유형 서버 전용**입니다. 대상 서버의 카테고리가 PROXY 가 아니면 **404** 를 반환하며 설정을 lazy-create 하지 않습니다. (기존: 모든 서버 유형 허용 → **계약 변경**)
 
 #### 8.8.1 프록시 설정 조회
 
@@ -13917,7 +13939,7 @@ GET /api/servers/{server_id}/proxy-settings
 |---------|------|------|------|
 | server_id | integer | Y | Server ID |
 
-> **Note**: 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성).
+> **Note**: (PROXY 서버에 한해) 설정이 존재하지 않으면 기본값으로 자동 생성합니다 (Lazy 생성). 비-PROXY 서버는 **404** (lazy-create 하지 않음).
 
 **Request Example**:
 ```http
@@ -14305,12 +14327,14 @@ Authorization: Bearer {access_token}
 | POST | `/api/users/me/photo` | 본인 프로필 사진 업로드 (multipart) | 본인(인증) |
 | DELETE | `/api/users/me/photo` | 본인 프로필 사진 삭제 (→ default 복귀) | 본인(인증) |
 | GET | `/api/users/photo/{file_name}` | 프로필 사진 다운로드 | 인증 불필요 |
+| POST | `/api/users/{id}/photo` | **관리자**: 대상 계정 프로필 사진 업로드 (multipart) | users:edit (+base-ADMIN 상승가드) |
+| DELETE | `/api/users/{id}/photo` | **관리자**: 대상 계정 프로필 사진 삭제 (→ default 복귀) | users:edit (+base-ADMIN 상승가드) |
 
 > **권한(RBAC) (v6.0-rbac_matrix_gate, 2026-07-07 — v4.12 정책 대체)**: 계정 관리 엔드포인트(목록/상세/생성/수정/삭제/lock/unlock/reset-password)는 **권한 매트릭스**(`require_perm("users", view|edit|delete|control)`, `app/routers/auth.py`)로 게이트한다. **유효권한 = 배정 그룹(`group_id`) 매트릭스 ∪ 현재 유효 grant 매트릭스**. `role=ADMIN` 만 전권 bypass, 비-ADMIN(USER)은 매트릭스로 동작하며 grant 로 한시 승격되면 그 그룹 권한으로 호출 가능하고 스케쥴 만료 시 원래 등급으로 복귀한다. 권한 미보유 시 **403**(`Insufficient permission: requires users:{verb}`).
 > **상승 가드(한시성 복귀 보장)**: grant 로 승격된 USER 가 영구 승격을 자가 생성하는 경로는 base-ADMIN(`role==ADMIN`) 전용으로 잠근다 — ① `role`/`group_id` 변경(create/update), ② `POST /api/users/{id}/grants` 부여·회수, ③ 그룹 permissions 매트릭스 편집, ④ `role=ADMIN` **대상** 계정 변경(pw초기화/삭제/잠금/수정). 비-ADMIN 이 이를 시도하면 **403**(`Only ADMIN role can ...`). 이전 v4.12 는 이 8종을 `require_admin`(role 문자열만) 으로 막아 grant 매트릭스를 무시했으나, ADR_Permission_Model_v5.2 모델(role=ADMIN=bypass / USER=매트릭스)에 코드를 정합함.
 > 본인 자원(`/me`·`/me/password`·`/me/photo`)은 인증된 본인 누구나(self-service, `role` 은 SelfUpdate 스키마가 422 거부), `GET /api/users/photo/{file_name}`은 인증 불필요(파일명 uuid). **서버측 RBAC가 권위 집행 지점**(클라 UI 게이팅은 보조·우회 가능).
 
-> **프로필 사진 (v4.x, 2026-06-26)**: `POST /api/users/me/photo` 는 `multipart/form-data`(field `file`, image/jpeg·png·webp·gif, ≤5MB)를 받아 **호스트 바인드 마운트 `./data/profiles/`**(`PROFILE_STORAGE_PATH`)에 `{user_id}_{uuid8}.{ext}`로 저장하고, `account_users.photo_url`을 **절대 API URL**(`{base}/api/users/photo/{name}`)로 갱신한 뒤 갱신된 사용자를 반환한다. 이미지 바이트는 **DB가 아니라 파일시스템**(썸네일과 동일 패턴), DB에는 photo_url(VARCHAR500)만. `GET /api/users/photo/{file_name}` 는 `FileResponse`로 바이너리 반환(인증 불필요 — 파일명이 uuid라 비공개성 확보, 경로 traversal 차단). 컨테이너 재빌드/재생성에도 `./data`라 **영속**. **(v6.3-profile_photo_crud, 2026-07-13)** `DELETE /api/users/me/photo` 로 본인 사진 삭제 시 파일을 제거하고 `photo_url=null` 로 되돌린다(응답 스키마가 default `/api/users/photo/default.png` 로 채워 **default 아바타로 자동 복귀**, 사진 없어도 200 idempotent). 업로드는 `content_type`(클라 위조 가능) 대신 **실제 이미지 바이트(Pillow magic-byte)** 로 포맷을 판별하고, **재업로드 시 옛 파일을 삭제**해 orphan(PII) 누적을 막는다. `photo_url` 검증기(`AccountUserSelfUpdate`, `PUT /me`)는 `http(s)://` 또는 실제 서빙 경로 **`/api/users/photo/`** 로 시작만 허용 — 종전 허용값 `/static/profiles/` 는 실존하지 않아(StaticFiles 미마운트) 서버가 채운 default 를 클라가 되받을 때 **422** 나던 것을 정정(`javascript:`/`data:` 등 XSS 스킴은 계속 차단).
+> **프로필 사진 (v4.x, 2026-06-26)**: `POST /api/users/me/photo` 는 `multipart/form-data`(field `file`, image/jpeg·png·webp·gif, ≤5MB)를 받아 **호스트 바인드 마운트 `./data/profiles/`**(`PROFILE_STORAGE_PATH`)에 `{user_id}_{uuid8}.{ext}`로 저장하고, `account_users.photo_url`을 **절대 API URL**(`{base}/api/users/photo/{name}`)로 갱신한 뒤 갱신된 사용자를 반환한다. 이미지 바이트는 **DB가 아니라 파일시스템**(썸네일과 동일 패턴), DB에는 photo_url(VARCHAR500)만. `GET /api/users/photo/{file_name}` 는 `FileResponse`로 바이너리 반환(인증 불필요 — 파일명이 uuid라 비공개성 확보, 경로 traversal 차단). 컨테이너 재빌드/재생성에도 `./data`라 **영속**. **(v6.3-profile_photo_crud, 2026-07-13)** `DELETE /api/users/me/photo` 로 본인 사진 삭제 시 파일을 제거하고 `photo_url=null` 로 되돌린다(응답 스키마가 default `/api/users/photo/default.png` 로 채워 **default 아바타로 자동 복귀**, 사진 없어도 200 idempotent). 업로드는 `content_type`(클라 위조 가능) 대신 **실제 이미지 바이트(Pillow magic-byte)** 로 포맷을 판별하고, **재업로드 시 옛 파일을 삭제**해 orphan(PII) 누적을 막는다. `photo_url` 검증기(`AccountUserSelfUpdate`, `PUT /me`)는 `http(s)://` 또는 실제 서빙 경로 **`/api/users/photo/`** 로 시작만 허용 — 종전 허용값 `/static/profiles/` 는 실존하지 않아(StaticFiles 미마운트) 서버가 채운 default 를 클라가 되받을 때 **422** 나던 것을 정정(`javascript:`/`data:` 등 XSS 스킴은 계속 차단). **(v6.3-admin_photo_upload, 2026-07-21)** 관리자가 **타 계정** 사진을 설정하는 `POST /api/users/{id}/photo`·`DELETE /api/users/{id}/photo` 신설(`users:edit` + base-ADMIN 상승가드 — 비-ADMIN 은 ADMIN 대상 변경 시 403). 저장·magic-byte 검증·orphan 정리는 본인 경로와 동일 헬퍼(`_save_profile_photo`)를 대상 `{id}` 로 재사용하고, 감사에 **행위자(관리자) ≠ 대상**(`USER_PHOTO_CHANGED`/`USER_PHOTO_DELETED`)을 분리 기록한다. 종전엔 관리자용 `{id}` 경로가 없어 클라가 본인 경로(`/me/photo`)를 타 계정 편집에 재사용 → 토큰 소유자(관리자) 사진이 오염되던 사고(2026-07-13)의 서버측 근본 해소.
 
 #### 9.3.2 GET `/api/users`
 
@@ -16094,6 +16118,8 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 - `POST /api/users/me/photo` - 본인 프로필 사진 업로드 (multipart, v4.11 신규)
 - `DELETE /api/users/me/photo` - 본인 프로필 사진 삭제 (→ default 복귀, v6.3 신규)
 - `GET /api/users/photo/{file_name}` - 프로필 사진 다운로드 (무인증, v4.11 신규)
+- `POST /api/users/{id}/photo` - **관리자**: 대상 계정 사진 업로드 (multipart, v6.3 신규)
+- `DELETE /api/users/{id}/photo` - **관리자**: 대상 계정 사진 삭제 (→ default 복귀, v6.3 신규)
 
 **UserGroups**:
 - `GET /api/user-groups` - 그룹 목록 조회
@@ -16358,8 +16384,57 @@ python scripts/migrate_event_device_id.py
 
 ## 변경 이력
 
+### [v6.3 후속] `settings_config_enum` — 세션설정 변경 500 수정 (config enum SETTINGS 보강) (2026-07-31)
+
+> clone/업그레이드 DB(옛 named volume 잔존)에서 Postgres 네이티브 enum `enumconfigresourcetype` 에 `SETTINGS` 값이 없어, 세션설정 변경(`PUT /api/settings/session`)의 감사 INSERT(`resource_type='SETTINGS'`)가 "invalid input value for enum" 로 500. `create_all()` 은 기존 enum 에 값 추가 불가 → startup 마이그레이션으로 자가치유.
+
+- `app/migrations/v65_add_settings_config_enum.sql`: `ALTER TYPE enumconfigresourcetype ADD VALUE IF NOT EXISTS 'SETTINGS'`(멱등) + `IDEMPOTENT_MIGRATIONS` 등재 → 모든 DB 다음 기동 시 자가치유(fresh no-op / 옛 DB 값 추가). PG16 트랜잭션 내 ADD VALUE 정상 검증. 즉시 조치(재배포 전): 대상 DB 에서 위 `ALTER TYPE ...` 1줄 실행.
+
+### [v6.3 후속] `datetime_unification` — 전 API datetime UTC 저장 + DISPLAY_TZ 출력 통일 (Option B) (2026-07-31)
+
+> 문제: 저장 naive-KST / 출력 +09:00 / 입력 혼용이 뒤섞여 asyncpg(v6.0~)가 aware↔naive 혼용을 거부 → server_metrics·events·reports 등 **다수 500**, 해외 재배포 불가(KST 하드코딩). 근본 통일.
+
+**규약 (§3.4 신설)**: 저장 UTC(timestamptz) · 출력 `DISPLAY_TIMEZONE`(기본 Asia/Seoul, DST 자동) · 입력 aware 권장(naive 는 DISPLAY_TZ 간주). 국가 비종속 — `DISPLAY_TIMEZONE` env 만 교체.
+
+- **공용 유틸** `app/utils/datetime.py`: `utc_now`(aware UTC) · `to_utc` · `to_display`. **설정** `app/config.py` `DISPLAY_TIMEZONE`(+`display_tz` ZoneInfo).
+- **타입레벨 차단** `app/models/types.py` `UtcDateTime(TypeDecorator, timezone=True)` — bind 시 aware→UTC 정규화(asyncpg 500 원천 차단). 모델 17파일 `Column(DateTime)`→`UtcDateTime`, 쓰기 default→`utc_now`.
+- **마이그** `app/migrations/v66_datetime_to_utc.sql`(startup 멱등, `init_db` 등록): naive 컬럼만 `USING col AT TIME ZONE 'Asia/Seoul'`(과거 KST 벽시계→정확 UTC instant, 무손실) / `token_blacklist`=`'UTC'`. **api_logs 파티션·schema_migrations 제외**. → **git pull/번들 업그레이드 시 옛 원격 DB 도 자동 전환**(fresh=no-op). 직후 async 풀 `dispose`로 prepared-cache 무효화 전이 500 제거.
+- **serializer** `schemas/common.py`·`main.py`: `KSTDatetime`/전역 encoder/오류 meta → `to_display`(DISPLAY_TZ), OpenAPI `format:date-time` 유지. **입력 정규화(FR-07)** `ReportGenerateRequest` 등 body 비교 전 `to_utc`. 라우터 정규화 헬퍼(`_to_naive_kst` 계열 6종)·리포트 범위 → `to_utc` 위임.
+- **api_logs**: 파티션 키 ALTER 불가 → 컬럼은 naive 유지하되 저장을 **naive-UTC 벽시계**(`utc_now().replace(tzinfo=None)`)로 바꿔 전역 naive=UTC 규약과 정합(월파티션 ±offset 시프트는 인접월 안착). 업그레이드 직후 **구(舊) KST 행은 retention 소멸까지 표시 offset skew**(전환기, 신규 행 정확). 완전 timestamptz 재생성은 v67(선택) 이연.
+- **라이브 검증(재빌드·재기동)**: 마이그 72 timestamptz / 10 제외(api_logs 9+schema_migrations). aware `collected_at +09:00` POST → **201**(저장 UTC 10:50 / 출력 +09:00). 읽기 GET 다수 200+`+09:00`. reports/generate aware 범위 → **201→COMPLETED**(역순=422, TypeError 아님). 오류 meta `+09:00`. 다국가 `to_display` 격리검증(Budapest `+02:00` DST). 롤백 3종: git `pre-datetime_unification` · 이미지 `pids-api-server:pre-datetime_unification` · DB덤프 `backups/datetime-unification-20260731/`.
+
+### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
+
+> ★ **동일자 `datetime_unification`(상단)으로 상위 통일됨** — `_to_naive_kst` 는 이제 `to_utc`(UTC) 위임, 컬럼은 timestamptz, 저장 UTC / 출력 +09:00. 아래는 최초 국소 수정 이력(보존).
+
+> 기존 버그(배포 무관): `POST /api/servers/{id}/metrics` 에 tz-aware(KST +09:00) `collected_at` 을 보내면 asyncpg 가 naive 컬럼(`TIMESTAMP WITHOUT TIME ZONE`)에 aware 값을 못 넣어 500 → CPU/RAM/디스크 메트릭 저장 통째 실패.
+
+- `app/routers/server_metrics.py`: `_to_naive_kst` 헬퍼로 aware `collected_at` 을 KST 벽시계 naive 로 정규화 후 저장(프로젝트 표준 naive-KST 정합, 응답은 `KSTDatetime` 이 +09:00 부여).
+- 라이브 재현→수정: aware POST 500 → **201**, DB `collected_at`=`2026-07-31 10:00:00`(naive). `tests/test_server_metrics_tz.py` 4 passed. 롤백태그 `pre-server_metrics_tz_fix`.
+
+### [v6.3 후속] `proxy_settings_typed` — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
+
+> PM 결정: `proxy-settings`(GET/PATCH/PUT)는 기획상 PROXY 서버 전용인데 코드가 모든 server_id 를 받아 비-PROXY 서버에도 lazy-create 되던 문제.
+
+- `app/routers/proxy_settings.py`: `_get_proxy_server_or_404` 헬퍼 도입 — 대상 서버 카테고리가 `PROXY` 가 아니면 **404**(lazy-create 차단). GET/PATCH/PUT 3곳 공통 적용(§8.8).
+- **계약 변경**: 기존엔 모든 서버 유형에서 200/upsert 가능 → 이제 비-PROXY 는 404. 현재 junk(비-PROXY) 설정 0건이라 정리 불필요. → **.NET 소비 클라 통지 대상**.
+- 테스트 `tests/test_proxy_settings_router.py` **격리 async 재작성(11 passed)** — 기존 sync TestClient 가 async 라우터의 `get_async_db` 미오버라이드로 실 파일 DB(data/gop.db)를 읽던 **사전 격리 버그**도 함께 해소(리포 표준 = 엔드포인트 함수 직접 태우기).
+- 라이브 검증: PROXY(id 17)=**200**, VMS(id 3)=**404**. 5중싱크(코드 + 명세 §8.8·본 체인지로그 + Swagger docstring + 이미지 재빌드 + 컨테이너 healthy). 롤백태그 `pre-proxy_settings_typed`.
+
+### [v6.3 후속] `proxy_mandatory_seed` — 필수 서버 유형 기본 시드 보장 (2026-07-31)
+
+> PM 지적: PROXY 가 기본 서버 시드에서 누락(다른 9종만 시드). 필수 서버 유형은 항상 등록 보장 필요.
+
+- **카테고리**: `DEFAULT_SERVER_CATEGORIES` 에 `PROXY`(프록시 서버, sort_order 10) 추가 → 9종 → **10종**. 카테고리는 유형별 idempotent라 기존 DB 에도 다음 기동 시 자동 등록(§8.5).
+- **필수 유형 보장**: `MANDATORY_SERVER_TYPES = {PROXY, VMS, NVR_API, BROKER}` 도입. `create_sample_servers`(+async) 가드를 **전체 count>0 통째 스킵 → 유형 기준 보장** 으로 교체 — 해당 유형에 서버가 하나도 없을 때만 기본 인스턴스 생성(사용자 등록분 존재 시 중복 미생성), 그 외 데모 유형은 `servers` 가 빌 때만 최초 시드.
+- **실측**: 재배포 후 기동 seed 로그 `Servers ensured (mandatory +0, demo +0)`(운영 DB 에 PROXY 기존재 → 중복 미생성), 카테고리 10 / 서버 15. 단위 테스트 `tests/test_server_seed.py` **7 passed**(사용자 등록분 중복 방지 케이스 포함), 기존 서버 테스트 회귀 0(사전 44 실패는 `cpu_usage`→`ServerMetrics` 분리 후 stale 테스트로 무관).
+- 파일: `app/utils/init_server_data.py`. 5중싱크(코드 + 명세 §8.1·§8.5·본 체인지로그 + 이미지 재빌드 + 컨테이너 재기동).
+
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v6.3.1 | 2026-07-31 | **버그픽스 릴리즈** — **[proxy_mandatory_seed]** PROXY 기본 시드 누락 보강(기본 카테고리 9→10 + 필수 유형 보장 `{PROXY,VMS,NVR_API,BROKER}` 유형 기준: 해당 유형 서버 0개일 때만 기본 생성). **[proxy_settings_typed]** `proxy-settings`(GET/PATCH/PUT) **PROXY 서버 전용 강제**(비-PROXY 404 + lazy-create 차단, **계약 변경**). Swagger `info.version` 6.3.0→**6.3.1**. 라이브 검증(PROXY=200 / VMS=404 / seed `mandatory +0`), `tests/test_server_seed.py` 7 + `tests/test_proxy_settings_router.py` 11 passed. 커밋 `7ee1941`·`cbf63bd`. |
+| v6.3 후속 | 2026-07-21 | **[grant_enforcement_hardening]** GIS 서버측 집행 분석(`Grant_Enforcement_Server_Analysis.md`) 검토 → 권한부여(grant) 시간기반 집행 하드닝. **API 계약 불변(6.3.0 / 129 paths)** — 실제 flip(NATS 활성·default-deny enforce)은 배포 게이트.<br><br>**[Phase 1 검증부채]** 경계초(`valid_until==now`) 삼중 회귀(순수 `grant_status` · sync `_active_grants` · async `_active_grants_async` 정합) · `AUTH_MODE=token` 집행 E2E · `async_db` 격리(운영 DB 무접촉) · async sweep 발행(사용자당 1회 dedup).<br><br>**[Phase 2 통지/집행]** ① per-grant 실시간 만료 통지(`app/services/grant_scheduler.py` — `valid_until` date job→`publish_permissions_changed`, 부팅 재등록) ② 스윕 주기 설정화 `GRANT_SWEEP_INTERVAL_MINUTES`(기본 10) ③ NATS `permissions_changed` 게이트 검증(발행부 기배선) ④ matrix 미등록경로 `MATRIX_DENY_MODE`(off/observe/enforce, **기본 off = 현행 default-allow 보존**).<br><br>**[신규 설정]** `GRANT_SWEEP_INTERVAL_MINUTES` · `GRANT_JOB_HORIZON_HOURS` · `MATRIX_DENY_MODE`.<br><br>**[검증]** 시뮬 128/128 · 유닛 신규 44+ passed · **라이브 A01~A18 10/10 · 계약 10 passed**(재빌드·재기동 후). 커밋 `c10cbbf`/`ccf08a3`/`6fab9bc`/`9d1f30d`. 산출물: PRD·시뮬리포트·GIS회신(`docs/`, 배포게이트로 flip 대기). |
+| v6.3 후속 | 2026-07-21 | **[admin_photo_upload]** 관리자용 대상 계정 프로필 사진 API 신설 — `POST`/`DELETE /api/users/{id}/photo` (users:edit + base-ADMIN 상승가드, `_save_profile_photo` magic-byte·orphan 재사용, 감사 `USER_PHOTO_CHANGED`/`USER_PHOTO_DELETED` 행위자≠대상). 관리자 `{id}` 경로 부재로 클라가 `/me/photo` 재사용→토큰소유자(관리자) 사진 오염(2026-07-13)의 서버측 근본 해소. §9.3.1 표·설명·요약 동반 갱신. |
 | v6.3 후속 | 2026-07-13~ | **계정 잠금 정책 완성 (`v6.3-lockout_policy`)**<br><br>**[배경]** PM 점검: ① 로그인 실패 횟수 안내 부재 ② 잠금 후 자동해제 부재(영구 잠금) ③ unlock 시 카운트 미리셋(해제 직후 1회 실패로 즉시 재잠금 트랩). 기존엔 임계 잠금(`lockout_threshold`)만 있고 나머지 3부품 결여.<br><br>**[㉰ 자동해제]** 신규 세션설정 **`lockout_duration_minutes`**(기본 30, 0=영구/수동해제만, 1~1440분). 잠금 후 경과 시 로그인 시도로 자동 해제(+카운트 리셋). `GET/PUT /api/settings/session` 노출·편집(§9.8, `seed_if_empty` 자동 시드).<br><br>**[㉯ 잔여 횟수 안내]** 로그인 오답 `401` 에 `"{N}회 중 {X}회 실패, {M}회 남음"` 메시지 + 구조화 **`error.details`**(`failed_count`/`threshold`/`remaining`/`locked`). 잠긴 순간엔 "약 N분 후 자동 해제" 안내. **틀린 이유(id vs pw)는 비노출**, 미존재 계정은 카운트 미노출(계정 열거 방지 유지), `lockout_threshold=0`이면 일반 메시지.<br><br>**[㉱ unlock 리셋]** `POST /api/users/{id}/unlock` 이 `failed_login_count=0`+`locked_at=null`+`lock_reason=null` 리셋 — 재잠금 트랩 제거.<br><br>**[검증]** 3회 실패 메시지/details 정확, 잠김→duration 경과→정답 로그인 **자동해제+성공**, unlock 후 count=0 실측. A01~A18 10/10·계약 10 passed 무회귀. 5중싱크: `settings_service`·`schemas/settings`·`routers/settings`·`auth`·`users` + §9.8 명세 + 재빌드.<br><br>**계정 잠금/해제 감사 (`v6.3-audit_auto_lock`, PRD/plan 프로세스 준수)**: auth.py 로그인의 **자동잠금(브루트포스 임계도달)·자동해제(타이머)**를 `audit_logs`에 `USER_LOCKED`/`USER_UNLOCKED`(시스템 행위자 `actor_id=None`·`actor_login_id="(system)"`·`actor_name="시스템(자동)"`, 대상=해당 계정)로 기록. 기존 auth.py `log_action` 0건 → 수동 lock/unlock만 감사되던 **비대칭 해소**. best-effort(`try/except`, 감사 실패해도 로그인/잠금 집행 불변), 정상 로그인엔 미발생. 산출물: `docs/prds/audit-auto-lock-unlock-prd.md`·`docs/plans/audit-auto-lock-unlock-prd-plan.md`. 실측 `USER_LOCKED`/`USER_UNLOCKED` row 생성 + A01~A18 10/10·계약 10 passed·정상로그인 audit 미발생.<br><br>**프로필 사진 CRUD 정합화 (`v6.3-profile_photo_crud`, Track B)**: PM 지적("프로필 사진 CRUD 문제"). **①[P0]** `AccountUserSelfUpdate.photo_url` validator 허용 상대경로 `/static/profiles/`(StaticFiles 미마운트=실존X) → 실제 서빙 경로 **`/api/users/photo/`** 로 정정 — 서버가 응답에 채우는 default(`/api/users/photo/default.png`)를 클라가 `PUT /me` 로 되받으면 **422** 나던 자가모순 봉합. **②[P1-D]** **`DELETE /api/users/me/photo`** 신설(파일 제거+`photo_url=null`→default 아바타 복귀, idempotent). **③[P1-U]** 재업로드 시 옛 파일 **orphan 제거**(`_delete_photo_file` — default/외부URL/traversal 방어, PII 무한적재 차단). **④[P2]** `content_type`(클라 위조 가능) 대신 **Pillow magic-byte**(`_detect_image_ext`)로 실제 이미지 검증. 파일 `schemas/user.py`·`routers/users.py` + 단위테스트 `tests/test_profile_photo_crud.py` **14/14 PASS**(TDD Red→Green). Swagger 자동반영(`me/photo`=post+delete). 5중싱크: 2코드 + §9.3 표·주석·부록 목록 + 재빌드.<br><br>**NATS DBApi 발행 정합 완성 (`v6.3-nats_sync_completion`, PRD/plan 프로세스 준수)**: `docs/DBApi_API서버.md`(NATS 발행 명세, 진실원본 Gop_Message_Broker v1.5) 대비 **db_triggers+db_monitor 5건 갭 정합**. ① SYNC_PRESET body에 `camera_id` 추가(camera_presets/rois) ② SYNC_CAMERA_SETTING `resource_id`→**`camera_id`** ③ SYNC_PROXY_SETTING `resource_id`→**`server_id`** (②③은 `camera_settings.id≠camera_id`·`proxy_settings.id≠server_id` 실버그, **기존 NATS 소비자 계약 변경** → 클라 통지 `docs/GOP_Server_API_nats_sync_completion_NOTIFY.md`) ④ **SYSTEM_EVENT 신설**(system_events INSERT 트리거→신규 `gop_event` 채널→`all.event.system` Full-DTO, `acknowledged`=is_acknowledged, enum→text) ⑤ **ENCLOSURE_METRICS 신설**(db_monitor 주기 태스크 `ENCLOSURE_METRICS_INTERVAL` 기본10s→`gis.enclosure-metrics`, measured_at=created_at). db_monitor `on_notify` body **통과 일반화**(하드코딩 resource_id 제거). 실측 NATS 수신 6종(위 5종 + SYNC_SERVER 무회귀) subject+body 문서 **100% 일치**. 5중싱크: `app/db_triggers.py`·`db_monitor/main.py`·`docker-compose.yml` + db-monitor/api-server 재빌드. 산출물 `docs/prds/nats-dbapi-sync-completion-prd.md`·`docs/plans/nats-dbapi-sync-completion-prd-plan.md`. |
 | v6.3 | 2026-07-13 | **버전 승격 — `v6.0` 후속 누적분(21 topic + 07-08~13 보안 하드닝)을 `v6.3` 으로 확정**<br><br>**[배경]** 2026-07-05 v6.1/v6.2 태그 사고 후 "임의 minor 승격 금지 + `v6.0-{topic}` 누적" 규칙을 유지했으나, 8일간 21 topic(리포트 정합화·RBAC 매트릭스·보안 하드닝 3클러스터) 누적으로 단일 `v6.0` 표기가 실작업량과 괴리 → PM(차장) 결정에 따른 **의식적(비-임의) 승격**. v6.1/6.2 는 07-05 사고분이라 건너뜀.<br><br>**[5중 싱크]** Swagger `info.version` `6.0.0`→**`6.3.0`** + 명세서 헤더/본 행 + `main.py` description + `CLAUDE.md` yaml `6.3.0` + README 배지 + git 태그 `v6.3` + 컨테이너·이미지 재빌드. 산발 드리프트(CLAUDE.md `6.1.0`/session-context `v6.1`) 동시 해소.<br><br>**[포함 작업]** = 아래 `v6.0 후속` 롤링 항목 전체(리포트·인증계정·API계약·안정성·배포) + `[보안 하드닝]`(session_token_jti·migration_tracking·login_rate_limit·review0710 P0/P1·audit_logs_authz) + `[역할 표기 정합]`.<br><br>**[규칙 갱신]** `release/v6.3` 브랜치를 현 HEAD 에서 신규 컷하여 **canonical 로 승격**(branch 명=버전 일치, `release/v6.0` 은 frozen 보존). 향후 후속 태그는 `v6.3-{topic}`. |
 | v6.0 후속 | 2026-07-04~12 | **clone 배포·운영 안정화 — `release/v6.0` 위 소분 태그(`v6.0-{topic}`) 누적**<br><br>**[리포트]** `report_fixes`(그리드 컬럼 확장·JSON preview↔HTML/PDF 필터 통일·라벨 통일·N+1 제거) / `report_lifecycle_persistence`(startup 재조정 PENDING·GENERATING→FAILED, PDF named volume 영속화, 파일 소실 시 **HTTP 410 `PDF_FILE_MISSING`**) / `report_progress_perf`(응답 `progress_pct`·`progress_stage`·`progress_updated_at` 3필드 + stall 워치도그(60s no-progress→FAILED) + SQL 집계 이관 + `GET /generations/{id}/detail.csv?type=…` 8 grid 신설) / `report_date_range`(`POST /generate`에 `start_date`·`end_date` Optional 커스텀 범위, `period_type="custom"`, 366일 상한).<br><br>**[인증·계정]** `auth_mode_secure_default`(docker-compose `AUTH_MODE` 기본 public→**token**, public 시 부팅 WARN + staging/prod 거부) / `account_rbac`·`account_managers_expand`(ADMIN Static seed 9종: admin/m_manager/vms_manager/popup_manager/CameraManager/BroadcastingManager/QLiteLampManager/NVRManager/EnclosureManager, pw sensorway1) / `role_seed_normalize`(role 규칙 v5.3 2종(ADMIN/USER) 시드·기존 데이터 재적용 — 모델 default VIEWER→USER + **startup 자동 마이그레이션 v62**로 옛 OPERATOR/VIEWER/MAINTAINER → USER) / `rbac_matrix_gate`(계정/그룹/세션/grant조회/세션설정 **`require_admin`→`require_perm` 매트릭스 전환** — `role=ADMIN` 만 bypass, USER 는 등급∪grant 매트릭스로 동작·만료 시 복귀. 상승 가드로 `role`/`group_id` 변경·grant 부여/회수·그룹 permissions 편집·`role=ADMIN` 대상 변경은 base-ADMIN 전용 잠금. §9 RBAC 노트 갱신, Live E2E 10/10 + `test_users_escalation_guards` 7 passed).<br><br>**[API 계약 — 응답 스키마 완화]** `servers_port_response_relax`(`ServerResponse.port` `ge=1`→`ge=0` + 목록 fault tolerance) / `users_role_response_relax`(`AccountUserResponse.role` Enum→str) / `response_schema_audit`(**전 `*Response` 스키마 Enum 지뢰 21건 전수 완화** — String 컬럼 + strict Enum 응답이 옛/임의 값에서 목록 500 나던 것 원천 차단. `report_type`·`period_type`·`status`·`type_event`·`result`·`reason`·`action`·`failure_reason`·`logout_reason`·`action_status`·`actor_role` 등 응답 필드 Enum→str, 요청 스키마는 strict 유지). **클라 영향 없음**(응답 JSON 값 동일, Swagger enum 표시만 사라짐).<br><br>**[안정성 버그]** `clone_deploy_bugfix`(신규 PC 6버그: **startup 자동 마이그레이션**(create_all이 기존 테이블에 컬럼 추가 못하는 문제 — `progress_pct` 등), connections `selectinload(DeviceGroupMapping.group)`(greenlet_spawn), event_statistics 4 endpoint tz-aware→naive KST 정규화, audit_role 완화) / `force_logout_tz_fix`(**세션 강제 로그아웃 500 수정** — `user_sessions.logged_out_at` tz-aware(Asia/Seoul)를 naive DateTime 컬럼에 넣어 asyncpg DataError → `DELETE /api/user-sessions/{id}` 전체 500 + 롤백으로 토큰도 안 막히던 이중 실패. `.replace(tzinfo=None)` 정합. 검증: 강제로그아웃 200 + 이후 토큰 401).<br><br>**[배포·인프라]** `rename_pids`(컨테이너/이미지 `api-test-*`→**`pids-api-*`**, 볼륨·데이터 보전) / `cert_installer_fix`(HTTPS 인증서 인스톨러 6버그, Dockerfile CMD 인증서 없으면 **fail-fast** + `ALLOW_HTTP_FALLBACK` opt-in) / `installer_ps2exe_path_fix`(PS2EXE EXE에서 `$PSScriptRoot` 빈 문자열 → `MainModule.FileName`로 근본 수정) / `bootstrap_automation`(신규 PC **1-Click** `bootstrap.ps1`: UAC 상승+인증서 발급+docker up+healthy 대기).<br><br>**[통지 문서]** `docs/GOP_Server_API_*_REPLY.md` 6건(servers_port0 / users_role / clone_deploy_bugfix / installer_ps2exe / response_schema_audit + report_updates_NOTIFY).<br><br>**[보안 하드닝 (2026-07-08~12)]** `session_token_jti`(E1/P1-10: `user_sessions.token`/`refresh_token` 원문 JWT→**jti 만 저장** + `refresh_expires_at` 컬럼, 원문 유출 표면 제거 + decode 없는 폐기, 마이그레이션 v64) / `migration_tracking`(DB-01/E3: `schema_migrations` 추적 테이블+checksum + **fail-fast** — 조용한 스키마 드리프트 기동 차단) / `login_rate_limit`(E4/P1-09: 로그인 IP 슬라이딩윈도우 300s/10회 초과 **429**, 무차별 대입 방어) / `test_reproducibility`(E2: `tests/` un-gitignore + conftest 운영DB 가드(비-sqlite `DATABASE_URL` 은 `ALLOW_DB_TESTS=1` opt-in 요구) + `requirements-test.txt`) / `review0710_p0`(**민감 GET 무인증 노출 차단** — `config-change-logs`/`system-events`/`event-statistics` GET 이 permission_map 미등록으로 `enforce_matrix` default-allow 를 타 무토큰 200 이던 것에 route-level 가드 부착(config-change=`require_perm(audit_logs,view)` strict, system-events·event-statistics=`require_perm_optional(events,view)`) + refresh 회전 시 **옛 access jti 도 블랙리스트**(orphan 토큰 제거)) / `review0710_p1`(logout 폐기를 `revoke_session_family` 로 통일(access static TTL→stored exp, logout·refresh·revoke·force_logout 동일 원천) + api-server `nats_external` 배선·`NATS_REVOKE_ENABLED` 게이트(기본 false, dormant) + **public GET allowlist 계약 테스트**(`tests/test_public_get_contract.py` — 무토큰 2xx 미노출 못박음, 실측 105 GET 중 공개 4건)).<br><br>**[역할 표기 정합 (2026-07-12)]** §4.5 `EnumUserRole` **5종→2종(ADMIN/USER)** 정정(v5.3 코드-명세 정합 지연분) + 잔존 폐기역할(MAINTAINER/OPERATOR/VIEWER/GUEST) 현행화: 사용자 역할 필터·감사/설정 로그 예시 payload → ADMIN/USER, 권한 컬럼 audit-logs·config-change-logs 공히 `ADMIN∨audit_logs:view`(`audit_logs_authz`: audit-logs GET 을 전 인증 사용자→`require_perm(audit_logs,view)` 로 **강화**, 감사도메인 인가 일관화).<br><br>**원칙**: Swagger `info.version`은 `6.0.0` 유지(release/v6.0 브랜치). 후속은 **minor 승격 없이 `v6.0-{topic}` 태그로 누적**(브랜치-태그 명명 규칙). |
@@ -16412,5 +16487,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v6.0 (+ 후속 안정화 2026-07-04~07)
+**문서 버전**: v6.3.1 (Swagger `6.3.1` 정합; v6.3 후속 버그픽스 2026-07-31 — proxy_mandatory_seed·proxy_settings_typed)
 **최종 업데이트**: 2026-07-07

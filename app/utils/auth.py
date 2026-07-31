@@ -4,6 +4,7 @@ Authentication utility functions
 import asyncio
 import uuid
 from datetime import datetime, timedelta
+from app.utils.datetime import utc_now
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -66,9 +67,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode = data.copy()
 
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utc_now() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
+        expire = utc_now() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
 
     to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
@@ -90,10 +91,10 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     to_encode = data.copy()
 
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utc_now() + expires_delta
     else:
         # PRD v4.9 Phase 2-A3: settings.JWT_REFRESH_EXPIRATION_DAYS (이전 하드코딩 7일)
-        expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
+        expire = utc_now() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
 
     to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)

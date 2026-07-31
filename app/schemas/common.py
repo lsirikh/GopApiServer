@@ -3,33 +3,37 @@ Common Pydantic schemas for API responses
 """
 from typing import Any, Optional, Dict, Generic, TypeVar, Annotated
 from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel, Field, PlainSerializer, model_validator
+from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema, model_validator
 
-# KST timezone
+from app.utils.datetime import to_display, utc_now
+
+# KST timezone (레거시 상수 — 저장/변환은 to_display/utc_now(DISPLAY_TZ) 사용)
 KST = timezone(timedelta(hours=9))
 
 
 def _kst_isoformat(v: datetime | None) -> str | None:
-    """Serialize datetime to ISO 8601 with +09:00 (KST) timezone offset."""
-    if v is None:
-        return None
-    if v.tzinfo is None:
-        v = v.replace(tzinfo=KST)
-    return v.isoformat()
+    """datetime → ISO 8601 in DISPLAY_TZ (datetime-unification: 저장 UTC → 출력 DISPLAY_TZ, DST 자동)."""
+    d = to_display(v)
+    return d.isoformat() if d is not None else None
 
 
-# Use this type for all datetime fields in response schemas
-KSTDatetime = Annotated[datetime, PlainSerializer(_kst_isoformat, return_type=str, when_used="json")]
+# 응답 datetime 필드 공용 타입. WithJsonSchema: PlainSerializer(return_type=str)가 OpenAPI
+# 응답 스키마의 format:date-time 을 없애는 회귀 복원(반론 4.5 / V-09).
+KSTDatetime = Annotated[
+    datetime,
+    PlainSerializer(_kst_isoformat, return_type=str, when_used="json"),
+    WithJsonSchema({"type": "string", "format": "date-time"}, mode="serialization"),
+]
 
 
 def _add_kst_recursive(obj: Any) -> Any:
-    """Recursively attach KST timezone to all naive datetimes in a dict/list structure."""
+    """dict/list 구조 내 모든 datetime 을 DISPLAY_TZ 로 변환(aware·naive 모두 — 반론 4.4)."""
     if isinstance(obj, dict):
         return {k: _add_kst_recursive(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [_add_kst_recursive(v) for v in obj]
-    elif isinstance(obj, datetime) and obj.tzinfo is None:
-        return obj.replace(tzinfo=KST)
+    elif isinstance(obj, datetime):
+        return to_display(obj)
     return obj
 
 T = TypeVar('T')
@@ -38,7 +42,7 @@ T = TypeVar('T')
 class ResponseMeta(BaseModel):
     """Response metadata with timestamp and request ID"""
     timestamp: KSTDatetime = Field(
-        default_factory=lambda: datetime.now(KST),
+        default_factory=utc_now,
         json_schema_extra={"example": "2025-01-10T10:30:00.000+09:00"}
     )
     request_id: Optional[str] = Field(

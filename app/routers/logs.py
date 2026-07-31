@@ -14,6 +14,7 @@ from app.models.log import ApiLog
 from app.schemas.log import ApiLogResponse
 from app.schemas.common import ApiResponse, PaginationMeta
 from app.routers.auth import require_perm_async
+from app.utils.datetime import to_utc  # datetime-unification: 클라 DISPLAY 입력 → naive-UTC 경계
 
 router = APIRouter(tags=[])
 
@@ -53,12 +54,12 @@ async def get_logs(
 
     # Apply date range filtering
     if start_date:
-        start_dt = datetime.fromisoformat(start_date)
+        start_dt = to_utc(datetime.fromisoformat(start_date)).replace(tzinfo=None)
         stmt = stmt.where(ApiLog.timestamp >= start_dt)
         count_stmt = count_stmt.where(ApiLog.timestamp >= start_dt)
 
     if end_date:
-        end_dt = datetime.fromisoformat(end_date)
+        end_dt = to_utc(datetime.fromisoformat(end_date)).replace(tzinfo=None)
         stmt = stmt.where(ApiLog.timestamp <= end_dt)
         count_stmt = count_stmt.where(ApiLog.timestamp <= end_dt)
 

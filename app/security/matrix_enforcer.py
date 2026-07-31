@@ -18,6 +18,23 @@ from jose import JWTError
 from app.dependencies import get_db, get_async_db
 from app.security.permission_map import lookup_permission
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+# FR-09 공개 allowlist — default-deny(enforce) 시에도 무인증 통과 허용.
+# 인프라(docs/openapi/health/root) + 무인증 auth. 전체 확정은 observe 모드 라이브 수집으로 보강.
+_PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi", "/health", "/static", "/favicon")
+_PUBLIC_EXACT = {"/"}
+_PUBLIC_ROUTES = {("POST", "/api/auth/login"), ("POST", "/api/auth/refresh")}
+
+
+def is_public_allowlisted(method: str, path: str) -> bool:
+    """default-deny(enforce) 시에도 통과할 공개 경로 여부."""
+    if path in _PUBLIC_EXACT or path.startswith(_PUBLIC_PREFIXES):
+        return True
+    return (method.upper(), path) in _PUBLIC_ROUTES
+
 
 def _resolve_user_from_request(request: Request, db: Session):
     """Authorization: Bearer 토큰을 직접 파싱해 AccountUser 해석(없으면 None).
@@ -103,7 +120,18 @@ async def enforce_matrix(request: Request, db: AsyncSession = Depends(get_async_
     route = request.scope.get("route")
     perm = lookup_permission(request.method, getattr(route, "path", "")) if route is not None else None
     if perm is None:
-        return  # 미등록 경로 → 요구 없음(default-allow)
+        # FR-09 미등록 경로 정책: off=통과(현행) / observe=로그+통과 / enforce=allowlist 외 403.
+        mode = getattr(settings, "MATRIX_DENY_MODE", "off")
+        path = getattr(route, "path", "")
+        if mode == "off" or is_public_allowlisted(request.method, path):
+            return  # 현행 default-allow 또는 공개 allowlist
+        if mode == "observe":
+            logger.warning("[default-deny observe] 미분류 경로 %s %s (enforce 시 403)", request.method, path)
+            return  # 관찰만 — 아직 차단 안 함(미분류 수집용)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unregistered route denied (matrix default-deny)",
+        )
 
     module, verb = perm
     user = await _resolve_user_from_request_async(request, db)

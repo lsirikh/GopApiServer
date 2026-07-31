@@ -14,6 +14,8 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
+from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 from app.utils.enums import EnumDeviceType, EnumDeviceStatus, EnumCameraMode, EnumCameraType, EnumDeviceCategory, EnumSpeakerType, EnumDoorStatus
 
@@ -58,8 +60,8 @@ class Device(Base):
     version = Column(String(50), nullable=True)  # PRD v1.2: nullable
     status = Column(SQLEnum(EnumDeviceStatus), nullable=False, default=EnumDeviceStatus.ACTIVATED)
     is_enable = Column(Boolean, nullable=False, default=True)  # PRD_Device_IsEnable_Field.md: 장비 활성화 여부
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), onupdate=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Polymorphic configuration
     __mapper_args__ = {
@@ -388,7 +390,7 @@ class EnclosureMetric(Base):
     ups_battery_level = Column(Integer, nullable=True)
     ups_charging = Column(Boolean, nullable=True)
     detail = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=None)
-    created_at = Column(DateTime, default=lambda: datetime.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
 
     # Relationship to Enclosure
     enclosure = relationship("Enclosure", back_populates="metrics")

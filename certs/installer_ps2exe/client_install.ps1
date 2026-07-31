@@ -1,4 +1,4 @@
-﻿#Requires -RunAsAdministrator
+﻿# 관리자 권한 불필요 (CurrentUser Root 저장소 사용)
 <#
 .SYNOPSIS
     GOP API Client - rootCA 신뢰 저장소 등록
@@ -33,7 +33,7 @@ try {
 # build_install_exe.ps1 이 아래 placeholder 를 실제 Base64 로 치환한다.
 # 치환 후에도 스크립트는 그대로 PS 로도 동작해야 한다.
 # ---------------------------------------------------------------------------
-$EmbeddedRootCaBase64 = 'LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUVnVENDQXVtZ0F3SUJBZ0lRWUFwMTBpU3NDNGFLUUdwUVpjRnQvakFOQmdrcWhraUc5dzBCQVFzRkFEQloKTVI0d0hBWURWUVFLRXhWdGEyTmxjblFnWkdWMlpXeHZjRzFsYm5RZ1EwRXhGekFWQmdOVkJBc01EbWRvYkdWbApYR2RvUUdkb2JHVmxNUjR3SEFZRFZRUUREQlZ0YTJObGNuUWdaMmhzWldWY1oyaEFaMmhzWldVd0hoY05Nall3Ck5qSTFNREV6TWpJNVdoY05Nell3TmpJMU1ERXpNakk1V2pCWk1SNHdIQVlEVlFRS0V4VnRhMk5sY25RZ1pHVjIKWld4dmNHMWxiblFnUTBFeEZ6QVZCZ05WQkFzTURtZG9iR1ZsWEdkb1FHZG9iR1ZsTVI0d0hBWURWUVFEREJWdAphMk5sY25RZ1oyaHNaV1ZjWjJoQVoyaHNaV1V3Z2dHaU1BMEdDU3FHU0liM0RRRUJBUVVBQTRJQmp3QXdnZ0dLCkFvSUJnUURjd1lFTFVWZVVPd0hEbmVVakFIbEIxYlRQR0VQWm40Z0Eya0NHK2UwV3czV1NJOWJiWGpaaTMrckEKSEVPejVXSmpJK0tHUEFzLzFselhTQzZCZnd6aXlhWk9pZ2JRUDFwTXJ4ZEphSVQrRzU1bGVSeEJia1ovOEMrZgplZUZtNkg4QkZmbElYcTFJRzRqbE5ZUUxEWFRvMGgwZ2dIbXpxVUtsNjZUTWVEVWY1eEpwYVZQbHgzTWFjMFgxCjRleDMrU3hyZ1BVYnJSb3k5Uy9CMWlxdUlhTVl1dWhrUzRuR0dVeWxNcCt0ZDd3aURxbDZub1huWmlYWVVDTkEKUkFxWXkzSkhYWWxHbCszS0ZNOTgwK3Q0Q0xjaVdVVCthSlVrc1FKUjNxZ3JHeUVFYUJXNTYzbDBGczNOUFUzcwpRdkxRaVo4SmlkN2VNN3BiRVFzV0VLb0tEa3BROUY4N2xxQmdDKzduZzhEa0w2Ky9abVA2T2NmcWJlekZRMjBGCjIyY3E2WDJ1QkFreEtsaUREZlN3YjRpbTU1NlJGQzZOY2cwMXBwQ21nVmlkRDZhVmtLQ0cySnFqSjhBVnM4OFcKam5BYTBac0laMDFsWTFXWVpYTVJmTnNzTHlJd3hHL0cySDF1RFU0T2IvT2M0dHVxMTB2RUQ5TXUybjdqNFh4Ngp5OWlsWmJzQ0F3RUFBYU5GTUVNd0RnWURWUjBQQVFIL0JBUURBZ0lFTUJJR0ExVWRFd0VCL3dRSU1BWUJBZjhDCkFRQXdIUVlEVlIwT0JCWUVGRTlCUVBBZnh0djBabUREU3VYRFNSdWpPcUk1TUEwR0NTcUdTSWIzRFFFQkN3VUEKQTRJQmdRQWtFRVpsQUdSQ0tLdGVlVWJnYTZSMUErV01ZVkNhSDhJQzZiVGw2VDJBalZuNGMxMVFQenNlbGk3VgpsVk9Vajl6VUVHbFZkZVZ0akNKTUVWYUU1VktTbDNxY2tSQ3B6Y2hCOUthM0lzcGc0Vm9ieVZ1UTQ2d3U0L2hUCjZCM05SUVBSZEE3MDVDT2FndkVUbWp3YzBQVnZnWWxqYytIL0tQNXhwVXJwMklCRFJVN1Y0MExtL3dYUVUrdEUKSktPNWNXQk55QnJzZVR6SHNTQ3BjSVEzRFB2Z0JFdk8rMG9NVExvMTFoWXE0OGhXWXJoWnFOQ3ZCRXBpZU5uWQpDdGhYd1FVNEZZL3JSVWhnbWxtdmE3SGFKTkVGd1VkNHA4ZVdJa2tTeU0wNzVyVGlnQ2Z0THhLelovR1hyOHdTCmRNbWdydEN3Y1ltNEpZRDA2MG5EZEFwWHJ4aGwwdmRqMEhLRzM4S21aNCthYTFoWFU0M01xTk9SOFBxRTFEb2QKU2o4WDhYcE9EU1pmQXMwVzM5VWFCdGVuWTNkZWRUSGozRmc0cmtpTTVXV1FOcC9GTEFjZ1F0ejBRU3RTU0UyZwppemRQMFRkSkljT3M3dzNsdjUxUWt5WDMrWnJtZTR1ZUFRZzZrOWNNSzhtRkZFUm0xdWFiSFRsdzlyaS80U1RuCjhGc045ajA9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K'
+$EmbeddedRootCaBase64 = '__ROOT_CA_BASE64_PLACEHOLDER__'
 
 # ----- 헬퍼 함수 ------------------------------------------------------------
 function Write-Log {
@@ -121,7 +121,7 @@ function Test-CertInStore {
     param(
         [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert
     )
-    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine')
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser')
     try {
         $store.Open('ReadOnly')
         $existing = $store.Certificates | Where-Object { $_.Thumbprint -eq $Cert.Thumbprint }
@@ -135,11 +135,11 @@ function Install-RootCert {
     param(
         [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert
     )
-    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine')
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser')
     try {
         $store.Open('ReadWrite')
         $store.Add($Cert)
-        Write-Log '인증서를 LocalMachine\Root 저장소에 추가했습니다.' 'OK'
+        Write-Log '인증서를 CurrentUser\Root 저장소에 추가했습니다.' 'OK'
     } finally {
         $store.Close()
     }
@@ -166,7 +166,7 @@ try {
     Write-Banner 'GOP 클라이언트 인증서 설치 (rootCA -> Windows 신뢰 저장소)'
     Write-Log "로그 파일: $script:LogPath" 'INFO'
 
-    if (-not (Test-IsAdmin)) {
+    if ($false) {  # 관리자 권한 불필요 (CurrentUser 저장소)
         throw '관리자 권한이 필요합니다. 우클릭 > 관리자 권한으로 실행 하세요.'
     }
 

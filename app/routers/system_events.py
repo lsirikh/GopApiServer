@@ -16,6 +16,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime
+from app.utils.datetime import utc_now
 
 from app.config import settings
 from app.dependencies import get_async_db
@@ -303,7 +304,7 @@ async def acknowledge_system_event(
     # 확인 처리
     event.is_acknowledged = True
     event.acknowledged_by = ack_data.acknowledged_by
-    event.acknowledged_at = datetime.now(settings.tz).replace(tzinfo=None)
+    event.acknowledged_at = utc_now()
 
     await db.commit()
     await db.refresh(event)

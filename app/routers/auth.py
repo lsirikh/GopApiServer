@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from typing import Optional
 from datetime import datetime, timedelta
+from app.utils.datetime import utc_now
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -133,7 +134,7 @@ def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
 def _kst_now() -> datetime:
     """settings.tz(KST) 기준 naive now — grant 저장/비교 컨벤션 일치."""
     from app.config import settings
-    return datetime.now(settings.tz).replace(tzinfo=None)
+    return utc_now()
 
 
 def _active_grants(db: Session, user: AccountUser, now=None) -> list:
@@ -480,7 +481,7 @@ async def login(
         from app.services import settings_service as _ss
         from app.services.settings_service import SettingKey as _SK
         _lock_dur = _ss.get(db, _SK.LOCKOUT_DURATION_MINUTES)
-        _now_kst = datetime.now(settings.tz).replace(tzinfo=None)
+        _now_kst = utc_now()
         if _lock_dur and user.locked_at and (_now_kst - user.locked_at) >= timedelta(minutes=_lock_dur):
             user.is_locked = False
             user.failed_login_count = 0
@@ -518,7 +519,7 @@ async def login(
         if _lockout_threshold and user.failed_login_count >= _lockout_threshold:
             user.is_locked = True
             user.lock_reason = "Too many failed login attempts"
-            user.locked_at = datetime.now(settings.tz).replace(tzinfo=None)
+            user.locked_at = utc_now()
             _reason = "ACCOUNT_LOCKED"  # 이번 실패로 잠금 임계 도달
             _locked_now = True
 
@@ -599,7 +600,7 @@ async def login(
         user_id=user.id,
         token=_placeholder,
         refresh_token=f"{_placeholder}-r",
-        expires_at=datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=_timeout_hours),
+        expires_at=utc_now() + timedelta(hours=_timeout_hours),
         is_active=True,
         ip_address=client_ip,
         user_agent=user_agent
@@ -617,12 +618,12 @@ async def login(
     #   revoke/force_logout 은 이 jti 를 직접 블랙리스트. refresh_expires_at = 블랙리스트 TTL 원천.
     session.token = decode_token(access_token).jti
     session.refresh_token = decode_token(refresh_token, expected_type="refresh").jti
-    session.refresh_expires_at = datetime.now(settings.tz).replace(tzinfo=None) + timedelta(days=_refresh_days)
+    session.refresh_expires_at = utc_now() + timedelta(days=_refresh_days)
 
     # ACC-P1-09/P2-02: 성공 로그인 위생 — 실패 카운트 리셋 + 마지막 로그인 시각/IP 기록.
     # 기존엔 failed_login_count 가 성공해도 리셋 안 되어 누적 → 오래된 실패로 잠금 오작동 소지.
     user.failed_login_count = 0
-    user.last_login_at = datetime.now(settings.tz).replace(tzinfo=None)
+    user.last_login_at = utc_now()
     user.last_login_ip = client_ip
     # P1-09: 성공 시 해당 IP rate-limit 카운터 클리어(정상 사용자 영향 최소).
     login_rate_limit.reset(_ip)
@@ -754,7 +755,7 @@ async def logout(
             add_to_blacklist(
                 db=db,
                 jti=token_data.jti,
-                expires_at=datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS),
+                expires_at=utc_now() + _td(hours=settings.JWT_EXPIRATION_HOURS),
                 reason="LOGOUT",
                 user_id=None,
                 token_type="access",
@@ -849,7 +850,7 @@ async def refresh(
     from app.services import settings_service as _ss
     from app.services.settings_service import SettingKey as _SK
     if token_data.jti:
-        old_refresh_expires = datetime.utcnow() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS))
+        old_refresh_expires = utc_now() + _td(days=_ss.get(db, _SK.REFRESH_EXPIRATION_DAYS))
         add_to_blacklist(
             db=db,
             jti=token_data.jti,
@@ -865,7 +866,7 @@ async def refresh(
         add_to_blacklist(
             db=db,
             jti=session.token,
-            expires_at=session.expires_at or (datetime.utcnow() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
+            expires_at=session.expires_at or (utc_now() + _td(hours=settings.JWT_EXPIRATION_HOURS)),
             reason="REFRESH_ROTATION",
             user_id=user.id,
             token_type="access",
@@ -885,8 +886,8 @@ async def refresh(
     # E1/P1-10: 원문 대신 jti 저장 + refresh 만료 갱신(블랙리스트 TTL 원천).
     session.token = decode_token(access_token).jti
     session.refresh_token = decode_token(new_refresh_token, expected_type="refresh").jti
-    session.expires_at = datetime.now(settings.tz).replace(tzinfo=None) + timedelta(hours=_timeout_hours)
-    session.refresh_expires_at = datetime.now(settings.tz).replace(tzinfo=None) + timedelta(days=_refresh_days)
+    session.expires_at = utc_now() + timedelta(hours=_timeout_hours)
+    session.refresh_expires_at = utc_now() + timedelta(days=_refresh_days)
     db.commit()
 
     return {

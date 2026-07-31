@@ -9,6 +9,7 @@ PRD: PRD_Permission_Group_Scheduling.md
 from __future__ import annotations
 
 from datetime import datetime
+from app.utils.datetime import utc_now
 
 # 파생 상태 리터럴
 STATUS_ACTIVE = "ACTIVE"
@@ -80,7 +81,7 @@ async def run_grant_sweep() -> int:
     from app.services.audit_service import log_action_async
 
     async with AsyncSessionLocal() as db:
-        now = datetime.now(settings.tz).replace(tzinfo=None)
+        now = utc_now()
         stmt = (
             select(UserGroupGrant)
             .options(selectinload(UserGroupGrant.group))

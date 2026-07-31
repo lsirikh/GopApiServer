@@ -13,6 +13,7 @@ grant sweep과 동일한 방어 패턴:
 from __future__ import annotations
 
 from datetime import datetime
+from app.utils.datetime import utc_now
 
 from app.utils.enums import EnumLogoutReason
 
@@ -49,7 +50,7 @@ async def run_session_sweep() -> int:
 
     db = AsyncSessionLocal()
     try:
-        now = datetime.now(settings.tz).replace(tzinfo=None)
+        now = utc_now()
         expired = await find_expired_sessions_async(db, now)
         if not expired:
             return 0

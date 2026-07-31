@@ -39,6 +39,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.config import settings
+from app.utils.datetime import utc_now  # datetime-unification: api_logs naive-UTC 저장
 from app.database import AsyncSessionLocal, SessionLocal
 from app.models.log import ApiLog
 
@@ -368,9 +369,9 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
                 "body": body,
                 "param": query_params,
                 "error_message": error_message,
-                # v6.0 Phase 4 hotfix: api_logs.timestamp = TIMESTAMP WITHOUT TIME ZONE.
-                # asyncpg는 tz-aware/naive 혼용 거부 → naive KST로 정합 (기존 ORM 컨벤션 일치).
-                "timestamp": datetime.now(settings.tz).replace(tzinfo=None),
+                # datetime-unification: api_logs.timestamp = TIMESTAMP WITHOUT TIME ZONE(파티션키, v67까지 유지).
+                # 전역 serializer(naive=UTC) 규약과 정합되도록 naive-UTC 벽시계로 저장. sweep cutoff(utcnow)와도 일치.
+                "timestamp": utc_now().replace(tzinfo=None),
             }
             await _enqueue_log(payload)
         except Exception as e:

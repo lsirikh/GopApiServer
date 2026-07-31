@@ -18,6 +18,7 @@ Idempotent: Safe to call multiple times — skips if data already exists.
 import random
 import uuid
 from datetime import datetime, timedelta
+from app.utils.datetime import utc_now
 from sqlalchemy import insert, select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -102,7 +103,7 @@ def _geo(zone_idx: int, sub_idx: int = 0) -> dict:
 
 def _rand_dt(days_back: int = 30) -> datetime:
     """Random datetime within the last N days."""
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     delta = timedelta(
         days=random.randint(0, days_back),
         hours=random.randint(0, 23),
@@ -671,7 +672,7 @@ def _create_enclosure_metrics(db: Session):
         print("  [WARN] No enclosures — skipping enclosure metrics")
         return
 
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     count = 0
     for enc in enclosures:
         base_temp = random.uniform(-5.0, 25.0)  # 계절별 기본 온도
@@ -768,7 +769,7 @@ def _create_events(db: Session, device_ids: dict) -> dict:
             return None
         return device_cache.get(dev_id, f"[Unknown] device (id: {dev_id})")
 
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     eids = {"detection": [], "malfunction": [], "connection": []}
 
     # ── Detection events (3000건, 3일간 = 하루 ~1000건) ──
@@ -929,7 +930,7 @@ def _create_action_events(db: Session, event_ids: dict, user_names: list[str]):
 
     # 5000건 조치 이벤트 생성
     print("    Creating action events (5000)...", flush=True)
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     for i, from_id in enumerate(targets):
         dt = now - timedelta(
             days=random.randint(0, 5),
@@ -1112,7 +1113,7 @@ def _create_user_sessions(db: Session, user_ids: list[int]):
         print(f"  [OK] User sessions already exist: {existing}")
         return
 
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     count = 0
     for uid in user_ids:
         # Active session
@@ -1901,7 +1902,7 @@ async def _create_enclosure_metrics_async(db: AsyncSession) -> None:
         print("  [WARN] No enclosures — skipping enclosure metrics")
         return
 
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     rows: list[dict] = []
     for enc in enclosures:
         base_temp = random.uniform(-5.0, 25.0)
@@ -1969,7 +1970,7 @@ async def _create_events_async(db: AsyncSession, device_ids: dict) -> dict:
             return None
         return device_cache.get(dev_id, f"[Unknown] device (id: {dev_id})")
 
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     eids = {"detection": [], "malfunction": [], "connection": []}
 
     # Detection events (3000, 3일)
@@ -2103,7 +2104,7 @@ async def _create_action_events_async(db: AsyncSession, event_ids: dict, user_na
     await db.flush()
 
     print("    Creating action events (5000)...", flush=True)
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     rows: list[dict] = []
     for from_id in targets:
         dt = now - timedelta(
@@ -2234,7 +2235,7 @@ async def _create_user_sessions_async(db: AsyncSession, user_ids: list[int]) -> 
         print(f"  [OK] User sessions already exist: {existing}")
         return
 
-    now = datetime.now(settings.tz).replace(tzinfo=None)
+    now = utc_now()
     rows: list[dict] = []
     for uid in user_ids:
         rows.append({

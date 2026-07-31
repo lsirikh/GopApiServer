@@ -9,6 +9,8 @@ from datetime import datetime as dt
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.types import UtcDateTime
+from app.utils.datetime import utc_now
 from app.config import settings
 from app.utils.enums import EnumMappingEventCategory, EnumLampColor, EnumBuzzerSound, EnumLightMode
 
@@ -47,8 +49,8 @@ class EventMapping(Base):
     )
     description = Column(String(500), nullable=True, doc="설명")
     status = Column(Boolean, default=True, nullable=False, doc="활성화 상태")
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # ===== Relationships =====
     device_group = relationship("DeviceGroup", back_populates="event_mappings", lazy="joined")
@@ -136,9 +138,9 @@ class EventMappingCamera(Base):
     priority = Column(Integer, nullable=True, default=None)  # Optional
 
     # 타임스탬프
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None),
-                        onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now,
+                        onupdate=utc_now, nullable=False)
 
     # Relationships
     event_mapping = relationship("EventMapping", back_populates="cameras")
@@ -196,9 +198,9 @@ class EventMappingSpeaker(Base):
     priority = Column(Integer, nullable=True, default=None)
 
     # 타임스탬프
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None),
-                        onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now,
+                        onupdate=utc_now, nullable=False)
 
     # Relationships
     event_mapping = relationship("EventMapping", back_populates="speakers")
@@ -277,9 +279,9 @@ class EventMappingLamp(Base):
     priority = Column(Integer, nullable=False, default=1)
 
     # 타임스탬프
-    created_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
-    updated_at = Column(DateTime, default=lambda: dt.now(settings.tz).replace(tzinfo=None),
-                        onupdate=lambda: dt.now(settings.tz).replace(tzinfo=None), nullable=False)
+    created_at = Column(UtcDateTime, default=utc_now, nullable=False)
+    updated_at = Column(UtcDateTime, default=utc_now,
+                        onupdate=utc_now, nullable=False)
 
     # Unique constraint: 동일 EventMapping에 동일 Lamp는 1번만 매핑 가능
     __table_args__ = (

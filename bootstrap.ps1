@@ -25,6 +25,7 @@ param(
     [switch]$SkipDocker,      # docker compose up 스킵
     [switch]$Rebuild,         # docker compose build --no-cache
     [switch]$AllowHttpFallback,  # 인증서 없이 HTTP로 기동 (개발용, 프로덕션 금지)
+    [switch]$ForceCerts,      # 기존 cert 무시하고 강제 재발급 (SAN 변경 적용)
     [switch]$NonInteractive   # 완전 무인 (실패 시 종료 대기 Read-Host 도 스킵 — CI/스크립트용)
 )
 
@@ -74,6 +75,7 @@ if (-not (Test-IsAdmin)) {
     if ($SkipDocker)         { $argList += '-SkipDocker' }
     if ($Rebuild)            { $argList += '-Rebuild' }
     if ($AllowHttpFallback)  { $argList += '-AllowHttpFallback' }
+    if ($ForceCerts)         { $argList += '-ForceCerts' }
     if ($NonInteractive)     { $argList += '-NonInteractive' }
 
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
@@ -144,7 +146,7 @@ if ($SkipCerts) {
 } elseif ($AllowHttpFallback -and -not $certsPresent) {
     Write-Host "  -AllowHttpFallback 지정됨: 인증서 없이 HTTP로 기동 (프로덕션 금지)" -ForegroundColor Yellow
     $env:ALLOW_HTTP_FALLBACK = 'true'
-} elseif ($certsPresent) {
+} elseif ($certsPresent -and -not $ForceCerts) {
     Write-Host "  server.crt / server.key 이미 존재. 스킵" -ForegroundColor Green
     Write-Host "  강제 재발급이 필요하면: $serverInstallExe 직접 실행" -ForegroundColor DarkGray
 } elseif (Test-Path $serverInstallExe) {
@@ -200,6 +202,32 @@ if ($SkipCerts) {
     Write-Host '엔터를 눌러 종료...' -ForegroundColor DarkGray
     [void](Read-Host)
     exit 1
+}
+
+# ----- 2.5) client_install.exe 재빌드 (이 서버 CA 임베드) -------------------
+# v6.3-cert_san_expand: 서버 CA 는 이 서버 PC 의 mkcert -install 로 생성/사용된다.
+#   클라 배포용 client_install.exe 가 이 서버의 rootCA 를 임베드해야 클라 PC 가 이 서버
+#   인증서를 신뢰한다. 방금 발급된 certs/rootCA.pem 을 임베드해 client_install.exe 를 재생성한다.
+#   git clone + bootstrap.ps1 만으로 배포용 client_install.exe 가 완성된다.
+if ($SkipCerts) {
+    Write-Step '2.5/5 client_install.exe 재빌드 (스킵 - -SkipCerts)'
+} else {
+    Write-Step '2.5/5 client_install.exe 재빌드 (이 서버 rootCA 임베드)'
+    $buildScript = Join-Path $repoRoot 'certs/installer_ps2exe/build_install_exe.ps1'
+    $rootCaPem   = Join-Path $certDir 'rootCA.pem'
+    if ((Test-Path $buildScript) -and (Test-Path $rootCaPem)) {
+        try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript -RootCaPath $rootCaPem
+            if ($LASTEXITCODE -ne 0) { throw "build_install_exe.ps1 exit $LASTEXITCODE" }
+            Write-Host "  client_install.exe 재빌드 완료 (이 서버 CA 임베드)" -ForegroundColor Green
+            Write-Host "  클라이언트 PC 로 전달해 실행: (repo)/certs/client_install.exe" -ForegroundColor Cyan
+        } catch {
+            Write-Host "  [WARN] client_install.exe 재빌드 실패: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  대안) certs/rootCA.pem 을 클라 PC 의 client_install.exe 와 같은 폴더에 두고 실행" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  [WARN] build 스크립트/rootCA.pem 미발견 - 재빌드 스킵" -ForegroundColor Yellow
+    }
 }
 
 # ----- 3) docker compose build --------------------------------------------

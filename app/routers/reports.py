@@ -33,6 +33,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime, timedelta
+from app.utils.datetime import to_utc, utc_now
 from urllib.parse import quote
 import os
 
@@ -598,8 +599,8 @@ async def _run_report_generation(generation_id: int) -> None:
             await _progress(10, "setup")
 
             # v6.0 Phase 3 hotfix: asyncpg는 tz-aware/naive datetime 혼용 거부.
-            _start_naive = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
-            _end_naive = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
+            _start_naive = to_utc(generation.start_date)
+            _end_naive = to_utc(generation.end_date)
             data = await build_master_data_async(
                 db, _start_naive, _end_naive, meta, enabled_set,
                 severity_filter=generation.severity_filter,
@@ -1143,8 +1144,8 @@ async def download_report_detail_csv(
             detail=f"Unknown type '{type}'. Valid: {sorted(_CSV_GRID_DEFS.keys())}",
         )
 
-    _start = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
-    _end = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
+    _start = to_utc(generation.start_date)
+    _end = to_utc(generation.end_date)
     params = {"start": _start, "end": _end} if definition["use_range"] else {}
 
     async def _csv_stream():
@@ -1307,8 +1308,8 @@ async def report_preview_page(
     meta = build_report_meta(generation)
     # v5.4 P1-3: 프리뷰도 severity_filter 반영 (PDF와 동일 HTML 유지)
     # v6.0 Phase 3 hotfix: tz-aware → naive 정합 (asyncpg 엄격 검사)
-    _start_naive = generation.start_date.replace(tzinfo=None) if generation.start_date.tzinfo else generation.start_date
-    _end_naive = generation.end_date.replace(tzinfo=None) if generation.end_date.tzinfo else generation.end_date
+    _start_naive = to_utc(generation.start_date)
+    _end_naive = to_utc(generation.end_date)
     data = await build_master_data_async(
         db, _start_naive, _end_naive, meta, enabled_set,
         severity_filter=generation.severity_filter,

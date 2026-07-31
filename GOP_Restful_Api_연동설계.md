@@ -13475,6 +13475,8 @@ GET /api/servers/summary
 
 서버의 리소스 사용량을 시계열로 기록하고 조회합니다.
 
+> **collected_at 타임존 (v6.3 후속 `server_metrics_tz_fix`)**: `collected_at` 은 tz-aware(예: `2026-07-31T10:00:00+09:00`) 또는 naive 둘 다 허용하며, 서버가 **KST 벽시계 naive** 로 정규화해 저장한다(응답은 `+09:00` 표기). 이전엔 aware 값 전송 시 500 이었다.
+
 > **PRD Reference**: PRD_System_Event.md Section 2.4
 
 **리소스 구조**:
@@ -16366,6 +16368,13 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
+
+> 기존 버그(배포 무관): `POST /api/servers/{id}/metrics` 에 tz-aware(KST +09:00) `collected_at` 을 보내면 asyncpg 가 naive 컬럼(`TIMESTAMP WITHOUT TIME ZONE`)에 aware 값을 못 넣어 500 → CPU/RAM/디스크 메트릭 저장 통째 실패.
+
+- `app/routers/server_metrics.py`: `_to_naive_kst` 헬퍼로 aware `collected_at` 을 KST 벽시계 naive 로 정규화 후 저장(프로젝트 표준 naive-KST 정합, 응답은 `KSTDatetime` 이 +09:00 부여).
+- 라이브 재현→수정: aware POST 500 → **201**, DB `collected_at`=`2026-07-31 10:00:00`(naive). `tests/test_server_metrics_tz.py` 4 passed. 롤백태그 `pre-server_metrics_tz_fix`.
 
 ### [v6.3 후속] `proxy_settings_typed` — proxy-settings PROXY 서버 전용 강제 (2026-07-31)
 

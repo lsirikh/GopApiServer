@@ -4,6 +4,14 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### v6.3-server_metrics_tz_fix — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
+
+> 기존 버그(배포 무관): tz-aware(KST +09:00) collected_at 을 naive 컬럼(TIMESTAMP WITHOUT TIME ZONE)에 INSERT → asyncpg "can't subtract offset-naive and offset-aware datetimes" 거부(500) → CPU/RAM/디스크 메트릭 저장 통째 실패.
+
+- `app/routers/server_metrics.py`: `_to_naive_kst` 헬퍼 — aware datetime 을 KST 벽시계 naive 로 정규화 후 저장(프로젝트 표준 naive-KST 정합). 응답은 +09:00 유지.
+- 라이브 재현·수정 검증: aware collected_at POST 500 → **201**, DB `collected_at` naive(`2026-07-31 10:00:00`) 저장 확인.
+- `tests/test_server_metrics_tz.py` 4 passed. 롤백태그 `pre-server_metrics_tz_fix`.
+
 ## [6.3.1] - 2026-07-31
 
 > 버그픽스 릴리즈 — 서버 시드/프록시 설정 정합 (하루 1버전 묶음: `proxy_mandatory_seed` + `proxy_settings_typed`). Swagger `info.version` 6.3.0 → **6.3.1**.

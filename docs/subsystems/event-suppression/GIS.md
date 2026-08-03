@@ -1,7 +1,8 @@
 # GIS(관제 / Central UI) — 이벤트 억제(정비 창) 연동 안내
 
-- **문서 버전**: v2.0 · **갱신일**: 2026-08-03 · **우선순위**: ★최상
+- **문서 버전**: v2.1 · **갱신일**: 2026-08-03 · **우선순위**: ★최상
 - **대상 API 버전**: **6.3.2** (`release/v6.3`)
+- **브로커 명세**: `Gop_Message_Broker_연동설계_v1.5.md` v1.6 §9.12
 - **상위 문서**: [README.md](README.md) (공통 계약·범위 경계)
 - **서버 마스터 명세**: `GOP_Restful_Api_연동설계.md` §6.8
 - **GIS 역할**: `all.event.>` 구독 → 상황도(GMaps) 알람 표시. 운영자 조작 창구. **정비 창 관리 UI의 주체**
@@ -16,11 +17,13 @@
 | **C-2** | 한 정비 창에 **장비 N개 / 그룹 N개** 지정 가능 (모드는 여전히 배타) | UI 다중선택 필요 |
 | **C-3** | **일괄 하드삭제 신규**: `POST /api/event-suppression-schedules/bulk-delete` | 목록 정리 버튼 구현 가능 |
 | **C-4** | 엔드포인트 6개 → **7개** | — |
+| **C-5** | **NATS 알림 신설** `SYNC_EVENT_SUPPRESSION` — 정비 창 변경·창 경계 전이를 브로드캐스트 | 폴링만 하던 것을 **즉시 반응**으로 (§7-A) |
 
 > ⚠ **배포 상태 주의 (2026-08-03 기준)**
-> `bulk-delete`(C-3)는 **로컬 개발 서버(6.3.2)에만 반영**되어 있고,
-> **테스트 서버 `https://123.141.236.253:8136` 는 아직 6.3.1** 이라 호출 시 **405** 가 난다.
-> 해당 서버 재배포 후 사용할 것. 버전은 `GET /openapi.json` → `info.version` 으로 확인.
+> C-3(`bulk-delete`)·C-5(NATS)·§5-A(PATCH 500 수정)는 **개발 서버(6.3.2)에 반영 완료**이나,
+> **테스트 서버 `https://123.141.236.253:8136` 는 아직 6.3.1** 이다.
+> → 그 서버에서는 `bulk-delete` 가 **405**, `SYNC_EVENT_SUPPRESSION` **미발행**, PATCH 는 여전히 **500**.
+> 재배포 후 사용할 것. 버전은 `GET /openapi.json` → `info.version` 으로 확인.
 
 ---
 
@@ -34,7 +37,7 @@ Base: `/api/event-suppression-schedules`
 | 2 | GET | `` | events:view | 목록(상태·대상 필터, 페이지) |
 | 3 | GET | `/active` | events:view | **현재 활성 창**(배너·폴링) |
 | 4 | GET | `/{id}` | events:view | 단건 조회 |
-| 5 | PATCH | `/{id}` | events:edit | 부분 변경 ⚠ §5-A 주의 |
+| 5 | PATCH | `/{id}` | events:edit | 부분 변경 (v6.3.2 에서 device/group 모드 500 해소) |
 | 6 | DELETE | `/{id}` | events:delete | **취소**(soft-cancel, 이력 보존) |
 | 7 | POST | `/bulk-delete` | events:delete | **일괄 하드삭제**(목록 정리) |
 
@@ -179,24 +182,15 @@ GET /api/event-suppression-schedules?page=1&limit=20&status=active&target_type=d
 
 ## 5. ⚠ 현재 서버의 알려진 제약 (회피 필요)
 
-수정 PRD(`docs/prds/event-suppression-hardening-prd.md`)는 작성됐으나 **아직 반영 전**이다.
-GIS는 아래를 회피해서 구현할 것.
+§5-A 는 **v6.3.2 에서 해소**됐다. 나머지(5-B~5-D)는 하드닝 PRD(`docs/prds/event-suppression-hardening-prd.md`)
+대상으로 **아직 반영 전**이므로 GIS 는 아래를 회피해서 구현할 것.
 
-### 5-A. `PATCH` 는 device/group 대상 창에서 **500** (★최중요)
+### 5-A. ~~`PATCH` 는 device/group 대상 창에서 500~~ → **해소됨 (2026-08-03)**
 
-`target_type` 이 `device` 또는 `group` 인 스케줄은 **어떤 PATCH 도 500**이 난다
-(이름만 변경·창 시간만 연장 포함). `target_type=all` 만 정상.
-
-| PATCH 내용 | 결과 |
-|---|---|
-| 이름만 변경 (device 창) | **500** |
-| 창 시간 연장 (device 창) | **500** |
-| 대상 추가 `[A] → [A,B]` | **500** |
-| 대상 완전 교체 `[A] → [B]`(겹침 0) | 200 |
-| `all` 창의 임의 변경 | 200 |
-
-**GIS 회피**: 수정 UI는 당분간 **"취소 후 새로 생성"** 흐름으로 구현하거나, 편집 버튼을
-`target_type=all` 창에만 노출한다. (서버 수정 후 안내 예정)
+> **✅ 수정 완료** — `v6.3.2` 부터 device/group 대상 창의 PATCH 가 정상 동작한다.
+> 이름만 변경 / 창 시간 연장 / 대상 추가·축소 / 완전 교체 **전부 200**.
+> 원인은 junction 재구성 시 UNIQUE 위반이었고 delta 동기화로 전환했다.
+> **회피 로직(취소 후 재생성)은 제거해도 된다.**
 
 ### 5-B. 겹치는 창을 만들면 하나만 취소해도 억제가 계속된다
 
@@ -241,6 +235,61 @@ GIS는 아래를 회피해서 구현할 것.
 
 억제 창 생성 후 응답의 `target_device_ids` 를 **장비명으로 되풀이 표시**해 운영자가 대상을 육안
 확인할 수 있게 하는 것을 강력 권장한다.
+
+---
+
+## 7-A. ★ NATS 알림 — `SYNC_EVENT_SUPPRESSION` (신규, v6.3.2)
+
+정비 창이 바뀌거나 창이 시작·종료되면 서버가 NATS 로 알린다. **폴링만 기다리지 말고 즉시 반응**할 수 있다.
+
+```
+Subject : sensorway.{부대ID}.all.sync.event-suppression
+cmd     : SYNC_EVENT_SUPPRESSION      from: DBApi      m_type: PUB
+body    : { "action": "CREATED|UPDATED|DELETED", "resource_id": 12, "status": "active" }
+```
+
+**구독 추가 불필요** — GIS 는 이미 `sensorway.*.all.sync.*` 를 구독하므로 자동 수신된다.
+다만 **`EnumGopCommand` 에 `SYNC_EVENT_SUPPRESSION` 을 추가**하고, **미지 cmd 를 만나도 크래시하지 않고
+skip** 하도록 방어해야 한다(빠뜨리면 SYNC 수신 루프 전체가 죽어 장비 동기화까지 멈춘다).
+
+### action 매핑 — HTTP 메서드와 다르다
+
+| 발생 사건 | action | status |
+|---|---|---|
+| 정비 창 생성 | `CREATED` | 생성 시점 상태 |
+| 창 시간·이름·**대상 배열** 변경 | `UPDATED` | 변경 후 상태 |
+| **취소**(`DELETE /{id}` — soft-cancel) | **`UPDATED`** | **`cancelled`** |
+| **창 시작** (시간 도달) | `UPDATED` | `active` |
+| **창 종료** (시간 도달) | `UPDATED` | `expired` |
+| **하드삭제**(`bulk-delete`) | `DELETED` | (없음) |
+
+> `DELETE /{id}` 는 물리삭제가 아니라 `revoked_at` 을 세팅하는 soft-cancel 이라 **`UPDATED`** 로 온다.
+> `DELETED` 는 `bulk-delete` 로 목록에서 완전히 지운 경우뿐이며, 그 대상은 이미 terminal 이라
+> **억제 상태 변화가 아니다**(캐시 eviction 전용).
+
+### 권장 처리 — 한 줄로 단순화
+
+```
+SYNC_EVENT_SUPPRESSION 수신 → GET /api/event-suppression-schedules/active 재조회 → 배너·필터 갱신
+```
+
+action 별 분기 없이 **무조건 `/active` 재조회**로 처리하면 위 매핑을 외울 필요가 없고 오해도 없다.
+
+### ★ 억제 해제는 신호에 의존하지 말 것 (안전 규범)
+
+NATS Core 는 **at-most-once** 라 유실이 정상 경로다. 안전 비대칭이 크다:
+
+| 유실 | 결과 | |
+|---|---|---|
+| 창 시작 신호 | 억제가 늦게 걸림(알람이 좀 시끄러움) | 허용 |
+| **창 종료 신호** | **억제가 영원히 안 풀림 = 상황도 영구 침묵** | **금지** |
+
+1. **`expired` 신호로 해제하지 말고**, 캐시한 `window_end` **로컬 타이머 만료로 스스로 푼다** ← 1차 권위
+2. **`GET /active` 30~60초 폴링을 계속 유지** — SYNC 가 생겼다고 폴링을 제거하면 안 된다(폴링이 권위, SYNC 는 가속)
+3. 캐시에 **TTL(폴링 주기 ×3)** 을 두어 신호·폴링 두절 시 자동으로 "억제 없음"으로 수렴
+
+**통지 지연**: 정상 **≤5초**, 서버 재기동 등 예외 시 **≤5분**. (억제 판정 자체는 서버가 요청시점에
+계산하므로 지연 0 — 통지만 늦을 뿐이다.)
 
 ---
 
@@ -373,8 +422,15 @@ HTTP/1.1 202 Accepted
 - [ ] 상태 배지는 **`status`** 사용, `is_active` **미사용** (§2)
 - [ ] 생성 후 응답의 `target_device_ids` 를 장비명으로 되풀이 표시
 
+**NATS 연동 (C-5)**
+- [ ] `EnumGopCommand` 에 **`SYNC_EVENT_SUPPRESSION`** 추가 (구독 추가는 불필요)
+- [ ] **미지 cmd graceful skip** 방어 + 회귀 테스트 ← 빠뜨리면 SYNC 루프 전체 중단
+- [ ] 수신 시 `GET /active` 재조회로 배너·필터 갱신 (§7-A)
+- [ ] **`expired` 신호로 해제 금지** — 로컬 `window_end` 타이머가 1차 권위 (§7-A)
+- [ ] **`/active` 폴링 유지** (SYNC 도입해도 제거 금지) + 캐시 TTL
+
 **회피 (서버 수정 전)**
-- [ ] device/group 창은 **PATCH 대신 취소+재생성** (§5-A)
+- [x] ~~device/group 창은 PATCH 대신 취소+재생성~~ → **v6.3.2 에서 해소, 회피 로직 제거 가능** (§5-A)
 - [ ] 취소 후 **`GET /active` 재확인** — 겹친 창 잔존 여부 (§5-B)
 - [ ] "이 장비 억제 중?" 판정은 `?device_id=` 필터 아닌 **`/active` + 로컬 판정** (§5-C)
 - [ ] 창 최대 기간(예: 30일) 폼 검증 (§5-D)

@@ -337,6 +337,11 @@ async def lifespan(app: FastAPI):
         grant_scheduler.set_scheduler(scheduler)
         _rescheduled = await grant_scheduler.reschedule_future_grants()
         print(f"Grant expiry jobs rescheduled on boot: {_rescheduled}")
+        # event-suppression-sync FR-05: 억제 창 경계 전이 통지 스케줄러 주입 + 부팅 복원
+        from app.services import suppression_scheduler
+        suppression_scheduler.set_scheduler(scheduler)
+        _sup_jobs = await suppression_scheduler.reschedule_future_windows()
+        print(f"Suppression window boundary jobs rescheduled on boot: {_sup_jobs}")
         print(f"Grant sweep scheduler started (interval {settings.GRANT_SWEEP_INTERVAL_MINUTES}m)")
         print(f"Suppression sweep scheduler started (interval {settings.SUPPRESSION_SWEEP_INTERVAL_MINUTES}m)")
         print("Session sweep scheduler started (interval 5m)")

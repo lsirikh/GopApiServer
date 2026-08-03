@@ -63,8 +63,21 @@ Authorization: Bearer <token>        # AUTH_MODE=token 시 events:view 필요
 }
 ```
 
-- 폴링 주기 권장: **30~60초 캐시**(창 경계 정밀도는 분 단위로 충분). 또는 서버가 향후 제공할 브로커
-  신호 구독(Phase 2 확장 여지).
+- 폴링 주기 권장: **30~60초 캐시**(창 경계 정밀도는 분 단위로 충분).
+- **★ NATS 알림 `SYNC_EVENT_SUPPRESSION` 신설(v6.3.2)** — 정비 창 변경·창 경계 전이를 브로드캐스트한다.
+  Subject `sensorway.{부대ID}.all.sync.event-suppression`, body `{action, resource_id, status}`.
+  **구독 추가 불필요**(전 서브시스템이 이미 `all.sync.*` 구독) — `EnumGopCommand` 에 cmd 추가 +
+  **미지 cmd graceful skip** 방어만 하면 된다. 상세: 브로커 명세 v1.6 **§9.12**.
+  - `DELETE /{id}`(soft-cancel)는 `action=DELETED` 가 아니라 **`UPDATED`/`status=cancelled`** 로 온다.
+  - **폴링을 대체하지 않는다** — 아래 fail-safe 규범 참조.
+
+> **★ fail-safe 규범 (MUST)**: NATS Core 는 at-most-once 라 유실이 정상 경로다.
+> 창 시작 신호 유실은 "좀 시끄러움"(허용)이지만, **창 종료 신호 유실은 억제가 영원히 안 풀리는
+> 영구 침묵**(금지)이다.
+> ① 억제 해제는 **캐시한 `window_end` 로컬 타이머 만료가 1차 권위** — `expired` 신호에 의존 금지.
+> ② `GET /active` 30~60초 폴링은 **권위이며 존치**, SYNC 는 **가속 신호(비권위)**.
+> ③ 캐시 TTL(폴링 주기 ×3) 초과 시 자동으로 "억제 없음"으로 수렴(fail-open).
+> 통지 지연 상한: 정상 ≤5초 / 백스톱 ≤5분. (억제 판정 자체는 서버 요청시점 계산이라 지연 0)
 - 전체 목록/관리: `GET|POST|PATCH|DELETE /api/event-suppression-schedules` (§4 참조).
 
 ### 2.2 억제된 이벤트 POST 응답 (Proxy/AiAnalysis 필독)

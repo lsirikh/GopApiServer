@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, func
+from sqlalchemy.orm import noload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db
@@ -36,6 +37,7 @@ from app.services.config_log_service import (
     log_config_change_async, get_identifier, get_changed_fields, model_to_dict,
 )
 from app.services.event_suppression_service import suppression_status, get_active_schedules
+from app.services import suppression_scheduler
 from app.utils.datetime import utc_now, to_utc
 from app.utils.enums import (
     EnumConfigResourceType, EnumConfigActionType,
@@ -47,6 +49,28 @@ router = APIRouter(prefix="/event-suppression-schedules")
 
 def _dedupe(ids) -> list[int]:
     return list(dict.fromkeys(ids or []))
+
+
+def _sync_targets(collection, model, key_attr: str, new_ids: list[int]) -> bool:
+    """junction 컬렉션을 **delta** 로 동기화. 반환 = 실제 변경 여부.
+
+    ★ 왜 통째 재대입(`s.target_devices = [...]`)을 쓰면 안 되는가:
+      relationship 이 cascade="all, delete-orphan" 이라 재대입 시 기존 행은 orphan DELETE,
+      새 객체는 INSERT 로 **같은 flush** 에 예약된다. SQLAlchemy unit-of-work 는 동일 mapper 에서
+      INSERT 를 DELETE 보다 먼저 수행하므로, 겹치는 (schedule_id, device_id) 가 하나라도 있으면
+      uq_suppression_target_device / uq_suppression_target_group 위반 → IntegrityError → 500.
+      대상 배열 미제공 PATCH 는 기존 ids 를 그대로 복원하므로 겹침 100% → 이름만 바꿔도 500이었다.
+    → 겹치는 행은 **재사용**하고 제거분만 remove / 신규분만 append 해서 위반을 원천 차단한다.
+    """
+    current = {getattr(t, key_attr): t for t in collection}
+    target = set(new_ids)
+    removed = [k for k in current if k not in target]
+    added = [k for k in new_ids if k not in current]
+    for k in removed:
+        collection.remove(current[k])
+    for k in added:
+        collection.append(model(**{key_attr: k}))
+    return bool(removed or added)
 
 
 def _to_response(s: EventSuppressionSchedule, now=None) -> EventSuppressionScheduleResponse:
@@ -138,6 +162,9 @@ async def create_suppression_schedule(
 
     db.add(schedule)
     await db.commit()
+
+    # 창 경계 전이 통지 잡 등록(best-effort — 실패해도 sweep 백스톱이 재조정)
+    suppression_scheduler.schedule_window_boundaries(schedule)
 
     await log_config_change_async(
         db=db,
@@ -281,21 +308,24 @@ async def patch_suppression_schedule(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                                 detail={"success": False, "message": "target_device_ids requires ≥1 when target_type=device"})
         await _assert_devices_exist(db, ids)
-        s.target_devices = [EventSuppressionTargetDevice(device_id=d) for d in ids]
-        s.target_groups = []
+        _sync_targets(s.target_devices, EventSuppressionTargetDevice, "device_id", ids)
+        _sync_targets(s.target_groups, EventSuppressionTargetGroup, "group_id", [])
     elif final_type == EnumSuppressionTargetType.GROUP:
         ids = _dedupe(new_group_ids) if new_group_ids is not None else before_groups
         if len(ids) < 1:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                                 detail={"success": False, "message": "target_group_ids requires ≥1 when target_type=group"})
         await _assert_groups_exist(db, ids)
-        s.target_groups = [EventSuppressionTargetGroup(group_id=g) for g in ids]
-        s.target_devices = []
+        _sync_targets(s.target_groups, EventSuppressionTargetGroup, "group_id", ids)
+        _sync_targets(s.target_devices, EventSuppressionTargetDevice, "device_id", [])
     else:  # ALL — 대상 없음
-        s.target_devices = []
-        s.target_groups = []
+        _sync_targets(s.target_devices, EventSuppressionTargetDevice, "device_id", [])
+        _sync_targets(s.target_groups, EventSuppressionTargetGroup, "group_id", [])
 
     await db.commit()
+
+    # 창이 바뀌었을 수 있으므로 경계 잡 재등록(replace_existing=True 로 멱등)
+    suppression_scheduler.schedule_window_boundaries(s)
 
     after_state = model_to_dict(s)
     before_changes, after_changes = get_changed_fields(before_state, after_state)
@@ -331,7 +361,11 @@ async def delete_suppression_schedule(
     if s.revoked_at is None:
         s.revoked_at = utc_now()
     s.is_active = False
+    s.notified_status = EnumSuppressionStatus.CANCELLED.value  # 취소 통지 상태 확정(sweep 재발화 방지)
     await db.commit()
+
+    # 취소됐으므로 남은 경계 잡 제거(발화해도 멱등이지만 불필요한 잡을 남기지 않음)
+    suppression_scheduler.unschedule_window_boundaries(s.id)
 
     await log_config_change_async(
         db=db,
@@ -365,8 +399,17 @@ async def bulk_delete_suppression_schedules(
     # ★ 동시성(TOCTOU) 안전: FOR UPDATE 로 대상 행을 잠근 뒤 최신 커밋 상태로 status 재판정.
     #   조회~삭제 사이 다른 세션의 PATCH(창 연장 등)로 terminal→active 로 뒤바뀐 행이
     #   오삭제되는 것을 차단(잠금 획득 후 값 재평가 → active/pending 이면 skip).
+    # ★ noload: junction 을 세션에 **로드하지 않는다**.
+    #   lazy="selectin" 으로 자식이 세션에 올라오면 passive_deletes 여부와 무관하게 ORM 이 자식 DELETE 를
+    #   부모보다 먼저 실행한다. 그러면 junction statement 트리거가 (아직 살아있는) 부모를 보고
+    #   중복 SYNC(UPDATED)를 쏜다. 로드하지 않으면 부모 DELETE 선행 → FK CASCADE 순서가 되어
+    #   트리거의 부모 JOIN 이 0행 → DELETED 1건만 발행된다. 삭제 판정엔 junction 이 필요 없다.
     rows = (await db.execute(
-        select(EventSuppressionSchedule).where(EventSuppressionSchedule.id.in_(ids)).with_for_update()
+        select(EventSuppressionSchedule)
+        .where(EventSuppressionSchedule.id.in_(ids))
+        .options(noload(EventSuppressionSchedule.target_devices),
+                 noload(EventSuppressionSchedule.target_groups))
+        .with_for_update()
     )).scalars().all()
     found_ids = {s.id for s in rows}
 
@@ -382,6 +425,10 @@ async def bulk_delete_suppression_schedules(
 
     not_found = [i for i in ids if i not in found_ids]
     await db.commit()
+
+    # 하드삭제된 스케줄의 잔여 경계 잡 제거(발화해도 행이 없어 no-op 이지만 잡을 남기지 않음)
+    for sid in deleted:
+        suppression_scheduler.unschedule_window_boundaries(sid)
 
     for sid in deleted:
         await log_config_change_async(

@@ -9,7 +9,7 @@
 
 GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-> **현재 버전**: v6.3.2 (2026-08-03 — 이벤트 억제 스케줄 **일괄 하드삭제** 엔드포인트 출하 `POST /api/event-suppression-schedules/bulk-delete`, 활성/예정 보호 + FOR UPDATE 재판정. `release/v6.3` 브랜치)
+> **현재 버전**: v6.3.2 (2026-08-03 — 이벤트 억제 **일괄 하드삭제** 출하 + **NATS 동기화 메시지** `SYNC_EVENT_SUPPRESSION` 신설(정비 창 변경·창경계 전이 브로드캐스트) + **[P0] PATCH 500 수정**. `release/v6.3` 브랜치)
 >
 > **이전 버전**: v6.3.1 (2026-07-31 — 버그픽스 4건[PROXY 기본 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 INSERT · 세션설정 config enum 자가치유] + 기능[탐지 이벤트 SYNC 발행 `detection_sync`]. `release/v6.3` 브랜치).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
@@ -456,7 +456,7 @@ api-test-server/
 
 | 버전 | 날짜 | 헤드라인 |
 |---|---|---|
-| **v6.3.2** | 2026-08-03 | **이벤트 억제 일괄 하드삭제** — `POST /api/event-suppression-schedules/bulk-delete`(events:delete). 취소·종료 스케줄만 물리삭제, 활성/예정은 `skipped_ids` 보호, `FOR UPDATE` 재판정으로 TOCTOU 차단 |
+| **v6.3.2** | 2026-08-03 | **이벤트 억제 3종** — ①**일괄 하드삭제** `POST .../bulk-delete`(취소·종료만 물리삭제, 활성/예정 `skipped_ids` 보호, FOR UPDATE 재판정) ②**NATS 동기화** `SYNC_EVENT_SUPPRESSION`(정비 창 변경·창경계 전이 브로드캐스트, 브로커 명세 v1.6 §9.12) ③**[P0] PATCH 500 수정**(device/group 모드 PATCH 전면 불능 해소 — junction delta 전환) |
 | **v6.3.1** | 2026-07-31 | **버그픽스 4건 + 기능** — PROXY 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 · 세션설정 config enum 자가치유 · **탐지 이벤트 SYNC 발행(detection_sync)** |
 | v6.3 | 2026-07-13 | 버전 승격 — v6.0 후속 21 topic 확정 (Async 대전환 + 보안 하드닝) |
 | **v6.0** | 2026-07-03 | **Async 대전환** — 41 라우터 async, GOPDB A-7 6/6 완결, autoheal + partition |

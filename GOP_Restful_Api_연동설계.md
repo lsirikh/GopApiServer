@@ -9995,6 +9995,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 | PATCH | `/api/event-suppression-schedules/{id}` | 부분 변경 | events:edit | 6.8.6 |
 | DELETE | `/api/event-suppression-schedules/{id}` | 삭제(soft-cancel) | events:delete | 6.8.7 |
 | POST | `/api/event-suppression-schedules/bulk-delete` | **취소·종료 스케줄 일괄 하드삭제**(목록 정리) | events:delete | 6.8.8 |
+| — (NATS) | `sensorway.{부대ID}.all.sync.event-suppression` | **`SYNC_EVENT_SUPPRESSION` 발행** — 변경·창경계 전이 알림 | — | 6.8.9 |
 
 **필드 요약** (Enum 은 §4 참조 — `# Python 정의 - app/utils/enums.py`):
 
@@ -10106,7 +10107,27 @@ POST /api/event-suppression-schedules/bulk-delete
 - 삭제된 건마다 `config_change_logs` 에 `SUPPRESSION_SCHEDULE / DELETED` 감사 기록을 남긴다.
 - **Error**: 422(`ids` 누락·빈 배열·500건 초과) · 401/403(인가).
 
-#### 6.8.9 억제 게이트 (이벤트 수신 핸들러 동작)
+#### 6.8.9 NATS 발행 — `SYNC_EVENT_SUPPRESSION`
+
+억제 스케줄의 **변경**(생성/수정/대상교체/취소/하드삭제)과 **시간창 자연 전이**(창 시작·종료)는
+NATS 로 브로드캐스트되어 전 서브시스템이 "현재 공사 상태"를 인지할 수 있다.
+
+| 항목 | 값 |
+|---|---|
+| cmd | `SYNC_EVENT_SUPPRESSION` |
+| Subject | `sensorway.{부대ID}.all.sync.event-suppression` |
+| body | `{ "action": "CREATED\|UPDATED\|DELETED", "resource_id": 12, "status": "pending\|active\|expired\|cancelled" }` |
+
+- **취소(`DELETE /{id}`)는 soft-cancel 이라 `action=UPDATED` + `status=cancelled`** 로 나간다.
+  `action=DELETED` 는 **하드삭제(`POST /bulk-delete`)만**.
+- 소비자는 알림 수신 후 `GET /{id}`(상세) 및 `GET /active`(공사 상태 재계산)를 호출한다.
+- **억제 해제는 신호에 의존하지 않는다** — 소비자는 캐시한 `window_end` 로컬 타이머로 스스로 풀고,
+  `/active` 30~60초 폴링을 유지한다(NATS Core at-most-once → 종료 신호 유실 시 영구 침묵 방지).
+- 통지 지연 상한: 정상 **≤5초**(창 경계 date-job), 백스톱 **≤5분**(sweep). 억제 판정 자체는
+  요청시점 계산이 권위라 지연 0.
+- 상세 계약: 브로커 명세 `Gop_Message_Broker_연동설계_v1.5.md` **§9.12** (v1.6).
+
+#### 6.8.10 억제 게이트 (이벤트 수신 핸들러 동작)
 
 `POST /api/events/detections|malfunctions|connections` 이벤트가 활성 억제 창에 걸리면, 서버는 **201 대신 202** 를 반환하고 레코드를 생성하지 않으며 장비 상태 플립(탐지→ACTIVATED / 장애→ERROR)도 건너뛴다:
 

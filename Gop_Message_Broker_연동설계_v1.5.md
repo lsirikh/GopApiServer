@@ -2,7 +2,7 @@
 
 **작성일**: 2026-02-05  
 **최종 수정일**: 2026-07-30  
-**버전**: v1.5.2  
+**버전**: v1.6  
 **작성자**: 이기호 차장  
 **목적**: GOP 통제시스템 내부 메시지 브로커(NATS) 기반 실시간 통신 설계  
 **설계 원칙**: GOP RESTful API Response `data` 구조 재사용으로 View 일관성 확보, Subject 라우팅으로 수신 대상 식별  
@@ -371,8 +371,9 @@ NATS 메시지는 **용도에 따라 세 가지 패턴**으로 구분됩니다.
 ### 3.1 패턴 구조
 
 ```
-sensorway.{부대ID}.{서브시스템}.{action}              (제어/상태/동기화 — 4토큰)
+sensorway.{부대ID}.{서브시스템}.{action}              (제어/상태 — 4토큰)
 sensorway.{부대ID}.{서브시스템}.event.{type}           (이벤트 — 5토큰)
+sensorway.{부대ID}.{서브시스템}.sync.{resource}        (동기화 — 5토큰)
 ```
 
 **4~5 토큰**, 점(`.`)으로 구분
@@ -383,7 +384,12 @@ sensorway.{부대ID}.{서브시스템}.event.{type}           (이벤트 — 5�
 | `{부대ID}` | 부대 식별자 | `unit001`, `unit002`, `*` (전체) |
 | `{서브시스템}` | 서브시스템 영역 | `all`, `proxy`, `broadcast_manager`, `nvr_manager`, `vms`, `gis`, `ai_analysis`, `db_api`, `central` |
 | `event` | 이벤트 카테고리 (이벤트 메시지만) | `event` (이벤트 메시지에만 포함) |
-| `{action}` | 동작 (하이픈으로 상세 구분) | `detect`, `action-report`, `mode-change`, `ptz` |
+| `sync` | 동기화 카테고리 (동기화 메시지만) | `sync` (§9 동기화 메시지에만 포함) |
+| `{action}` / `{resource}` | 동작 또는 리소스 (하이픈으로 상세 구분) | `detect`, `action-report`, `mode-change`, `ptz` / `device`, `device-group`, `event-suppression` |
+
+> **동기화 subject 명명 규칙**: `sync.{resource}` 의 `{resource}` 는 **REST 리소스명의 케밥 단수형**을 쓴다
+> (`device-group` ← `/api/devices/groups`, `proxy-setting` ← `/api/servers/{id}/proxy-settings`,
+> `event-suppression` ← `/api/event-suppression-schedules`).
 
 > **`all` 서브시스템**: 특정 수신자를 지정하지 않는 브로드캐스트 이벤트의 기본(default) 서브시스템입니다. 모든 대상을 지칭하며, 발신자/수신자 어디에도 속하지 않는 중립적 도메인 토큰입니다.
 >
@@ -478,6 +484,7 @@ sensorway.{부대ID}.{서브시스템}.event.{type}           (이벤트 — 5�
 | `sensorway.unit001.all.sync.camera-setting` | DBApi | All | SYNC_CAMERA_SETTING | 카메라 설정 동기화 |
 | `sensorway.unit001.all.sync.proxy-setting` | DBApi | All | SYNC_PROXY_SETTING | 프록시 설정 동기화 |
 | `sensorway.unit001.all.sync.detection` | DBApi | All | SYNC_DETECTION | 탐지 이벤트 상태(action_reported)·detail(회전 후 썸네일) 변경 알림 (UPDATE/DELETE만, INSERT 미발행) |
+| `sensorway.unit001.all.sync.event-suppression` | DBApi | All | SYNC_EVENT_SUPPRESSION | **이벤트 억제(정비 창)** 변경·창경계 전이 알림 — 이벤트 파이프라인 통제 상태 (§9.12) |
 
 ### 3.3 구독 패턴
 
@@ -615,12 +622,13 @@ NATS 메시지 body의 Enum 필드는 REST API와 동일한 값을 사용하여 
 | EnumFocusMode | 4.9 | CameraSetting 초점 모드 *(v3.7)* |
 | EnumIrisMode | 4.9 | CameraSetting 조리개 모드 *(v3.7)* |
 | EnumSystemEventSeverity | 8.7 | SYSTEM_EVENT body (`severity`) *(v3.9)* |
+| EnumSuppressionStatus | 6.8 | SYNC_EVENT_SUPPRESSION body (`status`) — `pending`/`active`/`expired`/`cancelled` (소문자) *(v6.3)* |
 
 ---
 
 ## 5. 메시지 카탈로그
 
-### 5.1 전체 메시지 요약 (총 42종)
+### 5.1 전체 메시지 요약 (총 44종)
 
 #### Event/탐지 메시지 (7종)
 
@@ -687,7 +695,7 @@ NATS 메시지 body의 Enum 필드는 REST API와 동일한 값을 사용하여 
 >
 > **¹ PTZ_AIM_LOCATION** *(v1.4, 37번째 PTZ_*)*: GIS 통합상황도 '특정 위치 확인' — 지도 GPS 좌표로 카메라 조준. 동일 `nvr_manager.ptz` Subject이며 나머지 PTZ_*와 동일하게 **`GIS → NVRManager` REQ**. body=GPS 좌표+거리/방위. (→ §8.1)
 
-#### 마스터 데이터 동기화 메시지 (9종)
+#### 마스터 데이터 동기화 메시지 (11종)
 
 | # | cmd | Subject 패턴 | 방향 | m_type | 알림 후 조회 API |
 |---|-----|-------------|------|--------|-----------------|
@@ -701,6 +709,7 @@ NATS 메시지 body의 Enum 필드는 REST API와 동일한 값을 사용하여 
 | 39 | `SYNC_CAMERA_SETTING` | `sensorway.{부대ID}.all.sync.camera-setting` | DBApi → All | PUB | `GET /api/devices/cameras/{camera_id}/settings` |
 | 40 | `SYNC_PROXY_SETTING` | `sensorway.{부대ID}.all.sync.proxy-setting` | DBApi → All | PUB | `GET /api/servers/{server_id}/proxy-settings` |
 | 41 | `SYNC_DETECTION` | `sensorway.{부대ID}.all.sync.detection` | DBApi → All | PUB | `GET /api/events/detections/{id}` |
+| 42 | `SYNC_EVENT_SUPPRESSION` | `sensorway.{부대ID}.all.sync.event-suppression` | DBApi → All | PUB | `GET /api/event-suppression-schedules/{id}` + `/active` |
 
 > **동기화 메시지 = 알림(Notification)만 전달**
 > - NATS 메시지 body에는 `action`, `resource_id`만 포함 (데이터 없음!)
@@ -2492,6 +2501,10 @@ def on_ptz_command(msg):
 
 각 Subsystem은 시작 시 마스터 데이터를 REST API를 통해 조회하여 로컬에 캐싱합니다. 이후 데이터 변경이 발생하면 DBApi가 NATS를 통해 **변경 알림만** 브로드캐스트하고, 알림을 받은 Subsystem이 **직접 DBApi REST API를 호출**하여 최신 데이터를 조회합니다.
 
+> **참고**: `all.sync.*` 계열에는 마스터 데이터 외에 **운영 통제 상태**도 포함됩니다 —
+> `SYNC_EVENT_SUPPRESSION`(§9.12, 이벤트 억제/정비 창)은 캐시 갱신이 아니라 **수신자의 동작 변경**을
+> 요구하는 신호입니다. 구독 패턴(`all.sync.*`)이 동일해 별도 구독 추가 없이 수신됩니다.
+
 > **핵심 원칙**: NATS 메시지는 **알림(Notification)** 만 전달합니다. 실제 데이터는 포함하지 않으며, 필요한 Subsystem이 직접 REST API를 호출하여 데이터를 가져갑니다.
 
 #### 동기화 대상 리소스
@@ -2508,6 +2521,7 @@ def on_ptz_command(msg):
 | CameraSetting | `SYNC_CAMERA_SETTING` | `all.sync.camera-setting` | 카메라 설정 (v3.7) |
 | ProxySetting | `SYNC_PROXY_SETTING` | `all.sync.proxy-setting` | 프록시 설정 (v3.6) |
 | DetectionEvent | `SYNC_DETECTION` | `all.sync.detection` | 탐지 갱신 알림 — UPDATE/DELETE만, INSERT 미발행 (v6.3) |
+| EventSuppression | `SYNC_EVENT_SUPPRESSION` | `all.sync.event-suppression` | **이벤트 억제(정비 창)** — 마스터 데이터가 아닌 **파이프라인 통제 상태**. 창 경계 전이 포함 (v6.3) |
 
 #### 동기화 흐름
 
@@ -2587,6 +2601,16 @@ def on_ptz_command(msg):
 | `CREATED` | 신규 리소스 생성 | `GET /api/{resource}/{id}` 호출하여 캐시 추가 |
 | `UPDATED` | 기존 리소스 수정 | `GET /api/{resource}/{id}` 호출하여 캐시 갱신 |
 | `DELETED` | 리소스 삭제 | `resource_id`로 캐시에서 해당 항목 삭제 |
+
+> **action 은 위 3종 고정**입니다. cmd 별로 **부분집합을 쓰거나 필드를 추가**할 수는 있으나 값을 늘리지 않습니다.
+
+| cmd | action 부분집합 | 추가 body 필드 |
+|-----|----------------|---------------|
+| `SYNC_DEVICE` | 3종 전부 | `type_device` (조회 URL 구성용) |
+| `SYNC_PRESET` | 3종 전부 | `camera_id` |
+| `SYNC_CAMERA_SETTING` / `SYNC_PROXY_SETTING` | 3종 전부 | `camera_id` / `server_id` |
+| `SYNC_DETECTION` | `UPDATED`·`DELETED` (**CREATED 없음** — INSERT 미발행) | — |
+| `SYNC_EVENT_SUPPRESSION` | 3종 전부 | `status` (창의 파생 상태, `DELETED` 시 생략) |
 
 #### 공통 Envelope 구조
 
@@ -2975,6 +2999,90 @@ def on_sync_message(msg):
 
 ---
 
+### 9.12 SYNC_EVENT_SUPPRESSION (이벤트 억제 / 정비 창 알림)
+
+**cmd**: `SYNC_EVENT_SUPPRESSION`
+**Subject**: `sensorway.{부대ID}.all.sync.event-suppression`
+**방향**: DBApi → All
+**m_type**: PUB
+**트리거**: 억제 스케줄 **생성 / 변경(대상 배열 교체 포함) / 취소 / 하드삭제** + **시간창 자연 전이**(창 시작 `pending→active`, 창 종료 `active→expired`)
+
+> **★ 성격이 다른 SYNC — 마스터 데이터가 아니라 "이벤트 파이프라인 통제 상태"다.**
+> 다른 SYNC_* 는 수신자가 **캐시를 갱신**하는 용도지만, 이 메시지는 수신자가 **자신의 동작을 바꾸는**
+> 신호다. 정비/공사/AS 로 특정 장비·그룹·전체의 이벤트를 일시 차단하는 창이 열리거나 닫히면,
+> 각 서브시스템은 이를 **"지금 공사 중"** 으로 해석해 발행/녹화/알람을 조정해야 한다.
+> 누가 정비 창을 만들거나 취소하면 **다른 서브시스템도 즉시 인지**하는 것이 이 메시지의 목적이다.
+>
+> **데이터 조회**: 알림 수신 후 `GET /api/event-suppression-schedules/{id}`(해당 창 상세) 및
+> `GET /api/event-suppression-schedules/active`(현재 공사 상태 재계산). 판정 규칙은
+> `docs/subsystems/event-suppression/README.md` §2.3 참조(event_scope ∧ 대상매치 ∧ side매치).
+>
+> **범위 경계**: DBApi 의 억제는 **저장(persistence) + DB 파생 다운스트림**을 막는다. PidsProxy/
+> AiAnalysis 가 직접 쏘는 **실시간 방송은 막지 않는다** — 각 서브시스템이 본 알림과 `/active` 로
+> 스스로 억제하는 것이 Phase 2 다.
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655441004",
+  "m_type": "PUB",
+  "cmd": "SYNC_EVENT_SUPPRESSION",
+  "from": "DBApi",
+  "body": {
+    "action": "UPDATED",
+    "resource_id": 12,
+    "status": "active"
+  },
+  "created": "2026-08-03T10:30:00.000Z"
+}
+```
+
+**body 필드 정의:**
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `action` | string | Y | `CREATED` \| `UPDATED` \| `DELETED` (§9.1 고정 3종) |
+| `resource_id` | integer | Y | EventSuppressionSchedule ID (REST API 조회용) |
+| `status` | string | N | `pending` \| `active` \| `expired` \| `cancelled` — 창의 파생 상태. `DELETED` 시 생략 |
+
+**action 매핑** (HTTP 메서드와 다르므로 주의):
+
+| 발생 사건 | action | status |
+|---|---|---|
+| 신규 정비 창 생성 | `CREATED` | 생성 시점 파생값 |
+| 창 시간·이름·스코프 변경 / **대상 배열 교체** | `UPDATED` | 변경 후 파생값 |
+| **취소** `DELETE /{id}` (soft-cancel — 물리삭제 아님) | **`UPDATED`** | **`cancelled`** |
+| **창 시작** (시간 도달) | `UPDATED` | `active` |
+| **창 종료** (시간 도달) | `UPDATED` | `expired` |
+| **하드삭제** `POST /bulk-delete` | `DELETED` | (생략) |
+
+- `DELETE /{id}` 는 `revoked_at` 을 세팅하는 **soft-cancel** 이라 DB 상 UPDATE 다. 진짜 하드삭제는
+  `bulk-delete` 뿐이며 그 대상은 terminal(cancelled/expired)로 제한되므로 **정의상 이미 억제 중이 아니다**
+  → `DELETED` 는 캐시 eviction 전용이고 억제 상태 변화가 아니다.
+- 소비자 처리는 **"어떤 action 이든 `GET /active` 재조회로 억제 목록 갱신"** 한 줄로 단순화하면
+  매핑 오해가 원천 제거된다.
+
+**★ fail-safe 규범 (MUST) — 억제 해제는 신호에 의존하지 않는다**
+
+NATS Core 는 at-most-once 이므로 **유실은 예외가 아니라 정상 경로**다. 안전 비대칭이 극단적이다:
+
+| 유실 대상 | 결과 | 판정 |
+|---|---|---|
+| 창 시작(`status=active`) 신호 | 억제가 늦게 걸림(정비 중 알람이 시끄러움) | **허용** |
+| 창 종료(`status=expired`) 신호 | **억제가 영원히 안 풀림 = 서브시스템 영구 침묵** | **금지** |
+
+1. 소비자는 **`expired` 신호로 억제를 해제해서는 안 되며**, 캐시한 `window_end` **로컬 타이머
+   만료로 스스로 푼다** — 이것이 **1차 권위**.
+2. `GET /active` **30~60초 재조정 폴링은 권위**이며 본 메시지는 **가속 신호(비권위)** 다.
+   SYNC 도입 후에도 **폴링 제거 금지**.
+3. 소비자 캐시에 **TTL(폴링 주기 ×3)** 을 두어 신호·폴링 두절 시 자동으로 "억제 없음"으로 수렴
+   (fail-open). 서버 게이트도 fail-open 이라 전 구간이 일관된다.
+
+**통지 지연 상한(계약)**: 정상 경로(창 경계 date-job) **≤5초**, 잡 유실·서버 재기동 시
+백스톱(sweep) **≤5분**. 단 이 상한은 **통지**에만 적용되며, 억제 판정 자체는 요청시점 계산이
+권위라 **지연 0** 이다.
+
+---
+
 ## 10. 에러 처리
 
 ### 10.1 RSP 에러 응답 구조
@@ -3064,10 +3172,15 @@ PUB 메시지는 응답이 없으므로 수신측에서 로컬 로깅으로 에�
 | 39 | all | SYNC_CAMERA_SETTING | `...all.sync.camera-setting` | PUB | DBApi | All |
 | 40 | all | SYNC_PROXY_SETTING | `...all.sync.proxy-setting` | PUB | DBApi | All |
 | 41 | all | SYNC_DETECTION | `...all.sync.detection` | PUB | DBApi | All |
-| 41 | all | SYSTEM_EVENT | `...all.event.system` | PUB | DBApi | All |
-| 42 | gis | ENCLOSURE_METRICS | `...gis.enclosure-metrics` | PUB | DBApi | GIS |
+| 42 | all | SYNC_EVENT_SUPPRESSION | `...all.sync.event-suppression` | PUB | DBApi | All |
+| 43 | all | SYSTEM_EVENT | `...all.event.system` | PUB | DBApi | All |
+| 44 | gis | ENCLOSURE_METRICS | `...gis.enclosure-metrics` | PUB | DBApi | GIS |
 
-**총: 42종 (PTZ 37종 세부 cmd 포함 시 78종)**
+**총: 44종 (PTZ 37종 세부 cmd 포함 시 80종)**
+
+> **번호 정정 (v1.6)**: 종전 표는 `41` 이 `SYNC_DETECTION`·`SYSTEM_EVENT` 에 **중복 부여**되어 총계
+> 표기(42종)와 실제 행 수가 어긋나 있었다. 본 개정에서 재번호했다.
+> **메시지는 번호가 아니라 `cmd` 이름으로 참조할 것** — 번호는 문서 편의값이라 개정 시 바뀔 수 있다.
 
 > **¹ PTZ_AIM_LOCATION** *(v1.4)*: 37번째 PTZ_* 명령. 동일 `nvr_manager.ptz` Subject이며 나머지 PTZ_*와 동일하게 `GIS → NVRManager` **REQ**. GIS '특정 위치 확인'의 GPS 좌표 조준. (→ §8.1)
 
@@ -3170,6 +3283,8 @@ PUB 메시지는 응답이 없으므로 수신측에서 로컬 로깅으로 에�
 | SYNC_FILE_GROUP | `action`, `resource_id` | `GET /api/file-groups/{id}` |
 | SYNC_CAMERA_SETTING | `action`, `camera_id` | `GET /api/devices/cameras/{camera_id}/settings` |
 | SYNC_PROXY_SETTING | `action`, `server_id` | `GET /api/servers/{server_id}/proxy-settings` |
+| SYNC_DETECTION | `action`, `resource_id` | `GET /api/events/detections/{id}` (UPDATE/DELETE만, INSERT 미발행) |
+| SYNC_EVENT_SUPPRESSION | `action`, `resource_id`, `status` | `GET /api/event-suppression-schedules/{id}` + `/active`(공사 상태 재계산) |
 
 > **동기화 흐름**:
 > 1. SubSystem → DBApi: PATCH/PUT/POST/DELETE 요청
@@ -3196,4 +3311,5 @@ PUB 메시지는 응답이 없으므로 수신측에서 로컬 로깅으로 에�
 | v1.4 | 2026-06-30 | **`PTZ_AIM_LOCATION` 추가** — GIS 통합상황도 '특정 위치 확인'(지도 GPS 좌표로 카메라 조준). `PTZ_*` Absolute 패밀리 37번째, Subject=`nvr_manager.ptz`, `from`=`GIS`. **m_type=PUB**(타 PTZ_*=REQ 대비 예외, fire-and-forget) — `PTZ_CENTER`(화면 픽셀)의 GPS 좌표 버전. body=`camera_id`+목표/카메라 GPS+`distance_m`+`bearing_deg`+`requested_by`. 반영: §3.2(노트), §5.1(카탈로그 36→37, 각주¹), §8.1(cmd목록 37종/위치 카테고리/body표/예시), §11.1(목록 36→37, 총 78), §11.2(body 패턴 행). 클라(GIS) 코드 정렬: `EnumGopCommand.PTZ_AIM_LOCATION`, `CameraAimControlService`가 `nvr_manager.ptz`로 PUB. |
 | v1.5 | 2026-07-13 | **REST v4.6 동기화 + 신규/확장**: TRACKING_STATUS 다중 `targets[]`(track_id/threat_level/observed_at/ttl_sec/frame_width·height) + `EnumThreatLevel` 신설, `SYSTEM_EVENT`·`ENCLOSURE_METRICS` 신규(from=DBApi, 40→42종), geolocation `heading` 추가, Detection `detail.frame_width/height`(AiAnalysis 출처), `AI_DETECT=12`, tracking enum 변환규칙, 감시금지구역(PTZ_STATUS `current_preset`/`is_restricted` + 수신자 VMS), `action_reported` 자동관리, REST 참조 v3.7→v4.6. **정합성 정정**: `VMS_DETECT` REQ→PUB(다중수신자 VMS/GIS), `lamp-*` wildcard 예시 정정, 흐름도[5]·PTZ_STATUS 수신자(GIS/AiAnalysis/VMS)·§9.2 번호·MALFUNCTION/CONNECTION 방향 정정. |
 | v1.5.1 | 2026-07-13 | **재검토 정정(모순 해소)**: §6.1 노트 VMS_DETECT 'REQ'→'PUB' 잔재 정정, §1.3 흐름도[1] 센서 DETECT 수신자에서 VMS 제거(§3.4·§6.1 정합), §6.4 ACTION_REPORT 방향을 실 구독자(→All: NVRManager/BroadcastingManager/PidsProxy/VMS)로 통일, PALETTE_SET/WIPER_SET 방향 VMS/Central 통일, §8.3.1 `§5.7`→`REST §5.7`, WINDY GIS→PidsProxy REQ 변형을 §3.2·§11.1에 반영(§5.1·§7.1.2와 일치), CONNECTION은 현재 소비자 부재를 명시하고 발행 유지. **미진(후속 PRD 트랙)**: 전달보장(NATS Core at-most-once/재연결) 절, REQ/RSP reply subject·timeout·error code, §3.1 subject 3유형, §5.1 # 전역 재번호는 `PRD-NATS-개선사항-적용.md`에서 반영. |
+| **v1.6** | **2026-08-03** | **`SYNC_EVENT_SUPPRESSION` 신설(§9.12) — 이벤트 억제(정비 창) 동기화.** 마스터 데이터가 아니라 **이벤트 파이프라인 통제 상태**로, 수신자는 캐시 갱신이 아니라 **자신의 발행/녹화/알람 동작을 조정**하고 "현재 공사 중"을 판정한다. Subject `all.sync.event-suppression`(케밥 단수형 규칙 — `/api/event-suppression-schedules`), from=DBApi, PUB, 패턴3(알림만). body `{action, resource_id, status}` — `status` ∈ pending/active/expired/cancelled. **action 은 §9.1 고정 3종 유지**(ACTIVATED/EXPIRED 신설 안 함 — 전이는 `UPDATED`+`status` 로 표현해 기존 소비자 파서 무변경). **soft-cancel(`DELETE /{id}`)은 `DELETED` 가 아니라 `UPDATED`/`status=cancelled`**, 하드삭제(`bulk-delete`)만 `DELETED`. **창 경계 자연 전이**(창 시작/종료) 통지 포함 — 지연 정상 ≤5초(date-job)/백스톱 ≤5분(sweep). **fail-safe 규범 명문화**: 억제 해제는 로컬 `window_end` 타이머가 1차 권위, `/active` 30~60초 폴링 존치(권위), SYNC 는 가속 신호(비권위) — 종료 신호 유실 시 영구 침묵 방지. **구독 개정 불필요**(전 서브시스템이 이미 `all.sync.*` 구독).<br><br>**동반 갱신**: §3.1 subject **3유형 정정**(동기화 5토큰 `sync.{resource}` 명문화 — v1.5.1 미진 항목 해소) + 케밥 단수형 명명 규칙, §3.2 Sync 표 행 추가, §9.1 개요 노트·리소스표 행·**Action 표에 'cmd별 부분집합/추가 필드' 열 신설**(SYNC_DETECTION 의 CREATED 부재도 함께 문서화), §4.2 `EnumSuppressionStatus` 등재, §11.2 동기화 body 표에 **SYNC_DETECTION 누락행 보강** + 신규행. **카운트 부채 정정**: §5.1 총계 42→**44**(실제 행 수와 불일치였음), 동기화 소분류 9종→**11종**, §11.1 **#41 중복(SYNC_DETECTION/SYSTEM_EVENT) 해소 + 재번호**(총 44). 이후 참조는 번호가 아닌 **cmd 이름** 사용 권장. |
 | v1.5.2 | 2026-07-30 | **GIS 제어 메시지 REQ/RSP 통일**: GIS(Frontend)→매니저 단일대상 제어(`LAMP_CLEAR`/`LAMP_COLOR_SET`/`LAMP_BUZZER_SET`, `BROADCAST_PLAY`/`BROADCAST_STOP`, `PTZ_AIM_LOCATION`)를 PUB→**REQ/RSP**로 통일(운영자 확인 필요, RSP는 §2 표준 봉투 `success`/`req_id`/`message` 사용). Central 발행(MODE_CHANGE/TTS/BROADCAST_TEST/LAMP_COLOR_TEST/LAMP_BUZZER_TEST 및 Central의 LAMP_OFF/WINDY)과 `ACTION_REPORT`(GIS→All 1:N 브로드캐스트)는 **PUB 유지**. **`PTZ_AIM_LOCATION` PUB 예외 제거 → PTZ_* 37종 전부 REQ로 통일**. 반영: 스펙 헤더·JSON 예시·§5.1 카탈로그·§11.1 목록, §3.2/§5.1¹/§11.1¹/§8.1 노트의 'PTZ_* 중 AIM_LOCATION만 PUB 예외' 표현 삭제, §7.2·§7.3 서두 제어 유형 원칙 명시. |

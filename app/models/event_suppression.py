@@ -52,6 +52,10 @@ class EventSuppressionSchedule(Base):
 
     recurrence_rule = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    # NATS 발행상태 전용(event-suppression-sync). 마지막으로 통지한 파생 상태를 기록해
+    # date-job 이 창 경계에서 이 컬럼만 UPDATE → 트리거가 SYNC_EVENT_SUPPRESSION 발행.
+    # ★ 억제 판정과 무관하며 is_active 와도 별개(is_active 는 sweep 비정규화 플래그).
+    notified_status = Column(String(16), nullable=True)
     revoked_at = Column(UtcDateTime, nullable=True)
     created_by = Column(
         Integer, ForeignKey("account_users.id", ondelete="SET NULL"), nullable=True,
@@ -65,13 +69,17 @@ class EventSuppressionSchedule(Base):
     )
 
     # 복수 대상 junction (async 안전 위해 lazy="selectin" — 조회 시 자동 eager 로드).
+    # passive_deletes=True: 부모 삭제 시 자식 DELETE 를 ORM 이 선행 실행하지 않고 **DB FK CASCADE 에 위임**.
+    #   → 하드삭제 순서가 "부모 DELETE → cascade" 가 되어, junction statement 트리거의 부모 JOIN 이
+    #     이미 삭제된 부모를 못 찾아 중복 SYNC(UPDATED+DELETED)가 원천 차단된다.
+    #   delete-orphan(컬렉션에서 제거된 개별 항목 삭제)은 그대로 유지된다(대상 배열 편집 경로).
     target_devices = relationship(
         "EventSuppressionTargetDevice", back_populates="schedule",
-        cascade="all, delete-orphan", lazy="selectin",
+        cascade="all, delete-orphan", lazy="selectin", passive_deletes=True,
     )
     target_groups = relationship(
         "EventSuppressionTargetGroup", back_populates="schedule",
-        cascade="all, delete-orphan", lazy="selectin",
+        cascade="all, delete-orphan", lazy="selectin", passive_deletes=True,
     )
 
     @property

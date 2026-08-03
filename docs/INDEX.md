@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-08-03 (advance-phase 자동)
-- **총 문서 수**: 54개
+- **총 문서 수**: 56개
 
 ---
 
@@ -17,8 +17,8 @@
 
 | 파일 | 내용 | 상태 | 날짜 |
 |------|------|------|------|
-| [event-suppression-sync-message-prd.md](prds/event-suppression-sync-message-prd.md) | event-suppression-sync-message — 억제 NATS 동기화 메시지 신설(SYNC_EVENT_SUPPRESSION, 브로커 명세 v1.6) | Draft | 2026-08-03 |
-| [event-suppression-hardening-prd.md](prds/event-suppression-hardening-prd.md) | event-suppression-hardening — 억제 결함 교정(P0 PATCH 500 · bulk-delete 5중싱크 · 응답정합) | Draft | 2026-08-03 |
+| [event-suppression-sync-message-prd.md](prds/event-suppression-sync-message-prd.md) | event-suppression-sync-message | Draft | 2026-08-03 |
+| [event-suppression-hardening-prd.md](prds/event-suppression-hardening-prd.md) | event-suppression-hardening | Draft | 2026-08-03 |
 | [event-suppression-multi-target-prd.md](prds/event-suppression-multi-target-prd.md) | event-suppression-multi-target | Draft | 2026-07-31 |
 | [session-concurrency-and-auth-hardening-prd.md](prds/session-concurrency-and-auth-hardening-prd.md) | session-concurrency-and-auth-hardening | Draft | 2026-07-31 |
 | [event-suppression-schedule-prd.md](prds/event-suppression-schedule-prd.md) | event-suppression-schedule | Approved | 2026-07-31 |

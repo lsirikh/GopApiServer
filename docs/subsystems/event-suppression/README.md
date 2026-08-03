@@ -50,8 +50,8 @@ Authorization: Bearer <token>        # AUTH_MODE=token 시 events:view 필요
       "id": 12,
       "name": "GOP 3구역 펜스 보수",
       "target_type": "group",           // device | group | all
-      "target_device_id": null,          // target_type=device 일 때만
-      "target_group_id": 5,              // target_type=group 일 때만
+      "target_device_ids": [],           // target_type=device 일 때 ≥1 (배열, v6.3 확장)
+      "target_group_ids": [5, 6],        // target_type=group 일 때 ≥1 (배열, v6.3 확장)
       "target_side": "detection",        // detection | surveillance | both
       "event_scope": "all",              // connection | detection | malfunction | all
       "window_start": "2026-08-01T09:00:00+09:00",
@@ -90,9 +90,9 @@ HTTP/1.1 202 Accepted
 category ∈ {detection, malfunction, connection}                # action(조치보고)은 억제 대상 아님
 AND (W.event_scope == 'all' OR W.event_scope == category)
 AND scope_match:
-      W.target_type == 'device' : W.target_device_id == device_id
+      W.target_type == 'device' : device_id ∈ W.target_device_ids                      # 배열(v6.3 복수 대상)
       W.target_type == 'all'    : side_match(device_side, W.target_side)
-      W.target_type == 'group'  : device_id ∈ members(W.target_group_id) AND side_match(...)
+      W.target_type == 'group'  : (groups(device_id) ∩ W.target_group_ids) ≠ ∅ AND side_match(...)
 
 device_side = sensor|controller → 'detection'
               camera            → 'surveillance'
@@ -128,6 +128,7 @@ side_match(ds, ts) = (ts == 'both') OR (ds == ts)              # 보조 장비�
 | GET | `/api/event-suppression-schedules/{id}` | events:view | 단건 |
 | PATCH | `/api/event-suppression-schedules/{id}` | events:edit | 변경 |
 | DELETE | `/api/event-suppression-schedules/{id}` | events:delete | 삭제(soft-cancel) |
+| POST | `/api/event-suppression-schedules/bulk-delete` | events:delete | **취소·종료 스케줄 일괄 하드삭제**(목록 정리, v6.3.2) |
 | GET | `/api/event-suppression-schedules/active` | events:view | 활성 창(배너·서브시스템 조회 훅) |
 
 생성 요청 예:
@@ -135,8 +136,8 @@ side_match(ds, ts) = (ts == 'both') OR (ds == ts)              # 보조 장비�
 POST /api/event-suppression-schedules
 {
   "name": "GOP 3구역 펜스 보수",
-  "target_type": "group",           // device: target_device_id 필수 / group: target_group_id 필수 / all
-  "target_group_id": 5,
+  "target_type": "group",           // device: target_device_ids≥1 / group: target_group_ids≥1 / all
+  "target_group_ids": [5, 6],
   "target_side": "detection",        // 기본 both (group·all 에만 적용)
   "event_scope": "all",              // connection | detection | malfunction | all
   "window_start": "2026-08-01T09:00:00+09:00",

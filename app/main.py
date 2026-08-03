@@ -423,12 +423,12 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- **API Version**: `6.3.1`
+- **API Version**: `6.3.2`
 - **Branch**: `release/v6.3` (canonical) · 2026-07-13 확정
 - **명세**: `GOP_Restful_Api_연동설계.md` v6.3
 - **전체 변경 이력**: 명세서 하단 ChangeLog · 저장소 `CHANGELOG.md` 참조
 """,
-    version="6.3.1",
+    version="6.3.2",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",

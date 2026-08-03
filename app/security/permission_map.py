@@ -111,6 +111,7 @@ PERMISSION_MAP: dict[Tuple[str, str], Tuple[str, str]] = {
     ("POST", "/api/event-suppression-schedules"): ("events", "edit"),
     ("PATCH", "/api/event-suppression-schedules/{}"): ("events", "edit"),
     ("DELETE", "/api/event-suppression-schedules/{}"): ("events", "delete"),
+    ("POST", "/api/event-suppression-schedules/bulk-delete"): ("events", "delete"),
     # Integrations — event mappings (v6.0 후속 Phase 5 확대)
     ("POST", "/api/integrations/event-mappings"): ("integrations", "edit"),
     ("PATCH", "/api/integrations/event-mappings/{}"): ("integrations", "edit"),

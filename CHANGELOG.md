@@ -4,6 +4,21 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [6.3.2] - 2026-08-03
+
+> 2026-08-03 릴리즈 (하루 1버전 묶음): 이벤트 억제(정비 창) 계열 2건 — **[기능]** `event_suppression_bulk_delete`(일괄 하드삭제 신규) + 2026-08-01 작성 후 버전 bump 가 누락돼 있던 `event_suppression_multi_target`(복수 대상) **동반 확정**. Swagger `info.version` 6.3.1 → **6.3.2**.
+
+### v6.3-event_suppression_bulk_delete — 취소·종료 억제 스케줄 일괄 하드삭제 (2026-08-03)
+
+> PM 지적("억제 쪽에 벌크 삭제 기능이 없는 것 같은데") — 코드는 2026-08-01 커밋 `82ed70d` 로 존재했으나 **명세서·Swagger·이미지·컨테이너 미반영(5중싱크 2/5)** 상태로 방치. 본 차수에서 5중싱크 완결.
+
+- **신규 엔드포인트**: `POST /api/event-suppression-schedules/bulk-delete` (`events:delete`). Request `{ids:[int]}`(1~500, 중복 제거), Response `{deleted_ids, skipped_ids, not_found_ids}`.
+- **배경**: `DELETE /{id}` 는 soft-cancel(`revoked_at` 세팅)이라 취소·종료 이력이 목록에 무한 누적 — 물리 정리 수단이 전무했다(운영 서버 실측 23건 누적).
+- **안전장치**: 활성(active)·예정(pending) 스케줄은 삭제하지 않고 `skipped_ids` 로 분리 보고(먼저 취소 필요). 존재하지 않는 id 는 `not_found_ids`.
+- **동시성**: `SELECT ... FOR UPDATE` 로 대상 행 잠금 후 최신 커밋 상태로 status **재판정** — 조회~삭제 사이 PATCH 로 terminal→active 로 뒤바뀐 행의 오삭제 차단(TOCTOU).
+- **삭제 범위**: 행 + junction(`event_suppression_target_devices`/`_groups`) cascade 제거, 복구 불가. 건별 `SUPPRESSION_SCHEDULE/DELETED` 감사 기록.
+- **문서/인가**: 명세 §6.8.8 신설(기존 억제 게이트 절 §6.8.8→**§6.8.9** 재번호) + §6.8.1 엔드포인트 표 행 추가. `PERMISSION_MAP` 에 `("POST","/api/event-suppression-schedules/bulk-delete"):("events","delete")` 등재(중앙 `enforce_matrix` 커버, default-deny 전환 대비).
+
 ### v6.3-event_suppression_multi_target — 정비 창 대상 복수 선택 (2026-08-01)
 
 > GIS 요청(P1, PRD `docs/prds/event-suppression-multi-target-prd.md` v1.0 → dev → test → 배포). 한 정비 창에 **복수 대상**(장비 N개 / 그룹 N개 / 전체) 지정. `target_type`(device/group/all 배타) 유지, 단일 FK → **배열 + junction 2테이블**. ⚠ API 파괴적(단일→배열) — GIS UI 미구현이라 안전.

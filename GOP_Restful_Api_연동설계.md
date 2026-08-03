@@ -2,7 +2,7 @@
 
 **작성일**: 2025-12-31  
 **최종 수정일**: 2026-07-31  
-**버전**: v6.3.1 (Swagger `6.3.1` 정합)  **작성자**: 이기호 차장  
+**버전**: v6.3.2 (Swagger `6.3.2` 정합)  **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
 
@@ -9994,6 +9994,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 | GET | `/api/event-suppression-schedules/{id}` | 단건 조회 | events:view | 6.8.5 |
 | PATCH | `/api/event-suppression-schedules/{id}` | 부분 변경 | events:edit | 6.8.6 |
 | DELETE | `/api/event-suppression-schedules/{id}` | 삭제(soft-cancel) | events:delete | 6.8.7 |
+| POST | `/api/event-suppression-schedules/bulk-delete` | **취소·종료 스케줄 일괄 하드삭제**(목록 정리) | events:delete | 6.8.8 |
 
 **필드 요약** (Enum 은 §4 참조 — `# Python 정의 - app/utils/enums.py`):
 
@@ -10062,7 +10063,50 @@ Query: `page`(≥1), `limit`(1~100), `status`(pending/active/expired/cancelled),
 #### 6.8.7 DELETE `/api/event-suppression-schedules/{id}`
 soft-cancel(`revoked_at` 세팅 + `is_active=false`, 물리삭제 아님). 응답에 취소된 스케줄(status=cancelled) 반환. **Error**: 404.
 
-#### 6.8.8 억제 게이트 (이벤트 수신 핸들러 동작)
+#### 6.8.8 POST `/api/event-suppression-schedules/bulk-delete`
+
+취소·종료(terminal) 상태의 억제 스케줄을 **일괄 하드삭제**(물리 제거)한다. `DELETE /{id}`(soft-cancel)와
+달리 행 + junction(`event_suppression_target_devices`/`_groups`)을 완전히 제거하며 **복구 불가**.
+누적된 취소·종료 이력으로 목록이 비대해질 때 정리 용도.
+
+**Request**
+
+```json
+POST /api/event-suppression-schedules/bulk-delete
+{ "ids": [3, 5, 8] }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| ids | int[] | ✔ | 삭제할 스케줄 id 목록. 1~500건, 중복 자동 제거 |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "삭제 2건 · 스킵(활성/예정) 1건 · 없음 0건",
+  "data": {
+    "deleted_ids":   [3, 5],
+    "skipped_ids":   [8],
+    "not_found_ids": []
+  }
+}
+```
+
+| 필드 | 의미 |
+|---|---|
+| deleted_ids | 실제 물리 삭제된 id (status = `cancelled` 또는 `expired`) |
+| skipped_ids | **활성(active)·예정(pending)이라 삭제하지 않음** — 먼저 `DELETE /{id}`로 취소해야 함(오삭제 방지 안전장치) |
+| not_found_ids | 존재하지 않는 id |
+
+- **안전장치**: 진행 중이거나 예정된 정비 창은 절대 삭제되지 않고 `skipped_ids`로 분리 보고된다.
+- **동시성**: 대상 행을 `SELECT ... FOR UPDATE`로 잠근 뒤 최신 커밋 상태로 status 를 **재판정**한다
+  (조회~삭제 사이 다른 세션의 PATCH 로 terminal→active 로 바뀐 행의 오삭제 차단, TOCTOU 안전).
+- 삭제된 건마다 `config_change_logs` 에 `SUPPRESSION_SCHEDULE / DELETED` 감사 기록을 남긴다.
+- **Error**: 422(`ids` 누락·빈 배열·500건 초과) · 401/403(인가).
+
+#### 6.8.9 억제 게이트 (이벤트 수신 핸들러 동작)
 
 `POST /api/events/detections|malfunctions|connections` 이벤트가 활성 억제 창에 걸리면, 서버는 **201 대신 202** 를 반환하고 레코드를 생성하지 않으며 장비 상태 플립(탐지→ACTIVATED / 장애→ERROR)도 건너뛴다:
 
@@ -16600,6 +16644,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v6.3.2 | 2026-08-03 | **[event_suppression_bulk_delete]** 억제 스케줄 **일괄 하드삭제** 엔드포인트 출하 — `POST /api/event-suppression-schedules/bulk-delete`(events:delete, §6.8.8 신설). soft-cancel(`DELETE /{id}`)만으로는 취소·종료 이력이 목록에 무한 누적되어 정리 수단이 없던 문제 해소. **안전장치**: 활성(active)·예정(pending)은 삭제하지 않고 `skipped_ids` 분리 보고(먼저 취소 필요), 존재하지 않는 id 는 `not_found_ids`. **동시성**: `SELECT ... FOR UPDATE` 잠금 후 status 재판정(TOCTOU 오삭제 차단). 삭제 건별 `SUPPRESSION_SCHEDULE/DELETED` 감사 기록. 행 + junction(`event_suppression_target_devices`/`_groups`) cascade 제거(복구 불가). 기존 억제 게이트 절 §6.8.8→**§6.8.9** 재번호. `PERMISSION_MAP` 등재(중앙 매트릭스 커버). Swagger `info.version` 6.3.1→**6.3.2**. 커밋 `82ed70d`. ※ 코드는 2026-08-01 작성됐으나 명세·이미지·컨테이너 미반영(5중싱크 3/5 위반) 상태였던 것을 본 차수에서 완결. |
 | v6.3.1 | 2026-07-31 | **버그픽스+기능 릴리즈** — **[proxy_mandatory_seed]** PROXY 기본 시드 누락 보강(기본 카테고리 9→10 + 필수 유형 보장 `{PROXY,VMS,NVR_API,BROKER}` 유형 기준: 해당 유형 서버 0개일 때만 기본 생성). **[proxy_settings_typed]** `proxy-settings`(GET/PATCH/PUT) **PROXY 서버 전용 강제**(비-PROXY 404 + lazy-create 차단, **계약 변경**). Swagger `info.version` 6.3.0→**6.3.1**. 라이브 검증(PROXY=200 / VMS=404 / seed `mandatory +0`), `tests/test_server_seed.py` 7 + `tests/test_proxy_settings_router.py` 11 passed. 커밋 `7ee1941`·`cbf63bd`. **[server_metrics_tz_fix]** collected_at aware→naive-KST(asyncpg 500 해소). **[settings_config_enum]** enum SETTINGS 보강(세션설정 500 자가치유, v65). **[detection_sync 기능]** 탐지 UPDATE/DELETE→`SYNC_DETECTION`@`all.sync.detection` 발행(INSERT 미발행·PTZ 회전후 썸네일 재수신)+`DetectionDetail` frame_width/height. 커밋 `735ae5b`. |
 | v6.3 후속 | 2026-07-21 | **[grant_enforcement_hardening]** GIS 서버측 집행 분석(`Grant_Enforcement_Server_Analysis.md`) 검토 → 권한부여(grant) 시간기반 집행 하드닝. **API 계약 불변(6.3.0 / 129 paths)** — 실제 flip(NATS 활성·default-deny enforce)은 배포 게이트.<br><br>**[Phase 1 검증부채]** 경계초(`valid_until==now`) 삼중 회귀(순수 `grant_status` · sync `_active_grants` · async `_active_grants_async` 정합) · `AUTH_MODE=token` 집행 E2E · `async_db` 격리(운영 DB 무접촉) · async sweep 발행(사용자당 1회 dedup).<br><br>**[Phase 2 통지/집행]** ① per-grant 실시간 만료 통지(`app/services/grant_scheduler.py` — `valid_until` date job→`publish_permissions_changed`, 부팅 재등록) ② 스윕 주기 설정화 `GRANT_SWEEP_INTERVAL_MINUTES`(기본 10) ③ NATS `permissions_changed` 게이트 검증(발행부 기배선) ④ matrix 미등록경로 `MATRIX_DENY_MODE`(off/observe/enforce, **기본 off = 현행 default-allow 보존**).<br><br>**[신규 설정]** `GRANT_SWEEP_INTERVAL_MINUTES` · `GRANT_JOB_HORIZON_HOURS` · `MATRIX_DENY_MODE`.<br><br>**[검증]** 시뮬 128/128 · 유닛 신규 44+ passed · **라이브 A01~A18 10/10 · 계약 10 passed**(재빌드·재기동 후). 커밋 `c10cbbf`/`ccf08a3`/`6fab9bc`/`9d1f30d`. 산출물: PRD·시뮬리포트·GIS회신(`docs/`, 배포게이트로 flip 대기). |
 | v6.3 후속 | 2026-07-21 | **[admin_photo_upload]** 관리자용 대상 계정 프로필 사진 API 신설 — `POST`/`DELETE /api/users/{id}/photo` (users:edit + base-ADMIN 상승가드, `_save_profile_photo` magic-byte·orphan 재사용, 감사 `USER_PHOTO_CHANGED`/`USER_PHOTO_DELETED` 행위자≠대상). 관리자 `{id}` 경로 부재로 클라가 `/me/photo` 재사용→토큰소유자(관리자) 사진 오염(2026-07-13)의 서버측 근본 해소. §9.3.1 표·설명·요약 동반 갱신. |
@@ -16655,5 +16700,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v6.3.1 (Swagger `6.3.1` 정합; v6.3 후속 버그픽스 2026-07-31 — proxy_mandatory_seed·proxy_settings_typed)
+**문서 버전**: v6.3.2 (Swagger `6.3.2` 정합; v6.3 후속 2026-08-03 — event_suppression_bulk_delete)
 **최종 업데이트**: 2026-07-07

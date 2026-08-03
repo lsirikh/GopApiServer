@@ -10125,7 +10125,7 @@ NATS 로 브로드캐스트되어 전 서브시스템이 "현재 공사 상태"�
   `/active` 30~60초 폴링을 유지한다(NATS Core at-most-once → 종료 신호 유실 시 영구 침묵 방지).
 - 통지 지연 상한: 정상 **≤5초**(창 경계 date-job), 백스톱 **≤5분**(sweep). 억제 판정 자체는
   요청시점 계산이 권위라 지연 0.
-- 상세 계약: 브로커 명세 `Gop_Message_Broker_연동설계_v1.5.md` **§9.12** (v1.6).
+- 상세 계약: 브로커 명세 `Gop_Message_Broker_연동설계_v1.6.md` **§9.12** (v1.6).
 
 #### 6.8.10 억제 게이트 (이벤트 수신 핸들러 동작)
 
@@ -16634,7 +16634,7 @@ python scripts/migrate_event_device_id.py
 - `db_monitor/main.py`: `CMD_SUBJECT_MAP` `SYNC_DETECTION → all.sync.detection` (from=DBApi).
 - `app/schemas/event.py`: `DetectionDetail`에 `frame_width`/`frame_height`(px) 추가 + Swagger 예시 4곳 — broker-v15 교차검증 GAP 해소. detail 서술 §이벤트 갱신.
 - 라이브 검증: POST(생성)→**미발행**, PATCH detail→`{UPDATED,id}`, DELETE→`{DELETED,id}`, subject=`all.sync.detection`·from=DBApi. 단위 `tests/test_detection_detail_frame.py` 3 passed.
-- 브로커 명세 `Gop_Message_Broker_연동설계_v1.5.md` §3.2/§6.1/§9.11/카탈로그 동반 갱신. 롤백태그 `pre-detection_sync`.
+- 브로커 명세 `Gop_Message_Broker_연동설계_v1.6.md` §3.2/§6.1/§9.11/카탈로그 동반 갱신. 롤백태그 `pre-detection_sync`.
 
 ### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
 

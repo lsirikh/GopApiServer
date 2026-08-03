@@ -1,6 +1,7 @@
 # Proxy(PidsProxy) — 이벤트 억제(정비 창) 연동 안내
 
-- **작성일**: 2026-07-31 · **우선순위**: ★최상
+- **작성일**: 2026-07-31 · **갱신일**: 2026-08-03 (v1.1 — NATS 알림 §4 신설) · **우선순위**: ★최상
+- **대상 API 버전**: 6.3.2 / 브로커 명세 v1.6 §9.12
 - **상위 문서**: [README.md](README.md) (공통 계약·범위 경계)
 - **Proxy 역할**: 필드 센서(펜스/PIR/케이블 등)의 탐지·장애·연결 이벤트를 **발행**(`all.event.detect`,
   `all.event.malfunction`, `all.event.connection`)하고, 동시에 DBApi 서버로 **HTTP POST** 하는 주체.
@@ -78,10 +79,65 @@ detection/malfunction POST와 동일한 인증 경로를 사용하면 된다(이
 
 ---
 
-## 4. 체크리스트 (Proxy 팀)
+## 4. [P-4] ★ NATS 알림 `SYNC_EVENT_SUPPRESSION` — 신규 (v6.3.2)
+
+정비 창이 바뀌거나 창이 **시작·종료**되면 서버가 NATS 로 알린다. 폴링 주기(30~60초)를 기다리지 않고
+**즉시** 반영할 수 있다.
+
+```
+Subject : sensorway.{부대ID}.all.sync.event-suppression
+cmd     : SYNC_EVENT_SUPPRESSION      from: DBApi      m_type: PUB
+body    : { "action": "CREATED|UPDATED|DELETED", "resource_id": 12, "status": "active" }
+```
+
+- **구독 추가 불필요** — Proxy 는 이미 `sensorway.unit001.all.sync.*` 를 구독하므로 자동 수신된다.
+- **필수 작업 2가지**:
+  1. `EnumGopCommand` 에 **`SYNC_EVENT_SUPPRESSION`** 추가
+  2. **미지 cmd 를 만나도 크래시하지 않고 skip** 하는 방어 + 회귀 테스트
+     — 빠뜨리면 SYNC 수신 루프 전체가 죽어 **장비 동기화(SYNC_DEVICE 등)까지 멈춘다**.
+- **처리**: action 별로 분기하지 말고 **무조건 `GET /api/event-suppression-schedules/active` 재조회**로
+  억제 목록을 갱신하면 된다(아래 매핑을 외울 필요가 없어진다).
+
+| 발생 사건 | action | status |
+|---|---|---|
+| 정비 창 생성 | `CREATED` | 생성 시점 상태 |
+| 창 시간·이름·**대상 배열** 변경 | `UPDATED` | 변경 후 상태 |
+| **취소**(`DELETE /{id}` — soft-cancel) | **`UPDATED`** | **`cancelled`** |
+| **창 시작 / 창 종료** | `UPDATED` | `active` / `expired` |
+| **하드삭제**(`bulk-delete`) | `DELETED` | (없음) |
+
+> `DELETE /{id}` 는 물리삭제가 아니라 soft-cancel 이라 **`DELETED` 가 아니라 `UPDATED`** 로 온다.
+
+### ★★ 억제 해제는 신호에 의존하지 말 것 — Proxy 가 가장 위험하다
+
+NATS Core 는 **at-most-once** 라 유실이 정상 경로다. Proxy 는 **탐지 이벤트의 원천**이라
+안전 비대칭이 가장 크다:
+
+| 유실 | 결과 | |
+|---|---|---|
+| 창 시작 신호 | 억제가 늦게 걸림(정비 중 오탐이 좀 올라옴) | 허용 |
+| **창 종료 신호** | **탐지 발행이 영원히 안 풀림 = 실제 침입을 못 잡음** | **절대 금지** |
+
+1. **`expired` 신호로 해제하지 말고**, 캐시한 `window_end` **로컬 타이머 만료로 스스로 푼다** ← 1차 권위
+2. **`GET /active` 30~60초 폴링을 계속 유지** — SYNC 는 가속 신호(비권위), 폴링이 권위
+3. 캐시에 **TTL(폴링 주기 ×3)** 을 두어 신호·폴링 두절 시 자동으로 "억제 없음"으로 수렴(fail-open)
+
+**통지 지연**: 정상 **≤5초**, 서버 재기동 등 예외 시 **≤5분**. 단 서버측 억제 판정 자체는 요청시점
+계산이라 지연 0 — 통지만 늦을 뿐이다.
+
+상세 계약: 브로커 명세 `Gop_Message_Broker_연동설계_v1.5.md` **v1.6 §9.12**.
+
+---
+
+## 5. 체크리스트 (Proxy 팀)
 
 - [ ] (P-1) 이벤트 POST 응답 202 분기 추가, 재시도/에러 오인 제거
 - [ ] (P-2) connection POST 토큰 첨부 확인(token 모드 401 회귀 방지)
 - [ ] (P-3, D1=Yes) 활성 창 폴링 + 발행 skip/mark 로직 (감지쪽 detection/both 창만)
+- [ ] **(P-4) `EnumGopCommand` 에 `SYNC_EVENT_SUPPRESSION` 추가** (구독 추가는 불필요)
+- [ ] **(P-4) 미지 cmd graceful skip 방어 + 회귀 테스트** ← 빠뜨리면 SYNC 수신 루프 전체 중단
+- [ ] (P-4) 수신 시 `GET /active` 재조회로 억제 목록 갱신 (action 별 분기 불필요)
+- [ ] **(P-4) `expired` 신호로 해제 금지** — 로컬 `window_end` 타이머가 1차 권위
+- [ ] **(P-4) `/active` 폴링 유지** (SYNC 도입해도 제거 금지) + 캐시 TTL(주기×3) fail-open
 - [ ] 억제 발행/POST 건수 로깅(관측성)
 - [ ] 창 종료 후 정상 발행 자동 복귀 검증

@@ -51,9 +51,42 @@ db_monitor=이벤트 발행 차단, AiAnalysis=분석 억제를 팬아웃한다(
 
 ---
 
-## 3. 체크리스트 (VMS 팀)
+## 3. [V-3] ★ NATS 알림 `SYNC_EVENT_SUPPRESSION` — 신규 (v6.3.2)
+
+정비 창 변경·**창 시작/종료**를 서버가 NATS 로 알린다. 30~60초 폴링을 기다리지 않고 즉시 반영 가능.
+
+```
+Subject : sensorway.{부대ID}.all.sync.event-suppression
+body    : { "action": "CREATED|UPDATED|DELETED", "resource_id": 12, "status": "active" }
+```
+
+- **구독 추가 불필요** — VMS 는 이미 `sensorway.unit001.all.sync.*` 구독.
+- **필수**: `EnumGopCommand` 에 `SYNC_EVENT_SUPPRESSION` 추가 + **미지 cmd graceful skip** 방어
+  (빠뜨리면 SYNC 수신 루프가 죽어 장비/프리셋 동기화까지 멈춤).
+- **처리**: action 분기 없이 **무조건 `GET /active` 재조회** → §1 의 감시쪽 카메라 집합 재산출.
+- **취소(`DELETE /{id}`)는 soft-cancel 이라 `action=UPDATED` + `status=cancelled`**. `DELETED` 는 하드삭제뿐.
+- V-2(`is_restricted_zone` 파이프라인 재사용)를 채택했다면, 이 알림이 **그 파이프라인의 갱신 트리거**가 된다
+  (공간 신호=PTZ_STATUS ↔ 시간 신호=SYNC_EVENT_SUPPRESSION, 같은 자리에 OR 로 붙는다).
+
+### ★ 억제 해제는 신호에 의존 금지
+
+NATS 는 at-most-once. **창 종료 신호 유실 = 이벤트 트리거 녹화/팝업이 영원히 안 돌아옴**(금지).
+
+1. **`expired` 로 해제하지 말고** 캐시한 `window_end` **로컬 타이머**로 스스로 푼다 ← 1차 권위
+2. `GET /active` **폴링 유지**(권위), SYNC 는 가속 신호(비권위)
+3. 캐시 TTL(주기×3) 초과 시 "억제 없음" 자동 수렴(fail-open) — 녹화가 조용히 멈춰 있는 상태 방지
+
+**통지 지연**: 정상 ≤5초 / 백스톱 ≤5분. 상세: 브로커 명세 v1.6 **§9.12**.
+
+---
+
+## 4. 체크리스트 (VMS 팀)
 
 - [ ] (V-1, D1=Yes) 활성 창 폴링 + 감시쪽(surveillance/both) 창 카메라 산출
 - [ ] 억제 대상 카메라의 이벤트 트리거 녹화/PTZ/팝업 억제(상시 녹화 유지 여부 정책 확정)
 - [ ] (V-2) is_restricted_zone 억제 파이프라인에 시간창 조건 OR 추가(재사용)
+- [ ] **(V-3) `EnumGopCommand` 에 `SYNC_EVENT_SUPPRESSION` 추가** (구독 추가 불필요)
+- [ ] **(V-3) 미지 cmd graceful skip 방어 + 회귀 테스트**
+- [ ] (V-3) 수신 시 `GET /active` 재조회 → 감시쪽 카메라 집합 재산출
+- [ ] **(V-3) `expired` 신호로 해제 금지** — 로컬 `window_end` 타이머 권위 + 폴링 유지 + 캐시 TTL
 - [ ] event_scope·창 종료 복귀 검증

@@ -1,9 +1,34 @@
 # 이벤트 수신 억제(정비 창) — 서브시스템 연동 안내 (Overview)
 
-- **작성일**: 2026-07-31
-- **서버 기능**: `event-suppression-schedule` (DBApi, release/v6.3, 태그 `v6.3-event_suppression`)
-- **연관 PRD**: `docs/prds/event-suppression-schedule-prd.md` v1.1
+- **작성일**: 2026-07-31 · **갱신일**: 2026-08-03 (API **6.3.2** / 브로커 명세 **v1.6**)
+- **서버 기능**: `event-suppression-schedule` (DBApi, release/v6.3)
+- **연관 PRD**: `docs/prds/event-suppression-schedule-prd.md` v1.1 · `event-suppression-sync-message-prd.md`
 - **대상 서브시스템**: **Proxy(PidsProxy)**, **GIS(관제/Central UI)**, **VMS**, AiAnalysis, NVR, db_monitor
+
+---
+
+## ★ 전달 요약 (2026-08-03 기준) — 팀별 할 일 한눈에
+
+| 서브시스템 | 문서 | Phase 1 (필수, 지금) | Phase 2 (D1 결정 후) |
+|---|---|---|---|
+| **GIS** | [GIS.md](GIS.md) v2.1 | ★**대상 필드 단수→배열**(C-1, 파괴적) · 다중선택 UI · `bulk-delete` 연동 · **NATS enum+skip** · offset 포함 전송 · **`devices.id` 전송 확인** | 알람 딤/정비 표식 |
+| **Proxy** | [Proxy.md](Proxy.md) v1.1 | 202 억제 응답 처리 · connection POST 토큰 · **NATS enum+skip** | 탐지/장애 라이브 발행 skip |
+| **AiAnalysis** | [AiAnalysis.md](AiAnalysis.md) | 202 처리(서버 POST 시) · **NATS enum+skip** | AI 탐지 발행 skip |
+| **VMS** | [VMS.md](VMS.md) | **NATS enum+skip** | 이벤트 트리거 녹화/PTZ/팝업 억제 |
+| **NVR** | [NVR.md](NVR.md) | **NATS enum+skip** | 이벤트 트리거 녹화 억제 |
+| **Central** | — | **NATS 미수신** — `GET /active` HTTP 폴링으로만 배너 | — |
+| **db_monitor** | [db_monitor.md](db_monitor.md) | ✅ 서버측 완료(우리 컴포넌트) | — |
+
+### 전 팀 공통 — 이번 차수(v6.3.2)에 반드시 반영할 3가지
+
+1. **`EnumGopCommand` 에 `SYNC_EVENT_SUPPRESSION` 추가** — 구독 추가는 **불필요**(이미 `all.sync.*` 구독)
+2. **미지 cmd graceful skip 방어** — 빠뜨리면 SYNC 수신 루프 전체가 죽어 **장비 동기화까지 멈춘다**
+3. **`expired` 신호로 억제를 해제하지 말 것** — 로컬 `window_end` 타이머가 1차 권위,
+   `GET /active` 폴링 존치. (§2.1 fail-safe 규범)
+
+> ⚠ **배포 상태**: 개발 서버는 6.3.2 최신. **테스트 서버 `123.141.236.253:8136` 는 6.3.2 초기 커밋**이라
+> `SYNC_EVENT_SUPPRESSION` **미발행** + PATCH 500 미수정 상태다(`info.version` 은 양쪽 6.3.2 로 동일하니
+> device 창에 이름만 바꾸는 PATCH → 200/500 으로 판별). **재배포 후 연동 시험할 것.**
 
 ---
 

@@ -10138,7 +10138,7 @@ HTTP/1.1 202 Accepted
   "schedule_id": 12 }
 ```
 
-- 발행/POST 주체(PidsProxy/AiAnalysis)는 **202 를 성공(억제됨)으로 처리**(재시도 금지). 자세히는 `docs/subsystems/event-suppression/Proxy.md`.
+- 발행/POST 주체(PidsProxy/AiAnalysis)는 **202 를 성공(억제됨)으로 처리**(재시도 금지). 자세히는 `docs/subsystems/event-suppression/INTEGRATION.md` §2.6(202 계약)·§3.2(PidsProxy).
 - `connection` POST 는 본 차수부터 라우트-레벨 `events:edit` 데코레이터 정합(기존에도 중앙 매트릭스로 token 모드 인가됨).
 - 억제 판정은 요청시점 계산(권위), sweep(`SUPPRESSION_SWEEP_INTERVAL_MINUTES` 기본 5분)은 만료 창 `is_active` 정리(비권위 백스톱). 게이트 오류 시 **fail-open**(억제 안 함, 이벤트 정상 저장).
 

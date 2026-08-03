@@ -3015,7 +3015,7 @@ def on_sync_message(msg):
 >
 > **데이터 조회**: 알림 수신 후 `GET /api/event-suppression-schedules/{id}`(해당 창 상세) 및
 > `GET /api/event-suppression-schedules/active`(현재 공사 상태 재계산). 판정 규칙은
-> `docs/subsystems/event-suppression/README.md` §2.3 참조(event_scope ∧ 대상매치 ∧ side매치).
+> `docs/subsystems/event-suppression/INTEGRATION.md` **§2.5** 참조(event_scope ∧ 대상매치 ∧ side매치).
 >
 > **범위 경계**: DBApi 의 억제는 **저장(persistence) + DB 파생 다운스트림**을 막는다. PidsProxy/
 > AiAnalysis 가 직접 쏘는 **실시간 방송은 막지 않는다** — 각 서브시스템이 본 알림과 `/active` 로

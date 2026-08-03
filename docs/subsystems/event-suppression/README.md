@@ -1,196 +1,63 @@
-# 이벤트 수신 억제(정비 창) — 서브시스템 연동 안내 (Overview)
+# 이벤트 억제(정비 창) — 서브시스템 연동 문서 (진입점)
 
-- **작성일**: 2026-07-31 · **갱신일**: 2026-08-03 (API **6.3.2** / 브로커 명세 **v1.6**)
-- **서버 기능**: `event-suppression-schedule` (DBApi, release/v6.3)
-- **연관 PRD**: `docs/prds/event-suppression-schedule-prd.md` v1.1 · `event-suppression-sync-message-prd.md`
-- **대상 서브시스템**: **Proxy(PidsProxy)**, **GIS(관제/Central UI)**, **VMS**, AiAnalysis, NVR, db_monitor
+- **갱신일**: 2026-08-03 · **대상 API**: **6.3.2** · **브로커 명세**: **v1.6 §9.12**
 
 ---
 
-## ★ 전달 요약 (2026-08-03 기준) — 팀별 할 일 한눈에
+## 📄 → [**INTEGRATION.md**](INTEGRATION.md) — 통합 연동 가이드 (마스터)
 
-| 서브시스템 | 문서 | Phase 1 (필수, 지금) | Phase 2 (D1 결정 후) |
-|---|---|---|---|
-| **GIS** | [GIS.md](GIS.md) v2.1 | ★**대상 필드 단수→배열**(C-1, 파괴적) · 다중선택 UI · `bulk-delete` 연동 · **NATS enum+skip** · offset 포함 전송 · **`devices.id` 전송 확인** | 알람 딤/정비 표식 |
-| **Proxy** | [Proxy.md](Proxy.md) v1.1 | 202 억제 응답 처리 · connection POST 토큰 · **NATS enum+skip** | 탐지/장애 라이브 발행 skip |
-| **AiAnalysis** | [AiAnalysis.md](AiAnalysis.md) | 202 처리(서버 POST 시) · **NATS enum+skip** | AI 탐지 발행 skip |
-| **VMS** | [VMS.md](VMS.md) | **NATS enum+skip** | 이벤트 트리거 녹화/PTZ/팝업 억제 |
-| **NVR** | [NVR.md](NVR.md) | **NATS enum+skip** | 이벤트 트리거 녹화 억제 |
-| **Central** | — | **NATS 미수신** — `GET /active` HTTP 폴링으로만 배너 | — |
-| **db_monitor** | [db_monitor.md](db_monitor.md) | ✅ 서버측 완료(우리 컴포넌트) | — |
+**이 하나만 읽으면 됩니다.** 여러 서브시스템을 함께 담당하는 개발자를 위해
+팀별 문서 7종을 하나로 합쳤습니다. 공통 계약 + 팀별 상세 + 통합 체크리스트가 모두 들어 있습니다.
 
-### 전 팀 공통 — 이번 차수(v6.3.2)에 반드시 반영할 3가지
-
-1. **`EnumGopCommand` 에 `SYNC_EVENT_SUPPRESSION` 추가** — 구독 추가는 **불필요**(이미 `all.sync.*` 구독)
-2. **미지 cmd graceful skip 방어** — 빠뜨리면 SYNC 수신 루프 전체가 죽어 **장비 동기화까지 멈춘다**
-3. **`expired` 신호로 억제를 해제하지 말 것** — 로컬 `window_end` 타이머가 1차 권위,
-   `GET /active` 폴링 존치. (§2.1 fail-safe 규범)
-
-> ⚠ **배포 상태**: 개발 서버는 6.3.2 최신. **테스트 서버 `123.141.236.253:8136` 는 6.3.2 초기 커밋**이라
-> `SYNC_EVENT_SUPPRESSION` **미발행** + PATCH 500 미수정 상태다(`info.version` 은 양쪽 6.3.2 로 동일하니
-> device 창에 이름만 바꾸는 PATCH → 200/500 으로 판별). **재배포 후 연동 시험할 것.**
-
----
-
-## 0. 한 줄 요약
-
-공사·설치·장애수리·AS 기간에 **대상(장비/그룹/전체) × 이벤트유형(연결/탐지/장애/전체) × 시간창**을
-지정해 이벤트 수신을 억제하는 "정비 창" 기능이 DBApi 서버에 신설됐다. **각 서브시스템은 이 억제 창을
-조회해 자기 역할에 맞게 이벤트 발행/알람/녹화를 억제해야 완전한 "수신 차단"이 완성된다.**
-
----
-
-## 1. ★ 반드시 이해할 범위 경계 (Phase 1 vs Phase 2)
-
-DBApi 서버는 브로커 토폴로지상 **발행 전용(publish-only)** 이라, 장비 이벤트는 서버로 NATS 구독으로
-들어오지 않고 **HTTP POST로만** 유입된다. 따라서 서버 억제(Phase 1, 이미 배포)는:
-
-| 서버가 막는 것 (Phase 1, 완료) | 서버가 못 막는 것 (Phase 2, 각 서브시스템 몫) |
+| 찾는 것 | 위치 |
 |---|---|
-| 이벤트 **DB 저장**(레코드 미생성) | PidsProxy/AiAnalysis가 쏘는 **실시간 NATS 방송** |
-| 이벤트 로그·통계·보고서 등 DB 파생 | 관제/VMS/NVR의 **실시간 알람·녹화·PTZ 반응** |
-| 장비 상태 자동전환(탐지→활성/장애→ERROR) | — |
-
-→ **완전한 시스템 차원의 억제**를 위해 각 서브시스템은 활성 억제 창을 조회(`GET /active`)해
-자신의 라이브 반응을 억제해야 한다. 이 문서 세트가 그 요구사항을 서브시스템별로 정의한다.
-
----
-
-## 2. 공통 API 계약 (모든 서브시스템 공유)
-
-### 2.1 활성 억제 창 조회 (핵심 훅)
-
-```
-GET /api/event-suppression-schedules/active
-Authorization: Bearer <token>        # AUTH_MODE=token 시 events:view 필요
-```
-
-응답:
-```json
-{
-  "success": true,
-  "message": "활성 억제 창 조회 성공",
-  "data": [
-    {
-      "id": 12,
-      "name": "GOP 3구역 펜스 보수",
-      "target_type": "group",           // device | group | all
-      "target_device_ids": [],           // target_type=device 일 때 ≥1 (배열, v6.3 확장)
-      "target_group_ids": [5, 6],        // target_type=group 일 때 ≥1 (배열, v6.3 확장)
-      "target_side": "detection",        // detection | surveillance | both
-      "event_scope": "all",              // connection | detection | malfunction | all
-      "window_start": "2026-08-01T09:00:00+09:00",
-      "window_end":   "2026-08-01T18:00:00+09:00",
-      "status": "active",
-      "is_active": true
-    }
-  ]
-}
-```
-
-- 폴링 주기 권장: **30~60초 캐시**(창 경계 정밀도는 분 단위로 충분).
-- **★ NATS 알림 `SYNC_EVENT_SUPPRESSION` 신설(v6.3.2)** — 정비 창 변경·창 경계 전이를 브로드캐스트한다.
-  Subject `sensorway.{부대ID}.all.sync.event-suppression`, body `{action, resource_id, status}`.
-  **구독 추가 불필요**(전 서브시스템이 이미 `all.sync.*` 구독) — `EnumGopCommand` 에 cmd 추가 +
-  **미지 cmd graceful skip** 방어만 하면 된다. 상세: 브로커 명세 v1.6 **§9.12**.
-  - `DELETE /{id}`(soft-cancel)는 `action=DELETED` 가 아니라 **`UPDATED`/`status=cancelled`** 로 온다.
-  - **폴링을 대체하지 않는다** — 아래 fail-safe 규범 참조.
-
-> **★ fail-safe 규범 (MUST)**: NATS Core 는 at-most-once 라 유실이 정상 경로다.
-> 창 시작 신호 유실은 "좀 시끄러움"(허용)이지만, **창 종료 신호 유실은 억제가 영원히 안 풀리는
-> 영구 침묵**(금지)이다.
-> ① 억제 해제는 **캐시한 `window_end` 로컬 타이머 만료가 1차 권위** — `expired` 신호에 의존 금지.
-> ② `GET /active` 30~60초 폴링은 **권위이며 존치**, SYNC 는 **가속 신호(비권위)**.
-> ③ 캐시 TTL(폴링 주기 ×3) 초과 시 자동으로 "억제 없음"으로 수렴(fail-open).
-> 통지 지연 상한: 정상 ≤5초 / 백스톱 ≤5분. (억제 판정 자체는 서버 요청시점 계산이라 지연 0)
-- 전체 목록/관리: `GET|POST|PATCH|DELETE /api/event-suppression-schedules` (§4 참조).
-
-### 2.2 억제된 이벤트 POST 응답 (Proxy/AiAnalysis 필독)
-
-장비 이벤트를 서버로 POST(`/api/events/detections|malfunctions|connections`)할 때, 해당 이벤트가
-활성 억제 창에 걸리면 서버는 **201 대신 202**를 반환한다:
-
-```json
-HTTP/1.1 202 Accepted
-{ "success": true, "suppressed": true,
-  "message": "Event (detection) suppressed by active maintenance window",
-  "schedule_id": 12 }
-```
-
-→ POST 클라이언트(Proxy/AiAnalysis)는 **202를 "성공(억제됨)"으로 처리**해야 한다(오류/재시도 금지).
-저장은 되지 않으며 응답에 이벤트 id가 없다.
-
-### 2.3 억제 판정 규칙 (서브시스템이 클라이언트-측 복제 시 동일 로직 사용)
-
-한 장비 이벤트 `(device_id, category)` 가 활성 창 `W`에 억제되는 조건:
-
-```
-category ∈ {detection, malfunction, connection}                # action(조치보고)은 억제 대상 아님
-AND (W.event_scope == 'all' OR W.event_scope == category)
-AND scope_match:
-      W.target_type == 'device' : device_id ∈ W.target_device_ids                      # 배열(v6.3 복수 대상)
-      W.target_type == 'all'    : side_match(device_side, W.target_side)
-      W.target_type == 'group'  : (groups(device_id) ∩ W.target_group_ids) ≠ ∅ AND side_match(...)
-
-device_side = sensor|controller → 'detection'
-              camera            → 'surveillance'
-              speaker|lamp|enclosure → 'auxiliary'
-side_match(ds, ts) = (ts == 'both') OR (ds == ts)              # 보조 장비는 'both' 일 때만 매치
-```
-
-- 그룹 멤버십은 라이브 이벤트 body의 `device.device_groups[]`(브로커 v1.5 §6.1)로 로컬 판정 가능.
-- 창 유효: `window_start <= now < window_end` AND `revoked_at == null`(=`status=='active'`). GET /active는
-  이미 활성만 반환하므로 서브시스템은 status 재계산 없이 그대로 사용해도 된다.
+| **우리 팀은 뭘 해야 하나** | [§0.1 팀별 할 일 한눈에](INTEGRATION.md#01-팀별-할-일-한눈에) |
+| **NATS 수신 팀 공통 3원칙** | [§0.2](INTEGRATION.md#02--nats-수신-팀-공통-3원칙-이번-차수-필수--central-제외) |
+| REST 엔드포인트 7개 · 필드 사전 | [§2.1](INTEGRATION.md#21-rest-엔드포인트-7개) · [§2.2](INTEGRATION.md#22-필드-사전) |
+| **시간대 규약**(offset 필수) | [§2.3](INTEGRATION.md#23--시간대-규약--가장-흔한-사고) |
+| **장비 ID 주의**(`devices.id`) | [§2.4](INTEGRATION.md#24--장비-id-주의--devicesid-를-보낼-것) |
+| 억제 판정 규칙(의사코드) | [§2.5](INTEGRATION.md#25-억제-판정-규칙-클라이언트-측-복제-시-동일-로직) |
+| 202 억제 응답 | [§2.6](INTEGRATION.md#26-억제된-이벤트-post-응답--202-proxyaianalysis-필독) |
+| **NATS `SYNC_EVENT_SUPPRESSION`** | [§2.7](INTEGRATION.md#27--nats-알림-sync_event_suppression-v632-신설) |
+| **fail-safe 규범**(해제는 신호 의존 금지) | [§2.8](INTEGRATION.md#28--fail-safe-규범-must) |
+| 서브시스템별 상세 | [§3](INTEGRATION.md#3-서브시스템별-상세) |
+| 알려진 서버 제약 + 회피 | [§4](INTEGRATION.md#4--알려진-서버-제약-회피-필요) |
+| 통합 체크리스트 | [§5](INTEGRATION.md#5-통합-체크리스트) |
 
 ---
 
-## 3. 서브시스템별 영향 매트릭스
+## 팀별 진입 (통합본의 해당 절로 이동)
 
-| 서브시스템 | 역할 | 억제 시 해야 할 일 | 문서 | 우선순위 |
-|---|---|---|---|---|
-| **Proxy(PidsProxy)** | 필드 센서 이벤트 발행자 + 서버 POST 주체 | ①202 응답 처리 ②(Phase2)활성 창 device+category 매치 시 NATS 발행 skip/mark | [Proxy.md](Proxy.md) | ★최상 |
-| **GIS(관제)** | all.event.> 구독·상황도 알람 + 정비창 관리 UI | ①정비창 CRUD 화면 ②활성 배너 ③(Phase2)억제 장비 알람 필터 | [GIS.md](GIS.md) | ★최상 |
-| **VMS** | 영상/RTSP·이벤트 트리거 녹화·PTZ | (Phase2)감시쪽 대상 창에 든 카메라의 이벤트 트리거 녹화/PTZ/팝업 억제 | [VMS.md](VMS.md) | 상 |
-| AiAnalysis | AI 영상 탐지 발행자(all.event_ai.detect) | ①202 처리 ②(Phase2)활성 창 매치 시 AI 탐지 발행 skip | [AiAnalysis.md](AiAnalysis.md) | 상 |
-| NVR | 녹화 관리 | (Phase2)감시쪽 대상 창 카메라의 이벤트 녹화 억제 | [NVR.md](NVR.md) | 중 |
-| db_monitor | DBApi NATS 발행 브리지 | 참고(SYSTEM_EVENT 발행은 억제 무관, 정보성) | [db_monitor.md](db_monitor.md) | 낮 |
+| 서브시스템 | 절 | 요약 |
+|---|---|---|
+| [GIS](GIS.md) | [§3.1](INTEGRATION.md#31-gis-관제--central-ui) | 정비 창 관리 UI · 활성 배너 · 삭제 2종 |
+| [PidsProxy](Proxy.md) | [§3.2](INTEGRATION.md#32-pidsproxy) | 202 처리 · connection 토큰 · 라이브 발행 skip |
+| [AiAnalysis](AiAnalysis.md) | [§3.3](INTEGRATION.md#33-aianalysis) | 202 처리 · AI 탐지 발행 skip |
+| [VMS](VMS.md) | [§3.4](INTEGRATION.md#34-vms) | 이벤트 트리거 녹화/PTZ/팝업 억제 |
+| [NVRManager](NVR.md) | [§3.5](INTEGRATION.md#35-nvrmanager) | 이벤트 트리거 녹화 억제 |
+| BroadcastingManager | [§3.6](INTEGRATION.md#36-broadcastingmanager) | 이벤트 연동 자동 방송 억제 |
+| Central | [§3.7](INTEGRATION.md#37-central) | **NATS 미수신** — HTTP 폴링만 |
+| [db_monitor](db_monitor.md) | [§3.8](INTEGRATION.md#38-db_monitor-참고) | 서버측 완료(우리 컴포넌트) |
 
----
-
-## 4. 관리 API 전체 (관리 UI = 주로 GIS)
-
-| Method | Path | 인가 | 설명 |
-|---|---|---|---|
-| POST | `/api/event-suppression-schedules` | events:edit | 정비 창 생성 |
-| GET | `/api/event-suppression-schedules` | events:view | 목록(page/limit + status/target_type/device_id/group_id 필터) |
-| GET | `/api/event-suppression-schedules/{id}` | events:view | 단건 |
-| PATCH | `/api/event-suppression-schedules/{id}` | events:edit | 변경 |
-| DELETE | `/api/event-suppression-schedules/{id}` | events:delete | 삭제(soft-cancel) |
-| POST | `/api/event-suppression-schedules/bulk-delete` | events:delete | **취소·종료 스케줄 일괄 하드삭제**(목록 정리, v6.3.2) |
-| GET | `/api/event-suppression-schedules/active` | events:view | 활성 창(배너·서브시스템 조회 훅) |
-
-생성 요청 예:
-```json
-POST /api/event-suppression-schedules
-{
-  "name": "GOP 3구역 펜스 보수",
-  "target_type": "group",           // device: target_device_ids≥1 / group: target_group_ids≥1 / all
-  "target_group_ids": [5, 6],
-  "target_side": "detection",        // 기본 both (group·all 에만 적용)
-  "event_scope": "all",              // connection | detection | malfunction | all
-  "window_start": "2026-08-01T09:00:00+09:00",
-  "window_end":   "2026-08-01T18:00:00+09:00"
-}
-```
-
-- RBAC: 쓰기 events:edit/delete, 조회 events:view, `role=ADMIN`만 무조건 bypass(AUTH_MODE=token 시 강제).
-- `window_end` 필수(자동 만료 — 무기한 침묵 금지). `revoked_at` 로 soft-cancel(물리삭제 없음).
+> 위 개별 파일은 **포인터 스텁**입니다. 실제 내용은 통합본에만 있으며,
+> **불일치 시 INTEGRATION.md 가 우선**합니다(사본 드리프트 방지 — 마스터는 하나).
 
 ---
 
-## 5. 결정 필요 (PM/서브시스템 팀 합의)
+## 계약 원본 (서버측 마스터)
 
-- **D1(범위 확정)**: 라이브 경로 억제(Phase 2)를 각 서브시스템에 요구할지. Yes면 아래 문서의 Phase 2
-  항목을 각 팀 백로그로. No(서버 저장 억제만)면 GIS 관리 UI + 배너까지만.
-- **폴링 vs 신호**: 현재 `GET /active` 폴링. 다수 서브시스템이 실시간성을 요구하면 서버가 브로커
-  `SYNC_SUPPRESSION`(마스터데이터 알림) 또는 runtime 신호를 추가 발행하는 Phase 2-b 검토.
+| 계약 | 문서 |
+|---|---|
+| **REST API** | `GOP_Restful_Api_연동설계.md` **§6.8** |
+| **NATS 메시지** | `Gop_Message_Broker_연동설계_v1.6.md` **§9.12** |
+| 서버 결함 수정 계획 | `docs/prds/event-suppression-hardening-prd.md` |
+
+---
+
+## ⚠ 배포 상태 (2026-08-03)
+
+테스트 서버 `123.141.236.253:8136` 는 **6.3.2 초기 커밋** 상태로
+`SYNC_EVENT_SUPPRESSION` **미발행** + PATCH 500 미수정입니다.
+`info.version` 이 개발 서버와 똑같이 6.3.2 라 **버전으로 구분되지 않습니다** —
+device 대상 창에 **이름만 바꾸는 PATCH → 200 이면 최신 / 500 이면 재배포 전**.
+자세히는 [§0.3](INTEGRATION.md#03--배포-상태-2026-08-03-기준).

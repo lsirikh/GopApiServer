@@ -82,6 +82,12 @@ prd*.md
 !docs/v45_sync_guide.md
 !docs/v46_release_notes.md
 
+# 서브시스템 연동 안내는 **외부 팀 전달본**이라 반드시 추적한다.
+#   docs/* 규칙에 걸려 신규 파일이 조용히 누락되면(예: INTEGRATION.md) 팀에는
+#   포인터 스텁만 전달되고 마스터가 저장소에 없는 죽은 링크 사고가 난다.
+!docs/subsystems/
+!docs/subsystems/**
+
 # Tests cache & artifacts
 tests/__pycache__/
 .pytest_cache/

@@ -600,8 +600,12 @@ async def replace_detection_event(
     - 404: 탐지 이벤트를 찾을 수 없음
     - 422: 유효하지 않은 enum 값 / device_id/device_description 등 금지 필드 전송
     """
+    # v6.3-event_put_lazyload_fix: PUT 응답 조립에서 event.device 접근(_build_device_nested_response) →
+    #   refresh 후 async lazy-load(MissingGreenlet) 500 방지. 목록/단건/PATCH/malfunctions PUT 과 동일 패턴.
     event = (await db.execute(
-        select(DetectionEvent).where(DetectionEvent.id == event_id)
+        select(DetectionEvent)
+        .options(selectinload(DetectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(DetectionEvent.id == event_id)
     )).scalars().first()
 
     if not event:

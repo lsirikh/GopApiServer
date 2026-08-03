@@ -16572,6 +16572,15 @@ python scripts/migrate_event_device_id.py
 
 ## 변경 이력
 
+### [v6.3 후속] `event_put_lazyload_fix` — 이벤트 PUT/POST device lazy-load 500 수정 (2026-08-03)
+
+> GIS 리포트(`docs/coordinations/GOP_Server_API_event_PUT_500_lazyload_REQUEST.md`) 검증 후 수정. `PUT /api/events/detections/{id}`·`PUT /api/events/connections/{id}` 가 응답 조립 시 `event.device` 를 async 컨텍스트에서 lazy-load(MissingGreenlet) → 500. ★UPDATE 는 commit 된 뒤 응답에서 터져 "저장됐는데 실패 표시"(데이터/화면 불일치).
+
+- **수정**: 두 PUT 핸들러 조회에 `selectinload(...device).selectin_polymorphic([...])` 추가(detections.py:604·connections.py:545) — 목록/단건/PATCH/malfunctions PUT 과 동일 패턴.
+- **동반 발견·수정(잔여 점검, GIS §4 요청)**: `POST /api/events/connections`(create) 도 device 를 `select(Device)` 로만 조회(폴리모픽 누락) → 생성 응답에서 동일 500(connection_events 생성 자체 불가 원인). connections.py:362 에 selectin_polymorphic 추가. detections/malfunctions POST 는 정상.
+- **검증**: detection PUT 무변경 왕복 → 200+device / connection 생성→왕복 PUT→삭제 전 구간 200+device / event 목록·단건·PATCH 무회귀. 롤백태그 `pre-event_put_lazyload_fix`.
+- **미해결(별건)**: 응답 조립 실패 시 commit-후-500 정책(부분 실패 노출) · 원격 테스트서버 bulk-delete 405 는 재배포 대기(코드 존재).
+
 ### [v6.3 후속] `event_suppression_multi_target` — 정비 창 대상 복수 선택 지원 (2026-08-01)
 
 > GIS 요청(P1). 한 정비 창에 **복수 대상**(장비 N개 / 그룹 N개 / 전체) 지정. `target_type`(device/group/all 배타) 유지, 단일 FK → **배열 + junction 2테이블**. §6.8 필드/예시 배열화.

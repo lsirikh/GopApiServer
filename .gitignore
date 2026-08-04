@@ -129,6 +129,11 @@ certs/*.pem
 # v6.0-installer_ps2exe_path_fix: mkcert.exe 는 신규 PC 에서 자동 다운로드 → 커밋 금지 (~5MB)
 certs/mkcert.exe
 certs/tools/
+# v6.3-cert_gitignore: bootstrap.ps1(build_install_exe.ps1)이 .ps1 소스에서 재생성하는 빌드 산출물 — 커밋 금지 (머신마다 재빌드 → git pull 충돌 원인). 소스(.ps1/installer)는 추적 유지.
+certs/client_install.exe
+certs/server_install.exe
+# bootstrap 백업 스냅샷(매 실행 생성, 구 스냅샷엔 server.key 개인키 포함) — 커밋 금지
+certs/backup-*/
 
 # Inno Setup 빌드 산출물
 certs/installer/build/*.exe

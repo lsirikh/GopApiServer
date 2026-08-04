@@ -141,6 +141,16 @@ $serverInstallExe = Join-Path $certDir 'server_install.exe'
 
 $certsPresent = (Test-Path $crt) -and (Test-Path $key)
 
+# v6.3-cert_gitignore: .exe 는 git 미추적(빌드 산출물). fresh clone 에서 인증서 발급에
+#   server_install.exe 가 필요한데 없으면 .ps1 소스에서 먼저 빌드(placeholder CA, step 2.5 에서 실제 CA 재임베드).
+if (-not $SkipCerts -and -not $certsPresent -and -not (Test-Path $serverInstallExe)) {
+    $preBuild = Join-Path $repoRoot 'certs/installer_ps2exe/build_install_exe.ps1'
+    if (Test-Path $preBuild) {
+        Write-Host "  server_install.exe 미존재 -> .ps1 소스에서 빌드..." -ForegroundColor Cyan
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $preBuild
+    }
+}
+
 if ($SkipCerts) {
     Write-Host "  -SkipCerts 지정됨: 인증서 발급 단계 스킵" -ForegroundColor Yellow
 } elseif ($AllowHttpFallback -and -not $certsPresent) {

@@ -629,7 +629,7 @@ class EnumUserRole(str, Enum):
 # Python 정의 - app/utils/enums.py
 class EnumLogoutReason(str, Enum):
     MANUAL = "MANUAL"               # 사용자 직접 로그아웃
-    SELF_LOGOUT = "SELF_LOGOUT"     # 다른 세션에서 자신의 세션 종료
+    DUPLICATE = "DUPLICATE"         # 중복 로그인으로 기존 세션 강제 종료(evict)
     EXPIRED = "EXPIRED"             # 세션 만료
     FORCED = "FORCED"               # 관리자 강제 로그아웃
     LOCKED = "LOCKED"               # 계정 잠금으로 인한 로그아웃
@@ -747,12 +747,12 @@ class EnumAuditStatus(str, Enum):
 
 > **참조**: PRD_ConfigChangeLog.md v1.2
 
-#### EnumConfigResourceType (설정 리소스 유형 - 17종)
+#### EnumConfigResourceType (설정 리소스 유형 - 21종)
 ```python
 # Python 정의 - app/utils/enums.py
 class EnumConfigResourceType(str, Enum):
     """
-    설정 변경 대상 리소스 유형 (17종)
+    설정 변경 대상 리소스 유형 (21종)
     Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
     """
     # Device 계열 (10종)
@@ -772,6 +772,12 @@ class EnumConfigResourceType(str, Enum):
     MALFUNCTION_EVENT = "MALFUNCTION_EVENT" # 오동작 이벤트
     CONNECTION_EVENT = "CONNECTION_EVENT" # 연결 이벤트
     ACTION_EVENT = "ACTION_EVENT"         # 액션 이벤트
+
+    # v6.3 신규 (4종)
+    LAMP = "LAMP"                         # 램프(경광등)
+    EVENT_MAPPING_LAMP = "EVENT_MAPPING_LAMP"  # 이벤트-램프 매핑
+    SUPPRESSION_SCHEDULE = "SUPPRESSION_SCHEDULE"  # 이벤트 억제 스케줄
+    SETTINGS = "SETTINGS"                 # 세션/인증 정책 (resource_id=0 sentinel)
 
     # Integration 계열 (3종)
     EVENT_MAPPING = "EVENT_MAPPING"       # 이벤트 매핑
@@ -7727,9 +7733,7 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "device_id": 101,
   "type_event": "Intrusion",
-  "action_reported": "True",
   "result": "DISTANCE_SENSOR",
   "detail": {
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
@@ -7744,9 +7748,7 @@ Accept: application/json
 **Request Body** (전체 업데이트):
 ```json
 {
-  "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
-  "action_reported": "True", //(EnumTrueFalse)
   "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
@@ -8318,7 +8320,6 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "device_id": 104,
   "type_event": "Fault",
   "reason": "FAULT_ETC",
   "detail": {
@@ -8336,7 +8337,6 @@ Accept: application/json
 **Request Body** (전체 업데이트):
 ```json
 {
-  "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
   "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
@@ -8869,7 +8869,6 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "device_id": 104,
   "type_event": "Connection"
 }
 ```
@@ -8879,7 +8878,6 @@ Accept: application/json
 **Request Body** (전체 업데이트):
 ```json
 {
-  "device_id": 104,
   "type_event": "Connection" //(EnumEventType)
 }
 ```
@@ -8887,7 +8885,6 @@ Accept: application/json
 **필드 설명**:
 | 필드명 | 타입 | 필수 | 설명 |
 |--------|------|------|------|
-| device_id | Integer | Y | 장치 ID (Device FK) |
 | type_event | String | Y | 이벤트 유형 (EnumEventType: Connection) |
 
 **Response Example** (200 OK):
@@ -15986,6 +15983,7 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 | 400 | `BAD_REQUEST` | 잘못된 요청 | 필수 파라미터 누락, 데이터 형식 오류 |
 | 400 | `VALIDATION_ERROR` | 데이터 검증 실패 | 이메일 형식 오류, 범위 초과 값 |
 | 401 | `UNAUTHORIZED` | 인증 실패 | 토큰 없음, 토큰 만료 |
+| 401 | `SESSION_REVOKED` | 세션 폐기 | 강제로그아웃/블랙리스트/중복로그인으로 폐기된 토큰 접근 — 403(권한부족)과 구분. `details.reason`(DUPLICATE/PASSWORD_CHANGED 등) 보존, 클라 즉시 재로그인 |
 | 403 | `FORBIDDEN` | 권한 없음 | 리소스 접근 권한 없음 |
 | 404 | `NOT_FOUND` | 리소스 없음 | 존재하지 않는 ID 조회 |
 | 409 | `CONFLICT` | 충돌 | 중복 리소스 생성 시도 |
@@ -16571,6 +16569,14 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
+
+> 최근 기능 전량이 명세에 반영됐는지 9에이전트 워크플로우로 245 엔드포인트·코드 전수 대조. 판정=대체로 최신, 갭 23건(P0 4·P1 14·P2 5). 상세: `docs/analyses/spec-freshness-audit.md`.
+
+- **P0 정정(계약 붕괴)**: PUT `/events/{detections,malfunctions,connections}/{id}` 요청 예시·필드표에서 `device_id`/`action_reported` 삭제 — 코드 `extra='forbid'`라 명세대로 호출 시 **422**였음(능동적 오문서). PUT 은 type_event/(result|reason)/detail 만.
+- **P1 enum/에러 정합**: §4 EnumLogoutReason `SELF_LOGOUT`→`DUPLICATE`(코드 일치) · EnumConfigResourceType 17→21종(LAMP/EVENT_MAPPING_LAMP/SUPPRESSION_SCHEDULE/SETTINGS) · §12.2 에러표 `401 SESSION_REVOKED` 행 추가.
+- **잔여 갭 19건 추적**(분석문서): 중앙 매트릭스 집행 미문서(§9)·reports cancel/DELETE/detail.csv(§10.4)·로그인 client_id(§9.2)·user-sessions login_id/role·forced_by·metrics 파라미터(§8.6)·SYNC_DETECTION 본문·Suppression enum §4 등.
 
 ### [v6.3 후속] `event_put_lazyload_fix` — 이벤트 PUT/POST device lazy-load 500 수정 (2026-08-03)
 

@@ -57,6 +57,13 @@ logs/
 data/*.db
 data/*.db-journal
 *.db-journal
+# v6.3-data_gitignore: 수동/런타임 DB 백업 — 커밋 금지 (~11MB, git pull 충돌·리포 비대)
+data/*.db.backup
+data/*.db.bak
+data/*.db.old
+# v6.3-data_gitignore: 런타임 생성 썸네일 — 커밋 금지 (DB가 참조하는 실파일, git checkout/stash 가 건드리면 정합성 파손)
+data/thumbnails/
+!data/thumbnails/.gitkeep
 
 # Claude/AI 관련
 .claude/

@@ -2,7 +2,7 @@
 # 프로젝트 문서 인덱스
 
 - **마지막 갱신**: 2026-08-03 (advance-phase 자동)
-- **총 문서 수**: 56개
+- **총 문서 수**: 58개
 
 ---
 
@@ -12,6 +12,8 @@
 |------|---------|------|
 | [datetime-timezone-consolidated-analysis.md](analyses/datetime-timezone-consolidated-analysis.md) | datetime-timezone-consolidated | 2026-07-31 |
 | [session-concurrency-policy-analysis.md](analyses/session-concurrency-policy-analysis.md) | session-concurrency-policy | 2026-07-31 |
+| [spec-freshness-audit.md](analyses/spec-freshness-audit.md) | 명세 최신화 감사(코드↔명세, 9에이전트) | 2026-08-04 |
+| [spec-code-swagger-triangulation.md](analyses/spec-code-swagger-triangulation.md) | **명세↔코드↔Swagger 3자 정합 정밀감사**(26에이전트·977점검·확증갭 103) | 2026-08-07 |
 
 ## 요구사항 정의서 (docs/prds/)
 

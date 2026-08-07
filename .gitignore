@@ -205,3 +205,5 @@ claude-skill-harness*/
 !docs/GOP_Server_API_clone_deploy_bugfix_REPLY.md
 !docs/GOP_Server_API_response_schema_audit_REPLY.md
 !docs/reports/BUG_REPORT_*.md
+# v6.3-spec_triangulation_audit: 3자 정합 감사 이슈 등록부 — 팀 공유·추적 대상(로컬 소실 방지)
+!docs/ISSUES_*.md

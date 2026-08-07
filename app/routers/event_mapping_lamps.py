@@ -213,6 +213,24 @@ async def create_event_mapping_lamp(
             detail=f"Lamp with id {lamp_data.lamp_id} not found"
         )
 
+    # S3-03 가드 (2026-08-07 감사): UNIQUE(event_mapping_id, lamp_id) 위반을 사전 차단.
+    # 이전에는 사전 확인이 없어 UniqueViolation 이 commit 에서 터져 **500** 이 나갔다
+    # (`uq_event_mapping_lamp`). 카메라/스피커와 달리 램프만 제약이 있어 응답도 비대칭이었다.
+    duplicated = (await db.execute(
+        select(EventMappingLamp).where(
+            EventMappingLamp.event_mapping_id == mapping_id,
+            EventMappingLamp.lamp_id == lamp_data.lamp_id,
+        )
+    )).scalars().first()
+    if duplicated:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Lamp {lamp_data.lamp_id} is already mapped to event mapping {mapping_id} "
+                f"(config id {duplicated.id}). Update it instead of creating a duplicate."
+            ),
+        )
+
     # Create EventMappingLamp
     eml = EventMappingLamp(
         event_mapping_id=mapping_id,

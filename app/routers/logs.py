@@ -26,8 +26,11 @@ router = APIRouter(tags=[])
 async def get_logs(
     page: int = Query(1, ge=1, description="페이지 번호 (기본값: 1)"),
     limit: int = Query(20, ge=1, le=100, description="페이지당 항목 수 (기본값: 20, 최대: 100)"),
-    start_date: Optional[str] = Query(None, description="시작 날짜로 필터링 (ISO 8601 형식)"),
-    end_date: Optional[str] = Query(None, description="종료 날짜로 필터링 (ISO 8601 형식)"),
+    # S5-01 (2026-08-07 감사): 과거 `Optional[str]` 이라 FastAPI 가 파싱/검증을 하지 않았고
+    # 핸들러의 `datetime.fromisoformat()` 이 그대로 터져 `?start_date=notadate` → **500** 이었다.
+    # `Optional[datetime]` 로 승격해 경계에서 **422**(필드·사유 포함)로 거부한다.
+    start_date: Optional[datetime] = Query(None, description="시작 날짜로 필터링 (ISO 8601). naive 는 DISPLAY_TIMEZONE 으로 해석"),
+    end_date: Optional[datetime] = Query(None, description="종료 날짜로 필터링 (ISO 8601). naive 는 DISPLAY_TIMEZONE 으로 해석"),
     method: Optional[str] = Query(None, description="HTTP 메소드로 필터링 (GET, POST 등)"),
     resource: Optional[str] = Query(None, description="리소스로 필터링 (예: devices/controllers)"),
     client_uuid: Optional[str] = Query(None, description="클라이언트 UUID로 필터링"),
@@ -53,13 +56,14 @@ async def get_logs(
     count_stmt = select(func.count()).select_from(ApiLog)
 
     # Apply date range filtering
+    # ★ api_logs.timestamp 는 naive-UTC 컬럼(datetime-unification 예외) → 비교값도 naive-UTC 로 맞춘다.
     if start_date:
-        start_dt = to_utc(datetime.fromisoformat(start_date)).replace(tzinfo=None)
+        start_dt = to_utc(start_date).replace(tzinfo=None)
         stmt = stmt.where(ApiLog.timestamp >= start_dt)
         count_stmt = count_stmt.where(ApiLog.timestamp >= start_dt)
 
     if end_date:
-        end_dt = to_utc(datetime.fromisoformat(end_date)).replace(tzinfo=None)
+        end_dt = to_utc(end_date).replace(tzinfo=None)
         stmt = stmt.where(ApiLog.timestamp <= end_dt)
         count_stmt = count_stmt.where(ApiLog.timestamp <= end_dt)
 

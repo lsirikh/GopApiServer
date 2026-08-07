@@ -289,8 +289,12 @@ class TestServerCategoryDelete:
         response = client.get(f"/api/servers/categories/{category.id}")
         assert response.status_code == 404
 
-    def test_delete_category_cascade(self, client, db):
-        """카테고리 삭제 시 하위 서버도 삭제 (Cascade)"""
+    def test_delete_category_blocked_when_servers_attached(self, client, db):
+        """소속 서버가 있으면 카테고리 삭제를 409 로 거부한다 (S4-01, 2026-08-07 계약 변경).
+
+        ★ 계약 변경: 이전에는 FK `ON DELETE CASCADE` 로 **소속 서버가 함께 삭제**되고 200 을 반환했다.
+          경고도 삭제 건수도 없어 실사고(VMS 서버 2대 소실)가 발생 → 비우고 지우는 2단계를 강제한다.
+        """
         category = ServerCategory(
             name="VMS 서버",
             type_server=EnumServerType.VMS,
@@ -311,11 +315,17 @@ class TestServerCategoryDelete:
         db.commit()
 
         response = client.delete(f"/api/servers/categories/{category.id}")
-        assert response.status_code == 200
+        assert response.status_code == 409
 
-        # Verify category deleted
-        response = client.get(f"/api/servers/categories/{category.id}")
-        assert response.status_code == 404
+        # 카테고리도 서버도 그대로 남아 있어야 한다
+        assert client.get(f"/api/servers/categories/{category.id}").status_code == 200
+        assert db.query(Server).filter(Server.category_id == category.id).count() == 1
+
+        # 서버를 먼저 정리하면 삭제된다
+        db.delete(server)
+        db.commit()
+        assert client.delete(f"/api/servers/categories/{category.id}").status_code == 200
+        assert client.get(f"/api/servers/categories/{category.id}").status_code == 404
 
     def test_delete_category_not_found(self, client, db):
         """존재하지 않는 카테고리 삭제"""

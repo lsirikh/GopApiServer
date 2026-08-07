@@ -13,6 +13,7 @@ import math
 from app.dependencies import get_async_db
 from app.routers.auth import get_current_account_user_optional_async
 from app.models.integration import EventMapping
+from app.models.device_group import DeviceGroup
 from app.schemas.integration import EventMappingCreate, EventMappingResponse, EventMappingUpdate
 from app.schemas.common import ApiResponse, ApiSingleResponse, PaginationMeta
 from app.utils.enums import EnumMappingEventCategory, EnumConfigResourceType, EnumConfigActionType
@@ -180,7 +181,23 @@ async def create_event_mapping(
     - **status**: 상태 (필수)
 
     **Response**: 생성된 이벤트 매핑 정보
+
+    **Error**:
+    - 404: `device_group_id` 로 지정한 디바이스 그룹이 없음
     """
+    # S4-02 가드 (2026-08-07 감사): 존재하지 않는 device_group_id 로 FK 위반 → commit 에서 **500**.
+    # (Swagger Example 의 `device_group_id: 0` 을 그대로 실행하면 재현됐다.) 경계에서 404 로 거부한다.
+    # `None` 은 "그룹 미지정" 이라는 정상 입력이므로 통과시킨다.
+    if mapping.device_group_id is not None:
+        device_group = (await db.execute(
+            select(DeviceGroup).where(DeviceGroup.id == mapping.device_group_id)
+        )).scalars().first()
+        if not device_group:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"DeviceGroup with id {mapping.device_group_id} not found",
+            )
+
     new_mapping = EventMapping(
         name_event=mapping.name_event,
         device_group_id=mapping.device_group_id,

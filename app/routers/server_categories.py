@@ -394,15 +394,19 @@ async def delete_server_category(
     """
     서버 카테고리 삭제
 
-    서버 카테고리를 삭제합니다.
-    해당 카테고리에 속한 모든 서버도 함께 삭제됩니다 (Cascade Delete).
+    ★ **소속 서버가 1대라도 있으면 409 로 거부한다** (2026-08-07 감사 S4-01).
+    FK 가 `ON DELETE CASCADE` 라 이전에는 카테고리 하나를 지우면 **소속 서버 전량이 경고 없이 함께
+    삭제**됐고, 응답은 삭제 건수도 경고도 없는 `200 "deleted successfully"` 한 줄이었다
+    (실사고: `DELETE /servers/categories/1` → VMS 서버 2대 동반 삭제).
+    비우고 지우도록 **명시적 2단계**를 강제한다 — 먼저 소속 서버를 이동/삭제한 뒤 카테고리를 삭제할 것.
 
     - **category_id**: 서버 카테고리 ID (Path Parameter)
 
-    **Response**: 삭제된 카테고리 ID
+    **Response**: 삭제 결과 메시지
 
     **Error**:
     - 404: 카테고리를 찾을 수 없음
+    - 409: 소속 서버가 존재함 (서버를 먼저 정리할 것)
     """
     category = (await db.execute(
         select(ServerCategory).where(ServerCategory.id == category_id)
@@ -412,6 +416,23 @@ async def delete_server_category(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Server category with id {category_id} not found"
+        )
+
+    # S4-01 가드: CASCADE 동반삭제 차단. 소속 서버 목록을 에러에 실어 조치 대상을 즉시 알려준다.
+    attached = (await db.execute(
+        select(Server.id, Server.name).where(Server.category_id == category_id)
+    )).all()
+    if attached:
+        preview = ", ".join(f"{sid}:{sname}" for sid, sname in attached[:10])
+        if len(attached) > 10:
+            preview += f", ... (+{len(attached) - 10})"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Server category {category_id} has {len(attached)} attached server(s) "
+                f"and cannot be deleted (would cascade-delete them). "
+                f"Move or delete the servers first. [{preview}]"
+            ),
         )
 
     await db.delete(category)

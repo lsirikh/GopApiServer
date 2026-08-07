@@ -291,6 +291,19 @@ async def patch_suppression_schedule(
     fields = data.model_dump(exclude_unset=True)
     new_device_ids = fields.pop("target_device_ids", None)
     new_group_ids = fields.pop("target_group_ids", None)
+
+    # S3-06 가드 (2026-08-07 감사): 명시적 `null` → NOT NULL 컬럼에 None 이 setattr 되어 commit 에서
+    # IntegrityError → **500**. `exclude_unset=True` 는 "보내지 않음"과 "명시적 null"을 구분하지 못하므로
+    # 여기서 NOT NULL 대상만 걸러 **422** 로 거부한다. (nullable: description / recurrence_rule)
+    _non_nullable = ("name", "target_type", "target_side", "event_scope", "window_start", "window_end")
+    _nulled = [k for k in _non_nullable if k in fields and fields[k] is None]
+    if _nulled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"success": False,
+                    "message": f"These fields cannot be set to null: {', '.join(_nulled)}"},
+        )
+
     for k, v in fields.items():  # 스칼라 컬럼만 (name/description/target_type/side/scope/window/recurrence)
         setattr(s, k, v)
 

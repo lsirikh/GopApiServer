@@ -60,7 +60,15 @@ async def update_session_settings(
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async),
 ):
-    """세션/인증 정책 변경 (setup_system:edit — ADMIN bypass 또는 매트릭스) — 편집 부분집합만, 변경분 ConfigChangeLog 감사."""
+    """세션/인증 정책 변경 (setup_system:edit — ADMIN bypass 또는 매트릭스).
+
+    ⚠️ **즉시 운영 반영** — 보낸 키만 변경되며 저장 즉시 다음 로그인/세션 판정에 적용된다.
+    특히 `session_concurrency_policy=evict_all` 은 **로그인 시 해당 계정의 타 세션을 강제 축출**하고,
+    `session_enabled=true` 는 세션 만료 정책을 활성화한다. 운영 중 GIS/VMS 세션에 직접 영향을 주므로
+    **Swagger Example 을 확인 없이 그대로 실행하지 말 것**(예시는 무해한 최소 1키로 고정해 두었다).
+
+    편집 부분집합만 허용, 변경분은 `ConfigChangeLog` 감사.
+    """
     await settings_service.seed_if_empty_async(db)
     before = await _current(db)
 

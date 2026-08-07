@@ -443,6 +443,20 @@ class RefreshTokenRequest(BaseModel):
     )
 
 
+class UserLockRequest(BaseModel):
+    """계정 잠금 요청(선택 바디) — A-04 (2026-08-07 감사).
+
+    이전에는 `POST /users/{id}/lock` 에 요청 바디가 아예 없어 `lock_reason` 이 항상 `null` 이었다.
+    자동잠금(로그인 실패)은 사유를 남기므로 수동/자동 사이에 필드가 비대칭 충전됐다.
+    바디는 **선택** — 생략하면 "관리자 수동 잠금"으로 기록되어 기존 호출과 호환된다.
+    """
+    reason: Optional[str] = Field(
+        None, max_length=255,
+        description="잠금 사유(선택). 생략 시 '관리자 수동 잠금'",
+        json_schema_extra={"example": "보안 점검을 위한 임시 잠금"},
+    )
+
+
 class PasswordResetRequest(BaseModel):
     """Schema for admin password reset request"""
     new_password: str = Field(

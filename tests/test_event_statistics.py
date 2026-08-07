@@ -5,7 +5,7 @@ PRD: PRD_EventStatistics_Api.md v2.1
 TDD: Red → Green → Refactor
 """
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models.device import Controller, Sensor, Camera
 from app.models.event import DetectionEvent, MalfunctionEvent, ConnectionEvent, ActionEvent
@@ -414,16 +414,27 @@ class TestTrendApi:
         assert data["series"] == []
 
     def test_trend_hour_grouping(self, client, test_db):
-        """3.3 hour 단위 그룹핑 → time_bucket 형식 'YYYY-MM-DD HH'"""
+        """3.3 hour 단위 그룹핑 → time_bucket 형식 'YYYY-MM-DD HH'.
+
+        ★ 계약 (S3-01, 2026-08-07): 저장은 **UTC**, 버킷 라벨은 **DISPLAY_TIMEZONE** 기준이다.
+          이전에는 저장값을 그대로 라벨링해 같은 응답의 `start_date`(+09:00)와 9시간 어긋났다.
+          여기서는 표시 tz 오프셋을 계산해 기대값을 만든다(배포 tz 가 바뀌어도 유효).
+        """
+        from app.config import settings
+
         controller = _create_controller(test_db)
         sensor = _create_sensor(test_db, controller.id)
 
-        t1 = datetime(2025, 1, 15, 10, 0, 0)
+        t1 = datetime(2025, 1, 15, 10, 0, 0)     # 저장(UTC) 기준
         t2 = datetime(2025, 1, 15, 10, 30, 0)
         t3 = datetime(2025, 1, 15, 11, 0, 0)
         _create_detection(test_db, sensor.id, created_at=t1)
         _create_detection(test_db, sensor.id, created_at=t2)
         _create_detection(test_db, sensor.id, created_at=t3)
+
+        def _bucket(dt):
+            local = dt.replace(tzinfo=timezone.utc).astimezone(settings.display_tz)
+            return local.strftime("%Y-%m-%d %H")
 
         resp = client.get("/api/events/statistics/trend", params={
             "start_date": "2025-01-15T00:00:00",
@@ -431,13 +442,13 @@ class TestTrendApi:
             "interval": "hour",
         })
         data = resp.json()["data"]
-        assert len(data["series"]) == 2  # 10시, 11시
+        assert len(data["series"]) == 2  # t1·t2 같은 시각대, t3 다음 시각대
         buckets = [s["time_bucket"] for s in data["series"]]
-        assert "2025-01-15 10" in buckets
-        assert "2025-01-15 11" in buckets
-        # 10시에 2건
-        hour_10 = next(s for s in data["series"] if s["time_bucket"] == "2025-01-15 10")
-        assert hour_10["sensor_detection"] == 2
+        assert _bucket(t1) in buckets
+        assert _bucket(t3) in buckets
+        # t1 시각대에 2건
+        first = next(s for s in data["series"] if s["time_bucket"] == _bucket(t1))
+        assert first["sensor_detection"] == 2
 
     def test_trend_day_grouping(self, client, test_db):
         """3.4 day 단위 그룹핑 → time_bucket 형식 'YYYY-MM-DD'"""

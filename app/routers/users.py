@@ -24,7 +24,7 @@ from app.dependencies import get_async_db
 from app.models.user import AccountUser, UserGroup, UserSession
 from app.models.system_event import SystemEvent
 from app.utils.enums import EnumSystemEventType, EnumSystemEventSeverity
-from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest
+from app.schemas.user import AccountUserResponse, AccountUserCreate, AccountUserUpdate, AccountUserSelfUpdate, PasswordResetRequest, PasswordChangeRequest, UserLockRequest
 from app.routers.auth import get_current_account_user_async, require_perm_async, bearer_scheme
 from app.utils.auth import hash_password_async, verify_password_async, decode_token
 from app.services.audit_service import log_action_async, get_changes
@@ -859,7 +859,7 @@ async def delete_user(
     """
     사용자 삭제
 
-    사용자를 삭제합니다.
+    사용자를 삭제합니다. **자기 자신은 삭제할 수 없다**(409).
 
     **Path Parameters**:
     - **user_id**: 사용자 ID
@@ -868,7 +868,19 @@ async def delete_user(
 
     **Error**:
     - 404: 사용자를 찾을 수 없음
+    - 409: 자기 자신 삭제 시도 / 마지막 ADMIN 삭제 시도
     """
+    # A-03 가드 (2026-08-07 감사): 자기 자신 삭제 금지.
+    # 이전엔 가드가 없어 ① 계정 행 DELETE+commit 이 먼저 성공하고 ② 직후 감사 INSERT 가
+    # actor_id=<방금 지운 사용자> 로 들어가 audit_logs_actor_id_fkey 위반 → **500**.
+    # 결과: 계정은 지워졌는데 클라는 실패로 보고, 감사 기록은 남지 않았다(실측: audit_logs 시퀀스 결번).
+    # 파괴적 작업이므로 부분성공을 만들지 말고 진입부에서 차단한다.
+    if current_user.id == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete your own account (use another administrator account)",
+        )
+
     # v5.1 FR-SV-06 (PRD_GOP_Server_RBAC_Enforcement): 마지막 ADMIN 원자 가드.
     # FOR UPDATE 행 잠금으로 TOCTOU 차단 — 동시에 두 ADMIN을 삭제해도 마지막 1명은 보존.
     # PostgreSQL: FOR UPDATE + count()는 비호환 → .all() + len() 패턴 사용.
@@ -931,6 +943,7 @@ async def delete_user(
 @router.post("/{user_id}/lock", dependencies=[Depends(require_perm_async("users", "control"))])
 async def lock_user(
     user_id: int,
+    payload: Optional[UserLockRequest] = None,
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async)
 ):
@@ -941,6 +954,13 @@ async def lock_user(
 
     **Path Parameters**:
     - **user_id**: 사용자 ID
+
+    **Request Body** (선택):
+    - **reason**: 잠금 사유(최대 255자). 생략 시 "관리자 수동 잠금"으로 기록된다.
+
+    ★ A-04 (2026-08-07 감사): 이전에는 요청 바디 자체가 없어 `lock_reason` 이 항상 `null` 이었다.
+    자동잠금(로그인 실패)만 사유를 남겨 **필드가 비대칭 충전**됐고, UI 는 "잠김, 사유 없음"만 보였다.
+    바디는 **선택**이라 기존 호출(바디 없음)도 그대로 동작한다.
 
     **Response**: success: true
 
@@ -981,6 +1001,9 @@ async def lock_user(
     # P2-02: 잠금 수행자 기록(누가 잠갔는지 감사).
     user.locked_by = current_user.id
     user.locked_at = utc_now()
+    # A-04: 잠금 사유 기록(자동잠금과 대칭). 미지정 시 수동 잠금임을 명시.
+    _reason = (payload.reason.strip() if payload and payload.reason else "") or "관리자 수동 잠금"
+    user.lock_reason = _reason[:255]
 
     # FR-05 (Session Authority): 활성 세션의 token family(access+refresh) 를 공통 서비스로 폐기.
     # 기존엔 is_active=false 만 했음 → refresh 토큰이 살아 있어 unlock 후 부활 가능했음.
@@ -991,7 +1014,7 @@ async def lock_user(
         type_event=EnumSystemEventType.SECURITY_ALERT,
         severity=EnumSystemEventSeverity.WARNING,
         title=f"사용자 계정 잠금: {user.login_id}",
-        message=f"사용자 '{user.name}' ({user.login_id})의 계정이 잠금되었습니다.",
+        message=f"사용자 '{user.name}' ({user.login_id})의 계정이 잠금되었습니다. (사유: {_reason})",
         source="user_api"
     )
     db.add(system_event)
@@ -1009,7 +1032,7 @@ async def lock_user(
         actor_role=current_user.role,
         resource_id=user.id,
         resource_name=f"{user.name} ({user.login_id})",
-        description=f"사용자 계정 잠금: {user.login_id}"
+        description=f"사용자 계정 잠금: {user.login_id} (사유: {_reason})"
     )
 
     return {"success": True}

@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 DEVICE_TYPE_VALUES = "NONE | Controller | Multi | Fence | Underground | Contact | PIR | IoController | Laser | Cable | IpCamera | SmartSensor | SmartSensor2 | SmartCompound | IpSpeaker | Radar | OpticalCable | Fence_Group | Lamp | Enclosure"
 DETECTION_TYPE_VALUES = "NONE | CABLE_CUTTING | CABLE_CONNECTED | PIR_SENSOR | THERMAL_SENSOR | VIBRATION_SENSOR | CONTACT_SENSOR | DISTANCE_SENSOR | AI_DETECT"
 FAULT_TYPE_VALUES = "FAULT_CONTROLLER | FAULT_FENCE | FAULT_MULTI | FAULT_CABLE_CUTTING | FAULT_ETC"
+
+# S3-02 (2026-08-07 감사): 위 문자열은 사람이 읽는 설명일 뿐이라 OpenAPI 에 기계판독 가능한
+# enum 이 실리지 않았다 → 생성 클라(.NET 3종)는 자유 문자열로 받고 Swagger 도 드롭다운을 못 그렸다.
+# 런타임 타입(str)은 그대로 두고 **JSON Schema 에만** 허용값을 노출한다(동작 변경 0).
+DETECTION_TYPE_ENUM = ['NONE', 'CABLE_CUTTING', 'CABLE_CONNECTED', 'PIR_SENSOR', 'THERMAL_SENSOR', 'VIBRATION_SENSOR', 'CONTACT_SENSOR', 'DISTANCE_SENSOR', 'AI_DETECT']
+FAULT_TYPE_ENUM = ['FAULT_CONTROLLER', 'FAULT_FENCE', 'FAULT_MULTI', 'FAULT_CABLE_CUTTING', 'FAULT_ETC']
 TRUE_FALSE_VALUES = "True | False"
 EVENT_TYPE_VALUES = "None | Intrusion | ContactOn | ContactOff | Connection | Action | Fault | WindyMode"
 
@@ -77,7 +83,8 @@ class DetectionEventCreate(BaseModel):
     """
     type_event: EnumEventType = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     device_id: int = Field(..., example=1, description="장치 ID (Device FK)")
-    result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
+    result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]",
+                        json_schema_extra={"enum": DETECTION_TYPE_ENUM})
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
     detail: Optional[Dict[str, Any]] = Field(
         None,
@@ -166,7 +173,8 @@ class DetectionEventReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type_event: EnumEventType = Field(..., example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
+    result: str = Field(..., example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]",
+                        json_schema_extra={"enum": DETECTION_TYPE_ENUM})
     detail: Optional[Dict[str, Any]] = Field(
         None,
         description="탐지 상세 정보 (썸네일, AI 객체 등)",
@@ -203,7 +211,8 @@ class DetectionEventUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type_event: Optional[EnumEventType] = Field(None, example="Intrusion", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    result: Optional[str] = Field(None, example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]")
+    result: Optional[str] = Field(None, example="PIR_SENSOR", description=f"탐지 결과 [{DETECTION_TYPE_VALUES}]",
+                                  json_schema_extra={"enum": DETECTION_TYPE_ENUM})
     # PRD_Event_Detail_JsonB.md v1.0: 탐지 상세 정보
     detail: Optional[Dict[str, Any]] = Field(
         None,
@@ -242,7 +251,8 @@ class MalfunctionEventCreate(BaseModel):
     """
     type_event: EnumEventType = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
     device_id: int = Field(..., example=1, description="장치 ID (Device FK)")
-    reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
+    reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]",
+                        json_schema_extra={"enum": FAULT_TYPE_ENUM})
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
         None,
@@ -328,7 +338,8 @@ class MalfunctionEventReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type_event: EnumEventType = Field(..., example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
+    reason: str = Field(..., example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]",
+                        json_schema_extra={"enum": FAULT_TYPE_ENUM})
     detail: Optional[Dict[str, Any]] = Field(
         None,
         description="오동작 상세 정보 (케이블 위치: first_start, first_end, second_start, second_end)",
@@ -363,7 +374,8 @@ class MalfunctionEventUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type_event: Optional[EnumEventType] = Field(None, example="Fault", description=f"이벤트 유형 [{EVENT_TYPE_VALUES}]")
-    reason: Optional[str] = Field(None, example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]")
+    reason: Optional[str] = Field(None, example="FAULT_CONTROLLER", description=f"고장 원인 [{FAULT_TYPE_VALUES}]",
+                                  json_schema_extra={"enum": FAULT_TYPE_ENUM})
     # PRD_Event_Field_Normalization.md v1.0: 케이블 위치 정보는 detail에 포함
     detail: Optional[Dict[str, Any]] = Field(
         None,

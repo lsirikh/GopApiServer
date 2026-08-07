@@ -1,7 +1,7 @@
 # GOP RESTful API 연동 설계서
 
 **작성일**: 2025-12-31  
-**최종 수정일**: 2026-07-31  
+**최종 수정일**: 2026-08-07  
 **버전**: v6.3.2 (Swagger `6.3.2` 정합)  **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
@@ -294,15 +294,15 @@ X-Request-ID: {request-uuid} //선택적 참고용
 > 아래는 **본 규약을 따르지 않는 것으로 실측 확인된 지점**이다. 조치 전까지 소비자(GIS·VMS·.NET 클라)는
 > 이 목록을 전제로 구현해야 한다. 근거·재현 절차: `docs/analyses/datetime-tz-endpoint-audit.md`
 
-| # | 지점 | 증상 | 소비자 대응 |
+| # | 지점 | 증상 | 상태 · 소비자 대응 |
 |---|---|---|---|
-| **F-0** | `GET /api/auth/me/permissions` → `data.server_time` | 숫자는 UTC 인데 라벨만 `+09:00` → **9시간 이름**. 실측 실제 `11:56:15 KST` ↔ 응답 `02:56:31+09:00` | ⚠ **이 필드로 시계 보정하지 말 것**. 같은 응답의 `meta.timestamp` 를 쓸 것 |
-| **F-1** | 리포트 **CSV/PDF** 본문 시각 | UTC 벽시계로 인쇄(REST 대비 **9시간 이름**). 실측 리포트45 이벤트 92574 = CSV `02:26` ↔ REST `11:26+09:00` | 산출물 시각을 REST 값과 대조하지 말 것 |
-| **F-1b** | 리포트 **표지 기간** | 시작일이 하루 앞. DB `2026-07-13` → 표지 `2026.07.12` | — |
-| **F-1c** | 통계·리포트 **일별 버킷** | 앱 DB 세션이 UTC 라 KST 자정이 아닌 UTC 자정으로 끊김. KST `00:00~09:00` 이벤트가 **전날 버킷**으로 이동 | 야간 집계 해석 주의 |
-| **F-2** | `POST`·`PATCH /api/event-suppression-schedules` **응답** | 요청을 **offset 없이**(naive/date-only) 보낸 경우에 한해 응답이 **+9시간**. **저장·`GET` 재조회는 정확** | **요청에 offset 을 명시**하면 회피됨. 또는 응답 대신 `GET` 재조회 |
-| **F-3** | `GET /api/logs` | `start_date`/`end_date` 가 유일하게 **비타입 `string`** — 파싱 실패 시 **500**(다른 18개는 422) | 형식 검증 후 호출 |
-| **F-4** | `GET /api/config-change-logs` → `before_state`/`after_state` | JSONB 내부는 변환을 우회해 **offset 혼재**. 실측 id 1626: 최상위 `+09:00` / 내부 `+00:00` / offset 없음 혼재 | 내부 값은 **offset 유무를 확인 후** 파싱 |
+| ~~**F-0**~~ | `GET /api/auth/me/permissions` → `data.server_time` | 숫자는 UTC 인데 라벨만 `+09:00` → **9시간 이름** | ✅ **해소 (2026-08-07 `swagger_audit_fix`)** — `to_display()` 변환 적용. 실측 `server_time` 오차 0초. **로그인 응답 `permissions.valid_until` 도 같은 결함이었고 함께 해소**(§9.2.2·§9.2.6) |
+| **F-1** | 리포트 **CSV/PDF** 본문 시각 | UTC 벽시계로 인쇄(REST 대비 **9시간 이름**). 실측 리포트45 이벤트 92574 = CSV `02:26` ↔ REST `11:26+09:00` | ⚠ **미해소** — 산출물 시각을 REST 값과 대조하지 말 것 |
+| **F-1b** | 리포트 **표지 기간** | 시작일이 하루 앞. DB `2026-07-13` → 표지 `2026.07.12` | ⚠ **미해소** |
+| ~~**F-1c**~~ | **통계** 시간/일별 버킷 (`/api/events/statistics/trend`·`dashboard`) | 앱 DB 세션이 UTC 라 버킷 라벨이 UTC 기준. KST `00:00~09:00` 이벤트가 **전날 버킷**으로 이동 | ✅ **통계 경로 해소 (2026-08-07)** — `to_char(timezone(DISPLAY_TIMEZONE, col), …)` 로 변환 후 포맷. 실측: KST 16:50 이벤트 → 버킷 `2026-08-07 16`(수정 전 `07`). ⚠ **리포트 경로(`report_master_builder`)는 미해소** |
+| **F-2** | `POST`·`PATCH /api/event-suppression-schedules` **응답** | 요청을 **offset 없이**(naive/date-only) 보낸 경우에 한해 응답이 **+9시간**. **저장·`GET` 재조회는 정확** | ⚠ **미해소** — **요청에 offset 을 명시**하면 회피됨. 또는 응답 대신 `GET` 재조회 |
+| ~~**F-3**~~ | `GET /api/logs` | `start_date`/`end_date` 가 유일하게 **비타입 `string`** — 파싱 실패 시 **500**(다른 18개는 422) | ✅ **해소 (2026-08-07)** — `Optional[datetime]` 승격. 실측 `?start_date=notadate` → **422**, 정상 날짜 200 유지 |
+| **F-4** | `GET /api/config-change-logs` → `before_state`/`after_state` | JSONB 내부는 변환을 우회해 **offset 혼재**. 실측 id 1626: 최상위 `+09:00` / 내부 `+00:00` / offset 없음 혼재 | ⚠ **미해소** — 내부 값은 **offset 유무를 확인 후** 파싱 |
 
 **시간 파라미터를 받는 엔드포인트 전수**: 쿼리/경로 **19개** · 요청 body **6개** · 응답 포함 **178개**
 (총 251 operation 중 시간 접촉 180). 목록은 감사 문서 §1 참조.
@@ -16629,10 +16629,10 @@ python scripts/migrate_event_device_id.py
 
 ## 변경 이력
 
-### [v6.3 후속] **2026-08-07** — 세션 `client_id` 노출 + `DISPLAY_TIMEZONE` 배선 수정 + datetime/TZ 전수감사 + 서버 시드 env 게이트
+### [v6.3 후속] **2026-08-07** — 세션 `client_id` 노출 + `DISPLAY_TIMEZONE` 배선 수정 + datetime/TZ 전수감사 + 서버 시드 env 게이트 + Swagger 전수감사 수정
 
-> **하루 1버전 원칙**에 따라 2026-08-07 에 수행된 4개 작업(`session_client_id_response`,
-> `tz_wiring`, `datetime_tz_audit`, `server_seed_env_gate`)을 본 항목 하나로 묶는다.
+> **하루 1버전 원칙**에 따라 2026-08-07 에 수행된 5개 작업(`session_client_id_response`,
+> `tz_wiring`, `datetime_tz_audit`, `server_seed_env_gate`, `swagger_audit_fix`)을 본 항목 하나로 묶는다.
 
 #### (1) `session_client_id_response` — 세션 목록에 client_id 노출
 
@@ -16687,6 +16687,86 @@ python scripts/migrate_event_device_id.py
   1. 실체 없는 데모 9대(AI 3 · STREAM 2 · TRANS 1 · DBAPI 1 · SPK 1 · ENC 1) 삭제 → `warning=1` 해소.
   2. `BROKER-ab5501`(ERROR, 2026-07-04 구 시드분) 삭제 → `error=1` 해소. 코드 리터럴 정정(결함 B)은 신규 생성분에만 적용되므로 기존 행은 별도 제거가 필요했다. BROKER 유형에 `ab5502`(NORMAL)가 남아 **유형 보장 충족 → 재기동 시 부활 없음**을 실증.
   - 결과: `servers` **5대**(VMS 2 · BROKER 1 · NVR_API 1 · PROXY 1), `/servers/summary` **warning=0 · error=0**. 사용자 등록 `PROXY-ab0101` 보존.
+
+#### (5) `swagger_audit_fix` — Swagger 전수 감사(251 operation)에서 확인된 결함 12건 수정
+
+> Swagger UI 를 실제로 띄워 `Try it out → Execute` 로 전 도메인을 검증(감사 상세: `docs/analyses/swagger-endpoint-e2e-audit.md`).
+> 그 결과 중 **계약·안전에 영향이 큰 12건**을 수정. 스키마 변경·마이그레이션 **없음**, 엔드포인트 추가/삭제 **없음**.
+
+**시각(P0) — `datetime-unification` 규약 위반 2건 (§3.4.1 F-0 해소)**
+
+- **`server_time`·`valid_until` 이 9시간 이르게 응답**하던 것을 정정했다. 원인은 2단이었다.
+  ① `auth.py` 의 now 헬퍼가 이름은 `_kst_now`, docstring 은 "KST naive" 인데 실제로는 **aware UTC** 를 반환 →
+  ② 호출부가 이를 KST 로 오인해 `.replace(tzinfo=settings.tz)`(**변환이 아니라 라벨 교체**)를 적용.
+  값은 UTC 인 채 `+09:00` 이 붙어 나갔다. 헬퍼를 **`_now_utc`** 로 개명(실체 일치)하고 출력 3곳을 **`to_display()`** 로 교체.
+- **영향 범위 정정**: 기존 감사(F-0)는 `GET /api/auth/me/permissions` 의 `server_time` 만 등재했으나,
+  **로그인 응답 `data.user.permissions.valid_until`**(§9.2.2)과 `/me/permissions` 의 `valid_until`(§9.2.6)도 동일 결함이었다.
+  로그인 응답에는 `server_time` 이 없어 **클라가 로컬 시계와 비교하면 유효 grant 를 즉시 만료로 오판**한다(가장 위험한 경로).
+- 실측: 실제 만료 `18:49:32+09:00` 인 grant 를 로그인·`/me/permissions` 모두 동일 값으로 응답(수정 전 −9h). `server_time` 오차 0초.
+- 회귀 고정: `auth.py` 실행 코드에 `.replace(tzinfo=)` 호출이 재등장하면 실패하는 **AST 기반 테스트**.
+
+**통계 버킷 tz (§3.4.1 F-1c 통계 경로 해소)**
+
+- `/api/events/statistics/{trend,dashboard}` 의 `time_bucket` 이 **UTC 기준**으로 라벨링되고 있었다.
+  같은 응답의 `start_date`/`end_date` 는 `+09:00` 이라 **차트 X축만 9시간 어긋났다**.
+  `to_char(timezone(<DISPLAY_TIMEZONE>, col), …)` 로 변환 후 포맷하도록 수정(SQLite 경로는 오프셋 가산).
+- 실측: KST `16:50` 이벤트 → 버킷 `2026-08-07 16`(수정 전 `07`), `interval=day` → `2026-08-07`.
+- **리포트 경로(`report_master_builder`)는 이번 범위 밖** — F-1/F-1b 와 함께 미해소로 남는다.
+
+**오류 처리 — 4xx 여야 할 것이 500 이던 4건**
+
+| 지점 | 수정 전 | 수정 후 |
+|---|---|---|
+| `GET /api/logs?start_date=<잘못된 값>` | **500**(핸들러 내부 `fromisoformat` 폭발) | **422** — 파라미터를 `Optional[datetime]` 으로 승격(§3.4.1 **F-3 해소**) |
+| `POST /api/users/{id}` 자기 자신 `DELETE` | **500** + **감사로그 소실**(행은 삭제됨) | **409** 진입부 차단 — 부분성공 자체를 제거 |
+| `POST /…/event-mappings/{id}/lamps` 중복 | **500**(`uq_event_mapping_lamp` 위반) | **409** + 기존 config id 안내 |
+| `POST /api/integrations/event-mappings` `device_group_id: 0` | **500**(FK 위반) | **404** — `null`(미지정)은 201 유지 |
+
+> ★ 자기 삭제 건은 **파괴적 작업이 성공했는데 5xx 를 반환**하고 감사 기록이 남지 않던 사례다
+> (`audit_logs` 시퀀스 결번으로 실증). 같은 날 타인 삭제 9건은 정상 기록됐다.
+
+**파괴적 연쇄 삭제 가드 (§8.5 실사고 후속)**
+
+- `DELETE /api/servers/categories/{id}` 가 FK `ON DELETE CASCADE` 로 **소속 서버 전량을 경고 없이 삭제**하고
+  `200 "deleted successfully"` 만 반환했다(같은 날 실사고로 VMS 서버 2대 소실).
+  → **소속 서버가 1대라도 있으면 409**, 에러에 대상 목록(최대 10건) 동봉. 비우고 지우는 **2단계**를 강제.
+- 실측: 서버 보유 카테고리 삭제 **409**, 서버 수 불변(5→5).
+
+**Swagger Example 안전화 (문서를 그대로 실행했을 때의 부작용 제거)**
+
+- **`PUT /api/settings/session`**: 예시를 지정하지 않아 Swagger 가 제약 경계값으로 **전 필드 예시**를 생성했고,
+  이를 그대로 `Execute` 하면 **즉시 운영 반영**됐다(실측: `session_enabled=true`, `concurrency=evict_all`(타 세션 강제축출),
+  `lockout_duration=1440분`). → 전 필드가 Optional 인 **부분 업데이트**임을 살려 `{"session_timeout_hours": 24}` **1키로 고정**하고,
+  라우터 설명에 "즉시 운영 반영 · Example 무검증 실행 금지" 경고를 명시.
+- **`POST /api/event-suppression-schedules`**: 예시 창이 하드코딩 날짜라 시계가 그 앞이면 활성 창이 될 수 있었다.
+  → 과거 고정(`2026-01-01`)으로 앞당기고, "현재 시각을 포함하는 창은 즉시 억제가 시작된다" 를 필드 설명에 명시.
+  ※ 실행 시 행 자체는 생성되므로 열람 후 정리 권장(생성분은 `expired` 라 억제 효과 없음).
+
+**계약 표현 보강 (동작 변경 0)**
+
+- **이벤트 `result`/`reason` 에 기계판독 enum 노출**(§6): 설명 문자열에는 허용값이 있었으나 OpenAPI 에 `enum` 이 없어
+  생성 클라(.NET 3종)가 자유 문자열로 받고 Swagger 도 드롭다운을 못 그렸다. 런타임 타입(`str`)은 그대로 두고
+  **JSON Schema 에만** `DETECTION_TYPE_ENUM`(9종)·`FAULT_TYPE_ENUM`(5종)을 실었다. 요청 스키마 6곳.
+- **`interval` 제약**: `/statistics/{trend,dashboard}` 의 `interval` 이 임의 문자열을 **200 으로 받고 hour 로 조용히 폴백**했다
+  (응답은 요청값을 그대로 echo → 클라가 분 단위로 오해). `pattern=^(hour|day)$` 로 **422** 처리.
+- **계정 잠금 사유**(§9.3): `POST /users/{id}/lock` 에 요청 바디가 없어 `lock_reason` 이 항상 `null` 이었다
+  (자동잠금만 사유를 남겨 비대칭). **선택 바디** `UserLockRequest{reason?}` 신설 — 생략 시 `"관리자 수동 잠금"`.
+  바디가 선택이라 **기존 호출(바디 없음)은 그대로 200**.
+- **억제 PATCH 명시적 `null`**: `exclude_unset=True` 가 "미전송"과 "명시적 null" 을 구분하지 못해 NOT NULL 컬럼에
+  `None` 이 들어가 **500** 이었다. NOT NULL 6필드(`name`/`target_type`/`target_side`/`event_scope`/`window_start`/`window_end`)에
+  대해 **422**, nullable(`description`/`recurrence_rule`)은 200 유지.
+
+**검증 / 5중싱크**
+
+- **라이브 실호출 29항목 전수 PASS** — 위 12건 각각의 수정 전 증상 재현 불가 확인 + 정상 경로 무회귀(`verify_fixes.py`).
+- **회귀 테스트 신규** `tests/test_swagger_audit_fix.py` **22 passed** — AST(라벨교체 금지)·OpenAPI(enum/pattern/example)·
+  소스(가드 존재) 3층으로 고정. 라우터 HTTP E2E 는 라이브 스크립트가 담당(리포 표준).
+- 5중싱크: ①코드 13파일 ②Swagger(`info.version=6.3.2` 유지 — 엔드포인트 추가/삭제 없음, 스키마 표현만 보강)
+  ③명세 §3.4.1 표 정정 + 본 ChangeLog ④이미지 재빌드(롤백 `pids-api-server:pre-swagger_audit_fix`)
+  ⑤컨테이너 재기동 healthy. 롤백 태그 `pre-v6.3-swagger_audit_fix`.
+- **범위 밖(미해소)**: F-1/F-1b(리포트 CSV/PDF·표지) · F-2(억제 naive 응답 +9h) · F-4(JSONB offset 혼재) ·
+  `number_device` UNIQUE 부재 · 제어기 삭제 시 센서 연쇄삭제 · 존재하지 않는 device 할당 무반영 200 ·
+  메트릭 범위 검증 · `acknowledge` 확인자 위조 · placeholder Example 39건 중 나머지.
 
 ### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
 

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from typing import Optional
 from datetime import datetime, timedelta
-from app.utils.datetime import utc_now
+from app.utils.datetime import utc_now, to_display
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,9 +131,14 @@ def _role_group_allows(group: UserGroup | None, module: str, verb: str) -> bool:
     return isinstance(verbs_perms, dict) and bool(verbs_perms.get(verb))
 
 
-def _kst_now() -> datetime:
-    """settings.tz(KST) 기준 naive now — grant 저장/비교 컨벤션 일치."""
-    from app.config import settings
+def _now_utc() -> datetime:
+    """**aware UTC** now — grant 저장/비교 컨벤션(datetime-unification Option B: 저장=UTC).
+
+    ★ 과거 이름이 `_kst_now`, docstring 이 "KST 기준 naive" 였으나 실제 반환은 `utc_now()`(aware UTC)라
+      호출부가 KST 값으로 오인해 `.replace(tzinfo=KST)`(변환 아닌 **라벨 교체**)를 걸었다.
+      → `server_time`/`valid_until` 이 9시간 이르게 응답(2026-08-07 실측). 이름·주석을 실체에 맞춘다.
+      **출력용 KST 변환은 반드시 `to_display()`** 를 쓴다.
+    """
     return utc_now()
 
 
@@ -144,7 +149,7 @@ def _active_grants(db: Session, user: AccountUser, now=None) -> list:
     ★ is_active(sweep 비정규화)는 **보지 않는다** — sweep 지연/미실행 시 보안구멍 방지(NFR-01).
     """
     if now is None:
-        now = _kst_now()
+        now = _now_utc()
     return db.query(UserGroupGrant).filter(
         UserGroupGrant.user_id == user.id,
         UserGroupGrant.revoked_at.is_(None),
@@ -185,7 +190,7 @@ def effective_permissions_payload(db: Session, user: AccountUser, now=None) -> d
     valid_until = 활성 grant 중 가장 임박한 만료(없으면 None=상시). 클라 캐시 만료시점.
     """
     if now is None:
-        now = _kst_now()
+        now = _now_utc()
     merged: dict = {"modules": {}, "device_groups": []}
 
     def _add_device_groups(perms):
@@ -676,11 +681,14 @@ async def login(
 
     # 권한 = 등급 매트릭스 ∪ 현재 유효 grant (FR-07, PRD_Permission_Group_Scheduling).
     # effective_permissions_payload 가 역할명 그룹(Option A) + group_id 폴백 + grant 합집합 + valid_until 산출.
-    _perm_now = _kst_now()
+    _perm_now = _now_utc()
     permissions = effective_permissions_payload(db, user, _perm_now)
     if permissions.get("valid_until") is not None:
-        # 클라 시계 보정용 — KST aware 로 직렬화(+09:00)
-        permissions["valid_until"] = permissions["valid_until"].replace(tzinfo=settings.tz)
+        # 출력 렌더 — 저장(UTC) → DISPLAY_TZ 로 **변환**한다.
+        # ★ 과거 `.replace(tzinfo=settings.tz)` 는 변환이 아니라 라벨 교체라 값이 UTC 인 채 `+09:00` 로
+        #   직렬화돼 9시간 이르게 나갔다. 로그인 응답엔 `server_time` 이 없어 클라가 로컬 시계와 비교하면
+        #   유효 grant 를 즉시 만료로 오판한다(2026-08-07 실측). `to_display()` 사용을 강제한다.
+        permissions["valid_until"] = to_display(permissions["valid_until"])
 
     return {
         "success": True,
@@ -970,7 +978,7 @@ async def _active_grants_async(db: AsyncSession, user: AccountUser, now=None) ->
     is_active(sweep 비정규화)는 보지 않음(NFR-01). relationship 을 selectinload 로 로드.
     """
     if now is None:
-        now = _kst_now()
+        now = _now_utc()
     stmt = (
         select(UserGroupGrant)
         .where(
@@ -998,7 +1006,7 @@ async def effective_permissions_payload_async(db: AsyncSession, user: AccountUse
     valid_until = 활성 grant 중 가장 임박한 만료(없으면 None=상시).
     """
     if now is None:
-        now = _kst_now()
+        now = _now_utc()
     merged: dict = {"modules": {}, "device_groups": []}
 
     def _add_device_groups(perms):
@@ -1235,9 +1243,7 @@ async def get_my_permissions(
 
     **Error**: 401 (유효하지 않은 토큰)
     """
-    from app.config import settings
-
-    now = _kst_now()
+    now = _now_utc()
     payload = effective_permissions_payload(db, current_user, now)
     valid_until = payload.get("valid_until")
     return {
@@ -1245,7 +1251,9 @@ async def get_my_permissions(
         "data": {
             "modules": payload.get("modules", {}),
             "device_groups": payload.get("device_groups", []),
-            "valid_until": valid_until.replace(tzinfo=settings.tz) if valid_until is not None else None,
-            "server_time": now.replace(tzinfo=settings.tz),
+            # 출력 렌더 — 저장(UTC) → DISPLAY_TZ 변환. `.replace(tzinfo=)` 는 라벨만 바꿔 9시간 오차를
+            # 만들었다(2026-08-07 실측: 실제 15:16 KST 만료를 06:16+09:00 으로 통지).
+            "valid_until": to_display(valid_until),
+            "server_time": to_display(now),
         },
     }

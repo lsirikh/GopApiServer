@@ -45,10 +45,14 @@ class EventSuppressionScheduleCreate(BaseModel):
     event_scope: EnumSuppressionEventScope = Field(
         ..., description="억제할 이벤트 유형: connection/detection/malfunction/all",
     )
-    window_start: datetime = Field(..., description="억제 시작(KST 권장, +09:00)",
-                                   json_schema_extra={"example": "2026-08-01T09:00:00+09:00"})
+    # ★ 예시 창은 **의도적으로 과거 시각**이다(2026-08-07 감사).
+    #   Swagger Example 을 그대로 Execute 해도 생성 즉시 status=expired 가 되어 실제 억제가 발생하지 않는다.
+    #   단, 날짜가 하드코딩이라 시계가 이 창보다 앞서면 활성 창이 되므로 과거 고정 날짜를 유지할 것.
+    #   (그래도 행 자체는 생성되므로 문서 열람용 실행 후에는 정리 권장 — bulk-delete 로 제거 가능.)
+    window_start: datetime = Field(..., description="억제 시작(KST 권장, +09:00). ⚠ 현재 시각을 포함하는 창을 만들면 즉시 억제가 시작된다",
+                                   json_schema_extra={"example": "2026-01-01T09:00:00+09:00"})
     window_end: datetime = Field(..., description="억제 종료(필수, 자동 만료)",
-                                 json_schema_extra={"example": "2026-08-01T18:00:00+09:00"})
+                                 json_schema_extra={"example": "2026-01-01T18:00:00+09:00"})
     recurrence_rule: Optional[str] = Field(None, max_length=255, description="Phase 2 RRULE. 현재 미사용(단발)")
 
     @model_validator(mode="after")

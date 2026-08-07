@@ -7,7 +7,7 @@
 읽기전용(응답에만 노출, 배포전용): auth_mode, jwt_algorithm. jwt_secret 은 절대 미노출.
 """
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionSettingsResponse(BaseModel):
@@ -29,7 +29,25 @@ class SessionSettingsResponse(BaseModel):
 
 
 class SessionSettingsUpdate(BaseModel):
-    """PUT 요청 — 편집 가능 부분집합만. 경계 위반 시 422."""
+    """PUT 요청 — 편집 가능 부분집합만. 경계 위반 시 422.
+
+    ★ **Swagger Example 안전화 (2026-08-07)**: 예시를 지정하지 않으면 Swagger UI 가 스키마 제약의
+      경계값으로 전 필드 예시를 자동 생성한다. 본 엔드포인트는 **즉시 운영 반영**이라, 문서를 열람한
+      사람이 Example 을 그대로 `Execute` 하기만 해도 `session_enabled=true`·`concurrency=evict_all`
+      (로그인 시 타 세션 강제축출)·`lockout_duration=1440분` 이 실제로 적용됐다(실측).
+      → **전 필드가 Optional 인 부분 업데이트**임을 살려, 현행 기본값 1개만 담은 최소 예시로 고정한다.
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"session_timeout_hours": 24},
+            "description": (
+                "전 필드 선택(부분 업데이트). 보낸 키만 변경되며 **즉시 운영 반영**된다. "
+                "동시세션 정책(session_concurrency_policy)·session_enabled 변경은 "
+                "운영 중 세션에 즉시 영향을 주므로 값을 반드시 확인하고 호출할 것."
+            ),
+        }
+    )
+
     session_timeout_hours: Optional[int] = Field(None, ge=1, le=168)
     refresh_expiration_days: Optional[int] = Field(None, ge=1, le=90)
     lockout_threshold: Optional[int] = Field(None, ge=0, le=20)

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.utils.datetime import to_utc, utc_now
 from collections import defaultdict
 
@@ -179,15 +179,32 @@ async def get_event_summary(
     )
 
 
+#: 지원 집계 단위 — 이 외 값은 422 (S3-04: 과거엔 임의 문자열이 200 이면서 hour 로 조용히 폴백)
+TREND_INTERVALS = ("hour", "day")
+
+
 def _time_bucket_expr(col, interval: str, db: AsyncSession):
-    """DB 방언에 따른 시간 버킷 SQL 표현식 반환 (SQLite: strftime, PostgreSQL: to_char)"""
+    """DB 방언별 시간 버킷 SQL 표현식 (SQLite: strftime, PostgreSQL: to_char).
+
+    ★ **DISPLAY_TIMEZONE 기준으로 변환한 뒤** 포맷한다 (S3-01, 2026-08-07 감사).
+      `created_at` 은 `timestamptz` 이고 앱 세션 tz 는 UTC 라, 이전에는 `to_char(col, ...)` 가
+      **UTC 시각**으로 라벨을 만들었다. 같은 응답의 `start_date`/`end_date` 는 `+09:00`(KST)로
+      직렬화되므로 **차트 X축만 9시간 어긋났다**(실측: KST 15·16시 이벤트가 `06`·`07` 버킷).
+      `interval=day` 에서는 KST 오전 이벤트가 전날 버킷으로 떨어져 일별 통계가 왜곡됐다.
+    """
+    from app.config import settings
+
     dialect = db.get_bind().dialect.name
     if dialect == "postgresql":
         fmt = "YYYY-MM-DD" if interval == "day" else "YYYY-MM-DD HH24"
-        return func.to_char(col, fmt)
+        # timezone(zone, timestamptz) -> 해당 zone 의 로컬 timestamp
+        return func.to_char(func.timezone(settings.DISPLAY_TIMEZONE, col), fmt)
     else:
         fmt = "%Y-%m-%d" if interval == "day" else "%Y-%m-%d %H"
-        return func.strftime(fmt, col)
+        # SQLite(테스트): 저장이 UTC 이므로 표시tz 오프셋을 더해 맞춘다.
+        offset = utc_now().astimezone(settings.display_tz).utcoffset() or timedelta(0)
+        hours = offset.total_seconds() / 3600
+        return func.strftime(fmt, col, f"{hours:+g} hours")
 
 
 async def _build_trend_series(db: AsyncSession, start_date, end_date, interval: str) -> list[EventTrendItem]:
@@ -396,7 +413,11 @@ async def get_event_by_device(
 async def get_event_trend(
     start_date: datetime = Query(..., description="조회 시작 시간 (ISO 8601)"),
     end_date: datetime = Query(..., description="조회 종료 시간 (ISO 8601)"),
-    interval: str = Query("hour", description="집계 단위: hour/day"),
+    interval: str = Query(
+        "hour",
+        pattern="^(hour|day)$",
+        description="집계 단위: hour | day (그 외 값은 422 — S3-04 이전엔 조용히 hour 로 폴백)",
+    ),
     db: AsyncSession = Depends(get_async_db),
 ):
     start_date, end_date = _naive_kst(start_date), _naive_kst(end_date)  # #4 tz 정규화
@@ -422,7 +443,11 @@ async def get_event_trend(
 async def get_event_dashboard(
     start_date: datetime = Query(..., description="조회 시작 시간 (ISO 8601)"),
     end_date: datetime = Query(..., description="조회 종료 시간 (ISO 8601)"),
-    interval: str = Query("hour", description="집계 단위: hour/day"),
+    interval: str = Query(
+        "hour",
+        pattern="^(hour|day)$",
+        description="집계 단위: hour | day (그 외 값은 422 — S3-04 이전엔 조용히 hour 로 폴백)",
+    ),
     db: AsyncSession = Depends(get_async_db),
 ):
     start_date, end_date = _naive_kst(start_date), _naive_kst(end_date)  # #4 tz 정규화

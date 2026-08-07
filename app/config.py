@@ -130,6 +130,20 @@ class Settings(BaseSettings):
     # Initialization
     INIT_SAMPLE_DATA: bool = False
 
+    # Server Monitoring Seed (v6.3-server_seed_env_gate, 2026-08-07)
+    # ★ INIT_SAMPLE_DATA 와 무관한 독립 게이트 2종 — 서버 시드는 샘플데이터가 아니다.
+    #   이전에는 initialize_server_data() 가 INIT_SAMPLE_DATA 블록 밖에서 무조건 실행되어
+    #   운영자가 지운 카테고리/서버가 재기동마다 되살아났다(2026-08-07 VMS 카테고리 부활 사고).
+    #   ※ compose 에 environment 배선이 있어야 컨테이너에 전달된다(.dockerignore 가 .env 제외).
+    #   ※ 데모 인스턴스는 게이트가 아니라 **정의 자체를 제거**했다(PM 지시). INIT_SERVER_DEMO 없음.
+    #
+    # INIT_SERVER_CATEGORIES: 10종 카테고리 static 시드. 끄면 삭제한 카테고리가 부활하지 않는다.
+    #   단 카테고리가 없는 유형은 서버 등록 자체가 불가하므로 기본 True.
+    INIT_SERVER_CATEGORIES: bool = True
+    # INIT_SERVER_MANDATORY: 필수 유형(PROXY/VMS/NVR_API/BROKER) 기본 인스턴스 보장.
+    #   해당 유형에 서버가 하나도 없을 때만 1개 생성(사용자 등록분 존재 시 미생성).
+    INIT_SERVER_MANDATORY: bool = True
+
     # Report Generation (v6.0-report_lifecycle_persistence, 2026-07-05)
     # v6.0-report_progress_perf: wall-clock timeout 제거, stall timeout으로 대체.
     # progress_updated_at이 STALL_TIMEOUT_SEC 이상 정체되면 hang으로 판정하고 FAILED.

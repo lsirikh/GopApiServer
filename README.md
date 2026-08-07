@@ -300,6 +300,8 @@ docker compose down -v    # 데이터·볼륨까지 완전 초기화 ⚠️
 | `API_DATABASE_URL` | `postgresql://gop_user:gop_pass@postgres:5432/gop` | API 서버 → Postgres |
 | `MONITOR_DATABASE_URL` | (동일) | db-monitor · gis-ingest 전용 |
 | `INIT_SAMPLE_DATA` | `true` | 빈 DB일 때 시드 자동 삽입 (v4.6 차장님 명세) |
+| `INIT_SERVER_CATEGORIES` | `true` | 서버 카테고리 10종 시드. `false` 면 삭제한 카테고리가 부활하지 않음 (v6.3~) |
+| `INIT_SERVER_MANDATORY` | `true` | 필수 유형(PROXY/VMS/NVR_API/BROKER) 기본 인스턴스 보장 — 유형이 비었을 때만 1개. `false` 면 서버 0대 (v6.3~) |
 | `NATS_URL` | `nats://nats-server-01:4222` | NATS 클러스터 |
 | `UNIT_ID` | `unit001` | 이 유닛의 NATS subject 네임스페이스 |
 | `NATS_REVOKE_ENABLED` | `false` | Force-Logout NATS revoke 실발행 스위치 (3게이트 통과 후 true) |

@@ -13674,6 +13674,27 @@ GET /api/servers/summary
 
 **필수 서버 유형 보장 (v6.3 후속 `proxy_mandatory_seed`)**: `PROXY / VMS / NVR_API / BROKER` 4종은 **유형 기준 보장** 대상 — 시스템 기동 시 해당 유형에 서버 인스턴스가 **하나도 없으면** 기본 인스턴스를 자동 생성한다. 이미 해당 유형 서버가 (사용자 등록분 포함) 존재하면 아무것도 만들지 않는다(중복 방지). 그 외 유형의 기본 인스턴스는 `servers` 테이블이 비어 있을 때만 최초 1회 시드된다.
 
+**시드가 만드는 서버 인스턴스 (v6.3 후속 `server_seed_env_gate`, 2026-08-07)**: **필수 4종, 유형당 1대뿐**이다. 데모 서버(AI · STREAM · TRANSCODER · DB_API · SPEAKER_API · ENCLOSURE_API)는 게이트로 끄는 게 아니라 **정의 자체를 삭제**했다 — 실체 없는 서버가 §8.4 요약에 가짜 장애로 집계되던 문제의 근본 제거.
+
+| type_server | name | ip:port | status |
+| ----------- | ---- | ------- | ------ |
+| `PROXY` | `PROXY-ab0001` | 192.168.1.100:8100 | `NORMAL` |
+| `VMS` | `VMS-ab1120` | 192.168.1.10:8080 | `NORMAL` |
+| `NVR_API` | `NVRAPI-ab7701` | 192.168.1.70:8090 | `NORMAL` |
+| `BROKER` | `BROKER-ab5501` | 192.168.1.50:5672 | `NORMAL` |
+
+**시드 게이트 2종**: 서버 시드는 `INIT_SAMPLE_DATA` 와 **무관한 독립 정책**이다(서버는 샘플데이터가 아니다). `docker-compose.yml` api-server `environment` 배선 필수(`.dockerignore` 가 `.env` 를 이미지에서 제외).
+
+| 환경변수 | 기본값 | 제어 대상 | false 일 때 |
+| -------- | ------ | --------- | ----------- |
+| `INIT_SERVER_CATEGORIES` | `true` | 10종 카테고리 static 시드 | 누락 카테고리를 만들지 않는다(삭제한 카테고리 부활 차단). 기존 카테고리 매핑은 유지되어 인스턴스 시드는 계속 동작 |
+| `INIT_SERVER_MANDATORY` | `true` | 필수 4종 기본 인스턴스 보장 | 필수 유형이 비어도 만들지 않는다 → **서버 인스턴스 0대**(카테고리만 생성) |
+
+- **보장 단위는 '유형당 정확히 1개'**다. 그 유형에 서버가 (사용자 등록분 포함) 하나라도 있으면 아무것도 만들지 않는다.
+- **빈 DB 에서 `INIT_SERVER_CATEGORIES=false`** 면 인스턴스를 붙일 카테고리가 없어 `INIT_SERVER_MANDATORY=true` 여도 서버는 0대다. 카테고리가 이미 있는 기존 DB 는 정상 동작한다.
+- **게이트는 '생성'만 막는다** — 이미 존재하는 카테고리/서버를 삭제하지 않는다.
+- ⚠ **메트릭 미수신은 상태를 바꾸지 않는다** — `server.status` 를 자동 전환하는 watchdog(staleness/offline 감지)은 **미구현**이며, 상태는 시드 리터럴이거나 `PUT /api/servers/{id}` 로만 바뀐다. 따라서 시드 리터럴이 곧 §8.4 요약 집계값이 되고, 되돌릴 자동 경로가 없다. 그래서 위 4행은 **반드시 `NORMAL`** 이어야 한다(`BROKER-ab5501` 이 `ERROR` 리터럴이라 신규 클론이 곧바로 `error=1` 로 뜨던 문제를 2026-08-07 정정).
+
 ---
 
 ### 8.6 Server Metrics API
@@ -16608,10 +16629,10 @@ python scripts/migrate_event_device_id.py
 
 ## 변경 이력
 
-### [v6.3 후속] **2026-08-07** — 세션 `client_id` 노출 + `DISPLAY_TIMEZONE` 배선 수정 + datetime/TZ 전수감사
+### [v6.3 후속] **2026-08-07** — 세션 `client_id` 노출 + `DISPLAY_TIMEZONE` 배선 수정 + datetime/TZ 전수감사 + 서버 시드 env 게이트
 
-> **하루 1버전 원칙**에 따라 2026-08-07 에 수행된 3개 작업(`session_client_id_response`,
-> `tz_wiring`, `datetime_tz_audit`)을 본 항목 하나로 묶는다.
+> **하루 1버전 원칙**에 따라 2026-08-07 에 수행된 4개 작업(`session_client_id_response`,
+> `tz_wiring`, `datetime_tz_audit`, `server_seed_env_gate`)을 본 항목 하나로 묶는다.
 
 #### (1) `session_client_id_response` — 세션 목록에 client_id 노출
 
@@ -16642,6 +16663,30 @@ python scripts/migrate_event_device_id.py
 - **출력 검증**: GET 97개 실호출 → datetime 문자열 **254개 전부 `+09:00`**(최상위 필드 기준).
 - **결과**: 결함 **7건** + 위험 **2건**. §3.4 본문 정정 + **§3.4.1 알려진 이탈 지점** 신설. 상세·재현절차는 `docs/analyses/datetime-tz-endpoint-audit.md`.
 - **코드 변경 없음** — 조치는 PM 결재 후 별도 차수(F-0/F-1/F-1b 최우선).
+
+#### (4) `server_seed_env_gate` — 서버 시드 `.env` 게이트 + 데모 인스턴스 전량 제거 + 결함 2건 수정
+
+> PM 지시 3단계: ①"서버 생성 시드는 무조건으로 되어있는데 `.env` 로 뺄 수 있나 — **샘플데이터 아니다, 같이 묶지 마라**"
+> ②"에러인 브로커는 제거해줘" ③"**데모 항목은 없애줘**".
+> 확인 결과 서버 시드는 `INIT_SAMPLE_DATA` 블록 **밖**에서 무조건 실행 중이었고(`init_db.py:372`), 같은 날 실사고까지 발생해 있었다.
+
+- **실사고(라이브 실측)**: `api_logs` 2026-08-07 13:34:34 `DELETE /servers/categories/1` 200 → VMS 카테고리 + cascade 로 VMS 서버 삭제. **47초 뒤 재기동**(13:35:21)에 시드가 카테고리를 `id=12` 로 부활시키고 `VMS-ab1120`·`ab1121` **2대를 재생성**. 운영자 삭제가 무효화됐다.
+- **신설 게이트 2종** (§8.5 표): `INIT_SERVER_CATEGORIES`(기본 true) · `INIT_SERVER_MANDATORY`(기본 true). `INIT_SAMPLE_DATA` 와 완전 독립. `config.py` 필드 + `docker-compose.yml` `environment` + `.env`/`.env.example` 배선(`.dockerignore` 가 `.env` 를 제외하므로 compose 배선이 없으면 호스트 값이 전달되지 않음 — `tz_wiring` 과 동일 함정).
+  - 게이트를 꺼도 **기존 카테고리 매핑은 반환**한다(`create_server_categories(create_missing=False)`) → 카테고리 부활만 막고 인스턴스 보장은 계속 동작.
+  - 함수 인자(`include_categories`/`include_mandatory`)로 env 를 덮어쓸 수 있다 — 테스트 결정성 확보용(환경 의존 테스트 금지).
+- **데모 인스턴스 전량 제거(PM 지시 ③)**: 중간 설계였던 `INIT_SERVER_DEMO` 게이트를 폐기하고 **정의 자체를 삭제**했다. `DEFAULT_SAMPLE_SERVERS`(15행) → **`DEFAULT_MANDATORY_SERVERS`(4행, 유형당 1행)**. 제거 대상 11행 = 비필수 유형 9(AI 3 · STREAM 2 · TRANS 1 · DBAPI 1 · SPK 1 · ENC 1) + 필수 유형 여분 2(`VMS-ab1121`, `BROKER-ab5502`). 함수도 실체에 맞게 개명: `create_sample_servers` → **`ensure_mandatory_servers`**(+`_async`), `_build_sample_server_rows` → `_build_mandatory_server_rows`. 의미가 중복되던 `include_samples` 인자는 `include_mandatory` 로 흡수해 제거(호출자는 `init_db.py` 뿐이라 무영향).
+  - 결과 계약: **`INIT_SERVER_MANDATORY=false` → 서버 인스턴스 0대**(카테고리만). 빈 DB 에서 `INIT_SERVER_CATEGORIES=false` 면 붙일 카테고리가 없어 역시 0대.
+- **결함 A 수정 — 보장 단위가 '유형당 1개'가 아니었다**: `mandatory_type_has_server` 스냅샷을 루프 안에서 갱신하지 않아, 같은 유형이 2행인 `VMS`·`BROKER` 가 **2개씩** 생성됐다(위 사고의 VMS 2대 부활이 이 버그). 스냅샷 즉시 갱신으로 정정. 데모 제거 후 정의가 유형당 1행이라 지금은 방어적이지만, 향후 행 추가 시 재발을 막기 위해 유지한다.
+- **결함 B 수정 — 보장 인스턴스가 ERROR 로 태어남**: `BROKER-ab5501` 이 `status=ERROR` 리터럴이라 신규 클론이 곧바로 §8.4 요약에 `error=1` 로 떴다. **`NORMAL` 로 정정** + 회귀 테스트로 "정의 4행 전부 NORMAL" 을 고정.
+- **⚠ 메트릭 미수신 ≠ 상태 변화(명세 명문화)**: staleness/offline watchdog 은 **미구현**이고 `server.status` 는 시드 리터럴 또는 `PUT /api/servers/{id}` 로만 바뀐다(`servers.py:507` 단 한 곳). 라이브 실측 — 서버 **15대 전부 `server_metrics` 0건**인데 `/servers/summary` 는 `AI_ANALYSIS warning=1`, `BROKER error=1` 을 상시 반환(= 실체 없는 가짜 장애). `metrics/latest` 는 404 가 아니라 **200 + `latest_metrics: null`**. 임계치 로직(`_create_threshold_events`)은 `SystemEvent` 만 만들고 `server.status` 는 건드리지 않는다.
+  - **`init_sample_data.py` 동반 정정(PM 지시)**: 같은 성격의 리터럴이 `INIT_SAMPLE_DATA` 경로에도 있었다 — `BROKER-01=ERROR`, `AI-02=WARNING`, 그것도 sync `_create_servers` / async `_create_servers_async` 에 **2벌**. `INIT_SAMPLE_DATA=false` + `servers` count>0 가드로 dormant 였으나 **빈 DB + `INIT_SAMPLE_DATA=true`** 면 가짜 장애가 되살아나는 지뢰라 **4곳 전부 `NORMAL` 로 정정**했다.
+  - **소스 레벨 회귀 고정**: `test_should_never_hardcode_non_normal_server_status_in_any_seeder` — 두 시더 소스를 정규식 스캔해 비-주석 라인에 `EnumServerStatus.ERROR|WARNING` 리터럴이 하나라도 있으면 실패. 앞으로 어떤 시더도 서버를 장애 상태로 태어나게 할 수 없다. (`SystemEvent` 의 `severity` 는 이벤트 '이력' 이라 `server.status` 와 무관 → 스캔 대상 아님.)
+- **async 병존 동기화**: `create_server_categories_async`/`ensure_mandatory_servers_async`/`initialize_server_data_async` 3함수는 현재 **미사용**(`initialize_database_async()` 가 sync 경로 호출)이나, 재배선 시 게이트 누락이 없도록 동일 시맨틱을 함께 반영.
+- **검증**: `tests/test_server_seed.py` **7 → 23 passed**(정의 4 · 카테고리 3 · 인스턴스/게이트 8 · 멱등·존중 6 등). 데모 부활 방지 테스트(`REMOVED_DEMO_NAMES` 11종)와 `INIT_SERVER_DEMO` 부재 단언을 함께 고정. 전체 스위트 **베이스라인 대조로 신규 실패 0**(`pre-server_seed_env_gate` worktree 대조, 동일 정렬 `-p no:randomly`; 서버 10개 모듈 실패집합 51줄 **완전 동일**). 5중싱크: ①코드 ②Swagger(엔드포인트 계약 불변 — 시드는 기동 경로라 OpenAPI 표면 변화 없음) ③명세 §8.5 + 본 ChangeLog ④이미지 재빌드 ⑤컨테이너 healthy·라이브 재검증. 롤백 태그 `pre-server_seed_env_gate`.
+- **라이브 정리(2단계, 백업 SQL 선행 — `data/backups/`)**:
+  1. 실체 없는 데모 9대(AI 3 · STREAM 2 · TRANS 1 · DBAPI 1 · SPK 1 · ENC 1) 삭제 → `warning=1` 해소.
+  2. `BROKER-ab5501`(ERROR, 2026-07-04 구 시드분) 삭제 → `error=1` 해소. 코드 리터럴 정정(결함 B)은 신규 생성분에만 적용되므로 기존 행은 별도 제거가 필요했다. BROKER 유형에 `ab5502`(NORMAL)가 남아 **유형 보장 충족 → 재기동 시 부활 없음**을 실증.
+  - 결과: `servers` **5대**(VMS 2 · BROKER 1 · NVR_API 1 · PROXY 1), `/servers/summary` **warning=0 · error=0**. 사용자 등록 `PROXY-ab0101` 보존.
 
 ### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
 

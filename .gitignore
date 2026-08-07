@@ -61,6 +61,8 @@ data/*.db-journal
 data/*.db.backup
 data/*.db.bak
 data/*.db.old
+# v6.3-server_seed_env_gate: 운영 데이터 삭제 전 생성하는 복원용 SQL 스냅샷 — 커밋 금지
+data/backups/
 # v6.3-data_gitignore: 런타임 생성 썸네일 — 커밋 금지 (DB가 참조하는 실파일, git checkout/stash 가 건드리면 정합성 파손)
 data/thumbnails/
 !data/thumbnails/.gitkeep

@@ -147,7 +147,7 @@ DB 측: 시간 컬럼을 가진 테이블 **45개**. `timestamptz` 43개 / **nai
 | 항목 | 결과 |
 |---|---|
 | 호출 성공(200) | 71개 |
-| 발견된 datetime 문자열 | **254개** |
+| 발견된 datetime 문자열 | **254개** (최상위 필드 기준 — JSONB 내부는 [F-4](#f-4) 예외) |
 | offset 표기 | **전부 `+09:00`** |
 | offset 누락 예외 | **0건** |
 
@@ -163,7 +163,7 @@ DB 측: 시간 컬럼을 가진 테이블 **45개**. `timestamptz` 43개 / **nai
 
 ---
 
-## 5. 발견된 결함 3건 (전부 실측 확인)
+## 5. 발견된 결함 7건 (전부 실측 확인)
 
 ### F-1 · 정형 보고서 CSV/PDF 시각이 **UTC 로 출력** — 영향도 최상
 
@@ -181,6 +181,74 @@ asyncpg 는 `timestamptz` 를 **UTC-aware** 로 돌려주므로, `strftime` 은 
 대표 보고용 산출물의 모든 시각이 9시간 이르게 인쇄됩니다.
 ※ 리포트의 **기간 필터**는 [reports.py:752](app/routers/reports.py#L752) 에서 `to_display` 를 제대로 쓰므로 정상 —
 **출력 행의 시각 표기만** 틀립니다.
+
+### F-0 · `server_time` 이 **9시간 틀림** — 클라 시계보정용 필드 · 영향도 최상
+
+`GET /api/auth/me/permissions` 의 `data.server_time` 은 docstring 상 **"클라-서버 시계 편차 보정용"** 인데,
+값 자체가 9시간 틀립니다. 이 값으로 보정하는 클라이언트는 오차를 그대로 학습합니다.
+
+| 항목 | 값 |
+|---|---|
+| 컨테이너 실제 시각 | `2026-08-07 11:56:15 KST` |
+| **응답 `server_time`** | **`2026-08-07T02:56:31+09:00`** ← 숫자는 UTC, 라벨만 `+09:00` |
+
+원인 2단:
+
+1. [auth.py:134-137](app/routers/auth.py#L134-L137) `_kst_now()` 가 docstring("settings.tz 기준 naive now")과 달리
+   **`utc_now()`(aware UTC)를 반환**합니다. `from app.config import settings` 는 쓰이지도 않습니다.
+2. [auth.py:1249](app/routers/auth.py#L1249) 이 그 값에 `astimezone`/`to_display` 가 아니라
+   **`.replace(tzinfo=settings.tz)`** 를 걸어 **변환 없이 라벨만** 바꿉니다. 같은 문제가 `:1248` `valid_until`, `:683` 에도 있습니다.
+
+> ※ 이 결함은 두 tz 설정을 같게 둬서 생긴 게 **아닙니다**. `TIMEZONE != UTC` 인 한 항상 발생합니다.
+
+### F-1b · 리포트 표지 기간이 **하루 앞으로** 표기 — 대외 제출 문서
+
+[report_master_builder.py:59,66-67](app/services/report_master_builder.py#L59) 이 aware UTC 를 그대로 `strftime` 합니다.
+
+| 항목 | 값 |
+|---|---|
+| DB (KST) | `2026-07-13 00:00:00+09` ~ `2026-07-21 23:59:59+09` |
+| ORM 반환 (UTC) | `2026-07-12 15:00:00+00` ~ `2026-07-21 14:59:59+00` |
+| **표지 렌더(현행)** | **`2026.07.12 ~ 2026.07.21`** ← 시작일 하루 앞 |
+| 올바른 값 | `2026.07.13 ~ 2026.07.21` |
+
+### F-1c · 통계·리포트 **일별 버킷이 UTC 기준** — 야간 이벤트가 전날로 이동
+
+앱의 DB 세션 tz 가 **UTC** 라서 `date_trunc`/`extract` 기반 일별 집계가 KST 자정이 아닌 UTC 자정으로 끊깁니다.
+
+**실측** (`user_login_logs` 동일 데이터, 동일 SQL):
+
+| 세션 | 08-04 | 08-05 | 08-06 |
+|---|---|---|---|
+| 앱 (UTC) | 56 | **8** | 47 |
+| psql (KST) | 22 | **47** | 47 |
+
+KST `00:00~09:00` 이벤트가 전날 버킷으로 밀립니다. **야간 침입이 몰리는 GOP 특성상
+일별 건수와 피크 시간대가 체계적으로 왜곡**됩니다.
+
+> **⚠ 이전 판단 정정**: 커밋 `a6c5f07` 은 postgres 컨테이너에 `PGTZ` 를 넣어 이 불일치가
+> "함께 해소된다"고 적었습니다. **틀렸습니다.** `PGTZ` 는 postgres 컨테이너 내부 libpq
+> **클라이언트** 변수라 `psql` 에만 적용되고, api-server 의 asyncpg 세션은
+> `postgresql.conf` 의 `timezone = UTC` 를 그대로 씁니다 — 실측 `SHOW timezone = UTC`,
+> api-server 컨테이너에 `PGTZ` 환경변수 **부재**. 해당 주석은 이번 차수에 정정했습니다.
+
+### F-4 · 한 응답 안에 offset 이 **3종 혼재** (config-change-logs)
+
+`before_state`/`after_state` 가 `Dict[str, Any]` JSONB 라 재귀 변환을 우회하고,
+[config_log_service.py:97,110](app/services/config_log_service.py#L97) 이 `to_display` 없이 `isoformat()` 한 값이
+그대로 굳어 저장됩니다.
+
+**실측** — `config_change_logs` id 1626 한 건의 응답:
+
+| offset | 개수 | 예시 |
+|---|---|---|
+| `+09:00` | 1 | `created_at = 2026-08-07T11:44:25.818356+09:00` |
+| `+00:00` | 3 | `before_state.updated_at = 2026-08-07T02:44:25.726996+00:00` |
+| **없음** | 1 | `after_state.window_start = 2026-09-11T08:00:00` |
+
+"응답 datetime 은 전부 `+09:00`"이라는 §4 의 결론은 **최상위 필드에만** 해당합니다.
+JSONB 내부는 예외입니다.
+
 
 ### F-2 · 생성/수정 응답이 naive 입력 시 9시간 오차
 
@@ -243,12 +311,20 @@ ValueError: Invalid isoformat string: 'NOT-A-DATE'   →  HTTP 500
 
 ## 8. 조치 제안 (PM 결정 필요)
 
-| # | 결함 | 제안 | 규모 |
-|---|---|---|---|
-| 1 | **F-1** | `report_service.py` 22곳을 `to_display(x).strftime(...)` 로 치환 | 1파일 22줄 |
-| 2 | **F-2** | `_to_response` 호출 전 `await db.refresh(s)` 추가 (또는 `_reload` 경유 통일) | 1파일 2곳 |
-| 3 | **F-3** | `/api/logs` 파라미터를 `Optional[datetime]` 로 승격 → 다른 18개와 동일하게 422 | 1파일 4줄 |
-| 4 | **R-1** | `datetime.now()` 29곳 → `utc_now()` 치환 | 2파일 |
-| 5 | **R-2** | `db_monitor` KST 상수를 env 주입으로 | 1파일 |
+| # | 결함 | 사용자 체감 | 제안 | 규모 |
+|---|---|---|---|---|
+| 1 | **F-0** `server_time` 9시간 | .NET 클라 3종이 시계보정에 사용 → 오차 전파 | `_kst_now()` 정리 + `replace(tzinfo=)` → `to_display()` | `auth.py` 4곳 |
+| 2 | **F-1** 리포트 CSV/PDF UTC 출력 | 대표 보고 문서 시각 9시간 이름 | `to_display(x).strftime(...)` 치환 | `report_service.py` 23곳 |
+| 3 | **F-1b** 표지 기간 하루 앞 | 대외 제출 문서 대상기간 오표기 | 동일 | `report_master_builder.py` 3곳 |
+| 4 | **F-1c** 일별 버킷 UTC 기준 | 야간 이벤트가 전날로 → 통계 왜곡 | 앱 연결에 tz 지정 or `AT TIME ZONE` 명시 | 설계 결정 필요 |
+| 5 | **F-2** POST/PATCH 응답 +9h | GIS 가 응답을 화면에 쓰면 오표시 | `_to_response` 전 `db.refresh()` | 라우터 2곳 |
+| 6 | **F-3** `/api/logs` 500 | 계약 불일치 + 스택트레이스 유출 | 파라미터 `Optional[datetime]` 승격 | `logs.py` 4줄 |
+| 7 | **F-4** JSONB offset 혼재 | 소비자가 tz 를 오판 | `config_log_service` 에 `to_display` 적용 | 1파일 2곳 |
+| 8 | **R-1** `datetime.now()` 29곳 | (해외 배포 시) 7시간 오차 | `utc_now()` 치환 | 2파일 |
+| 9 | **R-2** db_monitor KST 하드코딩 | (해외 배포 시) NATS/REST tz 불일치 | env 주입 | 1파일 |
 
-1~3 은 사용자 가시 결함, 4~5 는 해외 재배포 전 선행 조건입니다.
+**우선순위**: 1~3 은 **대외 산출물·클라 연동에 직접 노출**되므로 최우선.
+4 는 집계 의미가 바뀌는 설계 결정이라 별도 검토. 5~7 은 계약 정합. 8~9 는 해외 재배포 선행 조건.
+
+**공통 원인 한 줄**: asyncpg 가 `timestamptz` 를 **UTC-aware** 로 돌려주는데,
+`to_display` 를 거치지 않고 `strftime`/`isoformat`/`replace(tzinfo=)` 로 바로 표기한 지점들.

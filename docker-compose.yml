@@ -14,8 +14,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gop}
       POSTGRES_USER: ${POSTGRES_USER:-gop_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gop_pass}
-      # DISPLAY_TIMEZONE 과 단일 원천화. timestamptz 저장값은 절대시각이라 기존 데이터 무영향이고,
-      # date_trunc/date_part 를 쓰는 리포트 일별 버킷이 표시 tz 와 어긋나던 잠복 불일치도 함께 해소된다.
+      # DISPLAY_TIMEZONE 과 단일 원천화. timestamptz 저장값은 절대시각이라 기존 데이터 무영향.
+      # ★ 정정(2026-08-07 실측): 이 PGTZ 는 **postgres 컨테이너 내부 libpq 클라이언트**(psql 등)에만
+      #   적용된다. api-server 의 asyncpg 세션은 postgresql.conf 의 `timezone = UTC` 를 그대로 쓰며
+      #   `SHOW timezone` = UTC 다. 따라서 date_trunc/date_part 를 쓰는 리포트·통계 일별 버킷의
+      #   tz 불일치는 **해소되지 않았다**(user_login_logs 08-05: 앱 8건 vs KST 47건).
+      #   해소하려면 앱 연결에 tz 를 지정해야 한다 — docs/analyses/datetime-tz-endpoint-audit.md §5-C.
       PGTZ: ${DISPLAY_TIMEZONE:-Asia/Seoul}
     ports:
       - "5432:5432"

@@ -342,6 +342,9 @@ class UserSessionResponse(BaseModel):
     role: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
+    # v6.3-session_client_id_response: 세션 주체 식별(로그인 시 X-Client-Id 헤더/body client_id 로 기록).
+    #   미전송 로그인·구버전 세션은 null → 클라는 '-' 등으로 표기.
+    client_id: Optional[str] = None
     expires_at: KSTDatetime
     is_active: bool
     logout_reason: Optional[str] = None  # v6.0-response_schema_audit: Enum→str (String 컬럼 지뢰)

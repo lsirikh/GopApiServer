@@ -31,6 +31,8 @@ def _session_to_response(session: UserSession) -> dict:
         "role": session.user.role if session.user else None,
         "ip_address": session.ip_address,
         "user_agent": session.user_agent,
+        # v6.3-session_client_id_response: 세션 주체 식별값 노출(GIS 관제 '클라이언트' 컬럼).
+        "client_id": session.client_id,
         "expires_at": session.expires_at,
         "is_active": session.is_active,
         "logout_reason": session.logout_reason,

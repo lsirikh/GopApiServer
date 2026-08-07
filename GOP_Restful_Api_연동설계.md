@@ -14305,9 +14305,16 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 ```json
 {
   "login_id": "<your_login_id>",
-  "password": "<your_password>"
+  "password": "<your_password>",
+  "client_id": "gis-monitoring"
 }
 ```
+
+> **클라이언트 식별 `client_id` (v6.3, 선택)**: 세션 주체를 구분하기 위한 값. **`X-Client-Id` 헤더가 우선**이며 없으면 body `client_id` 를 사용한다.
+> - 패턴 `^[A-Za-z0-9._:-]{1,64}$` — **위반값은 무시**하고 로그인은 정상 진행(422 로 막지 않음: 로그인 가용성 우선). 미전송이면 `null` 저장.
+> - 저장 위치 `user_sessions.client_id` → `GET /api/user-sessions` 응답 `client_id` 로 노출(§9.5.2/9.5.3).
+> - 규약값(예): `gis-monitoring`(GIS 관제), `central-ui`, `vms-service`, `middleware-service`.
+> - 정책 연동: `session_concurrency_policy=allow` **AND** `session_self_replace_enabled=true` 일 때만 **동일 `client_id`** 재로그인이 자기 옛 세션을 교체한다(§9.8). ★두 커넥션이 `client_id` 를 **공유하면 서로 축출**하므로, self-replace 를 켤 경우 커넥션별 고유값 필수. `evict_all` 모드에서는 `client_id` 와 무관하게 기존 세션이 전부 폐기된다.
 
 **Response (200 OK)**:
 ```json
@@ -14752,12 +14759,14 @@ Authorization: Bearer {access_token}
     {
       "id": 101,
       "user_id": 1,
+      "login_id": "operator01",
+      "role": "USER",
       "ip_address": "192.168.1.100",
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+      "client_id": "gis-monitoring",
       "expires_at": "2026-01-19T20:30:00+09:00",
       "is_active": true,
       "logout_reason": null,
-      "forced_by": null,
       "logged_out_at": null,
       "created_at": "2026-01-19T08:30:00+09:00",
       "updated_at": "2026-01-19T10:15:00+09:00"
@@ -14767,9 +14776,11 @@ Authorization: Bearer {access_token}
 ```
 
 > **필드 설명**:
+> - `login_id`/`role`: 세션 소유 계정 정보(AccountUser JOIN 조회값)
+> - `client_id`: **세션 주체 식별값**(v6.3) — 로그인 시 `X-Client-Id` 헤더(우선) 또는 body `client_id` 로 기록. 미전송 로그인·구버전 세션은 `null`(클라는 `-` 등으로 표기). 예: `gis-monitoring`, `central-ui`, `vms-service`
 > - `created_at`: 세션 생성(로그인) 시간
-> - `updated_at`: 마지막 활동 시간
-> - `forced_by`: 강제 로그아웃 처리자 User ID (강제 로그아웃 시)
+> - `updated_at`: 갱신 시각 — ★현재 로그인 이후 갱신되지 않아 `created_at` 과 동일(활동시각 아님). 최근순 정렬은 `created_at` 기준
+> - ※ `forced_by` 는 응답에 포함되지 않음(모델 내부 컬럼) — 과거 명세 기재 오류 정정(2026-08-07)
 
 #### 9.5.3 GET `/api/user-sessions/{id}`
 
@@ -14780,12 +14791,14 @@ Authorization: Bearer {access_token}
   "data": {
     "id": 101,
     "user_id": 1,
+    "login_id": "operator01",
+    "role": "USER",
     "ip_address": "192.168.1.100",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+    "client_id": "gis-monitoring",
     "expires_at": "2026-01-19T20:30:00+09:00",
     "is_active": true,
     "logout_reason": null,
-    "forced_by": null,
     "logged_out_at": null,
     "created_at": "2026-01-19T08:30:00+09:00",
     "updated_at": "2026-01-19T10:15:00+09:00"
@@ -16569,6 +16582,14 @@ python scripts/migrate_event_device_id.py
 ---
 
 ## 변경 이력
+
+### [v6.3 후속] `session_client_id_response` — 세션 목록에 client_id 노출 (2026-08-07)
+
+> GIS 관제 요청(세션관리 '클라이언트' 컬럼 전행 `-`). 검증 결과 **컬럼·저장은 이미 동작**(v68 + 로그인 X-Client-Id 기록, DB 실측 `central-ui` 84건)하고 **응답 노출만 누락**이어서 그 한 곳을 보강.
+
+- **코드**: `UserSessionResponse.client_id`(Optional) + `_session_to_response` 에 `client_id` 추가 — 목록/단건/사용자별 3경로 공통 헬퍼라 일괄 반영. 순수 **필드 추가**(기존 계약 불변).
+- **명세**: §9.5.2/9.5.3 응답 예시에 `client_id`·`login_id`·`role` 추가, **`forced_by` 삭제**(코드 미반환 — 과거 허위기재 정정), `updated_at` 이 활동시각 아님(=created_at) 명기. §9.2.2 로그인에 `client_id`/`X-Client-Id` 계약(헤더 우선·패턴·무효값 무시·self-replace 연동) 문서화.
+- **검증**: 로그인(`X-Client-Id: gis-monitoring`) → 목록·단건 응답에 `client_id="gis-monitoring"` 실측. 미전송/구버전 세션은 `null`(소급 불가 — 신규 로그인부터 표시).
 
 ### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
 

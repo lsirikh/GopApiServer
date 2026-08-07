@@ -300,7 +300,7 @@ X-Request-ID: {request-uuid} //선택적 참고용
 | **F-1** | 리포트 **CSV/PDF** 본문 시각 | UTC 벽시계로 인쇄(REST 대비 **9시간 이름**). 실측 리포트45 이벤트 92574 = CSV `02:26` ↔ REST `11:26+09:00` | ⚠ **미해소** — 산출물 시각을 REST 값과 대조하지 말 것 |
 | **F-1b** | 리포트 **표지 기간** | 시작일이 하루 앞. DB `2026-07-13` → 표지 `2026.07.12` | ⚠ **미해소** |
 | ~~**F-1c**~~ | **통계** 시간/일별 버킷 (`/api/events/statistics/trend`·`dashboard`) | 앱 DB 세션이 UTC 라 버킷 라벨이 UTC 기준. KST `00:00~09:00` 이벤트가 **전날 버킷**으로 이동 | ✅ **통계 경로 해소 (2026-08-07)** — `to_char(timezone(DISPLAY_TIMEZONE, col), …)` 로 변환 후 포맷. 실측: KST 16:50 이벤트 → 버킷 `2026-08-07 16`(수정 전 `07`). ⚠ **리포트 경로(`report_master_builder`)는 미해소** |
-| **F-2** | `POST`·`PATCH /api/event-suppression-schedules` **응답** | 요청을 **offset 없이**(naive/date-only) 보낸 경우에 한해 응답이 **+9시간**. **저장·`GET` 재조회는 정확** | ⚠ **미해소** — **요청에 offset 을 명시**하면 회피됨. 또는 응답 대신 `GET` 재조회 |
+| ~~**F-2**~~ | `POST`·`PATCH /api/event-suppression-schedules` **응답** | 요청을 offset 없이(naive/date-only) 보내면 응답이 +9시간이던 결함 | ✅ **해소(2026-08-07)** — 스키마 경계에서 aware UTC 로 정규화. 4형태(offset·`Z`·naive·date-only) 모두 POST 응답 = `GET` 재조회 = DB 일치 실측 |
 | ~~**F-3**~~ | `GET /api/logs` | `start_date`/`end_date` 가 유일하게 **비타입 `string`** — 파싱 실패 시 **500**(다른 18개는 422) | ✅ **해소 (2026-08-07)** — `Optional[datetime]` 승격. 실측 `?start_date=notadate` → **422**, 정상 날짜 200 유지 |
 | **F-4** | `GET /api/config-change-logs` → `before_state`/`after_state` | JSONB 내부는 변환을 우회해 **offset 혼재**. 실측 id 1626: 최상위 `+09:00` / 내부 `+00:00` / offset 없음 혼재 | ⚠ **미해소** — 내부 값은 **offset 유무를 확인 후** 파싱 |
 
@@ -16764,9 +16764,31 @@ python scripts/migrate_event_device_id.py
 - 5중싱크: ①코드 13파일 ②Swagger(`info.version=6.3.2` 유지 — 엔드포인트 추가/삭제 없음, 스키마 표현만 보강)
   ③명세 §3.4.1 표 정정 + 본 ChangeLog ④이미지 재빌드(롤백 `pids-api-server:pre-swagger_audit_fix`)
   ⑤컨테이너 재기동 healthy. 롤백 태그 `pre-v6.3-swagger_audit_fix`.
-- **범위 밖(미해소)**: F-1/F-1b(리포트 CSV/PDF·표지) · F-2(억제 naive 응답 +9h) · F-4(JSONB offset 혼재) ·
+- **범위 밖(미해소)**: F-1/F-1b(리포트 CSV/PDF·표지) · F-4(JSONB offset 혼재) ·
   `number_device` UNIQUE 부재 · 제어기 삭제 시 센서 연쇄삭제 · 존재하지 않는 device 할당 무반영 200 ·
   메트릭 범위 검증 · `acknowledge` 확인자 위조 · placeholder Example 39건 중 나머지.
+
+#### (6) `suppression_response_tz_fix` — 억제 생성·수정 응답의 9시간 오차 해소 (F-2)
+
+> §3.4.1 F-2 해소. `POST`·`PATCH /api/event-suppression-schedules` 가 요청을 **offset 없이**
+> (naive / date-only) 받으면 **응답 시각만 +9시간** 틀리던 결함. 저장과 `GET` 재조회는 원래 정확했다.
+
+- **원인 2단**: ① 스키마 validator 가 `to_utc()` 를 **비교에만 쓰고 값에 반영하지 않아** naive 가 그대로 남음
+  ② 세션이 `expire_on_commit=False` 라 commit 후에도 객체가 그 naive 를 보유하고,
+  **identity map 때문에 재조회(`_reload` 의 select)로도 속성이 갱신되지 않음**.
+  그 상태로 직렬화되면 `to_display()` 가 naive 를 UTC 로 간주해 9시간을 더한다.
+  (저장은 `UtcDateTime` bind 가 DISPLAY_TZ 로 해석해 정확했으므로 **응답만** 틀렸다.)
+- **수정**: 경계에서 정규화. Create 는 `model_validator` 에서 정규화 결과를 값에 반영,
+  Update 는 **`field_validator`** 사용.
+  ★ Update 를 `model_validator` 로 하면 안 된다 — self 에 대입하는 순간 pydantic 이 그 필드를
+  `__pydantic_fields_set__` 에 넣어 `model_dump(exclude_unset=True)` 가 미전송 필드까지 `None` 으로
+  포함시키고, PATCH 가 "null 로 지우려는 요청"으로 오인해 **422** 가 난다(구현 중 실제로 밟은 함정).
+- **검증(라이브)**: 같은 벽시계를 4형태로 전송 → POST 응답 · `GET` 재조회 · DB(UTC) **3자 일치** 실측.
+  수정 전에는 naive 가 `17:00`, date-only 가 `09:00` 으로 어긋났다.
+  회귀: 억제 테스트 스위트가 **수정 전후 동일**(23 실패 / 24 통과 — 실패분은 asyncpg 이벤트루프 재사용·
+  개발 DB 실데이터 FK/UNIQUE 충돌로 인한 **기존 하네스 문제**, 본 수정과 무관).
+- 5중싱크: ①코드 `app/schemas/event_suppression.py` ②Swagger(스키마 표현 불변 — 엔드포인트·필드 변화 없음)
+  ③명세 §3.4.1 F-2 행 + 본 ChangeLog ④이미지 재빌드 ⑤컨테이너 재기동 healthy.
 
 ### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
 

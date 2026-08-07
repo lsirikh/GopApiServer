@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import KSTDatetime
 from app.utils.datetime import to_utc
@@ -61,6 +61,12 @@ class EventSuppressionScheduleCreate(BaseModel):
         s, e = to_utc(self.window_start), to_utc(self.window_end)
         if s is not None and e is not None and e <= s:
             raise ValueError("window_end must be after window_start")
+        # ★ 정규화 결과를 **값에 반영**한다(비교용으로만 쓰면 안 된다).
+        #   세션이 expire_on_commit=False 라 commit 후에도 객체가 입력값을 그대로 들고 있고,
+        #   identity map 때문에 재조회(select)로도 속성이 갱신되지 않는다. 그 상태에서 naive 가
+        #   남아 있으면 응답 직렬화(to_display)가 naive 를 UTC 로 간주해 **9시간 어긋난 값**을 낸다.
+        #   (저장은 UtcDateTime bind 가 DISPLAY_TZ 로 해석해 정확했으므로 응답만 틀렸다 — 2026-08-07 실측)
+        self.window_start, self.window_end = s, e
         # 모드별 대상 배열 최소 1개 (중복 제거)
         if self.target_type == EnumSuppressionTargetType.DEVICE:
             self.target_device_ids = list(dict.fromkeys(self.target_device_ids))
@@ -87,6 +93,19 @@ class EventSuppressionScheduleUpdate(BaseModel):
     window_start: Optional[datetime] = None
     window_end: Optional[datetime] = None
     recurrence_rule: Optional[str] = Field(None, max_length=255)
+
+    @field_validator("window_start", "window_end", mode="after")
+    @classmethod
+    def _normalize_dt(cls, v: Optional[datetime]) -> Optional[datetime]:
+        """입력 datetime 을 경계에서 aware UTC 로 정규화 — Create 와 동일 사유(응답 9시간 오차 방지).
+
+        ★ `model_validator(mode="after")` 로 self 에 **대입하면 안 된다**.
+          대입 순간 pydantic 이 그 필드를 `__pydantic_fields_set__` 에 넣어버려,
+          라우터의 `model_dump(exclude_unset=True)` 가 미전송 필드까지 `None` 으로 포함한다.
+          그러면 PATCH 가 "window_start 를 null 로 지우려는 요청"으로 오인해 422 가 난다.
+          field_validator 는 **전송된 필드에만** 동작하므로 이 함정이 없다.
+        """
+        return to_utc(v)
 
 
 class EventSuppressionScheduleResponse(BaseModel):

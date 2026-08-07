@@ -732,6 +732,29 @@ offset 포함 전송으로 회피하고, **서버 수정 후에도 offset 전송
 
 ---
 
+## 5-A. 🔜 예정 변경 — **반복 스케줄** (설계 확정, 구현 착수 전)
+
+> 상세: **[RECURRENCE.md](RECURRENCE.md)** · PRD `docs/prds/event-suppression-recurrence-prd.md`
+
+정비 창을 **반복 규칙**으로 지정할 수 있게 됩니다 —
+`2026-08-09~09-20 월~금 08:00~21:00`, 그리고 **기간 제한 없음**도 가능.
+
+### 지금 알아둘 3가지 (배포 시 전 팀 필수 대응)
+
+| # | 변경 | 지금 코드에 미치는 영향 |
+|---|---|---|
+| **R-1** | **`status=active` 가 "지금 억제 중"을 뜻하지 않게 됨** — 반복 창에서는 *유효기간 내*라는 의미. **실측: 유효기간의 62.2% 가 active 이면서 미억제** | 억제 판단을 신규 **`is_suppressing_now`** 로 교체 필요 |
+| **R-2** | **`window_end` 가 `null` 가능**(무제한 반복) → [§2.8](#28--fail-safe-규범-must) 의 "`window_end` 로컬 타이머" 계약이 **성립 불가** | 타이머 기준을 신규 **`occurrence_end`** 로 교체 필요 |
+| **R-3** | 반복 창은 **occurrence 전이(매일 시작/종료)를 NATS 로 발행하지 않음** (측정: 무제한 1개 = 연 520건, 창 50개 = 연 26,000건) | `/active` 폴링 존치가 더욱 중요. 즉시성 필요 시 규칙 로컬 계산([RECURRENCE.md §7](RECURRENCE.md)) |
+
+신규 응답 필드: **`is_suppressing_now`** · **`occurrence_start`/`occurrence_end`** · `next_occurrence_start`
+신규 요청 필드: `recurrence_type` · `days_of_week`(비트마스크) · `daily_start`/`daily_end` · `schedule_tz`
+
+`status` 4종과 NATS `action` 3종은 **그대로 유지**됩니다(.NET 파서 보호).
+기존 단발 창은 `recurrence_type='none'` 으로 **무변경 동작**합니다.
+
+---
+
 ## 6. 결정 필요 · 문의
 
 ### D1 — 라이브 경로 억제 요구 여부 (PM 결재 대기)

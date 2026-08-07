@@ -2,7 +2,7 @@
 
 **작성일**: 2025-12-31  
 **최종 수정일**: 2026-07-31  
-**버전**: v6.3.1 (Swagger `6.3.1` 정합)  **작성자**: 이기호 차장  
+**버전**: v6.3.2 (Swagger `6.3.2` 정합)  **작성자**: 이기호 차장  
 **목적**: GOP용 통제시스템에 연동하기 위한 RESTful API기반 메시지 시스템 구성  
 **설계 원칙**: 기존 DTO 구조를 그대로 사용하여 일관성 확보  
 
@@ -273,16 +273,43 @@ X-Request-ID: {request-uuid} //선택적 참고용
 
 ### 3.4 Datetime · 타임존 규약 (v6.3 후속, datetime-unification)
 
-> **전역 원칙 (Option B)**: **저장 UTC · 출력 DISPLAY_TZ · 입력 aware 권장**. 특정 국가에 고정되지 않아 해외 사이트(예: 헝가리·미국) 재배포 시 환경변수(`DISPLAY_TIMEZONE`)만 바꾸면 된다.
+> **전역 원칙 (Option B)**: **저장 UTC · 출력 DISPLAY_TZ · 입력 aware 권장**. 특정 국가에 고정되지 않아 해외 사이트(예: 헝가리·미국) 재배포를 목표로 한다.
+>
+> ⚠ **2026-08-07 실측 정정**: "`DISPLAY_TIMEZONE` 만 바꾸면 된다"는 **아직 성립하지 않는다**. 리포트 계열 `datetime.now()` 29곳이 OS 벽시계(`TIMEZONE`)를 쓰는데 저장 경로는 이를 `DISPLAY_TIMEZONE` 으로 해석하므로, 두 값이 갈리면 오차가 난다(`DISPLAY_TIMEZONE=Europe/Budapest` 실측 **7시간**). 잔여 결함 목록은 아래 **§3.4.1 알려진 이탈 지점**과 `docs/analyses/datetime-tz-endpoint-audit.md` 참조.
 
 | 구분 | 규약 |
 |------|------|
 | **저장(DB)** | 모든 datetime 컬럼은 `TIMESTAMP WITH TIME ZONE`(timestamptz)로 **UTC instant** 저장. (예외: `api_logs.timestamp` 는 파티션 키라 naive-UTC 벽시계 유지 — 표시 규약 동일) |
-| **출력(응답)** | 모든 응답 datetime 은 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset 표기. 기본 `Asia/Seoul`(`+09:00`), DST 자동. 예: `"2026-07-31T19:50:00+09:00"`. `meta.timestamp`(성공·오류 **공통**) 동일. |
+| **출력(응답)** | 응답 datetime 은 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset 표기. 기본 `Asia/Seoul`(`+09:00`), DST 자동. 예: `"2026-07-31T19:50:00+09:00"`. `meta.timestamp`(성공·오류 **공통**) 동일. **적용 범위 = 응답 최상위 필드**(GET 97개 실호출 시 datetime 254개 전부 `+09:00` 확인). **JSONB 자유형 필드 내부와 §3.4.1 의 이탈 지점은 예외** — 반드시 §3.4.1 확인. |
 | **입력(요청)** | offset 포함 aware(`...+09:00`, `...Z`) **권장** — instant 로 정확 해석. offset 없는 naive 값은 `DISPLAY_TIMEZONE` 로 간주 후 UTC 변환. 날짜만(`2026-07-01`) 은 해당 TZ 00:00. |
 | **설정** | 환경변수 `DISPLAY_TIMEZONE`(IANA TZ, 예 `Asia/Seoul`·`Europe/Budapest`·`America/New_York`). 미지정 시 `Asia/Seoul`. 저장은 항상 UTC 이므로 이 값 변경은 **표시에만** 영향(과거 데이터 불변). |
 
 **클라이언트 가이드**: 요청 시 가능하면 offset 을 명시하라(`2026-07-01T00:00:00+09:00`). 응답 datetime 은 항상 offset 이 붙어 오므로 그대로 `DateTimeOffset`(.NET)/`ZonedDateTime` 으로 파싱하면 된다. naive 문자열로 파싱 후 로컬 TZ 를 임의 부여하지 말 것.
+
+> **날짜 범위 필터 규약**: 조회·리포트의 `start_date`/`end_date`(서버 메트릭 GET 은 `start_time`/`end_time`) 필터는 **닫힌구간 `[start, end]`**(양끝 포함, `≥ start AND ≤ end`). 리포트 생성(`POST /reports/generate`)은 끝일이 **자정(00:00)·날짜만(date-only)** 으로 오면 그날 **23:59:59.999999 로 자동 확장해 끝일 전체 포함**한다. 입력 포맷은 `+09:00`·`Z`·naive·date-only 모두 수용(naive/date-only 는 DISPLAY_TZ 자정 기준).
+
+
+#### 3.4.1 알려진 이탈 지점 (2026-08-07 전수 실측)
+
+> 아래는 **본 규약을 따르지 않는 것으로 실측 확인된 지점**이다. 조치 전까지 소비자(GIS·VMS·.NET 클라)는
+> 이 목록을 전제로 구현해야 한다. 근거·재현 절차: `docs/analyses/datetime-tz-endpoint-audit.md`
+
+| # | 지점 | 증상 | 소비자 대응 |
+|---|---|---|---|
+| **F-0** | `GET /api/auth/me/permissions` → `data.server_time` | 숫자는 UTC 인데 라벨만 `+09:00` → **9시간 이름**. 실측 실제 `11:56:15 KST` ↔ 응답 `02:56:31+09:00` | ⚠ **이 필드로 시계 보정하지 말 것**. 같은 응답의 `meta.timestamp` 를 쓸 것 |
+| **F-1** | 리포트 **CSV/PDF** 본문 시각 | UTC 벽시계로 인쇄(REST 대비 **9시간 이름**). 실측 리포트45 이벤트 92574 = CSV `02:26` ↔ REST `11:26+09:00` | 산출물 시각을 REST 값과 대조하지 말 것 |
+| **F-1b** | 리포트 **표지 기간** | 시작일이 하루 앞. DB `2026-07-13` → 표지 `2026.07.12` | — |
+| **F-1c** | 통계·리포트 **일별 버킷** | 앱 DB 세션이 UTC 라 KST 자정이 아닌 UTC 자정으로 끊김. KST `00:00~09:00` 이벤트가 **전날 버킷**으로 이동 | 야간 집계 해석 주의 |
+| **F-2** | `POST`·`PATCH /api/event-suppression-schedules` **응답** | 요청을 **offset 없이**(naive/date-only) 보낸 경우에 한해 응답이 **+9시간**. **저장·`GET` 재조회는 정확** | **요청에 offset 을 명시**하면 회피됨. 또는 응답 대신 `GET` 재조회 |
+| **F-3** | `GET /api/logs` | `start_date`/`end_date` 가 유일하게 **비타입 `string`** — 파싱 실패 시 **500**(다른 18개는 422) | 형식 검증 후 호출 |
+| **F-4** | `GET /api/config-change-logs` → `before_state`/`after_state` | JSONB 내부는 변환을 우회해 **offset 혼재**. 실측 id 1626: 최상위 `+09:00` / 내부 `+00:00` / offset 없음 혼재 | 내부 값은 **offset 유무를 확인 후** 파싱 |
+
+**시간 파라미터를 받는 엔드포인트 전수**: 쿼리/경로 **19개** · 요청 body **6개** · 응답 포함 **178개**
+(총 251 operation 중 시간 접촉 180). 목록은 감사 문서 §1 참조.
+
+**입력 해석은 규약대로 동작함(실측)** — 같은 벽시계를 `+09:00` / `Z` / naive / date-only 로 보낸 4형태가
+동일 순간으로 수렴하고, naive 는 `DISPLAY_TIMEZONE` 으로 해석된다
+(`/api/events/detections` KST해석 5,290 ↔ UTC해석 4,533 중 실제 응답 **5,290**).
 
 ---
 
@@ -627,7 +654,7 @@ class EnumUserRole(str, Enum):
 # Python 정의 - app/utils/enums.py
 class EnumLogoutReason(str, Enum):
     MANUAL = "MANUAL"               # 사용자 직접 로그아웃
-    SELF_LOGOUT = "SELF_LOGOUT"     # 다른 세션에서 자신의 세션 종료
+    DUPLICATE = "DUPLICATE"         # 중복 로그인으로 기존 세션 강제 종료(evict)
     EXPIRED = "EXPIRED"             # 세션 만료
     FORCED = "FORCED"               # 관리자 강제 로그아웃
     LOCKED = "LOCKED"               # 계정 잠금으로 인한 로그아웃
@@ -745,12 +772,12 @@ class EnumAuditStatus(str, Enum):
 
 > **참조**: PRD_ConfigChangeLog.md v1.2
 
-#### EnumConfigResourceType (설정 리소스 유형 - 17종)
+#### EnumConfigResourceType (설정 리소스 유형 - 21종)
 ```python
 # Python 정의 - app/utils/enums.py
 class EnumConfigResourceType(str, Enum):
     """
-    설정 변경 대상 리소스 유형 (17종)
+    설정 변경 대상 리소스 유형 (21종)
     Note: SERVER, SERVER_CATEGORY는 SystemEvent에서 관리
     """
     # Device 계열 (10종)
@@ -770,6 +797,12 @@ class EnumConfigResourceType(str, Enum):
     MALFUNCTION_EVENT = "MALFUNCTION_EVENT" # 오동작 이벤트
     CONNECTION_EVENT = "CONNECTION_EVENT" # 연결 이벤트
     ACTION_EVENT = "ACTION_EVENT"         # 액션 이벤트
+
+    # v6.3 신규 (4종)
+    LAMP = "LAMP"                         # 램프(경광등)
+    EVENT_MAPPING_LAMP = "EVENT_MAPPING_LAMP"  # 이벤트-램프 매핑
+    SUPPRESSION_SCHEDULE = "SUPPRESSION_SCHEDULE"  # 이벤트 억제 스케줄
+    SETTINGS = "SETTINGS"                 # 세션/인증 정책 (resource_id=0 sentinel)
 
     # Integration 계열 (3종)
     EVENT_MAPPING = "EVENT_MAPPING"       # 이벤트 매핑
@@ -7725,9 +7758,7 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "device_id": 101,
   "type_event": "Intrusion",
-  "action_reported": "True",
   "result": "DISTANCE_SENSOR",
   "detail": {
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
@@ -7742,9 +7773,7 @@ Accept: application/json
 **Request Body** (전체 업데이트):
 ```json
 {
-  "device_id": 101,
   "type_event": "Intrusion", //(EnumEventType)
-  "action_reported": "True", //(EnumTrueFalse)
   "result": "DISTANCE_SENSOR", //(EnumDetectionType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
     "thumbnail": "http://192.168.1.50:8080/events/1002/thumb_full.jpg",
@@ -8316,7 +8345,6 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "device_id": 104,
   "type_event": "Fault",
   "reason": "FAULT_ETC",
   "detail": {
@@ -8334,7 +8362,6 @@ Accept: application/json
 **Request Body** (전체 업데이트):
 ```json
 {
-  "device_id": 104,
   "type_event": "Fault", //(EnumEventType)
   "reason": "FAULT_ETC", //(EnumFaultType) - v2.6 별도 필드 (필수)
   "detail": { //(optional, 상세 정보만)
@@ -8867,7 +8894,6 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "device_id": 104,
   "type_event": "Connection"
 }
 ```
@@ -8877,7 +8903,6 @@ Accept: application/json
 **Request Body** (전체 업데이트):
 ```json
 {
-  "device_id": 104,
   "type_event": "Connection" //(EnumEventType)
 }
 ```
@@ -8885,7 +8910,6 @@ Accept: application/json
 **필드 설명**:
 | 필드명 | 타입 | 필수 | 설명 |
 |--------|------|------|------|
-| device_id | Integer | Y | 장치 ID (Device FK) |
 | type_event | String | Y | 이벤트 유형 (EnumEventType: Connection) |
 
 **Response Example** (200 OK):
@@ -9992,6 +10016,8 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 | GET | `/api/event-suppression-schedules/{id}` | 단건 조회 | events:view | 6.8.5 |
 | PATCH | `/api/event-suppression-schedules/{id}` | 부분 변경 | events:edit | 6.8.6 |
 | DELETE | `/api/event-suppression-schedules/{id}` | 삭제(soft-cancel) | events:delete | 6.8.7 |
+| POST | `/api/event-suppression-schedules/bulk-delete` | **취소·종료 스케줄 일괄 하드삭제**(목록 정리) | events:delete | 6.8.8 |
+| — (NATS) | `sensorway.{부대ID}.all.sync.event-suppression` | **`SYNC_EVENT_SUPPRESSION` 발행** — 변경·창경계 전이 알림 | — | 6.8.9 |
 
 **필드 요약** (Enum 은 §4 참조 — `# Python 정의 - app/utils/enums.py`):
 
@@ -10000,8 +10026,8 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 | name | string(200) | ✅ | 작업명/사유 |
 | description | string(500) | | 상세 |
 | target_type | enum | ✅ | `device` / `group` / `all` (EnumSuppressionTargetType) |
-| target_device_id | int | target=device 시 | 대상 장비 devices.id |
-| target_group_id | int | target=group 시 | 대상 그룹 device_groups.id |
+| target_device_ids | int[] | target=device 시 ≥1 | 대상 장비 devices.id **배열**(복수, v6.3 확장) |
+| target_group_ids | int[] | target=group 시 ≥1 | 대상 그룹 device_groups.id **배열**(복수, v6.3 확장) |
 | target_side | enum | | `detection` / `surveillance` / `both`(기본). group·all 에 적용(감지=sensor/controller, 감시=camera 파생) |
 | event_scope | enum | ✅ | `connection` / `detection` / `malfunction` / `all` (EnumSuppressionEventScope) |
 | window_start / window_end | datetime | ✅ | 억제 시간창(KST +09:00, 저장 UTC). end>start, end 필수(자동 만료) |
@@ -10016,7 +10042,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 {
   "name": "GOP 3구역 펜스 보수",
   "target_type": "group",
-  "target_group_id": 5,
+  "target_group_ids": [5, 6],
   "target_side": "detection",
   "event_scope": "all",
   "window_start": "2026-08-01T09:00:00+09:00",
@@ -10031,7 +10057,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
   "message": "억제 스케줄 생성 성공",
   "data": {
     "id": 12, "name": "GOP 3구역 펜스 보수", "description": null,
-    "target_type": "group", "target_device_id": null, "target_group_id": 5,
+    "target_type": "group", "target_device_ids": [], "target_group_ids": [5, 6],
     "target_side": "detection", "event_scope": "all",
     "window_start": "2026-08-01T09:00:00+09:00", "window_end": "2026-08-01T18:00:00+09:00",
     "recurrence_rule": null, "is_active": true, "status": "pending",
@@ -10041,7 +10067,7 @@ ActionEvent는 DetectionEvent(침입 탐지), MalfunctionEvent(장애 발생)에
 }
 ```
 
-**Error**: 400(대상 device/group 미존재) · 422(end≤start, target_type↔id 불일치, enum 불량) · 401/403(인가).
+**Error**: 400(대상 device/group id 미존재 — 배열 원소 전부 검증) · 422(end≤start, device→ids≥1/group→ids≥1 위반, enum 불량) · 401/403(인가). ※ 대상은 모드 내 **복수**(device N개 / group N개), 응답도 `target_device_ids[]`/`target_group_ids[]` 배열.
 
 #### 6.8.3 GET `/api/event-suppression-schedules`
 
@@ -10060,7 +10086,70 @@ Query: `page`(≥1), `limit`(1~100), `status`(pending/active/expired/cancelled),
 #### 6.8.7 DELETE `/api/event-suppression-schedules/{id}`
 soft-cancel(`revoked_at` 세팅 + `is_active=false`, 물리삭제 아님). 응답에 취소된 스케줄(status=cancelled) 반환. **Error**: 404.
 
-#### 6.8.8 억제 게이트 (이벤트 수신 핸들러 동작)
+#### 6.8.8 POST `/api/event-suppression-schedules/bulk-delete`
+
+취소·종료(terminal) 상태의 억제 스케줄을 **일괄 하드삭제**(물리 제거)한다. `DELETE /{id}`(soft-cancel)와
+달리 행 + junction(`event_suppression_target_devices`/`_groups`)을 완전히 제거하며 **복구 불가**.
+누적된 취소·종료 이력으로 목록이 비대해질 때 정리 용도.
+
+**Request**
+
+```json
+POST /api/event-suppression-schedules/bulk-delete
+{ "ids": [3, 5, 8] }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| ids | int[] | ✔ | 삭제할 스케줄 id 목록. 1~500건, 중복 자동 제거 |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "삭제 2건 · 스킵(활성/예정) 1건 · 없음 0건",
+  "data": {
+    "deleted_ids":   [3, 5],
+    "skipped_ids":   [8],
+    "not_found_ids": []
+  }
+}
+```
+
+| 필드 | 의미 |
+|---|---|
+| deleted_ids | 실제 물리 삭제된 id (status = `cancelled` 또는 `expired`) |
+| skipped_ids | **활성(active)·예정(pending)이라 삭제하지 않음** — 먼저 `DELETE /{id}`로 취소해야 함(오삭제 방지 안전장치) |
+| not_found_ids | 존재하지 않는 id |
+
+- **안전장치**: 진행 중이거나 예정된 정비 창은 절대 삭제되지 않고 `skipped_ids`로 분리 보고된다.
+- **동시성**: 대상 행을 `SELECT ... FOR UPDATE`로 잠근 뒤 최신 커밋 상태로 status 를 **재판정**한다
+  (조회~삭제 사이 다른 세션의 PATCH 로 terminal→active 로 바뀐 행의 오삭제 차단, TOCTOU 안전).
+- 삭제된 건마다 `config_change_logs` 에 `SUPPRESSION_SCHEDULE / DELETED` 감사 기록을 남긴다.
+- **Error**: 422(`ids` 누락·빈 배열·500건 초과) · 401/403(인가).
+
+#### 6.8.9 NATS 발행 — `SYNC_EVENT_SUPPRESSION`
+
+억제 스케줄의 **변경**(생성/수정/대상교체/취소/하드삭제)과 **시간창 자연 전이**(창 시작·종료)는
+NATS 로 브로드캐스트되어 전 서브시스템이 "현재 공사 상태"를 인지할 수 있다.
+
+| 항목 | 값 |
+|---|---|
+| cmd | `SYNC_EVENT_SUPPRESSION` |
+| Subject | `sensorway.{부대ID}.all.sync.event-suppression` |
+| body | `{ "action": "CREATED\|UPDATED\|DELETED", "resource_id": 12, "status": "pending\|active\|expired\|cancelled" }` |
+
+- **취소(`DELETE /{id}`)는 soft-cancel 이라 `action=UPDATED` + `status=cancelled`** 로 나간다.
+  `action=DELETED` 는 **하드삭제(`POST /bulk-delete`)만**.
+- 소비자는 알림 수신 후 `GET /{id}`(상세) 및 `GET /active`(공사 상태 재계산)를 호출한다.
+- **억제 해제는 신호에 의존하지 않는다** — 소비자는 캐시한 `window_end` 로컬 타이머로 스스로 풀고,
+  `/active` 30~60초 폴링을 유지한다(NATS Core at-most-once → 종료 신호 유실 시 영구 침묵 방지).
+- 통지 지연 상한: 정상 **≤5초**(창 경계 date-job), 백스톱 **≤5분**(sweep). 억제 판정 자체는
+  요청시점 계산이 권위라 지연 0.
+- 상세 계약: 브로커 명세 `Gop_Message_Broker_연동설계_v1.6.md` **§9.12** (v1.6).
+
+#### 6.8.10 억제 게이트 (이벤트 수신 핸들러 동작)
 
 `POST /api/events/detections|malfunctions|connections` 이벤트가 활성 억제 창에 걸리면, 서버는 **201 대신 202** 를 반환하고 레코드를 생성하지 않으며 장비 상태 플립(탐지→ACTIVATED / 장애→ERROR)도 건너뛴다:
 
@@ -10071,7 +10160,7 @@ HTTP/1.1 202 Accepted
   "schedule_id": 12 }
 ```
 
-- 발행/POST 주체(PidsProxy/AiAnalysis)는 **202 를 성공(억제됨)으로 처리**(재시도 금지). 자세히는 `docs/subsystems/event-suppression/Proxy.md`.
+- 발행/POST 주체(PidsProxy/AiAnalysis)는 **202 를 성공(억제됨)으로 처리**(재시도 금지). 자세히는 `docs/subsystems/event-suppression/INTEGRATION.md` §2.6(202 계약)·§3.2(PidsProxy).
 - `connection` POST 는 본 차수부터 라우트-레벨 `events:edit` 데코레이터 정합(기존에도 중앙 매트릭스로 token 모드 인가됨).
 - 억제 판정은 요청시점 계산(권위), sweep(`SUPPRESSION_SWEEP_INTERVAL_MINUTES` 기본 5분)은 만료 창 `is_active` 정리(비권위 백스톱). 게이트 오류 시 **fail-open**(억제 안 함, 이벤트 정상 저장).
 
@@ -13585,6 +13674,27 @@ GET /api/servers/summary
 
 **필수 서버 유형 보장 (v6.3 후속 `proxy_mandatory_seed`)**: `PROXY / VMS / NVR_API / BROKER` 4종은 **유형 기준 보장** 대상 — 시스템 기동 시 해당 유형에 서버 인스턴스가 **하나도 없으면** 기본 인스턴스를 자동 생성한다. 이미 해당 유형 서버가 (사용자 등록분 포함) 존재하면 아무것도 만들지 않는다(중복 방지). 그 외 유형의 기본 인스턴스는 `servers` 테이블이 비어 있을 때만 최초 1회 시드된다.
 
+**시드가 만드는 서버 인스턴스 (v6.3 후속 `server_seed_env_gate`, 2026-08-07)**: **필수 4종, 유형당 1대뿐**이다. 데모 서버(AI · STREAM · TRANSCODER · DB_API · SPEAKER_API · ENCLOSURE_API)는 게이트로 끄는 게 아니라 **정의 자체를 삭제**했다 — 실체 없는 서버가 §8.4 요약에 가짜 장애로 집계되던 문제의 근본 제거.
+
+| type_server | name | ip:port | status |
+| ----------- | ---- | ------- | ------ |
+| `PROXY` | `PROXY-ab0001` | 192.168.1.100:8100 | `NORMAL` |
+| `VMS` | `VMS-ab1120` | 192.168.1.10:8080 | `NORMAL` |
+| `NVR_API` | `NVRAPI-ab7701` | 192.168.1.70:8090 | `NORMAL` |
+| `BROKER` | `BROKER-ab5501` | 192.168.1.50:5672 | `NORMAL` |
+
+**시드 게이트 2종**: 서버 시드는 `INIT_SAMPLE_DATA` 와 **무관한 독립 정책**이다(서버는 샘플데이터가 아니다). `docker-compose.yml` api-server `environment` 배선 필수(`.dockerignore` 가 `.env` 를 이미지에서 제외).
+
+| 환경변수 | 기본값 | 제어 대상 | false 일 때 |
+| -------- | ------ | --------- | ----------- |
+| `INIT_SERVER_CATEGORIES` | `true` | 10종 카테고리 static 시드 | 누락 카테고리를 만들지 않는다(삭제한 카테고리 부활 차단). 기존 카테고리 매핑은 유지되어 인스턴스 시드는 계속 동작 |
+| `INIT_SERVER_MANDATORY` | `true` | 필수 4종 기본 인스턴스 보장 | 필수 유형이 비어도 만들지 않는다 → **서버 인스턴스 0대**(카테고리만 생성) |
+
+- **보장 단위는 '유형당 정확히 1개'**다. 그 유형에 서버가 (사용자 등록분 포함) 하나라도 있으면 아무것도 만들지 않는다.
+- **빈 DB 에서 `INIT_SERVER_CATEGORIES=false`** 면 인스턴스를 붙일 카테고리가 없어 `INIT_SERVER_MANDATORY=true` 여도 서버는 0대다. 카테고리가 이미 있는 기존 DB 는 정상 동작한다.
+- **게이트는 '생성'만 막는다** — 이미 존재하는 카테고리/서버를 삭제하지 않는다.
+- ⚠ **메트릭 미수신은 상태를 바꾸지 않는다** — `server.status` 를 자동 전환하는 watchdog(staleness/offline 감지)은 **미구현**이며, 상태는 시드 리터럴이거나 `PUT /api/servers/{id}` 로만 바뀐다. 따라서 시드 리터럴이 곧 §8.4 요약 집계값이 되고, 되돌릴 자동 경로가 없다. 그래서 위 4행은 **반드시 `NORMAL`** 이어야 한다(`BROKER-ab5501` 이 `ERROR` 리터럴이라 신규 클론이 곧바로 `error=1` 로 뜨던 문제를 2026-08-07 정정).
+
 ---
 
 ### 8.6 Server Metrics API
@@ -14241,9 +14351,16 @@ Account API는 사용자 인증 및 계정 관리 기능을 제공합니다.
 ```json
 {
   "login_id": "<your_login_id>",
-  "password": "<your_password>"
+  "password": "<your_password>",
+  "client_id": "gis-monitoring"
 }
 ```
+
+> **클라이언트 식별 `client_id` (v6.3, 선택)**: 세션 주체를 구분하기 위한 값. **`X-Client-Id` 헤더가 우선**이며 없으면 body `client_id` 를 사용한다.
+> - 패턴 `^[A-Za-z0-9._:-]{1,64}$` — **위반값은 무시**하고 로그인은 정상 진행(422 로 막지 않음: 로그인 가용성 우선). 미전송이면 `null` 저장.
+> - 저장 위치 `user_sessions.client_id` → `GET /api/user-sessions` 응답 `client_id` 로 노출(§9.5.2/9.5.3).
+> - 규약값(예): `gis-monitoring`(GIS 관제), `central-ui`, `vms-service`, `middleware-service`.
+> - 정책 연동: `session_concurrency_policy=allow` **AND** `session_self_replace_enabled=true` 일 때만 **동일 `client_id`** 재로그인이 자기 옛 세션을 교체한다(§9.8). ★두 커넥션이 `client_id` 를 **공유하면 서로 축출**하므로, self-replace 를 켤 경우 커넥션별 고유값 필수. `evict_all` 모드에서는 `client_id` 와 무관하게 기존 세션이 전부 폐기된다.
 
 **Response (200 OK)**:
 ```json
@@ -14688,12 +14805,14 @@ Authorization: Bearer {access_token}
     {
       "id": 101,
       "user_id": 1,
+      "login_id": "operator01",
+      "role": "USER",
       "ip_address": "192.168.1.100",
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+      "client_id": "gis-monitoring",
       "expires_at": "2026-01-19T20:30:00+09:00",
       "is_active": true,
       "logout_reason": null,
-      "forced_by": null,
       "logged_out_at": null,
       "created_at": "2026-01-19T08:30:00+09:00",
       "updated_at": "2026-01-19T10:15:00+09:00"
@@ -14703,9 +14822,11 @@ Authorization: Bearer {access_token}
 ```
 
 > **필드 설명**:
+> - `login_id`/`role`: 세션 소유 계정 정보(AccountUser JOIN 조회값)
+> - `client_id`: **세션 주체 식별값**(v6.3) — 로그인 시 `X-Client-Id` 헤더(우선) 또는 body `client_id` 로 기록. 미전송 로그인·구버전 세션은 `null`(클라는 `-` 등으로 표기). 예: `gis-monitoring`, `central-ui`, `vms-service`
 > - `created_at`: 세션 생성(로그인) 시간
-> - `updated_at`: 마지막 활동 시간
-> - `forced_by`: 강제 로그아웃 처리자 User ID (강제 로그아웃 시)
+> - `updated_at`: 갱신 시각 — ★현재 로그인 이후 갱신되지 않아 `created_at` 과 동일(활동시각 아님). 최근순 정렬은 `created_at` 기준
+> - ※ `forced_by` 는 응답에 포함되지 않음(모델 내부 컬럼) — 과거 명세 기재 오류 정정(2026-08-07)
 
 #### 9.5.3 GET `/api/user-sessions/{id}`
 
@@ -14716,12 +14837,14 @@ Authorization: Bearer {access_token}
   "data": {
     "id": 101,
     "user_id": 1,
+    "login_id": "operator01",
+    "role": "USER",
     "ip_address": "192.168.1.100",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+    "client_id": "gis-monitoring",
     "expires_at": "2026-01-19T20:30:00+09:00",
     "is_active": true,
     "logout_reason": null,
-    "forced_by": null,
     "logged_out_at": null,
     "created_at": "2026-01-19T08:30:00+09:00",
     "updated_at": "2026-01-19T10:15:00+09:00"
@@ -15124,7 +15247,12 @@ Accept: application/json
     "lockout_duration_minutes": 30,
     "session_enabled": true,
     "auth_mode": "public",
-    "jwt_algorithm": "HS256"
+    "jwt_algorithm": "HS256",
+    "session_concurrency_policy": "evict_all",
+    "max_concurrent_sessions": 0,
+    "session_self_replace_enabled": false,
+    "session_history_retention_days": 0,
+    "login_anomaly_event_enabled": false
   }
 }
 ```
@@ -15138,6 +15266,11 @@ Accept: application/json
 | session_enabled | bool | ✅ | — |
 | auth_mode | string | ❌ 읽기전용 | 배포(.env) 전용 |
 | jwt_algorithm | string | ❌ 읽기전용 | 배포 전용 |
+| session_concurrency_policy | string | ✅ | `evict_all`(기본, 단일세션 강제) 또는 `allow`(계정 다중세션 공존). ★기본=현행 동작 |
+| max_concurrent_sessions | int | ✅ | 0(무제한) ~ 100. `allow`에서 초과 시 최오래된 세션부터 evict |
+| session_self_replace_enabled | bool | ✅ | 기본 false. `allow`+true 시 **동일 client_id** 재로그인만 자기 세션 교체(그 외 공존) |
+| session_history_retention_days | int | ✅ | 0(무동작) ~ 3650. >0이면 sweep 시 오래된 비활성 세션 이력 DELETE |
+| login_anomaly_event_enabled | bool | ✅ | 기본 false. (예약 — 신규 IP/UA 로그인 이상탐지 이벤트, 배선 후속) |
 
 > `jwt_secret`은 **절대 응답에 노출되지 않는다**(NFR-SVS-03).
 
@@ -15156,8 +15289,10 @@ Accept: application/json
 **Response (200 OK)**: GET과 동일한 전체 스냅샷(`data`).
 
 **Error**:
-- `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422.
+- `422` — 경계 위반. 특히 `lockout_threshold`가 0 또는 3~20 외(예: 1, 2) → 422. `session_concurrency_policy`가 `evict_all`/`allow` 외, `max_concurrent_sessions` 0~100 외, `session_history_retention_days` 0~3650 외 → 422.
 - `401`/`403` — 미인증 / 비-ADMIN.
+
+> **동시세션 정책(v6.3-session_concurrency)**: 기본 `evict_all`은 로그인 시 같은 계정의 기존 세션을 전부 강제폐기(단일세션). `allow`로 전환하면 계정 다중세션 공존(SSO 대비) — 신규 로그인부터 적용, 기존 세션 유지. 로그인 시 클라이언트는 `X-Client-Id` 헤더(또는 `client_id` 바디 필드, 1~64자 `[A-Za-z0-9._:-]`)로 자신을 식별하며, `session_self_replace_enabled=true`일 때 **동일 client_id** 재로그인만 자기 세션을 교체한다. 폐기된 토큰으로의 요청은 `401 SESSION_REVOKED`(`details.reason`=`DUPLICATE` 등)로 통일 응답.
 
 ---
 
@@ -15907,6 +16042,7 @@ GIS 추적(Tracking) 이력 영속·조회 API. NATS `sensorway.{부대ID}.gis.t
 | 400 | `BAD_REQUEST` | 잘못된 요청 | 필수 파라미터 누락, 데이터 형식 오류 |
 | 400 | `VALIDATION_ERROR` | 데이터 검증 실패 | 이메일 형식 오류, 범위 초과 값 |
 | 401 | `UNAUTHORIZED` | 인증 실패 | 토큰 없음, 토큰 만료 |
+| 401 | `SESSION_REVOKED` | 세션 폐기 | 강제로그아웃/블랙리스트/중복로그인으로 폐기된 토큰 접근 — 403(권한부족)과 구분. `details.reason`(DUPLICATE/PASSWORD_CHANGED 등) 보존, 클라 즉시 재로그인 |
 | 403 | `FORBIDDEN` | 권한 없음 | 리소스 접근 권한 없음 |
 | 404 | `NOT_FOUND` | 리소스 없음 | 존재하지 않는 ID 조회 |
 | 409 | `CONFLICT` | 충돌 | 중복 리소스 생성 시도 |
@@ -16493,6 +16629,103 @@ python scripts/migrate_event_device_id.py
 
 ## 변경 이력
 
+### [v6.3 후속] **2026-08-07** — 세션 `client_id` 노출 + `DISPLAY_TIMEZONE` 배선 수정 + datetime/TZ 전수감사 + 서버 시드 env 게이트
+
+> **하루 1버전 원칙**에 따라 2026-08-07 에 수행된 4개 작업(`session_client_id_response`,
+> `tz_wiring`, `datetime_tz_audit`, `server_seed_env_gate`)을 본 항목 하나로 묶는다.
+
+#### (1) `session_client_id_response` — 세션 목록에 client_id 노출
+
+> GIS 관제 요청(세션관리 '클라이언트' 컬럼 전행 `-`). 검증 결과 **컬럼·저장은 이미 동작**(v68 + 로그인 X-Client-Id 기록, DB 실측 `central-ui` 84건)하고 **응답 노출만 누락**이어서 그 한 곳을 보강.
+
+- **코드**: `UserSessionResponse.client_id`(Optional) + `_session_to_response` 에 `client_id` 추가 — 목록/단건/사용자별 3경로 공통 헬퍼라 일괄 반영. 순수 **필드 추가**(기존 계약 불변).
+- **명세**: §9.5.2/9.5.3 응답 예시에 `client_id`·`login_id`·`role` 추가, **`forced_by` 삭제**(코드 미반환 — 과거 허위기재 정정), `updated_at` 이 활동시각 아님(=created_at) 명기. §9.2.2 로그인에 `client_id`/`X-Client-Id` 계약(헤더 우선·패턴·무효값 무시·self-replace 연동) 문서화.
+- **Swagger(5중싱크)**: `user_sessions` 3개 GET 이 `response_model` 미지정(dict 직접 반환)이라 OpenAPI 의 `UserSessionResponse` 스키마가 **빈 상태**로 노출되던 문제 동반 해소 — `responses={200: {"model": ApiResponse[...]}}` **문서 전용** 지정으로 13필드(client_id 포함) 노출. ★런타임 응답(`success`/`data`)은 불변(검증 완료).
+- **검증(5중싱크)**: ①코드 ②Swagger `UserSessionResponse.client_id` 노출 ③명세 §9.2.2·§9.5.2/9.5.3·본 ChangeLog ④이미지 재빌드 ⑤컨테이너 healthy. 라이브: 로그인(`X-Client-Id: gis-monitoring`) → 목록·단건 응답 `client_id="gis-monitoring"` 실측, `/me` 200, 응답 최상위 키 불변. 미전송/구버전 세션은 `null`(**소급 불가** — 신규 로그인부터 표시).
+
+#### (2) `tz_wiring` — `.env` 의 `DISPLAY_TIMEZONE` 이 컨테이너에 전달되지 않던 배선 구멍 수정
+
+> §3.4 는 "재배포 시 `DISPLAY_TIMEZONE` 만 바꾸면 된다"고 약속하나, **호스트 `.env` 값이 컨테이너에 도달하지 않았다**. 값이 우연히 같아 드러나지 않던 침묵 불일치.
+
+- **원인(실측)**: `.dockerignore:53-54` 가 `.env` 를 이미지에서 제외 → 컨테이너에 `/app/.env` 없음. compose 에 `env_file:` 도 해당 env 키도 없어 **코드 기본값**이 쓰임. `TZ` 는 `config.py` 의 `case_sensitive=True` 때문에 settings 필드에 미매핑.
+- **수정**: `docker-compose.yml` api-server 에 `DISPLAY_TIMEZONE`/`TIMEZONE`/`TZ` 를 `${DISPLAY_TIMEZONE:-Asia/Seoul}` 로 배선(compose 는 호스트 `.env` 를 `${}` 치환용으로 자동 로드 → `.dockerignore` 우회). `.env.example` 에 두 키 등재(기존 누락). `app/config.py` 에 `TZ` 미매핑 주석 명시.
+- **`.env` 한글 주석 복구**: 리터럴 `?` 146개로 이미 손상돼 있던 주석 복구. **값 바이트 동일**(누락 0 · 변경 0), 추가는 `DISPLAY_TIMEZONE` 키뿐.
+- **검증**: 재기동 후 컨테이너 env 실재(`TIMEZONE`/`DISPLAY_TIMEZONE`/`TZ` = `Asia/Seoul`) + `settings.display_tz` 반영 확인.
+- **⚠ 이전 판단 정정**: 같은 커밋에서 postgres `PGTZ` 배선이 "리포트 일별 버킷 불일치도 해소한다"고 적었으나 **틀렸다**. `PGTZ` 는 postgres 컨테이너 내부 libpq **클라이언트** 변수라 `psql` 에만 적용되고, api-server 의 asyncpg 세션은 `postgresql.conf` 의 `timezone = UTC` 를 그대로 쓴다(실측 `SHOW timezone = UTC`, api-server 에 `PGTZ` 부재). → **§3.4.1 F-1c 로 미해결 등재**.
+
+#### (3) `datetime_tz_audit` — 시간 엔드포인트 전수 인벤토리 + 실측 검증
+
+> PM 질의("`.env` tz 가 datetime 생성의 기준인가")를 계기로 **시간정보를 다루는 모든 엔드포인트를 파라미터부터 기계 추출**해 목록화하고 실제 호출로 검증. 추정 배제, 컨테이너/DB 실측 출력과 `file:line` 만 근거.
+
+- **답**: 4단계를 분리해야 정확하다 — **생성 = UTC 고정(`.env` 무관)** / **저장 = UTC** / **입력해석 = `DISPLAY_TIMEZONE`** / **출력렌더 = `DISPLAY_TIMEZONE`**. `.env` 의 tz 는 "생성"이 아니라 "해석·표시"를 정한다.
+- **인벤토리**: 251 operation 중 시간 접촉 **180**(쿼리 19 · body 6 · 응답 178). DB 시간컬럼 테이블 45(`timestamptz` 43 / naive 예외 2: `api_logs`, `schema_migrations`).
+- **입력 검증**: 같은 벽시계를 `+09:00`/`Z`/naive/date-only 4형태로 전송 → DB 에서 두 해석으로 직접 센 오라클과 대조. 두 해석 건수가 갈리는 밀집 구간을 골라 판별력 확보(detections 5,290 ↔ 4,533). **naive → `DISPLAY_TIMEZONE` 확정**.
+- **출력 검증**: GET 97개 실호출 → datetime 문자열 **254개 전부 `+09:00`**(최상위 필드 기준).
+- **결과**: 결함 **7건** + 위험 **2건**. §3.4 본문 정정 + **§3.4.1 알려진 이탈 지점** 신설. 상세·재현절차는 `docs/analyses/datetime-tz-endpoint-audit.md`.
+- **코드 변경 없음** — 조치는 PM 결재 후 별도 차수(F-0/F-1/F-1b 최우선).
+
+#### (4) `server_seed_env_gate` — 서버 시드 `.env` 게이트 + 데모 인스턴스 전량 제거 + 결함 2건 수정
+
+> PM 지시 3단계: ①"서버 생성 시드는 무조건으로 되어있는데 `.env` 로 뺄 수 있나 — **샘플데이터 아니다, 같이 묶지 마라**"
+> ②"에러인 브로커는 제거해줘" ③"**데모 항목은 없애줘**".
+> 확인 결과 서버 시드는 `INIT_SAMPLE_DATA` 블록 **밖**에서 무조건 실행 중이었고(`init_db.py:372`), 같은 날 실사고까지 발생해 있었다.
+
+- **실사고(라이브 실측)**: `api_logs` 2026-08-07 13:34:34 `DELETE /servers/categories/1` 200 → VMS 카테고리 + cascade 로 VMS 서버 삭제. **47초 뒤 재기동**(13:35:21)에 시드가 카테고리를 `id=12` 로 부활시키고 `VMS-ab1120`·`ab1121` **2대를 재생성**. 운영자 삭제가 무효화됐다.
+- **신설 게이트 2종** (§8.5 표): `INIT_SERVER_CATEGORIES`(기본 true) · `INIT_SERVER_MANDATORY`(기본 true). `INIT_SAMPLE_DATA` 와 완전 독립. `config.py` 필드 + `docker-compose.yml` `environment` + `.env`/`.env.example` 배선(`.dockerignore` 가 `.env` 를 제외하므로 compose 배선이 없으면 호스트 값이 전달되지 않음 — `tz_wiring` 과 동일 함정).
+  - 게이트를 꺼도 **기존 카테고리 매핑은 반환**한다(`create_server_categories(create_missing=False)`) → 카테고리 부활만 막고 인스턴스 보장은 계속 동작.
+  - 함수 인자(`include_categories`/`include_mandatory`)로 env 를 덮어쓸 수 있다 — 테스트 결정성 확보용(환경 의존 테스트 금지).
+- **데모 인스턴스 전량 제거(PM 지시 ③)**: 중간 설계였던 `INIT_SERVER_DEMO` 게이트를 폐기하고 **정의 자체를 삭제**했다. `DEFAULT_SAMPLE_SERVERS`(15행) → **`DEFAULT_MANDATORY_SERVERS`(4행, 유형당 1행)**. 제거 대상 11행 = 비필수 유형 9(AI 3 · STREAM 2 · TRANS 1 · DBAPI 1 · SPK 1 · ENC 1) + 필수 유형 여분 2(`VMS-ab1121`, `BROKER-ab5502`). 함수도 실체에 맞게 개명: `create_sample_servers` → **`ensure_mandatory_servers`**(+`_async`), `_build_sample_server_rows` → `_build_mandatory_server_rows`. 의미가 중복되던 `include_samples` 인자는 `include_mandatory` 로 흡수해 제거(호출자는 `init_db.py` 뿐이라 무영향).
+  - 결과 계약: **`INIT_SERVER_MANDATORY=false` → 서버 인스턴스 0대**(카테고리만). 빈 DB 에서 `INIT_SERVER_CATEGORIES=false` 면 붙일 카테고리가 없어 역시 0대.
+- **결함 A 수정 — 보장 단위가 '유형당 1개'가 아니었다**: `mandatory_type_has_server` 스냅샷을 루프 안에서 갱신하지 않아, 같은 유형이 2행인 `VMS`·`BROKER` 가 **2개씩** 생성됐다(위 사고의 VMS 2대 부활이 이 버그). 스냅샷 즉시 갱신으로 정정. 데모 제거 후 정의가 유형당 1행이라 지금은 방어적이지만, 향후 행 추가 시 재발을 막기 위해 유지한다.
+- **결함 B 수정 — 보장 인스턴스가 ERROR 로 태어남**: `BROKER-ab5501` 이 `status=ERROR` 리터럴이라 신규 클론이 곧바로 §8.4 요약에 `error=1` 로 떴다. **`NORMAL` 로 정정** + 회귀 테스트로 "정의 4행 전부 NORMAL" 을 고정.
+- **⚠ 메트릭 미수신 ≠ 상태 변화(명세 명문화)**: staleness/offline watchdog 은 **미구현**이고 `server.status` 는 시드 리터럴 또는 `PUT /api/servers/{id}` 로만 바뀐다(`servers.py:507` 단 한 곳). 라이브 실측 — 서버 **15대 전부 `server_metrics` 0건**인데 `/servers/summary` 는 `AI_ANALYSIS warning=1`, `BROKER error=1` 을 상시 반환(= 실체 없는 가짜 장애). `metrics/latest` 는 404 가 아니라 **200 + `latest_metrics: null`**. 임계치 로직(`_create_threshold_events`)은 `SystemEvent` 만 만들고 `server.status` 는 건드리지 않는다.
+  - **`init_sample_data.py` 동반 정정(PM 지시)**: 같은 성격의 리터럴이 `INIT_SAMPLE_DATA` 경로에도 있었다 — `BROKER-01=ERROR`, `AI-02=WARNING`, 그것도 sync `_create_servers` / async `_create_servers_async` 에 **2벌**. `INIT_SAMPLE_DATA=false` + `servers` count>0 가드로 dormant 였으나 **빈 DB + `INIT_SAMPLE_DATA=true`** 면 가짜 장애가 되살아나는 지뢰라 **4곳 전부 `NORMAL` 로 정정**했다.
+  - **소스 레벨 회귀 고정**: `test_should_never_hardcode_non_normal_server_status_in_any_seeder` — 두 시더 소스를 정규식 스캔해 비-주석 라인에 `EnumServerStatus.ERROR|WARNING` 리터럴이 하나라도 있으면 실패. 앞으로 어떤 시더도 서버를 장애 상태로 태어나게 할 수 없다. (`SystemEvent` 의 `severity` 는 이벤트 '이력' 이라 `server.status` 와 무관 → 스캔 대상 아님.)
+- **async 병존 동기화**: `create_server_categories_async`/`ensure_mandatory_servers_async`/`initialize_server_data_async` 3함수는 현재 **미사용**(`initialize_database_async()` 가 sync 경로 호출)이나, 재배선 시 게이트 누락이 없도록 동일 시맨틱을 함께 반영.
+- **검증**: `tests/test_server_seed.py` **7 → 23 passed**(정의 4 · 카테고리 3 · 인스턴스/게이트 8 · 멱등·존중 6 등). 데모 부활 방지 테스트(`REMOVED_DEMO_NAMES` 11종)와 `INIT_SERVER_DEMO` 부재 단언을 함께 고정. 전체 스위트 **베이스라인 대조로 신규 실패 0**(`pre-server_seed_env_gate` worktree 대조, 동일 정렬 `-p no:randomly`; 서버 10개 모듈 실패집합 51줄 **완전 동일**). 5중싱크: ①코드 ②Swagger(엔드포인트 계약 불변 — 시드는 기동 경로라 OpenAPI 표면 변화 없음) ③명세 §8.5 + 본 ChangeLog ④이미지 재빌드 ⑤컨테이너 healthy·라이브 재검증. 롤백 태그 `pre-server_seed_env_gate`.
+- **라이브 정리(2단계, 백업 SQL 선행 — `data/backups/`)**:
+  1. 실체 없는 데모 9대(AI 3 · STREAM 2 · TRANS 1 · DBAPI 1 · SPK 1 · ENC 1) 삭제 → `warning=1` 해소.
+  2. `BROKER-ab5501`(ERROR, 2026-07-04 구 시드분) 삭제 → `error=1` 해소. 코드 리터럴 정정(결함 B)은 신규 생성분에만 적용되므로 기존 행은 별도 제거가 필요했다. BROKER 유형에 `ab5502`(NORMAL)가 남아 **유형 보장 충족 → 재기동 시 부활 없음**을 실증.
+  - 결과: `servers` **5대**(VMS 2 · BROKER 1 · NVR_API 1 · PROXY 1), `/servers/summary` **warning=0 · error=0**. 사용자 등록 `PROXY-ab0101` 보존.
+
+### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
+
+> 최근 기능 전량이 명세에 반영됐는지 9에이전트 워크플로우로 245 엔드포인트·코드 전수 대조. 판정=대체로 최신, 갭 23건(P0 4·P1 14·P2 5). 상세: `docs/analyses/spec-freshness-audit.md`.
+
+- **P0 정정(계약 붕괴)**: PUT `/events/{detections,malfunctions,connections}/{id}` 요청 예시·필드표에서 `device_id`/`action_reported` 삭제 — 코드 `extra='forbid'`라 명세대로 호출 시 **422**였음(능동적 오문서). PUT 은 type_event/(result|reason)/detail 만.
+- **P1 enum/에러 정합**: §4 EnumLogoutReason `SELF_LOGOUT`→`DUPLICATE`(코드 일치) · EnumConfigResourceType 17→21종(LAMP/EVENT_MAPPING_LAMP/SUPPRESSION_SCHEDULE/SETTINGS) · §12.2 에러표 `401 SESSION_REVOKED` 행 추가.
+- **잔여 갭 19건 추적**(분석문서): 중앙 매트릭스 집행 미문서(§9)·reports cancel/DELETE/detail.csv(§10.4)·로그인 client_id(§9.2)·user-sessions login_id/role·forced_by·metrics 파라미터(§8.6)·SYNC_DETECTION 본문·Suppression enum §4 등.
+
+### [v6.3 후속] `event_put_lazyload_fix` — 이벤트 PUT/POST device lazy-load 500 수정 (2026-08-03)
+
+> GIS 리포트(`docs/coordinations/GOP_Server_API_event_PUT_500_lazyload_REQUEST.md`) 검증 후 수정. `PUT /api/events/detections/{id}`·`PUT /api/events/connections/{id}` 가 응답 조립 시 `event.device` 를 async 컨텍스트에서 lazy-load(MissingGreenlet) → 500. ★UPDATE 는 commit 된 뒤 응답에서 터져 "저장됐는데 실패 표시"(데이터/화면 불일치).
+
+- **수정**: 두 PUT 핸들러 조회에 `selectinload(...device).selectin_polymorphic([...])` 추가(detections.py:604·connections.py:545) — 목록/단건/PATCH/malfunctions PUT 과 동일 패턴.
+- **동반 발견·수정(잔여 점검, GIS §4 요청)**: `POST /api/events/connections`(create) 도 device 를 `select(Device)` 로만 조회(폴리모픽 누락) → 생성 응답에서 동일 500(connection_events 생성 자체 불가 원인). connections.py:362 에 selectin_polymorphic 추가. detections/malfunctions POST 는 정상.
+- **검증**: detection PUT 무변경 왕복 → 200+device / connection 생성→왕복 PUT→삭제 전 구간 200+device / event 목록·단건·PATCH 무회귀. 롤백태그 `pre-event_put_lazyload_fix`.
+- **미해결(별건)**: 응답 조립 실패 시 commit-후-500 정책(부분 실패 노출) · 원격 테스트서버 bulk-delete 405 는 재배포 대기(코드 존재).
+
+### [v6.3 후속] `event_suppression_multi_target` — 정비 창 대상 복수 선택 지원 (2026-08-01)
+
+> GIS 요청(P1). 한 정비 창에 **복수 대상**(장비 N개 / 그룹 N개 / 전체) 지정. `target_type`(device/group/all 배타) 유지, 단일 FK → **배열 + junction 2테이블**. §6.8 필드/예시 배열화.
+
+- **모델**: 단일 컬럼 `target_device_id`/`target_group_id` 제거 → junction `event_suppression_target_devices`·`event_suppression_target_groups`(각 schedule_id/device|group_id FK **CASCADE**, UNIQUE). 관계 `lazy="selectin"`(async 안전). 마이그 **v70**(기존 단일행→junction 이관 + 컬럼 DROP, 멱등·fresh no-op).
+- **스키마/API**: Create/Update `target_device_ids: int[]`·`target_group_ids: int[]`(device→≥1/group→≥1 검증, 중복제거). Response·목록·/active 배열 반환. 목록 필터 `?device_id=`/`?group_id=`는 junction 포함 매치(EXISTS).
+- **게이트 `is_suppressed()`**: DEVICE `device_id ∈ ids`, GROUP `set(group_ids) ∩ 소속그룹 ≠ ∅`. 그룹 멤버십은 후보 전체 group_ids 합집합 1회 배치조회(N+1 회피 유지). fail-open 등 안전장치 불변.
+- **테스트** `tests/test_event_suppression.py` **32 passed**(멀티 device 집합·멀티 group 교집합·CRUD 다중그룹+필터·PATCH 대상교체). 회귀 0.
+- **라이브 E2E**(EnclosureManager): 복수 device[11,12] 둘 다 202·대상외 13 정상 201·상태불변 / 복수 group[1,2] 교집합 억제·필터 매치 — **13/13 PASS**, DB 청결. 5중싱크(명세 §6.8·Swagger 배열·재빌드·v70 적용). 롤백 `pre-v6.3-event_suppression_multi_target`.
+
+### [v6.3 후속] `session_concurrency` — 다중세션 정책 + 인증 하드닝 (evict_all/allow, RBAC-03, SEC-01, SSO 예약) (2026-07-31)
+
+> 단일세션 강제 evict 를 **정책화**(SSO 다중세션 대비). §9.8 세션설정에 5키 추가, §9.2 로그인에 `X-Client-Id`. ★기본값=현행 100% 보존(evict_all·상한0·self_replace off) → 배포 직후 동작 0. 커밋 `9b7b8c0`(origin). 라이브: A01~A18 10/10 + allow공존 + RBAC403 + SEC-01.
+
+- **설정(§9.8)**: `session_concurrency_policy`(evict_all|allow) · `max_concurrent_sessions`(0=무제한, 초과 시 최오래 evict) · `session_self_replace_enabled`(동일 client_id 재로그인만 교체) · `session_history_retention_days`(0=무동작, sweep DELETE) · `login_anomaly_event_enabled`(예약). `settings_service`/`schemas.settings`/`routers.settings` + `ConfigChangeLog` 감사.
+- **스키마**: 마이그 `v68_session_client_id.sql`(멱등) — `user_sessions.client_id VARCHAR(64)` + **SSO 예약컴럼** `auth_source`(기본 'local')·`idp_subject`·`idp_session_id` + 부분 인덱스 2종. `UserSession` 모델 반영, `IDEMPOTENT_MIGRATIONS` 등재.
+- **로그인(§9.2)**: `X-Client-Id` 헤더 우선(또는 `client_id` 바디, 1~64자 `[A-Za-z0-9._:-]`, invalid=무시). `allow`에서 정책 분기(evict_all=현행/allow=공존), cap 초과 evict_oldest, self-replace 게이트.
+- **RBAC-03**: `enforce_matrix` 경로해석을 `request.url.path`로 교정 — 중첩마운트 상대경로 버그(전 라우트 무집행)를 실집행으로. integrations 등 등록경로 권한0 USER 쓰기 → **403**(수정 전 404).
+- **SEC-01**: 폐기 토큰이 전역 enforcer 경유 쓰기에서도 `401 SESSION_REVOKED`(`details.reason` 보존) 동형 발화 — read/write shape 일치.
+- **SSO 예약(로직 0)**: `config.py` `SSO_ENABLED=False`/`OIDC_*=""` — 실배선은 후속 SSO PRD. FR-FIX-01~04(P0 세션결함, 커밋 ff0126b) 선행.
+
 ### [v6.3 후속] `event_suppression` — 스케줄 기반 이벤트 수신 억제(정비 창) 신규 (2026-07-31)
 
 > 신규기능(PRD→plan→dev→test). 공사·설치·장애수리·AS 기간에 **대상(장비/그룹/전체) × 이벤트유형(연결/탐지/장애/전체) × 시간창**을 지정해 이벤트 수신을 억제. §6.8 신규. ★범위=Phase 1(이 서버 **저장·DB파생 억제**; 라이브 NATS 방송 미차단=Phase 2 각 서브시스템 몫, `docs/subsystems/event-suppression/`).
@@ -16522,6 +16755,9 @@ python scripts/migrate_event_device_id.py
 - **serializer** `schemas/common.py`·`main.py`: `KSTDatetime`/전역 encoder/오류 meta → `to_display`(DISPLAY_TZ), OpenAPI `format:date-time` 유지. **입력 정규화(FR-07)** `ReportGenerateRequest` 등 body 비교 전 `to_utc`. 라우터 정규화 헬퍼(`_to_naive_kst` 계열 6종)·리포트 범위 → `to_utc` 위임.
 - **api_logs**: 파티션 키 ALTER 불가 → 컬럼은 naive 유지하되 저장을 **naive-UTC 벽시계**(`utc_now().replace(tzinfo=None)`)로 바꿔 전역 naive=UTC 규약과 정합(월파티션 ±offset 시프트는 인접월 안착). 업그레이드 직후 **구(舊) KST 행은 retention 소멸까지 표시 offset skew**(전환기, 신규 행 정확). 완전 timestamptz 재생성은 v67(선택) 이연.
 - **라이브 검증(재빌드·재기동)**: 마이그 72 timestamptz / 10 제외(api_logs 9+schema_migrations). aware `collected_at +09:00` POST → **201**(저장 UTC 10:50 / 출력 +09:00). 읽기 GET 다수 200+`+09:00`. reports/generate aware 범위 → **201→COMPLETED**(역순=422, TypeError 아님). 오류 meta `+09:00`. 다국가 `to_display` 격리검증(Budapest `+02:00` DST). 롤백 3종: git `pre-datetime_unification` · 이미지 `pids-api-server:pre-datetime_unification` · DB덤프 `backups/datetime-unification-20260731/`.
+- **후속 fix `gis-ingest`(`3e91dfe`)**: gis-ingest 워커(raw asyncpg)가 v66 timestamptz 전환 후 `track_points.observed_at` 을 naive-KST 로 바인딩 → asyncpg 가 naive 를 UTC 로 간주해 **+9h 미래로 조용히 저장**(데이터 오염) → `_parse_observed_at`/`ingested_at` 을 aware UTC 로 수정. 라이브 E2E(UTC 10:30 입력→10:30 저장) 복구, `test_gis_ingest` 8 passed, 이미지 재빌드.
+- **후속 fix 리포트 끝일 경계(`c349a1d`)**: FR-07 validator 가 `end_date` 를 aware UTC 로 선변환하면서 리포트 FR-RCD-03 자정판정(`end_date.hour==0`)이 깨져 date-only/자정 end 가 23:59:59 로 확장 안 되어 **끝일 통째 누락**하던 회귀 → 판정을 DISPLAY_TZ 벽시계(`to_display`)로 교정 후 확장→`to_utc` 저장. 라이브: date-only `2026-01-06` end → 저장 `2026-01-06 14:59:59 UTC`(=23:59:59 KST, 끝일 포함) 복구. GIS 문의(Q2) 검증 중 발견. §3.4 날짜 범위 필터 규약 동반 신설.
+- **후속 fix 응답 offset 누락(Q4)**: `camera_presets`·`enclosure_metrics`·`rois`·`xypoints` 라우터가 응답 dict 에 `X.created_at.isoformat()` 로 datetime 을 직접 문자열화 → 전역 encoder(`to_display`) 우회로 **`+00:00`(UTC) 출력**(규약 `+09:00` 위반, Pydantic KSTDatetime 미경유 dict 응답). 27곳 `to_display(...).isoformat()` 로 교정 → 응답 datetime 전 엔드포인트 `+09:00` 일관. EnclosureManager 계정 라이브 테스트 중 발견(enclosure `created_at` `+00:00`→`+09:00` 실측).
 
 ### [v6.3 후속] `detection_sync` — 탐지 이벤트 SYNC 발행 (PTZ 회전후 썸네일 갱신 통지) (2026-07-31)
 
@@ -16531,7 +16767,7 @@ python scripts/migrate_event_device_id.py
 - `db_monitor/main.py`: `CMD_SUBJECT_MAP` `SYNC_DETECTION → all.sync.detection` (from=DBApi).
 - `app/schemas/event.py`: `DetectionDetail`에 `frame_width`/`frame_height`(px) 추가 + Swagger 예시 4곳 — broker-v15 교차검증 GAP 해소. detail 서술 §이벤트 갱신.
 - 라이브 검증: POST(생성)→**미발행**, PATCH detail→`{UPDATED,id}`, DELETE→`{DELETED,id}`, subject=`all.sync.detection`·from=DBApi. 단위 `tests/test_detection_detail_frame.py` 3 passed.
-- 브로커 명세 `Gop_Message_Broker_연동설계_v1.5.md` §3.2/§6.1/§9.11/카탈로그 동반 갱신. 롤백태그 `pre-detection_sync`.
+- 브로커 명세 `Gop_Message_Broker_연동설계_v1.6.md` §3.2/§6.1/§9.11/카탈로그 동반 갱신. 롤백태그 `pre-detection_sync`.
 
 ### [v6.3 후속] `server_metrics_tz_fix` — server_metrics collected_at 타임존 INSERT 실패 수정 (2026-07-31)
 
@@ -16562,6 +16798,7 @@ python scripts/migrate_event_device_id.py
 
 | 버전 | 날짜 | 변경 내용 |
 |------|------|-----------|
+| v6.3.2 | 2026-08-03 | **[event_suppression_bulk_delete]** 억제 스케줄 **일괄 하드삭제** 엔드포인트 출하 — `POST /api/event-suppression-schedules/bulk-delete`(events:delete, §6.8.8 신설). soft-cancel(`DELETE /{id}`)만으로는 취소·종료 이력이 목록에 무한 누적되어 정리 수단이 없던 문제 해소. **안전장치**: 활성(active)·예정(pending)은 삭제하지 않고 `skipped_ids` 분리 보고(먼저 취소 필요), 존재하지 않는 id 는 `not_found_ids`. **동시성**: `SELECT ... FOR UPDATE` 잠금 후 status 재판정(TOCTOU 오삭제 차단). 삭제 건별 `SUPPRESSION_SCHEDULE/DELETED` 감사 기록. 행 + junction(`event_suppression_target_devices`/`_groups`) cascade 제거(복구 불가). 기존 억제 게이트 절 §6.8.8→**§6.8.9** 재번호. `PERMISSION_MAP` 등재(중앙 매트릭스 커버). Swagger `info.version` 6.3.1→**6.3.2**. 커밋 `82ed70d`. ※ 코드는 2026-08-01 작성됐으나 명세·이미지·컨테이너 미반영(5중싱크 3/5 위반) 상태였던 것을 본 차수에서 완결. |
 | v6.3.1 | 2026-07-31 | **버그픽스+기능 릴리즈** — **[proxy_mandatory_seed]** PROXY 기본 시드 누락 보강(기본 카테고리 9→10 + 필수 유형 보장 `{PROXY,VMS,NVR_API,BROKER}` 유형 기준: 해당 유형 서버 0개일 때만 기본 생성). **[proxy_settings_typed]** `proxy-settings`(GET/PATCH/PUT) **PROXY 서버 전용 강제**(비-PROXY 404 + lazy-create 차단, **계약 변경**). Swagger `info.version` 6.3.0→**6.3.1**. 라이브 검증(PROXY=200 / VMS=404 / seed `mandatory +0`), `tests/test_server_seed.py` 7 + `tests/test_proxy_settings_router.py` 11 passed. 커밋 `7ee1941`·`cbf63bd`. **[server_metrics_tz_fix]** collected_at aware→naive-KST(asyncpg 500 해소). **[settings_config_enum]** enum SETTINGS 보강(세션설정 500 자가치유, v65). **[detection_sync 기능]** 탐지 UPDATE/DELETE→`SYNC_DETECTION`@`all.sync.detection` 발행(INSERT 미발행·PTZ 회전후 썸네일 재수신)+`DetectionDetail` frame_width/height. 커밋 `735ae5b`. |
 | v6.3 후속 | 2026-07-21 | **[grant_enforcement_hardening]** GIS 서버측 집행 분석(`Grant_Enforcement_Server_Analysis.md`) 검토 → 권한부여(grant) 시간기반 집행 하드닝. **API 계약 불변(6.3.0 / 129 paths)** — 실제 flip(NATS 활성·default-deny enforce)은 배포 게이트.<br><br>**[Phase 1 검증부채]** 경계초(`valid_until==now`) 삼중 회귀(순수 `grant_status` · sync `_active_grants` · async `_active_grants_async` 정합) · `AUTH_MODE=token` 집행 E2E · `async_db` 격리(운영 DB 무접촉) · async sweep 발행(사용자당 1회 dedup).<br><br>**[Phase 2 통지/집행]** ① per-grant 실시간 만료 통지(`app/services/grant_scheduler.py` — `valid_until` date job→`publish_permissions_changed`, 부팅 재등록) ② 스윕 주기 설정화 `GRANT_SWEEP_INTERVAL_MINUTES`(기본 10) ③ NATS `permissions_changed` 게이트 검증(발행부 기배선) ④ matrix 미등록경로 `MATRIX_DENY_MODE`(off/observe/enforce, **기본 off = 현행 default-allow 보존**).<br><br>**[신규 설정]** `GRANT_SWEEP_INTERVAL_MINUTES` · `GRANT_JOB_HORIZON_HOURS` · `MATRIX_DENY_MODE`.<br><br>**[검증]** 시뮬 128/128 · 유닛 신규 44+ passed · **라이브 A01~A18 10/10 · 계약 10 passed**(재빌드·재기동 후). 커밋 `c10cbbf`/`ccf08a3`/`6fab9bc`/`9d1f30d`. 산출물: PRD·시뮬리포트·GIS회신(`docs/`, 배포게이트로 flip 대기). |
 | v6.3 후속 | 2026-07-21 | **[admin_photo_upload]** 관리자용 대상 계정 프로필 사진 API 신설 — `POST`/`DELETE /api/users/{id}/photo` (users:edit + base-ADMIN 상승가드, `_save_profile_photo` magic-byte·orphan 재사용, 감사 `USER_PHOTO_CHANGED`/`USER_PHOTO_DELETED` 행위자≠대상). 관리자 `{id}` 경로 부재로 클라가 `/me/photo` 재사용→토큰소유자(관리자) 사진 오염(2026-07-13)의 서버측 근본 해소. §9.3.1 표·설명·요약 동반 갱신. |
@@ -16617,5 +16854,5 @@ python scripts/migrate_event_device_id.py
 
 ---
 
-**문서 버전**: v6.3.1 (Swagger `6.3.1` 정합; v6.3 후속 버그픽스 2026-07-31 — proxy_mandatory_seed·proxy_settings_typed)
+**문서 버전**: v6.3.2 (Swagger `6.3.2` 정합; v6.3 후속 2026-08-03 — event_suppression_bulk_delete)
 **최종 업데이트**: 2026-07-07

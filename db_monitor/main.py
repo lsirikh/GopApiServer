@@ -35,6 +35,7 @@ CMD_SUBJECT_MAP = {
     "SYNC_CAMERA_SETTING": "all.sync.camera-setting",
     "SYNC_PROXY_SETTING":  "all.sync.proxy-setting",
     "SYNC_DETECTION":      "all.sync.detection",     # 탐지 갱신 알림 (detection-sync-message, UPDATE/DELETE만, from=DBApi)
+    "SYNC_EVENT_SUPPRESSION": "all.sync.event-suppression",  # 억제(정비 창) 변경·창경계 전이 알림 — 이벤트 파이프라인 통제 상태
     "SYSTEM_EVENT":        "all.event.system",       # Full-DTO (gop_event 채널)
     "ENCLOSURE_METRICS":   "gis.enclosure-metrics",  # 주기 텔레메트리 (주기 태스크)
 }
@@ -73,6 +74,10 @@ def make_handler(nc, unit_id: str):
         cmd = data.pop("cmd", None)
         subject = cmd_to_subject(cmd, unit_id)
         if subject is None:
+            # ★ 무성 유실 방지: 트리거는 새 cmd 를 쏘는데 db_monitor 가 구버전이면 조용히 버려진다.
+            #   배포 순서(db_monitor 먼저)를 어겼을 때 즉시 드러나도록 경고를 남긴다.
+            print(f"[db_monitor][WARN] unmapped cmd '{cmd}' — dropped. "
+                  f"CMD_SUBJECT_MAP 등재 누락 또는 db_monitor 구버전(배포 순서 확인)", flush=True)
             return
         envelope = build_nats_envelope(cmd, data)  # data = cmd 제외 잔여 = body
         await nc.publish(subject, json.dumps(envelope).encode())

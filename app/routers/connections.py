@@ -358,8 +358,12 @@ async def create_connection_event(
     - 400: Device를 찾을 수 없음
     """
     # PRD v1.1: Validate device_id exists
+    # v6.3-event_put_lazyload_fix: create 응답 조립에서 device subtype 접근 → commit 후 async lazy-load(MissingGreenlet) 500 방지.
+    #   detections/malfunctions POST 와 동일하게 selectin_polymorphic 로 서브타입 미리 로드(connection 생성 500 원인).
     device_result = await db.execute(
-        select(Device).where(Device.id == event_data.device_id)
+        select(Device)
+        .options(selectin_polymorphic(Device, [Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(Device.id == event_data.device_id)
     )
     device = device_result.scalars().first()
     if not device:
@@ -541,8 +545,11 @@ async def replace_connection_event(
     - 404: 연결 이벤트를 찾을 수 없음
     - 422: device_id/device_description 등 금지 필드 전송
     """
+    # v6.3-event_put_lazyload_fix: PUT 응답 조립에서 event.device 접근 → refresh 후 async lazy-load(MissingGreenlet) 500 방지.
     result = await db.execute(
-        select(ConnectionEvent).where(ConnectionEvent.id == event_id)
+        select(ConnectionEvent)
+        .options(selectinload(ConnectionEvent.device).selectin_polymorphic([Sensor, Camera, Controller, Speaker, Enclosure, Lamp]))
+        .where(ConnectionEvent.id == event_id)
     )
     event = result.scalars().first()
 

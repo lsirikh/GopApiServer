@@ -541,6 +541,124 @@ GET_TRIGGER_SQLS = [
         AFTER UPDATE OR DELETE ON detection_events
         FOR EACH ROW EXECUTE FUNCTION fn_notify_detection_sync();
     """,
+    # SYNC_EVENT_SUPPRESSION (event-suppression-sync-message):
+    #   억제(정비 창) = **이벤트 파이프라인 통제** 상태. 누가 바꾸면 전 서브시스템이 인지하고
+    #   "현재 공사 중"을 판정할 수 있어야 한다. 알림형(패턴3) {cmd, action, resource_id, status}.
+    #
+    #   ★ 트리거가 3벌인 이유 (하나라도 빠지면 사각지대):
+    #   (1) 부모 row-level      — 생성/시간·이름 변경/취소(soft-cancel=UPDATE)/하드삭제
+    #   (2) junction statement  — **대상 배열만 바꾸는 PATCH 는 부모 행이 dirty 가 안 돼 UPDATE 문이
+    #       나가지 않는다**(router 가 스칼라만 setattr, 대상은 relationship 으로만 교체).
+    #       MSG-01(subtype-only UPDATE 누락)과 동일한 구조적 함정 → junction 2테이블에 별도 트리거.
+    #   (3) 창 경계 전이는 date-job(suppression_scheduler)이 notified_status 를 UPDATE → (1)이 포착.
+    #
+    #   ★ 중복 억제: junction 트리거는 `age(s.xmin) <> 0` 으로 **부모가 같은 트랜잭션에서 쓰인 경우 skip**.
+    #     - 생성(부모 INSERT + junction INSERT) → 부모 CREATED 1건만
+    #     - 스칼라+대상 동시 PATCH        → 부모 UPDATED 1건만
+    #     - **대상만 PATCH**(부모 무변경)  → junction UPDATED 1건 (핵심 케이스)
+    #     - 하드삭제(부모 DELETE + cascade) → JOIN 이 EXISTS 가드라 junction 0건, 부모 DELETED 1건
+    #   ★ status 는 공용 SQL 함수로 계산해 부모/junction payload 를 완전 동일하게 유지
+    #     (동일 (채널,payload) NOTIFY 는 PostgreSQL 이 트랜잭션 내에서 1건으로 병합).
+    #     now() = 트랜잭션 시작시각이라 같은 트랜잭션 내 두 트리거가 같은 값을 본다.
+    #   ★ 트리거 실패가 사용자 트랜잭션을 롤백시키지 않도록 EXCEPTION WHEN OTHERS 방어(best-effort).
+    #     — fn_notify_gop_sync 는 EXCEPTION 가드가 없어 확장하지 않고 전용 함수를 둔다.
+    """
+    CREATE OR REPLACE FUNCTION fn_suppression_status(
+        p_revoked timestamptz, p_start timestamptz, p_end timestamptz
+    ) RETURNS TEXT AS $$
+        SELECT CASE
+            WHEN p_revoked IS NOT NULL THEN 'cancelled'
+            WHEN p_start > now()       THEN 'pending'
+            WHEN p_end  <= now()       THEN 'expired'
+            ELSE 'active'
+        END;
+    $$ LANGUAGE sql STABLE;
+
+    CREATE OR REPLACE FUNCTION fn_notify_suppression_sync()
+    RETURNS trigger AS $$
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            PERFORM pg_notify('gop_sync', jsonb_build_object(
+                'cmd', 'SYNC_EVENT_SUPPRESSION',
+                'action', 'DELETED',
+                'resource_id', OLD.id
+            )::text);
+        ELSE
+            PERFORM pg_notify('gop_sync', jsonb_build_object(
+                'cmd', 'SYNC_EVENT_SUPPRESSION',
+                'action', CASE WHEN TG_OP = 'INSERT' THEN 'CREATED' ELSE 'UPDATED' END,
+                'resource_id', NEW.id,
+                'status', fn_suppression_status(NEW.revoked_at, NEW.window_start, NEW.window_end)
+            )::text);
+        END IF;
+        RETURN NULL;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE OR REPLACE FUNCTION fn_notify_suppression_target_stmt()
+    RETURNS trigger AS $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        FOR r IN
+            SELECT s.id AS sid,
+                   fn_suppression_status(s.revoked_at, s.window_start, s.window_end) AS st
+            FROM (
+                SELECT schedule_id FROM changed_rows
+            ) c
+            JOIN event_suppression_schedules s ON s.id = c.schedule_id
+            -- 부모가 같은 트랜잭션에서 쓰였으면(생성/스칼라 PATCH) 부모 트리거가 담당 → skip.
+            -- 하드삭제는 relationship passive_deletes=True 로 **부모 DELETE 가 먼저** 실행되므로,
+            -- 뒤이은 FK CASCADE 시점에는 이 JOIN 이 부모를 못 찾아(같은 트랜잭션에서 이미 삭제됨)
+            -- 0행 → 발행 없음. 즉 JOIN 자체가 삭제 가드다.
+            WHERE age(s.xmin) <> 0
+            GROUP BY s.id, s.revoked_at, s.window_start, s.window_end
+        LOOP
+            PERFORM pg_notify('gop_sync', jsonb_build_object(
+                'cmd', 'SYNC_EVENT_SUPPRESSION',
+                'action', 'UPDATED',
+                'resource_id', r.sid,
+                'status', r.st
+            )::text);
+        END LOOP;
+        RETURN NULL;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_notify_suppression_sync ON event_suppression_schedules;
+    CREATE TRIGGER trg_notify_suppression_sync
+        AFTER INSERT OR UPDATE OR DELETE ON event_suppression_schedules
+        FOR EACH ROW EXECUTE FUNCTION fn_notify_suppression_sync();
+
+    DROP TRIGGER IF EXISTS trg_sup_tgt_dev_ins ON event_suppression_target_devices;
+    DROP TRIGGER IF EXISTS trg_sup_tgt_dev_del ON event_suppression_target_devices;
+    DROP TRIGGER IF EXISTS trg_sup_tgt_grp_ins ON event_suppression_target_groups;
+    DROP TRIGGER IF EXISTS trg_sup_tgt_grp_del ON event_suppression_target_groups;
+
+    CREATE TRIGGER trg_sup_tgt_dev_ins
+        AFTER INSERT ON event_suppression_target_devices
+        REFERENCING NEW TABLE AS changed_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_suppression_target_stmt();
+
+    CREATE TRIGGER trg_sup_tgt_dev_del
+        AFTER DELETE ON event_suppression_target_devices
+        REFERENCING OLD TABLE AS changed_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_suppression_target_stmt();
+
+    CREATE TRIGGER trg_sup_tgt_grp_ins
+        AFTER INSERT ON event_suppression_target_groups
+        REFERENCING NEW TABLE AS changed_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_suppression_target_stmt();
+
+    CREATE TRIGGER trg_sup_tgt_grp_del
+        AFTER DELETE ON event_suppression_target_groups
+        REFERENCING OLD TABLE AS changed_rows
+        FOR EACH STATEMENT EXECUTE FUNCTION fn_notify_suppression_target_stmt();
+    """,
 ]
 
 

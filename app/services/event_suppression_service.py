@@ -119,10 +119,12 @@ async def is_suppressed(db, device_id: int, device_category, category: str, now:
 
         device_side = _derive_side(device_category)
 
-        # GROUP 스코프 후보의 그룹 멤버십을 1회 배치 조회(N+1 회피)
+        # GROUP 후보들의 대상 그룹 **합집합**으로 멤버십 1회 배치 조회(N+1 회피 유지).
+        # target_groups 는 relationship lazy="selectin" 으로 후보 로드 시 자동 eager 로드됨.
         group_ids = {
-            c.target_group_id for c in candidates
-            if c.target_type == EnumSuppressionTargetType.GROUP and c.target_group_id is not None
+            g.group_id for c in candidates
+            if c.target_type == EnumSuppressionTargetType.GROUP
+            for g in c.target_groups
         }
         member_groups: set[int] = set()
         if group_ids:
@@ -137,13 +139,15 @@ async def is_suppressed(db, device_id: int, device_category, category: str, now:
         for c in candidates:
             tt = c.target_type
             if tt == EnumSuppressionTargetType.DEVICE:
-                if c.target_device_id == device_id:
+                # device_id ∈ 대상 장비 집합
+                if device_id in {t.device_id for t in c.target_devices}:
                     return True, c.id
             elif tt == EnumSuppressionTargetType.ALL:
                 if _side_matches(device_side, c.target_side):
                     return True, c.id
             elif tt == EnumSuppressionTargetType.GROUP:
-                if c.target_group_id in member_groups and _side_matches(device_side, c.target_side):
+                # 대상 그룹 집합 ∩ 장비 소속 그룹 ≠ ∅
+                if ({t.group_id for t in c.target_groups} & member_groups) and _side_matches(device_side, c.target_side):
                     return True, c.id
         return False, None
     except Exception as e:  # fail-open — 억제 게이트 오류가 이벤트 저장을 막지 않음
@@ -206,25 +210,52 @@ async def get_active_schedules(db, now: datetime | None = None):
 
 
 async def run_suppression_sweep() -> int:
-    """스케줄러 진입점(FR-06) — 만료 창 is_active=false 정리(비권위 백스톱).
+    """스케줄러 진입점(FR-06) — 만료 창 is_active=false 정리 + **notified_status 양방향 재조정**.
 
     자체 AsyncSessionLocal 세션 사용(스케줄러 컨텍스트). 억제 판정 비의존(요청시점 계산이 권위).
     반환 = 갱신된 행 수. 예외는 호출 측 래퍼가 잡아 기동/주기를 막지 않는다.
+
+    ★ event-suppression-sync 백스톱(FR-06):
+      창 경계 통지는 date-job(suppression_scheduler)이 담당하지만, 잡 유실·프로세스 재기동·
+      지평 밖 등록 실패 시 전이가 통지되지 않을 수 있다. 여기서 **파생상태 != notified_status**
+      인 행을 찾아 맞춰줌으로써 최대 SUPPRESSION_SWEEP_INTERVAL_MINUTES 안에 자가 수렴시킨다.
+      (UPDATE 가 곧 트리거 발화 → SYNC_EVENT_SUPPRESSION 발행. 이미 일치하면 UPDATE 0행 = 발행 0건.)
     """
     from app.database import AsyncSessionLocal
     from app.models.event_suppression import EventSuppressionSchedule
 
     async with AsyncSessionLocal() as db:
         now = utc_now()
+        changed = 0
+
+        # (1) 만료 창 is_active 정리 — 기존 동작 보존
         stmt = select(EventSuppressionSchedule).where(
             EventSuppressionSchedule.is_active == True,  # noqa: E712
             EventSuppressionSchedule.window_end <= now,
         )
         due = (await db.execute(stmt)).scalars().all()
-        if not due:
-            return 0
         for s in due:
             s.is_active = False
+            # 같은 UPDATE 에 통지 상태도 실어 (2)가 같은 행을 다시 건드리지 않게 한다(이중 통지 차단).
+            s.notified_status = suppression_status(s, now)
+            changed += 1
+
+        # (2) 통지 상태 재조정 백스톱 — 파생상태와 어긋난 행만
+        due_ids = {s.id for s in due}
+        all_rows = (await db.execute(select(EventSuppressionSchedule))).scalars().all()
+        for s in all_rows:
+            if s.id in due_ids:
+                continue
+            st = suppression_status(s, now)
+            if s.notified_status != st:
+                s.notified_status = st
+                changed += 1
+
+        if not changed:
+            return 0
         await db.commit()
-        logger.info("suppression sweep: %d expired window(s) deactivated", len(due))
-        return len(due)
+        logger.info(
+            "suppression sweep: %d expired deactivated, %d notify-state reconciled (total %d)",
+            len(due), changed - len(due), changed,
+        )
+        return changed

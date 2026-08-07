@@ -12,6 +12,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from app.dependencies import get_async_db
+from app.utils.datetime import to_display
 from app.routers.auth import get_current_account_user_optional_async
 from app.models.device import Enclosure, EnclosureMetric
 from app.schemas.device import EnclosureMetricCreate, EnclosureMetricResponse, EnclosureMetricLatestResponse
@@ -35,7 +36,7 @@ def _metric_to_response(metric: EnclosureMetric) -> dict:
         "ups_battery_level": metric.ups_battery_level,
         "ups_charging": metric.ups_charging,
         "detail": metric.detail,
-        "created_at": metric.created_at.isoformat() if metric.created_at else None,
+        "created_at": to_display(metric.created_at).isoformat() if metric.created_at else None,
     }
 
 

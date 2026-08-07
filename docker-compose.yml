@@ -14,7 +14,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gop}
       POSTGRES_USER: ${POSTGRES_USER:-gop_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gop_pass}
-      PGTZ: Asia/Seoul
+      # DISPLAY_TIMEZONE 과 단일 원천화. timestamptz 저장값은 절대시각이라 기존 데이터 무영향.
+      # ★ 정정(2026-08-07 실측): 이 PGTZ 는 **postgres 컨테이너 내부 libpq 클라이언트**(psql 등)에만
+      #   적용된다. api-server 의 asyncpg 세션은 postgresql.conf 의 `timezone = UTC` 를 그대로 쓰며
+      #   `SHOW timezone` = UTC 다. 따라서 date_trunc/date_part 를 쓰는 리포트·통계 일별 버킷의
+      #   tz 불일치는 **해소되지 않았다**(user_login_logs 08-05: 앱 8건 vs KST 47건).
+      #   해소하려면 앱 연결에 tz 를 지정해야 한다 — docs/analyses/datetime-tz-endpoint-audit.md §5-C.
+      PGTZ: ${DISPLAY_TIMEZONE:-Asia/Seoul}
     ports:
       - "5432:5432"
     volumes:
@@ -57,9 +63,22 @@ services:
       - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
       - DATABASE_URL=${API_DATABASE_URL:-postgresql://gop_user:gop_pass@postgres:5432/gop}
       - INIT_SAMPLE_DATA=${INIT_SAMPLE_DATA:-true}
+      # v6.3-server_seed_env_gate (2026-08-07): 서버 모니터링 시드 게이트.
+      #   ★ INIT_SAMPLE_DATA 와 독립 — 서버 시드는 샘플데이터가 아니라 별도 정책이다.
+      #   .dockerignore 가 .env 를 이미지에서 제외하므로 이 배선이 있어야 호스트 .env 가 전달된다.
+      #   ★ 데모 서버는 정의 자체를 제거 — 시드가 만드는 건 필수 4종(PROXY/VMS/NVR_API/BROKER)뿐.
+      - INIT_SERVER_CATEGORIES=${INIT_SERVER_CATEGORIES:-true}
+      - INIT_SERVER_MANDATORY=${INIT_SERVER_MANDATORY:-true}
       - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT:-8000}
-      - TZ=Asia/Seoul
+      # ★ datetime-unification(명세 §3.4) 배선.
+      #   .dockerignore 가 .env 를 이미지에서 제외하므로 pydantic 의 env_file=".env" 는
+      #   컨테이너에서 읽을 파일이 없다. compose 는 호스트 .env 를 ${} 치환용으로 자동 로드하므로
+      #   이 줄이 있어야 호스트 .env 의 DISPLAY_TIMEZONE 이 실제로 컨테이너에 전달된다.
+      #   ※ 아래 TZ 는 OS 레벨 변수라 settings 필드에 매핑되지 않는다(config.py case_sensitive=True).
+      - DISPLAY_TIMEZONE=${DISPLAY_TIMEZONE:-Asia/Seoul}
+      - TIMEZONE=${TIMEZONE:-Asia/Seoul}
+      - TZ=${DISPLAY_TIMEZONE:-Asia/Seoul}
       # P1-02 (review0710): 세션 강제폐기/권한변경 NATS 통지 배선. 게이트(NATS_REVOKE_ENABLED)
       #   기본 false → 기능 dormant(현행 동작 불변). true 로 켜야 api-server 가 nats_external 로 발행.
       #   env 만 있고 네트워크 미연결이면 켰을 때 publish 가 조용히 실패하므로 배선을 함께 둔다.

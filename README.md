@@ -1,6 +1,6 @@
 # GOP RESTful API Server
 
-![version](https://img.shields.io/badge/version-v6.3.1-navy)
+![version](https://img.shields.io/badge/version-v6.3.2-navy)
 ![python](https://img.shields.io/badge/python-3.11-blue)
 ![framework](https://img.shields.io/badge/FastAPI-async-teal)
 ![sqlalchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-red)
@@ -9,7 +9,9 @@
 
 GOP 통제시스템 연동을 위한 **RESTful API 서버**. 6개 컴포넌트 통합 아키텍처(C1~C6)의 백엔드로 동작하며, 장치 관리 · 이벤트 추적 · 리포트 생성 · RBAC 인가를 제공한다.
 
-> **현재 버전**: v6.3.1 (2026-07-31 — 버그픽스 4건[PROXY 기본 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 INSERT · 세션설정 config enum 자가치유] + 기능[탐지 이벤트 SYNC 발행 `detection_sync`]. `release/v6.3` 브랜치).
+> **현재 버전**: v6.3.2 (2026-08-03 — 이벤트 억제 **일괄 하드삭제** 출하 + **NATS 동기화 메시지** `SYNC_EVENT_SUPPRESSION` 신설(정비 창 변경·창경계 전이 브로드캐스트) + **[P0] PATCH 500 수정**. `release/v6.3` 브랜치)
+>
+> **이전 버전**: v6.3.1 (2026-07-31 — 버그픽스 4건[PROXY 기본 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 INSERT · 세션설정 config enum 자가치유] + 기능[탐지 이벤트 SYNC 발행 `detection_sync`]. `release/v6.3` 브랜치).
 > 전체 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 >
 > 🚧 **진행 중 (v6.3 후속 · `grant-enforcement-hardening`)** — 권한부여(grant) 시간기반 집행 하드닝:
@@ -298,6 +300,8 @@ docker compose down -v    # 데이터·볼륨까지 완전 초기화 ⚠️
 | `API_DATABASE_URL` | `postgresql://gop_user:gop_pass@postgres:5432/gop` | API 서버 → Postgres |
 | `MONITOR_DATABASE_URL` | (동일) | db-monitor · gis-ingest 전용 |
 | `INIT_SAMPLE_DATA` | `true` | 빈 DB일 때 시드 자동 삽입 (v4.6 차장님 명세) |
+| `INIT_SERVER_CATEGORIES` | `true` | 서버 카테고리 10종 시드. `false` 면 삭제한 카테고리가 부활하지 않음 (v6.3~) |
+| `INIT_SERVER_MANDATORY` | `true` | 필수 유형(PROXY/VMS/NVR_API/BROKER) 기본 인스턴스 보장 — 유형이 비었을 때만 1개. `false` 면 서버 0대 (v6.3~) |
 | `NATS_URL` | `nats://nats-server-01:4222` | NATS 클러스터 |
 | `UNIT_ID` | `unit001` | 이 유닛의 NATS subject 네임스페이스 |
 | `NATS_REVOKE_ENABLED` | `false` | Force-Logout NATS revoke 실발행 스위치 (3게이트 통과 후 true) |
@@ -454,6 +458,7 @@ api-test-server/
 
 | 버전 | 날짜 | 헤드라인 |
 |---|---|---|
+| **v6.3.2** | 2026-08-03 | **이벤트 억제 3종** — ①**일괄 하드삭제** `POST .../bulk-delete`(취소·종료만 물리삭제, 활성/예정 `skipped_ids` 보호, FOR UPDATE 재판정) ②**NATS 동기화** `SYNC_EVENT_SUPPRESSION`(정비 창 변경·창경계 전이 브로드캐스트, 브로커 명세 v1.6 §9.12) ③**[P0] PATCH 500 수정**(device/group 모드 PATCH 전면 불능 해소 — junction delta 전환) |
 | **v6.3.1** | 2026-07-31 | **버그픽스 4건 + 기능** — PROXY 시드 보강 · proxy-settings PROXY 전용 · server_metrics 타임존 · 세션설정 config enum 자가치유 · **탐지 이벤트 SYNC 발행(detection_sync)** |
 | v6.3 | 2026-07-13 | 버전 승격 — v6.0 후속 21 topic 확정 (Async 대전환 + 보안 하드닝) |
 | **v6.0** | 2026-07-03 | **Async 대전환** — 41 라우터 async, GOPDB A-7 6/6 완결, autoheal + partition |
@@ -476,6 +481,6 @@ api-test-server/
 
 ---
 
-**버전**: v6.3.1
-**최종 업데이트**: 2026-07-31
+**버전**: v6.3.2
+**최종 업데이트**: 2026-08-03
 **브랜치**: `release/v6.3`

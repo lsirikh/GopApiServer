@@ -337,6 +337,11 @@ async def lifespan(app: FastAPI):
         grant_scheduler.set_scheduler(scheduler)
         _rescheduled = await grant_scheduler.reschedule_future_grants()
         print(f"Grant expiry jobs rescheduled on boot: {_rescheduled}")
+        # event-suppression-sync FR-05: 억제 창 경계 전이 통지 스케줄러 주입 + 부팅 복원
+        from app.services import suppression_scheduler
+        suppression_scheduler.set_scheduler(scheduler)
+        _sup_jobs = await suppression_scheduler.reschedule_future_windows()
+        print(f"Suppression window boundary jobs rescheduled on boot: {_sup_jobs}")
         print(f"Grant sweep scheduler started (interval {settings.GRANT_SWEEP_INTERVAL_MINUTES}m)")
         print(f"Suppression sweep scheduler started (interval {settings.SUPPRESSION_SWEEP_INTERVAL_MINUTES}m)")
         print("Session sweep scheduler started (interval 5m)")
@@ -423,12 +428,12 @@ GOP 시스템의 디바이스, 이벤트, 서버 통합을 위한 REST API를 �
 
 ### 버전 정보
 
-- **API Version**: `6.3.1`
+- **API Version**: `6.3.2`
 - **Branch**: `release/v6.3` (canonical) · 2026-07-13 확정
 - **명세**: `GOP_Restful_Api_연동설계.md` v6.3
 - **전체 변경 이력**: 명세서 하단 ChangeLog · 저장소 `CHANGELOG.md` 참조
 """,
-    version="6.3.1",
+    version="6.3.2",
     docs_url=None,  # Disable default docs to use custom
     redoc_url="/redoc",
     openapi_url="/openapi.json",

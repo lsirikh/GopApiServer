@@ -11,6 +11,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_async_db
+from app.utils.datetime import to_display
 from app.routers.auth import get_current_account_user_optional_async
 from app.models.camera_preset import ROI, XyPoint
 from app.schemas.camera_preset import XyPointCreate, XyPointResponse, XyPointListData, XyPointListItem, XyPointBulkReplaceData
@@ -72,8 +73,8 @@ async def get_points(
             "x": point.x,
             "y": point.y,
             "order": point.order,
-            "created_at": point.created_at.isoformat(),
-            "updated_at": point.updated_at.isoformat()
+            "created_at": to_display(point.created_at).isoformat(),
+            "updated_at": to_display(point.updated_at).isoformat()
         }
         for point in points
     ]
@@ -157,8 +158,8 @@ async def create_point(
             "x": point.x,
             "y": point.y,
             "order": point.order,
-            "created_at": point.created_at.isoformat(),
-            "updated_at": point.updated_at.isoformat()
+            "created_at": to_display(point.created_at).isoformat(),
+            "updated_at": to_display(point.updated_at).isoformat()
         }
     )
 
@@ -210,8 +211,8 @@ async def replace_points(
             "x": point.x,
             "y": point.y,
             "order": point.order,
-            "created_at": point.created_at.isoformat(),
-            "updated_at": point.updated_at.isoformat()
+            "created_at": to_display(point.created_at).isoformat(),
+            "updated_at": to_display(point.updated_at).isoformat()
         }
         for point in new_points
     ]

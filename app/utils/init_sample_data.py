@@ -223,14 +223,19 @@ def _create_servers(db: Session) -> list[int]:
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.11", "port": 8080, "hostname": "vms-02"},
         {"category_id": cat_map.get(EnumServerType.AI_ANALYSIS), "name": "AI-01",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.20", "port": 8081, "hostname": "ai-01"},
+        # v6.3-server_seed_env_gate(2026-08-07): WARNING → NORMAL. 메트릭을 한 번도 받지 않는
+        # 샘플 서버라 status 리터럴이 그대로 /servers/summary 집계값이 되고, 이를 되돌릴
+        # watchdog 이 없어 가짜 경고가 영구히 남았다.
         {"category_id": cat_map.get(EnumServerType.AI_ANALYSIS), "name": "AI-02",
-         "status": EnumServerStatus.WARNING, "ip_address": "192.168.1.21", "port": 8081, "hostname": "ai-02"},
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.21", "port": 8081, "hostname": "ai-02"},
         {"category_id": cat_map.get(EnumServerType.STREAMING), "name": "STREAM-01",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.30", "port": 1935, "hostname": "stream-01"},
         {"category_id": cat_map.get(EnumServerType.STREAMING), "name": "STREAM-02",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.31", "port": 1935, "hostname": "stream-02"},
+        # v6.3-server_seed_env_gate(2026-08-07): ERROR → NORMAL. 위와 동일 사유 —
+        # 실체 없는 샘플 서버가 대시보드에 가짜 장애 1건으로 상시 표시됐다.
         {"category_id": cat_map.get(EnumServerType.BROKER), "name": "BROKER-01",
-         "status": EnumServerStatus.ERROR, "ip_address": "192.168.1.50", "port": 5672, "hostname": "broker-01"},
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.50", "port": 5672, "hostname": "broker-01"},
         {"category_id": cat_map.get(EnumServerType.BROKER), "name": "BROKER-02",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.51", "port": 5672, "hostname": "broker-02"},
         {"category_id": cat_map.get(EnumServerType.DB_API), "name": "DBAPI-01",
@@ -1463,14 +1468,19 @@ async def _create_servers_async(db: AsyncSession) -> list[int]:
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.11", "port": 8080, "hostname": "vms-02"},
         {"category_id": cat_map.get(EnumServerType.AI_ANALYSIS), "name": "AI-01",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.20", "port": 8081, "hostname": "ai-01"},
+        # v6.3-server_seed_env_gate(2026-08-07): WARNING → NORMAL. 메트릭을 한 번도 받지 않는
+        # 샘플 서버라 status 리터럴이 그대로 /servers/summary 집계값이 되고, 이를 되돌릴
+        # watchdog 이 없어 가짜 경고가 영구히 남았다.
         {"category_id": cat_map.get(EnumServerType.AI_ANALYSIS), "name": "AI-02",
-         "status": EnumServerStatus.WARNING, "ip_address": "192.168.1.21", "port": 8081, "hostname": "ai-02"},
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.21", "port": 8081, "hostname": "ai-02"},
         {"category_id": cat_map.get(EnumServerType.STREAMING), "name": "STREAM-01",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.30", "port": 1935, "hostname": "stream-01"},
         {"category_id": cat_map.get(EnumServerType.STREAMING), "name": "STREAM-02",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.31", "port": 1935, "hostname": "stream-02"},
+        # v6.3-server_seed_env_gate(2026-08-07): ERROR → NORMAL. 위와 동일 사유 —
+        # 실체 없는 샘플 서버가 대시보드에 가짜 장애 1건으로 상시 표시됐다.
         {"category_id": cat_map.get(EnumServerType.BROKER), "name": "BROKER-01",
-         "status": EnumServerStatus.ERROR, "ip_address": "192.168.1.50", "port": 5672, "hostname": "broker-01"},
+         "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.50", "port": 5672, "hostname": "broker-01"},
         {"category_id": cat_map.get(EnumServerType.BROKER), "name": "BROKER-02",
          "status": EnumServerStatus.NORMAL, "ip_address": "192.168.1.51", "port": 5672, "hostname": "broker-02"},
         {"category_id": cat_map.get(EnumServerType.DB_API), "name": "DBAPI-01",

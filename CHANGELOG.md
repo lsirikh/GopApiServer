@@ -4,6 +4,61 @@ GOP RESTful API Test Server 변경 이력. [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [6.3.2] - 2026-08-03
+
+> 2026-08-03 릴리즈 (하루 1버전 묶음): 이벤트 억제(정비 창) 계열 4건 — **[기능]** `event_suppression_bulk_delete`(일괄 하드삭제 신규) · **[기능]** `event_suppression_sync`(NATS `SYNC_EVENT_SUPPRESSION` 신설, 브로커 명세 v1.6) · **[P0 버그픽스]** `suppression_patch_500`(device/group 모드 PATCH 전면 불능 해소) + 2026-08-01 작성 후 버전 bump 가 누락돼 있던 `event_suppression_multi_target`(복수 대상) **동반 확정**. Swagger `info.version` 6.3.1 → **6.3.2**.
+
+### v6.3-event_suppression_sync — 억제(정비 창) NATS 동기화 메시지 신설 (2026-08-03)
+
+> PM 지시: "억제 정보를 NATS 싱크 메시지로. **장비 상태 갱신이 아니라 이벤트 파이프라인 통제**에 관한 싱크니까 누가 바꾸면 다른 서브시스템도 인지하고, 이걸로 **현재 공사 상태**를 파악할 수 있어야 한다."
+> 착수 전 라이브 실증: 억제 CRUD·억제된 이벤트 모두 NATS **발행 0건**(트리거 0건, CMD_SUBJECT_MAP 미등재).
+
+- **신규 메시지**: `SYNC_EVENT_SUPPRESSION` @ `sensorway.{부대ID}.all.sync.event-suppression`, from=DBApi, PUB, 패턴3(알림만). body `{action, resource_id, status}` — `status` ∈ pending/active/expired/cancelled.
+  - **action 은 §9.1 고정 3종 유지**(ACTIVATED/EXPIRED 신설 안 함 — .NET 강타입 파서 보호). 전이는 `UPDATED`+`status` 로 표현.
+  - **soft-cancel(`DELETE /{id}`) = `UPDATED`/`status=cancelled`**, 하드삭제(`bulk-delete`)만 `DELETED`.
+  - 집계 필드(`suppression_active`/`active_count`) **불채택** — §9.1 "알림만" 원칙 위반 + side/scope 판정 규칙과 충돌(감지쪽 정비가 카메라 녹화까지 멈춤).
+  - **구독 개정 불필요** — 전 서브시스템이 이미 `all.sync.*` 구독.
+- **발행 경로(트리거 3벌 + date-job)** — 발행자는 db_monitor 단일 유지(봉투 생성 지점 고립):
+  - 부모 row-level `fn_notify_suppression_sync()` — 전용 함수(**EXCEPTION 가드**). `fn_notify_gop_sync` 는 가드가 없어 확장하지 않음(트리거 오류가 사용자 트랜잭션을 롤백 → API 500).
+  - **junction 2테이블 statement-level** — 대상 배열만 바꾸는 PATCH 는 부모 행이 dirty 가 안 돼 UPDATE 문이 안 나간다(**MSG-01 재발 구조**). `age(xmin)<>0` 로 부모 트리거와 중복 회피.
+  - **창 경계 date-job**(`suppression_scheduler.py`, grant_scheduler 형틀) — 창 시작(`pending→active`)은 DB 쓰기가 없어 트리거로 **원리적 포착 불가**. 콜백은 NATS 직접 미접속, `notified_status` 만 UPDATE → 트리거가 발행(멱등: 동일 상태면 0행 = 0발행).
+- **마이그 v71**: `notified_status VARCHAR(16) NULL`(발행상태 전용). `is_active` 의미는 불변(`ix_suppression_sweep` 의존).
+- **sweep 확장**: `notified_status` 양방향 재조정 백스톱. 창 종료 시 `is_active=false` 와 **같은 UPDATE** 로 처리해 이중 통지 차단.
+- **하드삭제 중복 제거**: `bulk-delete` 조회에 `noload` 적용 — junction 이 세션에 로드되면 ORM 이 자식을 부모보다 먼저 DELETE 해 트리거가 살아있는 부모를 보고 중복 발행. 미로드 시 부모 DELETE 선행 → FK CASCADE 순서가 되어 `DELETED` 1건만.
+- **fail-safe 계약**: 억제 해제는 로컬 `window_end` 타이머가 1차 권위, `/active` 30~60초 폴링 존치(권위), SYNC 는 가속 신호(비권위). NATS at-most-once 라 종료 신호 유실 시 **영구 침묵** 위험 → 안전 비대칭 명문화. 지연 상한: 정상 ≤5초 / 백스톱 ≤5분.
+- **db_monitor**: `CMD_SUBJECT_MAP` 등재 + **미등재 cmd 경고 로그**(배포 순서 위반 시 무성 유실 즉시 노출). **배포 순서 db-monitor → api-server 고정**.
+- **검증**: 라이브 NATS `sensorway.>` 구독 **7전이 전부 정확히 1건**(생성/대상교체/이름변경/취소/하드삭제/창시작/창종료), 중복 0·누락 0. 기존 `SYNC_DEVICE` 무회귀 확인. 단위 **47 passed**(신규 15), 전체 스위트 기준선 동일(88 failed/106 passed 전·후 일치 = 회귀 0).
+- **문서**: 브로커 명세 **v1.6**(§9.12 신설 + §3.1 subject 3유형 정정 + §3.2·§9.1·§4.2·§11.1·§11.2 + **카운트 부채 정정** 42→44종·#41 중복 해소), REST 명세 §6.8.9 신설.
+
+### v6.3-suppression_patch_500 — PATCH junction UNIQUE 위반 500 수정 (2026-08-03, P0)
+
+> 라이브 100% 재현: `target_type` 이 device/group 인 스케줄은 **어떤 PATCH 도 500**(이름만 변경·창 연장 포함). `all` 모드만 정상.
+
+- **원인**: `s.target_devices = [...]` 통째 재대입(router:284/292). relationship 이 `cascade="all, delete-orphan"` 이라 기존 행은 orphan DELETE, 새 객체는 INSERT 로 **같은 flush** 에 예약되는데, SQLAlchemy unit-of-work 가 동일 mapper 에서 **INSERT 를 DELETE 보다 먼저** 수행 → `uq_suppression_target_device`/`_group` 위반. 대상 배열 미제공 PATCH 는 기존 ids 를 그대로 복원하므로 **겹침 100%**.
+- **수정**: `_sync_targets()` **delta 동기화** — 겹치는 행은 **동일 객체 재사용**, 제거분만 remove / 신규분만 append.
+- **회귀 테스트 6케이스**: 이름만 / 창만 / 동일 ids / 대상 추가 / 대상 축소 / 완전 교체(기존 통과 케이스 보존) + group 모드 + `_sync_targets` 단위 2건.
+- 부수 효과: 대상 무변경 PATCH 가 junction 을 재구성해 **스퓨리어스 SYNC 를 발행하던 소음도 제거**.
+
+### v6.3-event_suppression_bulk_delete — 취소·종료 억제 스케줄 일괄 하드삭제 (2026-08-03)
+
+> PM 지적("억제 쪽에 벌크 삭제 기능이 없는 것 같은데") — 코드는 2026-08-01 커밋 `82ed70d` 로 존재했으나 **명세서·Swagger·이미지·컨테이너 미반영(5중싱크 2/5)** 상태로 방치. 본 차수에서 5중싱크 완결.
+
+- **신규 엔드포인트**: `POST /api/event-suppression-schedules/bulk-delete` (`events:delete`). Request `{ids:[int]}`(1~500, 중복 제거), Response `{deleted_ids, skipped_ids, not_found_ids}`.
+- **배경**: `DELETE /{id}` 는 soft-cancel(`revoked_at` 세팅)이라 취소·종료 이력이 목록에 무한 누적 — 물리 정리 수단이 전무했다(운영 서버 실측 23건 누적).
+- **안전장치**: 활성(active)·예정(pending) 스케줄은 삭제하지 않고 `skipped_ids` 로 분리 보고(먼저 취소 필요). 존재하지 않는 id 는 `not_found_ids`.
+- **동시성**: `SELECT ... FOR UPDATE` 로 대상 행 잠금 후 최신 커밋 상태로 status **재판정** — 조회~삭제 사이 PATCH 로 terminal→active 로 뒤바뀐 행의 오삭제 차단(TOCTOU).
+- **삭제 범위**: 행 + junction(`event_suppression_target_devices`/`_groups`) cascade 제거, 복구 불가. 건별 `SUPPRESSION_SCHEDULE/DELETED` 감사 기록.
+- **문서/인가**: 명세 §6.8.8 신설(기존 억제 게이트 절 §6.8.8→**§6.8.9** 재번호) + §6.8.1 엔드포인트 표 행 추가. `PERMISSION_MAP` 에 `("POST","/api/event-suppression-schedules/bulk-delete"):("events","delete")` 등재(중앙 `enforce_matrix` 커버, default-deny 전환 대비).
+
+### v6.3-event_suppression_multi_target — 정비 창 대상 복수 선택 (2026-08-01)
+
+> GIS 요청(P1, PRD `docs/prds/event-suppression-multi-target-prd.md` v1.0 → dev → test → 배포). 한 정비 창에 **복수 대상**(장비 N개 / 그룹 N개 / 전체) 지정. `target_type`(device/group/all 배타) 유지, 단일 FK → **배열 + junction 2테이블**. ⚠ API 파괴적(단일→배열) — GIS UI 미구현이라 안전.
+
+- **모델**: `target_device_id`/`target_group_id` 컬럼 제거 → junction `event_suppression_target_devices`·`event_suppression_target_groups`(FK **CASCADE**, UNIQUE, `lazy="selectin"`). 마이그 **v70**(단일행→junction 이관 + 컬럼 DROP, 멱등·fresh no-op).
+- **스키마/API**: `target_device_ids: int[]`·`target_group_ids: int[]`(device→≥1/group→≥1 검증). 응답·목록·/active 배열. 목록 필터 `?device_id=`/`?group_id=` junction EXISTS 매치.
+- **게이트**: DEVICE `device_id ∈ ids` / GROUP `set(group_ids) ∩ 소속그룹 ≠ ∅`. 그룹 멤버십 합집합 1회 배치(N+1 회피). fail-open 등 불변.
+- **검증**: 단위 **32 passed**(회귀 0) + 라이브 E2E(EnclosureManager) **13/13**(복수 device 11·12 억제/13 정상·상태불변 · 복수 group[1,2] 교집합·필터). 5중싱크(명세 §6.8·Swagger 배열·재빌드·v70). 롤백 `pre-v6.3-event_suppression_multi_target`. ⚠ 버전 bump(6.3.2)는 동일 2026-08-01 차수로 동시세션과 정합 예정.
+
 ## [6.3.1] - 2026-07-31
 
 > 2026-07-31 릴리즈 (하루 1버전 묶음): **[버그픽스]** `proxy_mandatory_seed` · `proxy_settings_typed` · `server_metrics_tz_fix` · `settings_config_enum` + **[기능]** `detection_sync`(SYNC_DETECTION) · `event_suppression`(정비 창 이벤트 수신 억제). Swagger `info.version` 6.3.0 → **6.3.1**.

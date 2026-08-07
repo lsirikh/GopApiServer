@@ -9,6 +9,7 @@ from typing import Optional, List
 import math
 
 from app.dependencies import get_async_db
+from app.utils.datetime import to_display
 from app.routers.auth import get_current_account_user_optional_async
 from app.models.camera_preset import CameraPreset, ROI, XyPoint
 from app.schemas.camera_preset import (
@@ -82,8 +83,8 @@ async def get_rois(
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
             "point_count": point_count,
-            "created_at": roi.created_at.isoformat(),
-            "updated_at": roi.updated_at.isoformat()
+            "created_at": to_display(roi.created_at).isoformat(),
+            "updated_at": to_display(roi.updated_at).isoformat()
         }
 
         # Include points if requested
@@ -181,8 +182,8 @@ async def get_roi(
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
             "points": points_data,
-            "created_at": roi.created_at.isoformat(),
-            "updated_at": roi.updated_at.isoformat()
+            "created_at": to_display(roi.created_at).isoformat(),
+            "updated_at": to_display(roi.updated_at).isoformat()
         }
     )
 
@@ -257,8 +258,8 @@ async def create_roi(
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
             "point_count": point_count,
-            "created_at": roi.created_at.isoformat(),
-            "updated_at": roi.updated_at.isoformat()
+            "created_at": to_display(roi.created_at).isoformat(),
+            "updated_at": to_display(roi.updated_at).isoformat()
         }
     )
 
@@ -338,8 +339,8 @@ async def update_roi(
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
             "point_count": point_count,
-            "created_at": roi.created_at.isoformat(),
-            "updated_at": roi.updated_at.isoformat()
+            "created_at": to_display(roi.created_at).isoformat(),
+            "updated_at": to_display(roi.updated_at).isoformat()
         }
     )
 
@@ -434,8 +435,8 @@ async def replace_roi(
             "resolution_height": roi.resolution_height,
             "is_enable": roi.is_enable,
             "point_count": after_point_count,
-            "created_at": roi.created_at.isoformat(),
-            "updated_at": roi.updated_at.isoformat()
+            "created_at": to_display(roi.created_at).isoformat(),
+            "updated_at": to_display(roi.updated_at).isoformat()
         }
     )
 

@@ -22,6 +22,8 @@
 
 - **📋 이벤트 억제 전면 감사 + 하드닝 PRD 작성 (2026-08-03, Draft, `docs/prds/event-suppression-hardening-prd.md`, phase=prd/Track C)**: PM 제보 "GIS에서 제어기2 억제→Revoke 했는데 반영 안 되는 듯 + 삭제 로직 검토". **라이브 E2E 실측**(`123.141.236.253:8136`, EnclosureManager/sensorway1) + **78-agent 교차감사**(적대적 2중검증, 36제기→31생존/5반증). **결론: 억제 엔진 자체는 정상** — 생성→202 억제→Revoke→201 복귀 왕복 전구간 통과, sweep·side필터·scope필터·401/400/422·멱등 DELETE 전부 정상. **제보 증상 원인(유력)**: 스케줄 #4의 실제 `target_device_ids=[1351]=제어기1`인데 **제어기2는 id 1352** → 억제창(11:24:33~11:26:17) 안에서 제어기2 장애 52283(11:26:01) 정상 저장됨(서버는 올바름). GIS 장비ID 매핑 확인 필요(V-01). **확인된 결함**: ①**[P0]** `PATCH`가 device/group 대상 스케줄에서 **항상 500** — junction 컬렉션 통째 재대입(`router:284,292`) + `delete-orphan` + UNIQUE(NOT DEFERRABLE) → SQLAlchemy INSERT-before-DELETE 순서로 위반. 이름만 바꿔도 500(`:279`가 기존 ids 복원), 겹침0 완전교체·`all` 모드만 200. 기존 테스트는 모드전환/ALL만 다뤄 미검출. ②**[P1]** `bulk-delete` **미배포**(라이브 405) — 커밋 `82ed70d`가 코드 2파일만, 명세서·테스트·이미지·컨테이너 누락 = **5중싱크 3/5 위반**. 운영서버에 억제목록 제거수단 전무. ③**[P1]** naive 시각 입력 시 POST 응답 **+9h·status 오판**(`pending`인데 실제 `active`) — `_reload()` `populate_existing` 부재 + `expire_on_commit=False`로 identity map 원본 반환. DB·게이트는 정확. ④**[P1]** 겹침창 무제한 → 하나 Revoke해도 나머지가 계속 억제(first-match 1건만 보고). ⑤**[P2]** PATCH 명시적 `null`→422 아닌 **500**. ⑥**[P2]** `GET ?device_id=`가 그 장비를 실제 억제중인 group/all 창 **미검출**(실측: all창 id23이 1352를 202 억제중인데 필터결과 빈배열). ⑦**[P2]** 창 길이 상한 없음(1년 전체억제 201). ⑧**[P2]** 관측성 런타임 무효(INFO 미출력+카운터 프로세스로컬 미노출). ⑨**[P2]** 감사로그 actor 전부 null + 대상 스냅샷 없음. ⑩**[P2]** GIS/README 문서가 단수 `target_device_id` 정체(실제 API는 배열 `extra=forbid`). ⑪**[P3]** `is_active` pending도 true·sweep 단방향 / `recurrence_rule` 데드필드 / 취소창 PATCH 200이나 무실효 / 억제종료 후 device.status stale. **PRD**: FR-01~15 + NFR-01~08 + V-01~07 + PM결정 D1~D6(겹침정책·창상한·is_active·recurrence·fail-open차수·운영반영). 스키마변경/마이그 없음. ⚠ **라이브 잔여**: `[CLAUDE-TEST]` 스케줄 17건이 목록에 남음(전부 terminal, `/active`=[] 확인 — 억제영향 0). bulk-delete 배포 후 정리 필요. ⚠ 검증 로그인이 단일세션 evict로 GIS 세션 축출함. 프로세스 규율 [[feedback_prd_before_implementation]] [[feedback_five_artifact_sync]]
 
+- **✅ 억제 NATS 동기화 메시지 신설 + P0 PATCH 500 수정 (2026-08-03, `v6.3-event_suppression_sync`, 커밋 `b92082f`, 롤백태그 `pre-v6.3-event_suppression_sync`, 태그 `v6.3.2` 이동)**: PM "브로커 명세 기반으로 나츠 싱크 메시지 만들어줘 — **장비 상태 갱신이 아니라 이벤트 파이프라인 통제**에 관한 싱크니까 누가 바꾸면 다른 서브시스템도 인지하고 이걸로 **현재 공사 상태**를 파악할 수 있어야 한다" + "git 롤백 포인트 확실하게 잡고 끝까지". **착수 전 라이브 실증: 억제 CRUD·억제된 이벤트 모두 NATS 발행 0건**(event_suppression_* 트리거 0건 + CMD_SUBJECT_MAP 미등재 + 라우터 NATS 호출 0). **4-agent 설계 교차검증으로 내 원안 3곳이 뒤집힘**: ①body 집계필드(`suppression_active`/`active_count`) **불채택**(§9.1 "알림만" 위반 + SYNC 10종 중 선례 0 + 전역 boolean 이 side/scope 판정과 충돌 — 감지쪽 정비가 카메라 녹화까지 중단) ②action `ACTIVATED`/`EXPIRED` **신설 안 함**(§9.1 고정 3종, 선례상 축소만 있고 확장 0, .NET 강타입 파서 파손 — 전이는 `UPDATED`+`status` 로 표현) ③"sweep 재사용" 전제 **코드와 반대**(sweep 은 `is_active=true AND window_end<=now` 단방향이라 **창 시작은 조회 대상에조차 없음**; 반대로 창 종료는 `is_active=false` 쓰기가 실재해 트리거가 이미 포착). **[P0 선행] PATCH 500 수정**: `s.target_devices=[...]` 통째 재대입 → delete-orphan DELETE 보다 INSERT 선행 → `uq_suppression_target_*` 위반. 대상 미제공 PATCH 는 기존 ids 복원이라 겹침 100%(이름만 바꿔도 500). `_sync_targets()` **delta 동기화**(겹치는 행 객체 재사용)로 해소. **[신설] `SYNC_EVENT_SUPPRESSION`** @ `sensorway.{부대ID}.all.sync.event-suppression`(케밥 단수형 규칙), from=DBApi/PUB/패턴3, body `{action,resource_id,status}`. **soft-cancel=`UPDATED`/`cancelled`**(DELETED 아님), 하드삭제만 DELETED. **구독 개정 불필요**(전 서브시스템 이미 `all.sync.*`). **발행 경로 3벌**(발행자는 db_monitor 단일 유지 — 봉투 생성 지점 고립): 부모 row-level 전용함수(**EXCEPTION 가드** — `fn_notify_gop_sync` 는 가드 0개라 확장 금지, 트리거 오류가 사용자 트랜잭션 롤백) + **junction 2테이블 statement-level**(대상만 바꾸는 PATCH 는 부모 dirty 안 됨 = **MSG-01 재발**, `age(xmin)<>0` 로 중복회피) + **창경계 date-job**(`suppression_scheduler.py`, grant_scheduler 형틀, 콜백은 `notified_status` UPDATE 만 → 트리거가 발행, 동일상태면 0행=0발행). **마이그 v71** `notified_status`(발행상태 전용, `is_active` 불변 — `ix_suppression_sweep` 의존). sweep 은 양방향 재조정 백스톱으로 확장(창 종료 시 `is_active=false` 와 **같은 UPDATE** 로 이중통지 차단). **함정 2건 실측 해결**: ⓐAPScheduler(`timezone=KST`)에 naive 주면 **9시간 밀림** → aware UTC 전달 ⓑbulk-delete 가 `lazy="selectin"` 로 junction 을 로드하면 ORM 이 자식을 부모보다 먼저 DELETE → 트리거가 살아있는 부모 보고 중복 발행 → **`noload`** 로 부모 DELETE 선행(FK CASCADE) 유도. (xmax 가드는 FK KEY SHARE 잠금 때문에 오작동해 폐기) **fail-safe 계약 명문화**: NATS at-most-once — 창시작 유실=시끄러움(허용)/**창종료 유실=영구 침묵(금지)** → 해제는 **로컬 `window_end` 타이머가 1차 권위**, `/active` 폴링 존치(권위), SYNC 는 가속(비권위), 캐시 TTL fail-open. 지연 상한 정상≤5초/백스톱≤5분. **검증**: 라이브 NATS `sensorway.>` **7전이 전부 정확히 1건**(생성/대상교체/이름변경/취소/하드삭제/창시작/창종료) 중복0 누락0, 기존 `SYNC_DEVICE` 무회귀, 단위 **47 passed**(신규 15), **전체 스위트 기준선 동일**(88 failed/106 passed 전·후 일치 = 회귀 0; 기존 실패는 401 인증환경+cpu_usage stale). **5중싱크**(하루 1버전 규율로 **6.3.2 에 fold**, 별도 차수 안 만듦): 코드/Swagger 6.3.2/명세(**브로커 v1.6 §9.12 신설** + §3.1 sync 5토큰 명문화 + §9.1 Action 표 cmd별 부분집합 열 + §4.2 enum + **카운트 부채 정정 42→44종·#41 중복 해소**·§11.2 SYNC_DETECTION 누락행 / REST §6.8.9)/이미지(**db-monitor 먼저 → api-server** 순서 준수)/컨테이너 healthy. GIS.md v2.1(§7-A NATS 절 + §5-A 해소 표기), 서브시스템 README 공통계약. origin+gitea push + 태그 `v6.3.2` 이동·`v6.3-event_suppression_sync`. ⚠ **테스트 서버 `123.141.236.253:8136` 는 여전히 6.3.1**(별개 인스턴스) → 재배포 필요. PRD: `docs/prds/event-suppression-sync-message-prd.md`(Draft, D1 미결). [[feedback_five_artifact_sync]] [[feedback_one_day_one_version]] [[feedback_git_rollback_point]] [[detection-sync-message]]
+
 - **✅ 억제 일괄 하드삭제 5중싱크 완결 + 6.3.2 + GIS 문서 v2.0 (2026-08-03, `v6.3-event_suppression_bulk_delete`, 커밋 `36128f7`(sync)+`fd36150`(docs), 태그 `v6.3.2`·`v6.3-event_suppression_bulk_delete`)**: PM "억제 쪽에 벌크 삭제 기능이 없는 것 같은데" → 확인 결과 코드는 `82ed70d`(2026-08-01)로 **이미 커밋**돼 있었으나 명세서·Swagger·이미지·컨테이너 미반영(**5중싱크 2/5**)이라 라이브 405. PM "모두 싱크" 지시로 완결. **①명세서** §6.8.8 신설(bulk-delete 계약: `ids[1~500]`, `deleted/skipped/not_found_ids`, FOR UPDATE 재판정 TOCTOU, 활성/예정 보호) + §6.8.1 표 행 + 기존 억제 게이트 절 §6.8.8→**§6.8.9 재번호** + ChangeLog v6.3.2 + 헤더/푸터 버전. **②코드** `PERMISSION_MAP` 등재(`("POST","/api/event-suppression-schedules/bulk-delete"):("events","delete")` — `normalize_path` 가 숫자만 치환하므로 리터럴 키 정합), `main.py` version+description 6.3.1→**6.3.2**. **③Swagger** 라이브 `info.version=6.3.2` + bulk-delete 노출 실측. **④이미지** 재빌드(롤백태그 `pids-api-server:pre-bulk_delete_sync`). **⑤컨테이너** 재기동 healthy. **기능 실측**: expired/cancelled만 `deleted_ids`, active/pending은 `skipped_ids` 보호, 미존재는 `not_found_ids`, 빈배열 422, 미인증 401 — 전부 통과. **CHANGELOG** `[Unreleased]`→`[6.3.2]` 확정(버전 bump 누락돼 있던 `multi_target`(08-01) 동반 확정, 하루1버전 규율). **GIS 문서 v2.0**(`docs/subsystems/event-suppression/GIS.md` — ★추적본은 `GIS.md`, `GIS_event-suppression.md`는 `.gitignore Docs/*` 로 미추적 로컬사본이라 포인터 스텁으로 축약해 드리프트 차단): 단수→배열 계약(C-1 파괴적)·복수선택 UI(C-2)·bulk-delete(C-3)·7엔드포인트(C-4), 필드사전+enum+side파생표, 삭제 2종 구분표, **offset(+09:00) 필수 규약**(naive 시 생성응답 +9h/status 오판), **devices.id vs number_device 주의**(제어기1/2 오지정 사고 기록), 알려진 제약 4건+회피법(PATCH 500·겹침창·device_id 필터·취소 복구불가), 배너+클라 판정 의사코드, `is_active` UI 표시 금지. 서브시스템 README 공통계약도 배열 정합. origin+gitea push 완료. ⚠ **테스트 서버 `123.141.236.253:8136` 는 여전히 6.3.1**(별개 인스턴스 — 로컬 8000과 DB 다름) → **재배포 필요, 그전까지 bulk-delete 405**. ⚠ 롤백 git 태그를 작업 **전**에 못 만듦(사후 이미지 태그만) [[feedback_git_rollback_point]] [[feedback_five_artifact_sync]] [[feedback_one_day_one_version]] [[reference_spec_master_path]]
 
 - **📋 탐지 이벤트 SYNC 발행 PRD 작성 (2026-07-31, Draft, `docs/prds/detection-sync-message-prd.md`)**: PM "탐지 이벤트에도 Sync 메시지 만들어줘 PRD 기반으로". analysis(멀티에이전트 3관점: mechanism/broker/consumer)→PRD. **핵심 설계**: `SYNC_DETECTION` **알림형**(패턴3) @ `all.sync.detection`, from=DBApi, body `{action,resource_id}`, **UPDATE/DELETE만(INSERT 제외 — 필드 DETECT와 중복 시 EventMapping 이중실행)**, 소비자는 `GET /api/events/detections/{id}` 재조회. gop_sync 채널 재사용(db_monitor CMD_SUBJECT_MAP 1줄) + detection_events 트리거 + frame_width/height GAP 동반해소(FR-04). FR6·NFR4·V5·R5. **PRD Approved(v1.2, 2026-07-31)** → **plan 작성완료** `docs/plans/detection-sync-message-prd-plan.md`(20태스크/~17h, 5-Phase). **✅ dev 완료 (2026-07-31, 커밋 `735ae5b`, 롤백태그 `pre-detection_sync`)**: subject=**all.sync.detection**(1차안 확정). db_triggers `fn_notify_detection_sync`(detection_events AFTER UPDATE/DELETE, INSERT제외) + db_monitor CMD_SUBJECT_MAP + event.py frame_width/height(+예시4곳). **라이브 검증 PASS**(m_manager): POST→미발행 / PATCH detail→`{UPDATED,id}` / DELETE→`{DELETED,id}`, from=DBApi·필드DETECT 무유출. 단위 3 passed. api-server+db-monitor 재빌드. 브로커명세 §3.2/§6.1/§9.11/카탈로그 + API명세 + CHANGELOG + NOTIFY(로컬). origin+gitea push. **✅ 5중싱크+버전 fold 완료 (PM "모두 싱크")**: 하루 1버전 규율로 detection_sync 를 **6.3.1 에 fold**(6.3.2 아님), v6.3.1 태그를 `eebb48b`(feature+문서 포함)로 이동·force-push(origin+gitea). 코드/스웨거(info.version=6.3.1+DetectionDetail frame 노출)/컨테이너·이미지(api-server+db-monitor healthy)/명세(브로커+REST+CHANGELOG+README) 전부 6.3.1 정합. ⚠ 잔여(클라): detail PATCH 주체(AiAnalysis·NVRManager) 조율. [[broker-v15-api-crossverify]] [[feedback_prd_before_implementation]]
@@ -314,7 +316,7 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 - **활성 브랜치**: `release/v6.0` (tip `61e46fe`, 태그 `v6.0`)
 - **활성 PRD**: `docs/prds/grant-enforcement-hardening-prd.md` (**v2.0 Draft — 승인 대기**, 2026-07-21, 시뮬 92/92 검증완료)
 - **활성 Plan**: 없음
-- **현재 Phase**: plan
+- **현재 Phase**: dev
 - **Track**: C
 - **다음 할 일**: **grant-enforcement-hardening PRD v2.0 승인**(정책 3건 흡수·시뮬 검증 완료) → 승인 시 plan 착수. 유일 결정거리 = default-deny(4-c)를 FR-09로 포함할지. 승인 명령 `node .claude/hooks/advance-phase.js approve prd "..."`
 - **핵심 기술결정 (v6.0 확정)**:
@@ -339,7 +341,35 @@ bdf12c1  feat(v4.6): Critical 8건 + Camera Preset
 ## 세션 상태
 
 - **활성 세션 수**: 1
-- **현재 세션 ID**: ppid-60500
+- **현재 세션 ID**: ppid-58644
 - **충돌 여부**: 없음
-- **활성 세션 목록**: ppid-60500
+- **활성 세션 목록**: ppid-58644
 
+
+### 2026-08-07 — 반복 스케줄 분석 + tz 배선 결함 수정 (a6c5f07)
+
+**반복 스케줄(recurrence) 연구**
+- 시나리오 119개 / 검사 616개 하네스 작성 (`docs/analyses/recurrence-sim/`)
+- 후보 구현 vs 독립 오라클 차등 테스트 2회: 1회차 불일치 **0건**, 2회차 통합지점 이슈 **7건** 실측
+- I-6(성능) 미발화 확인 — 100개 창 0.271ms → Python 평가 방식 채택 근거
+- 산출: `docs/prds/event-suppression-recurrence-prd.md`, `docs/subsystems/event-suppression/RECURRENCE.md`
+
+**🔴 신규 발견 — DISPLAY_TIMEZONE 컨테이너 미전달 (수정 완료)**
+- 명세 §3.4 는 "DISPLAY_TIMEZONE 만 바꾸면 해외 재배포 가능"을 약속하나 실제로는 미배선
+  - `.dockerignore:53-54` 가 `.env` 제외 → 이미지에 `.env` 없음
+  - compose 에 `env_file:` 도 `DISPLAY_TIMEZONE` env 도 없음 → 코드 기본값 사용
+  - `TZ` 는 `case_sensitive=True` 라 settings 필드에 미매핑
+- 수정: compose `${DISPLAY_TIMEZONE:-Asia/Seoul}` 치환 배선 + `PGTZ` 단일 원천화 + `.env.example` 등재
+- 검증: 재기동 후 컨테이너 env 실재 확인, `settings.display_tz=Asia/Seoul`
+
+**🔴 신규 발견 — `.env` 한글 주석 손상 (복구 완료)**
+- U+FFFD 가 아니라 **리터럴 `?` 146개**로 이미 구워진 상태(과거 cp949 왕복 추정)
+- 값 바이트 동일 유지하며 주석만 복구 — 누락 0 / 변경 0 / 추가는 `DISPLAY_TIMEZONE` 키뿐
+
+**tz 설계 확정 (D-C)**
+- `schedule_tz` **컬럼 없음** — 서버 `DISPLAY_TIMEZONE` 단일 원천, 응답에는 **읽기전용 노출**
+- 판정 tz = `settings.display_tz` (≠ `settings.tz`) — 판정·렌더 tz 일치가 계약
+- `daily_start`/`daily_end` 에 offset 실리면 **422**
+- `window_start/end` 는 §3.4 혼용 수용 + **끝일 date-only 자동 확장**
+
+**PM 결정 대기**: D-A(부분 occurrence clamp) · D-B(`daily_start==daily_end`=24h) · D-D(최대 유효기간) · D-E(occurrence 전이 미발행)

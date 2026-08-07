@@ -273,18 +273,43 @@ X-Request-ID: {request-uuid} //선택적 참고용
 
 ### 3.4 Datetime · 타임존 규약 (v6.3 후속, datetime-unification)
 
-> **전역 원칙 (Option B)**: **저장 UTC · 출력 DISPLAY_TZ · 입력 aware 권장**. 특정 국가에 고정되지 않아 해외 사이트(예: 헝가리·미국) 재배포 시 환경변수(`DISPLAY_TIMEZONE`)만 바꾸면 된다.
+> **전역 원칙 (Option B)**: **저장 UTC · 출력 DISPLAY_TZ · 입력 aware 권장**. 특정 국가에 고정되지 않아 해외 사이트(예: 헝가리·미국) 재배포를 목표로 한다.
+>
+> ⚠ **2026-08-07 실측 정정**: "`DISPLAY_TIMEZONE` 만 바꾸면 된다"는 **아직 성립하지 않는다**. 리포트 계열 `datetime.now()` 29곳이 OS 벽시계(`TIMEZONE`)를 쓰는데 저장 경로는 이를 `DISPLAY_TIMEZONE` 으로 해석하므로, 두 값이 갈리면 오차가 난다(`DISPLAY_TIMEZONE=Europe/Budapest` 실측 **7시간**). 잔여 결함 목록은 아래 **§3.4.1 알려진 이탈 지점**과 `docs/analyses/datetime-tz-endpoint-audit.md` 참조.
 
 | 구분 | 규약 |
 |------|------|
 | **저장(DB)** | 모든 datetime 컬럼은 `TIMESTAMP WITH TIME ZONE`(timestamptz)로 **UTC instant** 저장. (예외: `api_logs.timestamp` 는 파티션 키라 naive-UTC 벽시계 유지 — 표시 규약 동일) |
-| **출력(응답)** | 모든 응답 datetime 은 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset 표기. 기본 `Asia/Seoul`(`+09:00`), DST 자동. 예: `"2026-07-31T19:50:00+09:00"`. `meta.timestamp`(성공·오류 **공통**) 동일. |
+| **출력(응답)** | 응답 datetime 은 서버 `DISPLAY_TIMEZONE` 기준 ISO 8601 offset 표기. 기본 `Asia/Seoul`(`+09:00`), DST 자동. 예: `"2026-07-31T19:50:00+09:00"`. `meta.timestamp`(성공·오류 **공통**) 동일. **적용 범위 = 응답 최상위 필드**(GET 97개 실호출 시 datetime 254개 전부 `+09:00` 확인). **JSONB 자유형 필드 내부와 §3.4.1 의 이탈 지점은 예외** — 반드시 §3.4.1 확인. |
 | **입력(요청)** | offset 포함 aware(`...+09:00`, `...Z`) **권장** — instant 로 정확 해석. offset 없는 naive 값은 `DISPLAY_TIMEZONE` 로 간주 후 UTC 변환. 날짜만(`2026-07-01`) 은 해당 TZ 00:00. |
 | **설정** | 환경변수 `DISPLAY_TIMEZONE`(IANA TZ, 예 `Asia/Seoul`·`Europe/Budapest`·`America/New_York`). 미지정 시 `Asia/Seoul`. 저장은 항상 UTC 이므로 이 값 변경은 **표시에만** 영향(과거 데이터 불변). |
 
 **클라이언트 가이드**: 요청 시 가능하면 offset 을 명시하라(`2026-07-01T00:00:00+09:00`). 응답 datetime 은 항상 offset 이 붙어 오므로 그대로 `DateTimeOffset`(.NET)/`ZonedDateTime` 으로 파싱하면 된다. naive 문자열로 파싱 후 로컬 TZ 를 임의 부여하지 말 것.
 
 > **날짜 범위 필터 규약**: 조회·리포트의 `start_date`/`end_date`(서버 메트릭 GET 은 `start_time`/`end_time`) 필터는 **닫힌구간 `[start, end]`**(양끝 포함, `≥ start AND ≤ end`). 리포트 생성(`POST /reports/generate`)은 끝일이 **자정(00:00)·날짜만(date-only)** 으로 오면 그날 **23:59:59.999999 로 자동 확장해 끝일 전체 포함**한다. 입력 포맷은 `+09:00`·`Z`·naive·date-only 모두 수용(naive/date-only 는 DISPLAY_TZ 자정 기준).
+
+
+#### 3.4.1 알려진 이탈 지점 (2026-08-07 전수 실측)
+
+> 아래는 **본 규약을 따르지 않는 것으로 실측 확인된 지점**이다. 조치 전까지 소비자(GIS·VMS·.NET 클라)는
+> 이 목록을 전제로 구현해야 한다. 근거·재현 절차: `docs/analyses/datetime-tz-endpoint-audit.md`
+
+| # | 지점 | 증상 | 소비자 대응 |
+|---|---|---|---|
+| **F-0** | `GET /api/auth/me/permissions` → `data.server_time` | 숫자는 UTC 인데 라벨만 `+09:00` → **9시간 이름**. 실측 실제 `11:56:15 KST` ↔ 응답 `02:56:31+09:00` | ⚠ **이 필드로 시계 보정하지 말 것**. 같은 응답의 `meta.timestamp` 를 쓸 것 |
+| **F-1** | 리포트 **CSV/PDF** 본문 시각 | UTC 벽시계로 인쇄(REST 대비 **9시간 이름**). 실측 리포트45 이벤트 92574 = CSV `02:26` ↔ REST `11:26+09:00` | 산출물 시각을 REST 값과 대조하지 말 것 |
+| **F-1b** | 리포트 **표지 기간** | 시작일이 하루 앞. DB `2026-07-13` → 표지 `2026.07.12` | — |
+| **F-1c** | 통계·리포트 **일별 버킷** | 앱 DB 세션이 UTC 라 KST 자정이 아닌 UTC 자정으로 끊김. KST `00:00~09:00` 이벤트가 **전날 버킷**으로 이동 | 야간 집계 해석 주의 |
+| **F-2** | `POST`·`PATCH /api/event-suppression-schedules` **응답** | 요청을 **offset 없이**(naive/date-only) 보낸 경우에 한해 응답이 **+9시간**. **저장·`GET` 재조회는 정확** | **요청에 offset 을 명시**하면 회피됨. 또는 응답 대신 `GET` 재조회 |
+| **F-3** | `GET /api/logs` | `start_date`/`end_date` 가 유일하게 **비타입 `string`** — 파싱 실패 시 **500**(다른 18개는 422) | 형식 검증 후 호출 |
+| **F-4** | `GET /api/config-change-logs` → `before_state`/`after_state` | JSONB 내부는 변환을 우회해 **offset 혼재**. 실측 id 1626: 최상위 `+09:00` / 내부 `+00:00` / offset 없음 혼재 | 내부 값은 **offset 유무를 확인 후** 파싱 |
+
+**시간 파라미터를 받는 엔드포인트 전수**: 쿼리/경로 **19개** · 요청 body **6개** · 응답 포함 **178개**
+(총 251 operation 중 시간 접촉 180). 목록은 감사 문서 §1 참조.
+
+**입력 해석은 규약대로 동작함(실측)** — 같은 벽시계를 `+09:00` / `Z` / naive / date-only 로 보낸 4형태가
+동일 순간으로 수렴하고, naive 는 `DISPLAY_TIMEZONE` 으로 해석된다
+(`/api/events/detections` KST해석 5,290 ↔ UTC해석 4,533 중 실제 응답 **5,290**).
 
 ---
 
@@ -16583,7 +16608,12 @@ python scripts/migrate_event_device_id.py
 
 ## 변경 이력
 
-### [v6.3 후속] `session_client_id_response` — 세션 목록에 client_id 노출 (2026-08-07)
+### [v6.3 후속] **2026-08-07** — 세션 `client_id` 노출 + `DISPLAY_TIMEZONE` 배선 수정 + datetime/TZ 전수감사
+
+> **하루 1버전 원칙**에 따라 2026-08-07 에 수행된 3개 작업(`session_client_id_response`,
+> `tz_wiring`, `datetime_tz_audit`)을 본 항목 하나로 묶는다.
+
+#### (1) `session_client_id_response` — 세션 목록에 client_id 노출
 
 > GIS 관제 요청(세션관리 '클라이언트' 컬럼 전행 `-`). 검증 결과 **컬럼·저장은 이미 동작**(v68 + 로그인 X-Client-Id 기록, DB 실측 `central-ui` 84건)하고 **응답 노출만 누락**이어서 그 한 곳을 보강.
 
@@ -16591,6 +16621,27 @@ python scripts/migrate_event_device_id.py
 - **명세**: §9.5.2/9.5.3 응답 예시에 `client_id`·`login_id`·`role` 추가, **`forced_by` 삭제**(코드 미반환 — 과거 허위기재 정정), `updated_at` 이 활동시각 아님(=created_at) 명기. §9.2.2 로그인에 `client_id`/`X-Client-Id` 계약(헤더 우선·패턴·무효값 무시·self-replace 연동) 문서화.
 - **Swagger(5중싱크)**: `user_sessions` 3개 GET 이 `response_model` 미지정(dict 직접 반환)이라 OpenAPI 의 `UserSessionResponse` 스키마가 **빈 상태**로 노출되던 문제 동반 해소 — `responses={200: {"model": ApiResponse[...]}}` **문서 전용** 지정으로 13필드(client_id 포함) 노출. ★런타임 응답(`success`/`data`)은 불변(검증 완료).
 - **검증(5중싱크)**: ①코드 ②Swagger `UserSessionResponse.client_id` 노출 ③명세 §9.2.2·§9.5.2/9.5.3·본 ChangeLog ④이미지 재빌드 ⑤컨테이너 healthy. 라이브: 로그인(`X-Client-Id: gis-monitoring`) → 목록·단건 응답 `client_id="gis-monitoring"` 실측, `/me` 200, 응답 최상위 키 불변. 미전송/구버전 세션은 `null`(**소급 불가** — 신규 로그인부터 표시).
+
+#### (2) `tz_wiring` — `.env` 의 `DISPLAY_TIMEZONE` 이 컨테이너에 전달되지 않던 배선 구멍 수정
+
+> §3.4 는 "재배포 시 `DISPLAY_TIMEZONE` 만 바꾸면 된다"고 약속하나, **호스트 `.env` 값이 컨테이너에 도달하지 않았다**. 값이 우연히 같아 드러나지 않던 침묵 불일치.
+
+- **원인(실측)**: `.dockerignore:53-54` 가 `.env` 를 이미지에서 제외 → 컨테이너에 `/app/.env` 없음. compose 에 `env_file:` 도 해당 env 키도 없어 **코드 기본값**이 쓰임. `TZ` 는 `config.py` 의 `case_sensitive=True` 때문에 settings 필드에 미매핑.
+- **수정**: `docker-compose.yml` api-server 에 `DISPLAY_TIMEZONE`/`TIMEZONE`/`TZ` 를 `${DISPLAY_TIMEZONE:-Asia/Seoul}` 로 배선(compose 는 호스트 `.env` 를 `${}` 치환용으로 자동 로드 → `.dockerignore` 우회). `.env.example` 에 두 키 등재(기존 누락). `app/config.py` 에 `TZ` 미매핑 주석 명시.
+- **`.env` 한글 주석 복구**: 리터럴 `?` 146개로 이미 손상돼 있던 주석 복구. **값 바이트 동일**(누락 0 · 변경 0), 추가는 `DISPLAY_TIMEZONE` 키뿐.
+- **검증**: 재기동 후 컨테이너 env 실재(`TIMEZONE`/`DISPLAY_TIMEZONE`/`TZ` = `Asia/Seoul`) + `settings.display_tz` 반영 확인.
+- **⚠ 이전 판단 정정**: 같은 커밋에서 postgres `PGTZ` 배선이 "리포트 일별 버킷 불일치도 해소한다"고 적었으나 **틀렸다**. `PGTZ` 는 postgres 컨테이너 내부 libpq **클라이언트** 변수라 `psql` 에만 적용되고, api-server 의 asyncpg 세션은 `postgresql.conf` 의 `timezone = UTC` 를 그대로 쓴다(실측 `SHOW timezone = UTC`, api-server 에 `PGTZ` 부재). → **§3.4.1 F-1c 로 미해결 등재**.
+
+#### (3) `datetime_tz_audit` — 시간 엔드포인트 전수 인벤토리 + 실측 검증
+
+> PM 질의("`.env` tz 가 datetime 생성의 기준인가")를 계기로 **시간정보를 다루는 모든 엔드포인트를 파라미터부터 기계 추출**해 목록화하고 실제 호출로 검증. 추정 배제, 컨테이너/DB 실측 출력과 `file:line` 만 근거.
+
+- **답**: 4단계를 분리해야 정확하다 — **생성 = UTC 고정(`.env` 무관)** / **저장 = UTC** / **입력해석 = `DISPLAY_TIMEZONE`** / **출력렌더 = `DISPLAY_TIMEZONE`**. `.env` 의 tz 는 "생성"이 아니라 "해석·표시"를 정한다.
+- **인벤토리**: 251 operation 중 시간 접촉 **180**(쿼리 19 · body 6 · 응답 178). DB 시간컬럼 테이블 45(`timestamptz` 43 / naive 예외 2: `api_logs`, `schema_migrations`).
+- **입력 검증**: 같은 벽시계를 `+09:00`/`Z`/naive/date-only 4형태로 전송 → DB 에서 두 해석으로 직접 센 오라클과 대조. 두 해석 건수가 갈리는 밀집 구간을 골라 판별력 확보(detections 5,290 ↔ 4,533). **naive → `DISPLAY_TIMEZONE` 확정**.
+- **출력 검증**: GET 97개 실호출 → datetime 문자열 **254개 전부 `+09:00`**(최상위 필드 기준).
+- **결과**: 결함 **7건** + 위험 **2건**. §3.4 본문 정정 + **§3.4.1 알려진 이탈 지점** 신설. 상세·재현절차는 `docs/analyses/datetime-tz-endpoint-audit.md`.
+- **코드 변경 없음** — 조치는 PM 결재 후 별도 차수(F-0/F-1/F-1b 최우선).
 
 ### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
 

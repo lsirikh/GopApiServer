@@ -179,7 +179,12 @@ UPGRADE.md
 # Harness documents
 docs/memory/
 docs/analyses/
-docs/prds/
+# ★ git 규칙: 부모 디렉터리가 제외되면 하위 파일의 ! 예외가 무효화된다.
+#   상단 'docs/*' 가 docs/prds 디렉터리 자체를 이미 제외하므로,
+#   (1) 디렉터리를 되살리고 (2) 내용물만 제외해야 아래 개별 ! 예외가 동작한다.
+#   (docs/subsystems 와 동일 구조)
+!docs/prds/
+docs/prds/*
 docs/plans/
 docs/tests/
 docs/reports/
@@ -207,5 +212,15 @@ claude-skill-harness*/
 !docs/GOP_Server_API_clone_deploy_bugfix_REPLY.md
 !docs/GOP_Server_API_response_schema_audit_REPLY.md
 !docs/reports/BUG_REPORT_*.md
+
+# --- 감사·분석 산출물 전달 경로 (2026-08-07) ---
+# docs/* 및 docs/analyses/ 차단 때문에 감사 문서가 git 에 안 보여 팀 전달이 불가했다.
+# 추적본(INDEX.md·ISSUES_*.md·RECURRENCE.md 등)이 이들을 링크하므로 미추적이면 전부 죽은 링크가 된다.
+!docs/analyses/
+!docs/analyses/**
+docs/analyses/**/__pycache__/
+docs/analyses/**/*.pyc
+# 반복 스케줄 PRD — RECURRENCE.md/INTEGRATION.md 가 참조
+!docs/prds/event-suppression-recurrence-prd.md
 # v6.3-spec_triangulation_audit: 3자 정합 감사 이슈 등록부 — 팀 공유·추적 대상(로컬 소실 방지)
 !docs/ISSUES_*.md

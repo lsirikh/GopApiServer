@@ -152,6 +152,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = '["*"]'
 
     # Timezone
+    # ★ 환경변수 `TZ` 는 이 필드에 매핑되지 않는다 — SettingsConfigDict(case_sensitive=True) 라
+    #   정확히 `TIMEZONE` / `DISPLAY_TIMEZONE` 키여야 한다. docker-compose environment 에
+    #   해당 키를 배선하지 않으면 아래 코드 기본값이 그대로 쓰인다(.dockerignore 가 .env 제외).
     # TIMEZONE: 과거 데이터가 저장된 벽시계 tz(마이그 origin). 저장 규약은 UTC(datetime-unification Option B).
     TIMEZONE: str = "Asia/Seoul"
     # DISPLAY_TIMEZONE (datetime-unification): 출력(표시) 타임존. 저장은 UTC, 출력만 이 tz로 변환.

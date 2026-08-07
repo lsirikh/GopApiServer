@@ -14,7 +14,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gop}
       POSTGRES_USER: ${POSTGRES_USER:-gop_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gop_pass}
-      PGTZ: Asia/Seoul
+      # DISPLAY_TIMEZONE 과 단일 원천화. timestamptz 저장값은 절대시각이라 기존 데이터 무영향이고,
+      # date_trunc/date_part 를 쓰는 리포트 일별 버킷이 표시 tz 와 어긋나던 잠복 불일치도 함께 해소된다.
+      PGTZ: ${DISPLAY_TIMEZONE:-Asia/Seoul}
     ports:
       - "5432:5432"
     volumes:
@@ -59,7 +61,14 @@ services:
       - INIT_SAMPLE_DATA=${INIT_SAMPLE_DATA:-true}
       - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT:-8000}
-      - TZ=Asia/Seoul
+      # ★ datetime-unification(명세 §3.4) 배선.
+      #   .dockerignore 가 .env 를 이미지에서 제외하므로 pydantic 의 env_file=".env" 는
+      #   컨테이너에서 읽을 파일이 없다. compose 는 호스트 .env 를 ${} 치환용으로 자동 로드하므로
+      #   이 줄이 있어야 호스트 .env 의 DISPLAY_TIMEZONE 이 실제로 컨테이너에 전달된다.
+      #   ※ 아래 TZ 는 OS 레벨 변수라 settings 필드에 매핑되지 않는다(config.py case_sensitive=True).
+      - DISPLAY_TIMEZONE=${DISPLAY_TIMEZONE:-Asia/Seoul}
+      - TIMEZONE=${TIMEZONE:-Asia/Seoul}
+      - TZ=${DISPLAY_TIMEZONE:-Asia/Seoul}
       # P1-02 (review0710): 세션 강제폐기/권한변경 NATS 통지 배선. 게이트(NATS_REVOKE_ENABLED)
       #   기본 false → 기능 dormant(현행 동작 불변). true 로 켜야 api-server 가 nats_external 로 발행.
       #   env 만 있고 네트워크 미연결이면 켰을 때 publish 가 조용히 실패하므로 배선을 함께 둔다.

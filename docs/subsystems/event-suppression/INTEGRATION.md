@@ -748,7 +748,8 @@ offset 포함 전송으로 회피하고, **서버 수정 후에도 offset 전송
 | **R-3** | 반복 창은 **occurrence 전이(매일 시작/종료)를 NATS 로 발행하지 않음** (측정: 무제한 1개 = 연 520건, 창 50개 = 연 26,000건) | `/active` 폴링 존치가 더욱 중요. 즉시성 필요 시 규칙 로컬 계산([RECURRENCE.md §7](RECURRENCE.md)) |
 
 신규 응답 필드: **`is_suppressing_now`** · **`occurrence_start`/`occurrence_end`** · `next_occurrence_start`
-신규 요청 필드: `recurrence_type` · `days_of_week`(비트마스크) · `daily_start`/`daily_end` · `schedule_tz`
+신규 요청 필드: `recurrence_type` · `days_of_week`(비트마스크) · `daily_start`/`daily_end`
+(**`schedule_tz` 는 요청 불가** — 서버 `DISPLAY_TIMEZONE` 고정, 응답에는 읽기전용으로 내려옴)
 
 `status` 4종과 NATS `action` 3종은 **그대로 유지**됩니다(.NET 파서 보호).
 기존 단발 창은 `recurrence_type='none'` 으로 **무변경 동작**합니다.

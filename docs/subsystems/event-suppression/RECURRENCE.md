@@ -56,9 +56,9 @@
 |---|---|---|---|
 | `recurrence_type` | enum | | **`none`**(기본, 기존 단발) \| `weekly` |
 | `days_of_week` | int | `weekly` 시 ✔ | **요일 비트마스크** — 월=1, 화=2, 수=4, 목=8, 금=16, 토=32, 일=64 |
-| `daily_start` | time | `weekly` 시 ✔ | 일일 시작 (**로컬 벽시계**, `"08:00:00"`) |
-| `daily_end` | time | `weekly` 시 ✔ | 일일 종료 (`"21:00:00"`) |
-| `schedule_tz` | string | | 기본 `Asia/Seoul` (UI 미노출 권고) |
+| `daily_start` | time | `weekly` 시 ✔ | 일일 시작 — **offset 금지** (`"08:00:00"`. `"08:00:00Z"` 는 **422**) |
+| `daily_end` | time | `weekly` 시 ✔ | 일일 종료 — **offset 금지** (`"21:00:00"`) |
+| ~~`schedule_tz`~~ | — | | **요청으로 보낼 수 없습니다**(보내면 422). 서버 `DISPLAY_TIMEZONE` 고정 |
 
 ### `window_start` / `window_end` 의 의미가 모드에 따라 달라집니다 ★
 
@@ -120,6 +120,19 @@ POST /api/event-suppression-schedules
 }
 ```
 
+### 2.2-A ★ 유효기간 날짜만 보낼 때 — 끝일이 통째로 빠지지 않도록
+
+`window_start`/`window_end` 는 기존 규약대로 **offset·`Z`·naive·date-only 를 모두 수용**합니다
+(명세 §3.4). 단 **끝일 주의**:
+
+| 보낸 값 | 서버 해석 |
+|---|---|
+| `"2026-09-20"` (date-only) | **09-20 23:59:59.999999 까지 자동 확장** — 그날 전체 포함 |
+| `"2026-09-20T00:00:00+09:00"` (자정) | 동일하게 자동 확장 |
+| `"2026-09-21T00:00:00+09:00"` | 그대로 — 09-20 전체 포함 (같은 결과) |
+
+> PM 요구 `20260809~20260920` 을 date-only 로 그대로 보내면 **09-20 하루가 정상 포함**됩니다.
+
 ### 2.3 야간 창 (자정 넘김) — 지원됩니다
 
 ```json
@@ -163,6 +176,7 @@ POST /api/event-suppression-schedules
 | **`occurrence_end`** | **로컬 타이머 기준.** 이 시각에 억제를 스스로 해제 |
 | `next_occurrence_start` | 다음 억제 시작 예고 (배너 "다음 정비 08-11 08:00" 등) |
 | `status` | **유효기간** 기준 4종 유지 (`pending`/`active`/`expired`/`cancelled`) |
+| **`schedule_tz`** | 서버 고정 벽시계 tz(읽기전용). §7 로컬 계산 시 **반드시 이 값 사용** — 클라 PC 로컬 tz 사용 금지. **값이 바뀌면 캐시 무효화** |
 
 > `is_suppressing_now=false` 인데 `status=active` 인 상태가 **정상**입니다(평일 밤·주말).
 > 단발 창(`recurrence_type=none`)에서는 `status=active` ⇔ `is_suppressing_now=true` 로 일치합니다.
@@ -221,7 +235,7 @@ is_suppressing(now):
     if window_start != null and now <  window_start:        return false   # 유효기간 전
     if window_end   != null and now >= window_end:          return false   # 유효기간 후
 
-    now_local = now.ToTimeZone(schedule_tz)                 # ★ 반드시 로컬
+    now_local = now.ToTimeZone(schedule_tz)                 # ★ 응답의 schedule_tz (서버 DISPLAY_TIMEZONE)
     for day_offset in [0, -1]:                              # ★ 자정 넘김 대응
         d = (now_local + day_offset일).Date
         if (days_of_week & (1 << d.DayOfWeekMon0)) == 0:    continue
@@ -330,6 +344,8 @@ is_suppressing(now):
 - [ ] **`window_end: null`** 수용 (역직렬화 시 nullable)
 - [ ] 반복 창에는 occurrence 전이 NATS 가 **오지 않음**을 전제로 폴링 유지
 - [ ] `recurrence_type`·`days_of_week`·`daily_*`·`schedule_tz` 신규 필드 파싱(무시해도 안전하나 표시엔 필요)
+- [ ] **응답 `schedule_tz` 값 변화 감지 시 로컬 계산 캐시 무효화** (서버 tz 변경 = 반복 창 벽시계 소급 이동)
+- [ ] `daily_start`/`daily_end` 는 **offset 없이** 전송 (`"08:00:00"`)
 
 **GIS 추가**
 - [ ] 반복 설정 UI(요일 다중선택 + 일일 시각 + 무제한 체크박스)
@@ -350,7 +366,7 @@ is_suppressing(now):
 |----|------|-------|
 | D-A | 유효기간이 occurrence 중간을 자를 때 | **부분 허용**(클램프) |
 | D-B | `daily_start == daily_end` | **24시간 종일** |
-| D-C | `schedule_tz` UI 노출 | **Asia/Seoul 고정** |
+| ~~D-C~~ | `schedule_tz` | **확정** — 컬럼 없음 / 서버 `DISPLAY_TIMEZONE` 고정 / 응답 읽기전용 노출 / UI 미노출 |
 | D-D | 유효기간 최대 상한 | 무제한은 명시적 체크박스로만 |
 | D-E | occurrence 전이 NATS 발행 | **미발행** |
 

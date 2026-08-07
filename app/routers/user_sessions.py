@@ -11,6 +11,7 @@ from typing import Optional, List
 from app.dependencies import get_async_db
 from app.models.user import UserSession, AccountUser, UserLoginLog
 from app.schemas.user import UserSessionResponse
+from app.schemas.common import ApiResponse, ApiSingleResponse
 from app.routers.auth import get_current_account_user_async, require_perm_async
 from app.services.audit_service import log_action_async
 from app.services import nats_revoke_publisher
@@ -83,7 +84,13 @@ async def _remaining_active_admin_sessions(
     return (await db.execute(count_stmt)).scalar() or 0
 
 
-@router.get("", dependencies=[Depends(require_perm_async("users", "view"))])
+@router.get(
+    "",
+    # v6.3-session_client_id_response: Swagger 싱크 — 런타임 응답(dict)은 그대로 두고
+    #   OpenAPI 문서에만 스키마 노출(response_model 미지정 시 세션 필드가 비어 보이던 문제).
+    responses={200: {"model": ApiResponse[List[UserSessionResponse]]}},
+    dependencies=[Depends(require_perm_async("users", "view"))],
+)
 async def get_user_sessions(
     page: int = Query(1, ge=1, description="페이지 번호"),
     limit: int = Query(100, ge=1, le=100, description="페이지당 항목 수"),
@@ -246,7 +253,7 @@ async def force_logout_all_user_sessions(
     }
 
 
-@router.get("/me")
+@router.get("/me", responses={200: {"model": ApiResponse[List[UserSessionResponse]]}})
 async def get_my_sessions(
     db: AsyncSession = Depends(get_async_db),
     current_user: AccountUser = Depends(get_current_account_user_async)
@@ -341,7 +348,11 @@ async def delete_my_session(
     }
 
 
-@router.get("/{session_id}", dependencies=[Depends(require_perm_async("users", "view"))])
+@router.get(
+    "/{session_id}",
+    responses={200: {"model": ApiSingleResponse[UserSessionResponse]}},
+    dependencies=[Depends(require_perm_async("users", "view"))],
+)
 async def get_user_session_by_id(
     session_id: int,
     db: AsyncSession = Depends(get_async_db),

@@ -16589,7 +16589,8 @@ python scripts/migrate_event_device_id.py
 
 - **코드**: `UserSessionResponse.client_id`(Optional) + `_session_to_response` 에 `client_id` 추가 — 목록/단건/사용자별 3경로 공통 헬퍼라 일괄 반영. 순수 **필드 추가**(기존 계약 불변).
 - **명세**: §9.5.2/9.5.3 응답 예시에 `client_id`·`login_id`·`role` 추가, **`forced_by` 삭제**(코드 미반환 — 과거 허위기재 정정), `updated_at` 이 활동시각 아님(=created_at) 명기. §9.2.2 로그인에 `client_id`/`X-Client-Id` 계약(헤더 우선·패턴·무효값 무시·self-replace 연동) 문서화.
-- **검증**: 로그인(`X-Client-Id: gis-monitoring`) → 목록·단건 응답에 `client_id="gis-monitoring"` 실측. 미전송/구버전 세션은 `null`(소급 불가 — 신규 로그인부터 표시).
+- **Swagger(5중싱크)**: `user_sessions` 3개 GET 이 `response_model` 미지정(dict 직접 반환)이라 OpenAPI 의 `UserSessionResponse` 스키마가 **빈 상태**로 노출되던 문제 동반 해소 — `responses={200: {"model": ApiResponse[...]}}` **문서 전용** 지정으로 13필드(client_id 포함) 노출. ★런타임 응답(`success`/`data`)은 불변(검증 완료).
+- **검증(5중싱크)**: ①코드 ②Swagger `UserSessionResponse.client_id` 노출 ③명세 §9.2.2·§9.5.2/9.5.3·본 ChangeLog ④이미지 재빌드 ⑤컨테이너 healthy. 라이브: 로그인(`X-Client-Id: gis-monitoring`) → 목록·단건 응답 `client_id="gis-monitoring"` 실측, `/me` 200, 응답 최상위 키 불변. 미전송/구버전 세션은 `null`(**소급 불가** — 신규 로그인부터 표시).
 
 ### [v6.3 후속] `spec_freshness_audit` — 명세 최신화 감사(멀티에이전트) + P0 PUT 계약정정 (2026-08-04)
 
